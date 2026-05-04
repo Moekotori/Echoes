@@ -203,47 +203,40 @@ class S16lePcmProcessor extends Transform {
 }
 
 class AutomixSourceBuffer extends Writable {
-  constructor() {
+  constructor({ maxQueuedBytes = 6 * 1024 * 1024 } = {}) {
     super()
     this._chunks = []
     this._queuedBytes = 0
     this._output = null
     this._ended = false
-    this._skipBytes = 0
+    this._maxQueuedBytes = Math.max(1024 * 1024, Number(maxQueuedBytes) || 6 * 1024 * 1024)
+    this._resumeQueuedBytes = Math.max(512 * 1024, Math.floor(this._maxQueuedBytes * 0.55))
+    this._pendingCallbacks = []
+    this._pumpScheduled = false
   }
 
   _write(chunk, encoding, callback) {
     let buf = Buffer.from(chunk)
-    if (this._skipBytes > 0) {
-      const drop = Math.min(this._skipBytes, buf.byteLength)
-      this._skipBytes -= drop
-      buf = buf.subarray(drop)
-      if (buf.byteLength === 0) {
-        callback()
-        return
-      }
-    }
-    if (this._output) {
-      this._flushQueued()
-      this._writeToOutput(buf)
-    } else {
+    if (buf.byteLength > 0) {
       this._chunks.push(buf)
       this._queuedBytes += buf.byteLength
     }
-    callback()
+    if (this._output) this._schedulePump()
+    this._completeOrHold(callback)
   }
 
   _final(callback) {
     this._ended = true
-    if (this._output) {
-      this._flushQueued()
-      try {
-        this._output.end()
-      } catch {
-        /* ignore */
-      }
-    }
+    if (this._output) this._schedulePump()
     callback()
+  }
+
+  _destroy(error, callback) {
+    this._chunks = []
+    this._queuedBytes = 0
+    this._output = null
+    this._releaseHeldCallbacks(true)
+    callback(error)
   }
 
   get queuedBytes() {
@@ -271,40 +264,92 @@ class AutomixSourceBuffer extends Writable {
         this._chunks[0] = chunk.subarray(take)
       }
     }
-    if (offset < wanted) {
-      this._skipBytes += wanted - offset
-      out.fill(0, offset)
-    }
+    this._releaseHeldCallbacks()
     return out
   }
 
   promoteTo(output) {
     this._output = output || null
-    this._flushQueued()
-    if (this._ended && this._output) {
+    this._schedulePump()
+  }
+
+  _completeOrHold(callback) {
+    if (this._queuedBytes >= this._maxQueuedBytes) {
+      this._pendingCallbacks.push(callback)
+      return
+    }
+    callback()
+  }
+
+  _releaseHeldCallbacks(force = false) {
+    if (
+      this._pendingCallbacks.length === 0 ||
+      (!force && this._queuedBytes > this._resumeQueuedBytes)
+    ) {
+      return
+    }
+    const callbacks = this._pendingCallbacks.splice(0)
+    for (const callback of callbacks) {
       try {
-        this._output.end()
+        callback()
       } catch {
         /* ignore */
       }
     }
   }
 
-  _flushQueued() {
-    if (!this._output || this._chunks.length === 0) return
-    for (const chunk of this._chunks) this._writeToOutput(chunk)
-    this._chunks = []
-    this._queuedBytes = 0
+  _schedulePump() {
+    if (this._pumpScheduled || !this._output) return
+    this._pumpScheduled = true
+    setImmediate(() => this._pumpQueued())
+  }
+
+  _pumpQueued() {
+    this._pumpScheduled = false
+    const output = this._output
+    if (!output || output.destroyed || output.writableEnded) {
+      this._releaseHeldCallbacks()
+      return
+    }
+
+    let writes = 0
+    while (this._chunks.length > 0 && writes < 16) {
+      const chunk = this._chunks.shift()
+      this._queuedBytes -= chunk.byteLength
+      const canContinue = this._writeToOutput(chunk)
+      writes += 1
+      if (!canContinue) {
+        this._releaseHeldCallbacks()
+        output.once('drain', () => this._schedulePump())
+        return
+      }
+    }
+
+    this._releaseHeldCallbacks()
+
+    if (this._chunks.length > 0) {
+      this._schedulePump()
+      return
+    }
+
+    if (this._ended) {
+      try {
+        output.end()
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   _writeToOutput(chunk) {
     const output = this._output
-    if (!output || output.destroyed || output.writableEnded) return
+    if (!output || output.destroyed || output.writableEnded) return true
     try {
-      output.write(chunk)
+      return output.write(chunk)
     } catch {
       /* ignore */
     }
+    return true
   }
 }
 
@@ -500,6 +545,11 @@ export class AudioEngine {
       /* ignore */
     }
     try {
+      state.sourceBuffer?.destroy()
+    } catch {
+      /* ignore */
+    }
+    try {
       state.ffmpegCmd?.kill('SIGKILL')
     } catch {
       /* ignore */
@@ -583,6 +633,7 @@ export class AudioEngine {
       waitFrames: Math.max(0, Math.round(leadSec * targetSampleRate)),
       mixedFrames: 0,
       nextFramesUsed: 0,
+      mixStarted: false,
       switchNotified: false,
       promoteScheduled: false,
       cancelled: false
@@ -595,7 +646,7 @@ export class AudioEngine {
       this.processor.pipe(this._outputSink, { end: false })
       this.processor.once('finish', () => {
         if (this._automixState !== state || state.promoteScheduled || state.cancelled) return
-        if (state.switchNotified) {
+        if (state.mixStarted) {
           this._scheduleAutomixPromotion(state)
         } else {
           this.cancelAutomix()
@@ -637,12 +688,12 @@ export class AudioEngine {
     }
 
     const bytesNeeded = frameCount * channels * 4
-    if (!state.switchNotified) {
-      const minStartBytes = Math.min(bytesNeeded, Math.round(sampleRate * channels * 4 * 0.12))
+    if (!state.mixStarted) {
+      const minStartBytes = Math.max(bytesNeeded, Math.round(sampleRate * channels * 4 * 0.35))
       if (!state.sourceBuffer.ended && state.sourceBuffer.queuedBytes < minStartBytes) {
         return
       }
-      this._switchAutomixIdentity(state)
+      state.mixStarted = true
     }
 
     const nextChunk = state.sourceBuffer.readBytes(bytesNeeded)
@@ -731,6 +782,8 @@ export class AudioEngine {
     this.processor = nextProcessor
     this.ffmpegProcess = state.ffmpegCmd
 
+    this._switchAutomixIdentity(state)
+
     nextProcessor.pipe(sink)
     nextProcessor.once('finish', () => {
       if (this.currentFilePath === state.nextPath && this.isPlaying) {
@@ -809,30 +862,72 @@ export class AudioEngine {
     newProcessor.pipe(sink, { end: false })
     newProcessor.once('finish', () => this._handleGaplessTransition(nextPath))
 
-    // Flush prebuffered chunks first (covers FFmpeg startup time)
-    for (const chunk of pb.chunks) {
-      if (!newProcessor.destroyed) newProcessor.write(chunk)
-    }
-
-    // Start fresh FFmpeg for remainder of track
-    if (!pb.done) {
-      const seekTo = Math.max(0, pb.bufferedSeconds - 0.1) // slight overlap to avoid click
-      this._setupFFmpeg(
-        nextPath,
-        seekTo,
-        this.playbackRate,
-        pb.channels,
-        pb.info.sampleRate || 44100,
-        pb.targetSampleRate
-      )
-      this.ffmpegProcess.pipe(newProcessor)
-      logLine(`[AudioEngine] Gapless transition OK: streaming ${nextPath} from ${seekTo.toFixed(2)}s`)
-    } else {
-      logLine(`[AudioEngine] Gapless transition OK: fully buffered ${nextPath}`)
-    }
+    this._pumpGaplessPrebuffer(pb, newProcessor, nextPath)
 
     // Notify renderer to advance track display without restarting audio
     if (this._onGaplessTrackChanged) this._onGaplessTrackChanged(nextPath)
+  }
+
+  _pumpGaplessPrebuffer(pb, processor, nextPath) {
+    const chunks = Array.isArray(pb?.chunks) ? pb.chunks : []
+    pb.chunks = []
+    let index = 0
+    let remainderStarted = false
+
+    const isStillCurrent = () =>
+      this.isPlaying &&
+      this.currentFilePath === nextPath &&
+      this.processor === processor &&
+      !processor.destroyed
+
+    const startRemainder = () => {
+      if (remainderStarted || !isStillCurrent()) return
+      remainderStarted = true
+
+      if (!pb.done) {
+        const seekTo = Math.max(0, pb.bufferedSeconds - 0.1)
+        this._setupFFmpeg(
+          nextPath,
+          seekTo,
+          this.playbackRate,
+          pb.channels,
+          pb.info.sampleRate || 44100,
+          pb.targetSampleRate
+        )
+        this.ffmpegProcess.pipe(processor)
+        logLine(
+          `[AudioEngine] Gapless transition OK: streaming ${nextPath} from ${seekTo.toFixed(2)}s`
+        )
+        return
+      }
+
+      processor.end()
+      logLine(`[AudioEngine] Gapless transition OK: fully buffered ${nextPath}`)
+    }
+
+    const pump = () => {
+      if (!isStillCurrent()) return
+      let batchCount = 0
+
+      while (index < chunks.length && batchCount < 8) {
+        const canContinue = processor.write(chunks[index])
+        index += 1
+        batchCount += 1
+        if (!canContinue) {
+          processor.once('drain', () => setImmediate(pump))
+          return
+        }
+      }
+
+      if (index < chunks.length) {
+        setImmediate(pump)
+        return
+      }
+
+      startRemainder()
+    }
+
+    setImmediate(pump)
   }
 
   getMediaInfo(uri) {
@@ -1502,6 +1597,37 @@ export class AudioEngine {
   async setPlaybackRate(rate) {
     if (this.currentFilePath && Math.abs(this.playbackRate - rate) > 0.01) {
       return this.play(this.currentFilePath, this.playbackTime, rate)
+    }
+  }
+
+  async seek(filePath, startTime = 0, playbackRate = this.playbackRate, shouldPlay = this.isPlaying) {
+    const nextTime = Math.max(0, Number(startTime) || 0)
+    const nextRate = Number(playbackRate) > 0 ? Number(playbackRate) : this.playbackRate || 1.0
+    let targetPath = filePath || this.currentFilePath
+
+    if (shouldPlay && targetPath) {
+      return this.play(targetPath, nextTime, nextRate)
+    }
+
+    while (this._playLocked) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    this._playLocked = true
+
+    try {
+      this._cancelPrebuffer()
+      this.cancelAutomix()
+      this.cancelFade()
+      await this._releaseResources()
+
+      if (/^https?:\/\//i.test(targetPath || '')) targetPath = normalizeStreamUri(targetPath)
+      if (targetPath) this.currentFilePath = targetPath
+      this.playbackRate = nextRate
+      this.playbackTime = nextTime
+      this.isPlaying = false
+      return { success: true, paused: true, currentTime: this.playbackTime }
+    } finally {
+      this._playLocked = false
     }
   }
 

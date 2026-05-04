@@ -10,8 +10,17 @@ export function isWebDavTrackPath(value) {
   return /^webdav:\/\/[^/]+\/file\/.+/i.test(String(value || ''))
 }
 
+export function isJellyfinTrackPath(value) {
+  return /^(jellyfin|emby):\/\/[^/]+\/audio\/.+/i.test(String(value || ''))
+}
+
 export function isRemoteTrackPath(value) {
-  return isSubsonicTrackPath(value) || isNetworkFolderTrackPath(value) || isWebDavTrackPath(value)
+  return (
+    isSubsonicTrackPath(value) ||
+    isNetworkFolderTrackPath(value) ||
+    isWebDavTrackPath(value) ||
+    isJellyfinTrackPath(value)
+  )
 }
 
 export function formatRemoteDuration(seconds) {
@@ -25,7 +34,7 @@ export function formatRemoteDuration(seconds) {
 export function buildRemoteTrackMeta(track) {
   const info = track?.info || {}
   const remoteType = track?.remoteType || info.remoteType || 'subsonic'
-  const completeServerMeta = remoteType === 'subsonic'
+  const completeServerMeta = remoteType === 'subsonic' || remoteType === 'jellyfin' || remoteType === 'emby'
   return {
     title: track?.title || track?.name || info.title || 'Unknown Title',
     artist: track?.artist || info.artist || 'Unknown Artist',
@@ -46,6 +55,6 @@ export function buildRemoteTrackMeta(track) {
     isMqa: false,
     remoteType,
     remoteSourceId: track?.remoteSourceId || '',
-    remoteSongId: track?.remoteSongId || ''
+    remoteSongId: track?.remoteSongId || track?.remoteItemId || ''
   }
 }

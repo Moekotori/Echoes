@@ -30,11 +30,19 @@ if (process.platform === 'win32') {
 // YouTube 内嵌 MV：主界面来自 localhost / 本地 file，embed 为跨域 iframe。Chromium 默认按「顶级站点 × 嵌入源」做
 // 存储分区，导致在「应用内登录」子窗口（同一会话）里写入的 youtube.com Cookie 无法被该 iframe 读取，
 // 仍会提示「请登录 / 机器人验证」。须在 app ready 之前关闭第三方存储分区。（合规桌面应用常见做法，非绕过验证逻辑。）
-app.commandLine.appendSwitch('disable-features', 'ThirdPartyStoragePartitioning')
-// 去掉 Chromium 对外暴露的"自动化控制"特征标志，防止 Google 登录页识别 Electron 为不受信任的嵌入式浏览器。
+const disabledChromiumFeatures = ['ThirdPartyStoragePartitioning']
+
+// Keep WinRTSessionManager enabled by default so Chromium can expose ECHO's
+// Media Session to Windows SMTC. If a machine hits the old WinRT/WTS crash,
+// launch with ECHO_DISABLE_WINDOWS_SMTC=1 to fall back to the previous path.
+if (process.env.ECHO_DISABLE_WINDOWS_SMTC === '1') {
+  disabledChromiumFeatures.push('WinRTSessionManager')
+}
+
+app.commandLine.appendSwitch('disable-features', disabledChromiumFeatures.join(','))
+app.commandLine.appendSwitch('enable-features', 'HardwareMediaKeyHandling,MediaSessionService')
+// Reduce Chromium automation markers for embedded sign-in windows.
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
-// 规避 Windows Terminal Services (WTS) API 在某些 Windows 11 版本上触发的 SIGSEGV crash
-app.commandLine.appendSwitch('disable-features', 'ThirdPartyStoragePartitioning,WinRTSessionManager')
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import fs from 'fs'
 import { existsSync } from 'fs'
@@ -61,6 +69,12 @@ import {
   mapWebDavFile,
   parseWebDavTrackPath
 } from './remote/WebDavClient.js'
+import {
+  JellyfinClient,
+  isJellyfinLikeSourceType,
+  isJellyfinTrackPath,
+  parseJellyfinTrackPath
+} from './remote/JellyfinClient.js'
 import { PhoneRemoteServer } from './remote/PhoneRemoteServer.js'
 import { initCrashReporter, logError, getCrashDir } from './CrashReporter'
 import MediaDownloader from './MediaDownloader'
@@ -93,10 +107,18 @@ import {
 } from './qqMusicProvider.js'
 import { getMediaDurationSeconds } from './utils/ffmpegProbeDuration.js'
 import { detectBpm } from './utils/detectBpm.js'
+import {
+  EMBEDDED_LYRICS_EXTRACTOR_VERSION,
+  extractEmbeddedLyricsText
+} from './utils/embeddedLyrics.js'
 import { findFolderCoverDataUrl } from './utils/folderCover.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
+import { repairPossiblyMojibakeSearchQuery } from './utils/mojibakeRepair.js'
+import { parseBilibiliSearchHtml } from './utils/bilibiliSearchHtml.js'
+import { logLine as writeLogLine } from './utils/logLine.js'
 import { getDialogStrings } from './dialogLocale.js'
 import PluginManager from './plugins/PluginManager.js'
+import { rankBilibiliVideoResults, rankYoutubeVideoResults } from '../shared/mvSearchRank.mjs'
 
 const APP_NAME = 'ECHO'
 const APP_USER_MODEL_ID = 'com.echoes.studio'
@@ -116,97 +138,9 @@ import { lastFmClient } from './lastfm.js'
 import { buildUpdaterEventDedupeKey, shouldReuseUpdaterState } from '../shared/updaterState.mjs'
 
 const require = createRequire(import.meta.url)
-let iconvLite = null
-try {
-  iconvLite = require('iconv-lite')
-} catch {
-  iconvLite = null
-}
 
 function getNcmApi() {
   return require('@neteasecloudmusicapienhanced/api')
-}
-
-const MOJIBAKE_QUERY_HINT_REG =
-  /[\u00c2\u00c3\u20ac\ufffd\u3126\u57cd\u66e0\u6d7c\u6f83\u704f\u5fd3\u590a\u656e\u7ba0\u9357\u935b\u93b4\u93c9\u9416\u9426]/
-
-function cleanupRepairedSearchQuery(value) {
-  return String(value || '')
-    .replace(/[\ufffd?]+(?=\s|$|MV\b|mv\b)/g, '')
-    .replace(/[\ufffd?]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function countMojibakeHints(value) {
-  const text = String(value || '')
-  let count = 0
-  for (const char of text) {
-    if (MOJIBAKE_QUERY_HINT_REG.test(char)) count += 1
-  }
-  return count
-}
-
-function decodeMojibakeSearchQueryBytes(value, encoding) {
-  if (!iconvLite?.encode) return ''
-  const chunks = []
-  for (const char of String(value || '')) {
-    if (char === '\u20ac') {
-      chunks.push(Buffer.from([0x80]))
-    } else {
-      chunks.push(iconvLite.encode(char, encoding))
-    }
-  }
-  return Buffer.concat(chunks).toString('utf8')
-}
-
-function scoreSearchQueryRepair(candidate, original) {
-  const text = cleanupRepairedSearchQuery(candidate)
-  if (!text || text.includes('\ufffd')) return -1000
-
-  const originalText = cleanupRepairedSearchQuery(original)
-  let score = 0
-  score += (countMojibakeHints(originalText) - countMojibakeHints(text)) * 12
-  score -= (text.match(/\?/g) || []).length * 8
-
-  const asciiTokens = originalText.match(/[a-z0-9]{2,}/gi) || []
-  for (const token of asciiTokens) {
-    if (text.toLowerCase().includes(token.toLowerCase())) score += 2
-  }
-  if (/[\u3040-\u30ff\u3400-\u9fff]/.test(text)) score += 4
-  if (text === originalText) score -= 1
-  return score
-}
-
-function repairPossiblyMojibakeSearchQuery(value) {
-  const text = String(value || '').trim()
-  if (!text || !MOJIBAKE_QUERY_HINT_REG.test(text) || !iconvLite?.encode) return text
-
-  try {
-    const cleanedOriginal = cleanupRepairedSearchQuery(text)
-    const candidates = [
-      cleanedOriginal,
-      iconvLite.encode(text, 'cp936').toString('utf8'),
-      iconvLite.encode(text, 'gb18030').toString('utf8'),
-      decodeMojibakeSearchQueryBytes(text, 'cp936'),
-      decodeMojibakeSearchQueryBytes(text, 'gb18030')
-    ]
-      .map(cleanupRepairedSearchQuery)
-      .filter(Boolean)
-
-    let best = cleanedOriginal || text
-    let bestScore = scoreSearchQueryRepair(best, text)
-    for (const candidate of [...new Set(candidates)]) {
-      const score = scoreSearchQueryRepair(candidate, text)
-      if (score > bestScore) {
-        best = candidate
-        bestScore = score
-      }
-    }
-    return best || cleanedOriginal || text
-  } catch {
-    return cleanupRepairedSearchQuery(text) || text
-  }
 }
 
 function dialogLocaleFromOpts(opts) {
@@ -235,8 +169,13 @@ const TRAY_MENU_LABELS = {
 let lyricsDesktopWindow = null
 /** Last payload so the child window can request a resend after it subscribes to IPC */
 let lyricsDesktopLastPayload = {}
+let lyricsDesktopLastPayloadSignature = ''
 /** Main-process timer pulls lyrics from the main renderer — not throttled when the main window is minimized */
 let lyricsDesktopMainSyncTimer = null
+const LYRICS_DESKTOP_SYNC_INTERVAL_MS = 125
+const AUDIO_STATUS_POLL_INTERVAL_MS = 500
+const AUDIO_STATUS_PAUSED_HEARTBEAT_MS = 5000
+const AUDIO_STATUS_POSITION_DELTA_SEC = 0.45
 const MAX_EMBEDDED_COVER_DIMENSION = 768
 const MAX_EMBEDDED_COVER_BYTES = 350 * 1024
 const MAX_ARTIST_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024
@@ -373,6 +312,9 @@ function lyricsDesktopPullFromMainRenderer() {
     )
     .then((payload) => {
       if (!payload || typeof payload !== 'object') return
+      const payloadSignature = JSON.stringify(payload)
+      if (payloadSignature === lyricsDesktopLastPayloadSignature) return
+      lyricsDesktopLastPayloadSignature = payloadSignature
       lyricsDesktopLastPayload = payload
       if (lyricsDesktopWindow && !lyricsDesktopWindow.isDestroyed()) {
         lyricsDesktopWindow.webContents.send('lyrics-desktop:data', payload)
@@ -385,7 +327,7 @@ function startLyricsDesktopMainSyncTimer() {
   stopLyricsDesktopMainSyncTimer()
   lyricsDesktopMainSyncTimer = setInterval(() => {
     lyricsDesktopPullFromMainRenderer()
-  }, 50)
+  }, LYRICS_DESKTOP_SYNC_INTERVAL_MS)
 }
 
 function cleanupLyricsDesktopWindow() {
@@ -406,6 +348,7 @@ function cleanupLyricsDesktopWindow() {
     /* ignore */
   } finally {
     lyricsDesktopWindow = null
+    lyricsDesktopLastPayloadSignature = ''
   }
 }
 
@@ -612,6 +555,42 @@ function broadcastAudioStatus(status) {
       console.warn('[AudioStatus] skipped send:', e?.message || e)
     }
   }
+}
+
+function buildAudioStatusSignature(status = {}) {
+  return [
+    status.isPlaying === true ? '1' : '0',
+    status.filePath || '',
+    status.playbackRate || 1,
+    status.exclusive === true ? '1' : '0',
+    status.exclusiveConfirmed === true ? '1' : '0',
+    status.asio === true ? '1' : '0',
+    status.nativeBridge === true ? '1' : '0',
+    status.automix === true ? '1' : '0',
+    status.fileSampleRate || 0,
+    status.outputSampleRate || 0,
+    status.codec || '',
+    status.bitsPerSample || 0,
+    status.isDSD === true ? '1' : '0',
+    status.dsdRate || 0,
+    status.bitPerfect === true ? '1' : '0',
+    status.useEQ === true ? '1' : '0'
+  ].join('\u0001')
+}
+
+function shouldBroadcastAudioStatus(lastSent, nextStatus, nowMs, lastSentAtMs) {
+  if (!lastSent) return true
+  if (buildAudioStatusSignature(lastSent) !== buildAudioStatusSignature(nextStatus)) return true
+  if (nextStatus?.isPlaying === true) {
+    const lastTime = Number(lastSent.currentTime)
+    const nextTime = Number(nextStatus.currentTime)
+    return (
+      !Number.isFinite(lastTime) ||
+      !Number.isFinite(nextTime) ||
+      Math.abs(nextTime - lastTime) >= AUDIO_STATUS_POSITION_DELTA_SEC
+    )
+  }
+  return nowMs - lastSentAtMs >= AUDIO_STATUS_PAUSED_HEARTBEAT_MS
 }
 
 function broadcastCastStatus() {
@@ -916,7 +895,15 @@ function createRemoteSourceId() {
 }
 
 function normalizeRemoteSourceType(value) {
-  if (value === 'networkFolder' || value === 'sshfs' || value === 'webdav') return value
+  if (
+    value === 'networkFolder' ||
+    value === 'sshfs' ||
+    value === 'webdav' ||
+    value === 'jellyfin' ||
+    value === 'emby'
+  ) {
+    return value
+  }
   return 'subsonic'
 }
 
@@ -927,7 +914,9 @@ function isFileBackedRemoteSourceType(value) {
 
 function getDefaultRemoteSourceName(value) {
   const sourceType = normalizeRemoteSourceType(value)
-  if (sourceType === 'webdav') return 'WebDAV Music'
+  if (sourceType === 'webdav') return '网盘音乐'
+  if (sourceType === 'jellyfin') return 'Jellyfin Music'
+  if (sourceType === 'emby') return 'Emby Music'
   if (sourceType === 'sshfs') return 'SSHFS Music'
   if (sourceType === 'networkFolder') return 'NAS Music'
   return 'Navidrome'
@@ -935,16 +924,21 @@ function getDefaultRemoteSourceName(value) {
 
 function isCredentialRemoteSourceType(value) {
   const sourceType = normalizeRemoteSourceType(value)
-  return sourceType === 'subsonic' || sourceType === 'webdav'
+  return sourceType === 'subsonic' || sourceType === 'webdav' || isJellyfinLikeSourceType(sourceType)
 }
 
-function normalizeRemoteServerUrl(value) {
+function normalizeRemoteServerUrl(value, type = 'subsonic') {
   const raw = String(value || '').trim()
   if (!raw) return ''
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`
+  const sourceType = normalizeRemoteSourceType(type)
+  const defaultProtocol = sourceType === 'webdav' ? 'https' : 'http'
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `${defaultProtocol}://${raw}`
   try {
     const url = new URL(withProtocol)
-    url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/rest$/i, '')
+    url.pathname = url.pathname.replace(/\/+$/, '')
+    if (sourceType === 'subsonic') {
+      url.pathname = url.pathname.replace(/\/rest$/i, '')
+    }
     url.search = ''
     url.hash = ''
     return url.toString().replace(/\/+$/, '')
@@ -1025,13 +1019,32 @@ function createSubsonicClientForSource(source, passwordOverride) {
 
 function createWebDavClientForSource(source, passwordOverride) {
   if (!source) {
-    throw new Error('WebDAV 音乐库不存在')
+    throw new Error('WebDAV 网盘来源不存在')
   }
   const password =
     passwordOverride !== undefined && passwordOverride !== null
       ? String(passwordOverride)
       : decryptRemotePassword(source.password)
   return new WebDavClient({
+    serverUrl: source.serverUrl,
+    username: source.username,
+    password
+  })
+}
+
+function createJellyfinClientForSource(source, passwordOverride) {
+  if (!source) {
+    throw new Error('Jellyfin / Emby 音乐库不存在')
+  }
+  const password =
+    passwordOverride !== undefined && passwordOverride !== null
+      ? String(passwordOverride)
+      : decryptRemotePassword(source.password)
+  if (!password) {
+    throw new Error('Jellyfin / Emby 密码不可用，请重新保存连接')
+  }
+  return new JellyfinClient({
+    type: normalizeRemoteSourceType(source.type),
     serverUrl: source.serverUrl,
     username: source.username,
     password
@@ -1177,6 +1190,14 @@ async function resolveWebDavPlaybackPath(filePath) {
   return await createWebDavProxyUrl(parsed.sourceId, parsed.itemPath)
 }
 
+async function resolveJellyfinPlaybackPath(filePath) {
+  const parsed = parseJellyfinTrackPath(filePath)
+  if (!parsed) return filePath
+  const source = findRemoteSource(parsed.sourceId)
+  const client = createJellyfinClientForSource(source)
+  return client.getStreamUrl(parsed.itemId, parsed.mediaSourceId)
+}
+
 function createNetworkFolderTrackPath(sourceId, filePath) {
   return `network-folder://${encodeURIComponent(sourceId)}/file/${encodeURIComponent(filePath)}`
 }
@@ -1239,6 +1260,7 @@ async function resolveRemotePlaybackPath(filePath) {
   const networkParsed = parseNetworkFolderTrackPath(filePath)
   if (networkParsed) return networkParsed.filePath
   if (isWebDavTrackPath(filePath)) return await resolveWebDavPlaybackPath(filePath)
+  if (isJellyfinTrackPath(filePath)) return await resolveJellyfinPlaybackPath(filePath)
   return await resolveSubsonicPlaybackPath(filePath)
 }
 
@@ -1246,6 +1268,7 @@ async function resolveRemotePlaybackUrl(filePath) {
   const networkParsed = parseNetworkFolderTrackPath(filePath)
   if (networkParsed) return pathToFileURL(networkParsed.filePath).href
   if (isWebDavTrackPath(filePath)) return await resolveWebDavPlaybackPath(filePath)
+  if (isJellyfinTrackPath(filePath)) return await resolveJellyfinPlaybackPath(filePath)
   if (isSubsonicTrackPath(filePath)) return await resolveSubsonicPlaybackPath(filePath)
   return ''
 }
@@ -1260,6 +1283,14 @@ async function getSubsonicTrackMetadata(filePath) {
   const source = findRemoteSource(parsed.sourceId)
   const client = createSubsonicClientForSource(source)
   return client.getSong(parsed.songId, source)
+}
+
+async function getJellyfinTrackMetadata(filePath) {
+  const parsed = parseJellyfinTrackPath(filePath)
+  if (!parsed) return null
+  const source = findRemoteSource(parsed.sourceId)
+  const client = createJellyfinClientForSource(source)
+  return client.getAudioItem(parsed.itemId, source)
 }
 
 function getInternalYoutubeCookieFile() {
@@ -2198,10 +2229,12 @@ app.whenReady().then(async () => {
   const standardUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`
   const MV_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
   const BILI_STREAM_CACHE_TTL_MS = 8 * 60 * 1000
+  const BILI_SEARCH_API_BACKOFF_MS = 2 * 60 * 1000
   const mvSearchCache = new Map()
   const mvSearchPending = new Map()
   const biliStreamCache = new Map()
   const biliStreamPending = new Map()
+  let bilibiliSearchApiBackoffUntil = 0
 
   const readTimedCache = (cache, key, ttlMs) => {
     const hit = cache.get(key)
@@ -2336,7 +2369,7 @@ app.whenReady().then(async () => {
           ).trim() || getDefaultRemoteSourceName(sourceType),
         serverUrl:
           isCredentialRemoteSourceType(sourceType)
-            ? normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || '')
+            ? normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || '', sourceType)
             : '',
         folderPath:
           isFileBackedRemoteSourceType(sourceType)
@@ -2367,10 +2400,16 @@ app.whenReady().then(async () => {
         return { ok: false, error: '服务器地址不能为空' }
       }
       if (sourceType === 'webdav' && !source.serverUrl) {
-        return { ok: false, error: 'WebDAV 地址不能为空' }
+        return { ok: false, error: '网盘 WebDAV 地址不能为空' }
+      }
+      if (isJellyfinLikeSourceType(sourceType) && !source.serverUrl) {
+        return { ok: false, error: 'Jellyfin / Emby 服务器地址不能为空' }
       }
       if (sourceType === 'subsonic' && !source.username) {
         return { ok: false, error: '用户名不能为空' }
+      }
+      if (isJellyfinLikeSourceType(sourceType) && !source.username) {
+        return { ok: false, error: 'Jellyfin / Emby 用户名不能为空' }
       }
       if (false && sourceType === 'subsonic' && !source.username) {
         return { ok: false, error: '用户名不能为空' }
@@ -2380,6 +2419,9 @@ app.whenReady().then(async () => {
       }
       if (sourceType === 'subsonic' && !source.password) {
         return { ok: false, error: '请填写密码或 API 密码' }
+      }
+      if (isJellyfinLikeSourceType(sourceType) && !source.password) {
+        return { ok: false, error: '请填写 Jellyfin / Emby 密码' }
       }
       if (false && sourceType === 'subsonic' && !source.serverUrl) {
         return { ok: false, error: '服务器地址不能为空' }
@@ -2434,8 +2476,11 @@ app.whenReady().then(async () => {
             ? existing
             : {
                 id: payload.id || 'test',
-                name: payload.name || 'WebDAV Music',
-                serverUrl: normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || ''),
+                name: payload.name || '网盘音乐',
+                serverUrl: normalizeRemoteServerUrl(
+                  payload.serverUrl || existing?.serverUrl || '',
+                  sourceType
+                ),
                 username: String(payload.username || existing?.username || '').trim(),
                 password: existing?.password || null
               }
@@ -2447,13 +2492,39 @@ app.whenReady().then(async () => {
         await client.ping()
         return { ok: true }
       }
+      if (isJellyfinLikeSourceType(sourceType)) {
+        const source =
+          payload.id && !payload.serverUrl
+            ? existing
+            : {
+                id: payload.id || 'test',
+                type: sourceType,
+                name: payload.name || getDefaultRemoteSourceName(sourceType),
+                serverUrl: normalizeRemoteServerUrl(
+                  payload.serverUrl || existing?.serverUrl || '',
+                  sourceType
+                ),
+                username: String(payload.username || existing?.username || '').trim(),
+                password: existing?.password || null
+              }
+        const passwordOverride =
+          typeof payload.password === 'string' && payload.password.length > 0
+            ? payload.password
+            : undefined
+        const client = createJellyfinClientForSource(source, passwordOverride)
+        await client.ping()
+        return { ok: true }
+      }
       const source =
         payload.id && !payload.serverUrl
           ? existing
           : {
               id: payload.id || 'test',
               name: payload.name || 'Navidrome',
-              serverUrl: normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || ''),
+              serverUrl: normalizeRemoteServerUrl(
+                payload.serverUrl || existing?.serverUrl || '',
+                sourceType
+              ),
               username: String(payload.username || existing?.username || '').trim(),
               password: existing?.password || null
             }
@@ -2502,6 +2573,11 @@ app.whenReady().then(async () => {
             ? folders
             : [{ id: '/', name: source?.name || 'WebDAV', albumCount: 0 }]
         }
+      }
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        const artists = await client.getArtists()
+        return { ok: true, artists }
       }
       const client = createSubsonicClientForSource(source)
       const artists = await client.getArtists()
@@ -2567,6 +2643,11 @@ app.whenReady().then(async () => {
           }
         }
       }
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        const artist = await client.getArtist(artistId)
+        return { ok: true, artist }
+      }
       const client = createSubsonicClientForSource(source)
       const artist = await client.getArtist(artistId)
       return { ok: true, artist }
@@ -2611,6 +2692,11 @@ app.whenReady().then(async () => {
             songs
           }
         }
+      }
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        const album = await client.getAlbum(albumId, source)
+        return { ok: true, album }
       }
       const client = createSubsonicClientForSource(source)
       const album = await client.getAlbum(albumId, source)
@@ -2665,6 +2751,11 @@ app.whenReady().then(async () => {
         const result = await client.search(query, source)
         return { ok: true, result }
       }
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        const result = await client.search(query, source)
+        return { ok: true, result }
+      }
       const client = createSubsonicClientForSource(source)
       const result = await client.search(query, source)
       return { ok: true, result }
@@ -2680,6 +2771,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('remoteLibrary:getSubsonicSpecial', async (_, sourceId, kind) => {
     try {
       const source = findRemoteSource(sourceId)
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        const result =
+          kind === 'recentlyPlayed'
+            ? await client.getRecentlyPlayed(source)
+            : await client.getStarred(source)
+        return { ok: true, result }
+      }
       if (normalizeRemoteSourceType(source?.type) !== 'subsonic') {
         return { ok: false, error: 'not_subsonic', result: { artists: [], albums: [], songs: [] } }
       }
@@ -2701,6 +2800,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('remoteLibrary:getPlaylists', async (_, sourceId) => {
     try {
       const source = findRemoteSource(sourceId)
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        return { ok: true, playlists: await client.getPlaylists() }
+      }
       if (normalizeRemoteSourceType(source?.type) !== 'subsonic') {
         return { ok: true, playlists: [] }
       }
@@ -2714,6 +2817,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('remoteLibrary:getPlaylist', async (_, sourceId, playlistId) => {
     try {
       const source = findRemoteSource(sourceId)
+      if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
+        const client = createJellyfinClientForSource(source)
+        return { ok: true, playlist: await client.getPlaylist(playlistId, source) }
+      }
       if (normalizeRemoteSourceType(source?.type) !== 'subsonic') {
         return { ok: false, error: 'not_subsonic', playlist: null }
       }
@@ -2726,7 +2833,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('remoteLibrary:resolveStreamUrl', async (_, filePath) => {
     try {
-      if (!isSubsonicTrackPath(filePath) && !isNetworkFolderTrackPath(filePath) && !isWebDavTrackPath(filePath)) {
+      if (
+        !isSubsonicTrackPath(filePath) &&
+        !isNetworkFolderTrackPath(filePath) &&
+        !isWebDavTrackPath(filePath) &&
+        !isJellyfinTrackPath(filePath)
+      ) {
         return { ok: false, error: 'not_remote_track' }
       }
       return { ok: true, url: await resolveRemotePlaybackUrl(filePath) }
@@ -3121,7 +3233,12 @@ app.whenReady().then(async () => {
         ...(payload || {}),
         cookie: auth.valid ? auth.cookie : ''
       })
-      return { ok: !!result?.lrc, lrc: result?.lrc || '', confidence: result?.confidence }
+      return {
+        ok: !!result?.lrc,
+        lrc: result?.lrc || '',
+        confidence: result?.confidence,
+        song: result?.song || null
+      }
     } catch (e) {
       console.warn('[lyrics:neteaseFetch]', e?.message || e)
       return { ok: false, lrc: '', confidence: null }
@@ -3141,7 +3258,7 @@ app.whenReady().then(async () => {
   // IPC: Read LRC lyrics file (same directory, same name as audio file)
   ipcMain.handle('file:readLyrics', async (_, audioFilePath) => {
     try {
-      if (isSubsonicTrackPath(audioFilePath)) return null
+      if (isSubsonicTrackPath(audioFilePath) || isJellyfinTrackPath(audioFilePath)) return null
       audioFilePath = resolveMetadataFilePath(audioFilePath)
       const { dirname, basename, join: pathJoin, extname } = await import('path')
       const dir = dirname(audioFilePath)
@@ -3164,7 +3281,7 @@ app.whenReady().then(async () => {
   // IPC: Read info JSON (from yt-dlp)
   ipcMain.handle('file:readInfoJson', async (_, audioFilePath) => {
     try {
-      if (isSubsonicTrackPath(audioFilePath)) return null
+      if (isSubsonicTrackPath(audioFilePath) || isJellyfinTrackPath(audioFilePath)) return null
       audioFilePath = resolveMetadataFilePath(audioFilePath)
       const { dirname, basename, join: pathJoin, extname } = await import('path')
       const dir = dirname(audioFilePath)
@@ -3470,34 +3587,6 @@ app.whenReady().then(async () => {
   })
 
   // IPC: Search MV
-  function scoreBilibiliResult(video, queryTerms) {
-    const raw = (video.title || '').replace(/<[^>]*>/g, '')
-    const t = raw.toLowerCase()
-    const author = (video.author || '').toLowerCase()
-    let score = 0
-
-    for (const term of queryTerms) {
-      if (term.length < 2) continue
-      if (t.includes(term)) score += 3
-      if (author.includes(term)) score += 1
-    }
-
-    if (/MV|官方|official|music\s*video/i.test(raw)) score += 5
-    if (/PV|原版|完整??/i.test(raw)) score += 2
-    if (
-      /reaction|翻唱|cover|教程|教学|钢琴|piano|guitar|吉他|drum|鼓|手元|弹奏|演奏|谱|tabs?$/i.test(
-        raw
-      )
-    )
-      score -= 6
-    if (/搬运|转载/i.test(raw)) score -= 1
-
-    const dim = video.dimension || {}
-    const res = dim.height ? `${dim.width || '?'}x${dim.height}` : ''
-
-    return { score, title: raw, resolution: res }
-  }
-
   function parseYouTubeSearchItems(html = '') {
     const items = []
     const seen = new Set()
@@ -3524,19 +3613,62 @@ app.whenReady().then(async () => {
     return items
   }
 
-  ipcMain.handle('api:searchMV', async (_, query, source = 'youtube') => {
+  function buildBilibiliMvSearchPayload(videoResults, normalizedQuery, searchContext, mode, startedAt) {
+    if (!Array.isArray(videoResults) || videoResults.length === 0) return null
+    const scored = rankBilibiliVideoResults(videoResults, normalizedQuery, searchContext)
+    const items = scored.map(({ originalIndex, ...item }) => item)
+    const hit = items.find((item) => item.autoAccepted) || items[0]
+    if (!hit) return null
+
+    writeLogLine(
+      `[MV Search] Bilibili ${mode}: "${normalizedQuery}" -> items=${items.length} bvid=${hit.id} auto=${hit.autoAccepted === true ? 'yes' : hit.autoRejectReason || 'no'} res=${hit.resolution || 'N/A'} | total=${Date.now() - startedAt}ms`
+    )
+    return {
+      id: hit.id,
+      title: hit.title,
+      source: 'bilibili',
+      resolution: hit.resolution,
+      author: hit.author,
+      score: hit.score,
+      autoAccepted: hit.autoAccepted === true,
+      autoRejectReason: hit.autoRejectReason || '',
+      items
+    }
+  }
+
+  function parseBilibiliApiJson(bodyText = '') {
+    const text = String(bodyText || '').trim()
+    if (!text) throw new Error('empty_response')
+    if (text.startsWith('<')) throw new Error('html_response')
+    try {
+      return JSON.parse(text)
+    } catch (error) {
+      throw new Error(`invalid_json:${error?.message || error}`)
+    }
+  }
+
+  ipcMain.handle('api:searchMV', async (_, query, source = 'youtube', options = {}) => {
     const normalizedSource = String(source || 'youtube').trim().toLowerCase() || 'youtube'
     const rawQuery = String(query || '').trim()
     const normalizedQuery = repairPossiblyMojibakeSearchQuery(rawQuery)
-    const cacheKey = `${normalizedSource}::${normalizedQuery.toLowerCase()}`
+    const rawOptions = options && typeof options === 'object' ? options : {}
+    const searchContext = {
+      title: repairPossiblyMojibakeSearchQuery(String(rawOptions.title || '').trim()),
+      artist: repairPossiblyMojibakeSearchQuery(String(rawOptions.artist || '').trim())
+    }
+    const contextCacheKey =
+      searchContext.title || searchContext.artist
+        ? `::${searchContext.title.toLowerCase()}::${searchContext.artist.toLowerCase()}`
+        : ''
+    const cacheKey = `${normalizedSource}::${normalizedQuery.toLowerCase()}${contextCacheKey}`
     const cached = readTimedCache(mvSearchCache, cacheKey, MV_SEARCH_CACHE_TTL_MS)
     if (cached) {
-      console.log(`[MV Search] cache hit: ${normalizedSource} "${normalizedQuery}"`)
+      writeLogLine(`[MV Search] cache hit: ${normalizedSource} "${normalizedQuery}"`)
       return cached
     }
     const pending = mvSearchPending.get(cacheKey)
     if (pending) {
-      console.log(`[MV Search] awaiting in-flight request: ${normalizedSource} "${normalizedQuery}"`)
+      writeLogLine(`[MV Search] awaiting in-flight request: ${normalizedSource} "${normalizedQuery}"`)
       return pending
     }
 
@@ -3544,62 +3676,73 @@ app.whenReady().then(async () => {
     const task = (async () => {
     try {
       if (normalizedSource === 'bilibili') {
-        const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(normalizedQuery)}`
-        const resp = await net.fetch(url, {
+        let apiError = null
+        if (Date.now() >= bilibiliSearchApiBackoffUntil) {
+          try {
+            const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(normalizedQuery)}`
+            const resp = await net.fetch(url, {
+              headers: {
+                'User-Agent': standardUA,
+                Accept: 'application/json,text/plain,*/*',
+                Referer: 'https://www.bilibili.com/'
+              }
+            })
+            const bodyText = await resp.text()
+            if (!resp.ok) {
+              throw new Error(`http_${resp.status}`)
+            }
+            const data = parseBilibiliApiJson(bodyText)
+            if (Number(data?.code || 0) !== 0) {
+              throw new Error(`code_${data?.code || 'unknown'}`)
+            }
+            const payload = buildBilibiliMvSearchPayload(
+              data?.data?.result || [],
+              normalizedQuery,
+              searchContext,
+              'api',
+              startedAt
+            )
+            if (payload) return writeTimedCache(mvSearchCache, cacheKey, payload)
+          } catch (error) {
+            apiError = error
+            bilibiliSearchApiBackoffUntil = Date.now() + BILI_SEARCH_API_BACKOFF_MS
+            writeLogLine(
+              `[MV Search] Bilibili API fallback: "${normalizedQuery}" -> ${error?.message || error}`
+            )
+          }
+        }
+
+        const webUrl = `https://search.bilibili.com/video?keyword=${encodeURIComponent(normalizedQuery)}`
+        const webResp = await net.fetch(webUrl, {
           headers: {
             'User-Agent': standardUA,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             Referer: 'https://www.bilibili.com/'
           }
         })
-        const data = await resp.json()
-
-        const videoResults = data?.data?.result || []
-        if (videoResults.length > 0) {
-          const queryTerms = normalizedQuery
-            .toLowerCase()
-            .replace(/\b(mv|官方|official)\b/gi, '')
-            .split(/\s+/)
-            .filter((t) => t.length >= 2)
-
-          const scored = videoResults.slice(0, 15).map((v) => {
-            const { score, title, resolution } = scoreBilibiliResult(v, queryTerms)
-            return {
-              id: v.bvid,
-              score,
-              title,
-              author: v.author || '',
-              resolution,
-              source: 'bilibili'
-            }
-          })
-          scored.sort((a, b) => b.score - a.score)
-
-          const items = scored.map(({ score, ...item }) => item)
-          const hit = items[0]
-          if (hit) {
-            console.log(
-              `[MV Search] Bilibili: "${normalizedQuery}" -> items=${items.length} bvid=${hit.id} res=${hit.resolution || 'N/A'} | total=${Date.now() - startedAt}ms`
-            )
-            return writeTimedCache(mvSearchCache, cacheKey, {
-              id: hit.id,
-              title: hit.title,
-              source: 'bilibili',
-              resolution: hit.resolution,
-              author: hit.author,
-              items
-            })
-          }
+        const webHtml = await webResp.text()
+        const webResults = parseBilibiliSearchHtml(webHtml, 15)
+        const payload = buildBilibiliMvSearchPayload(
+          webResults,
+          normalizedQuery,
+          searchContext,
+          apiError ? 'web-fallback' : 'web',
+          startedAt
+        )
+        if (payload) {
+          return writeTimedCache(mvSearchCache, cacheKey, payload)
         }
       } else {
         const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(normalizedQuery)}`
         const { data } = await axios.get(url, {
           headers: { 'User-Agent': standardUA }
         })
-        const items = parseYouTubeSearchItems(data)
-        const hit = items[0]
+        const scored = rankYoutubeVideoResults(parseYouTubeSearchItems(data), normalizedQuery, searchContext)
+        const items = scored.map(({ originalIndex, ...item }) => item)
+        const hit = items.find((item) => item.autoAccepted) || items[0]
         if (hit?.id) {
-          console.log(
-            `[MV Search] YouTube: "${normalizedQuery}" -> items=${items.length} id=${hit.id} | total=${Date.now() - startedAt}ms`
+          writeLogLine(
+            `[MV Search] YouTube: "${normalizedQuery}" -> items=${items.length} id=${hit.id} auto=${hit.autoAccepted === true ? 'yes' : hit.autoRejectReason || 'no'} | total=${Date.now() - startedAt}ms`
           )
           return writeTimedCache(mvSearchCache, cacheKey, {
             id: hit.id,
@@ -3607,12 +3750,15 @@ app.whenReady().then(async () => {
             source: 'youtube',
             author: hit.author,
             duration: hit.duration,
+            score: hit.score,
+            autoAccepted: hit.autoAccepted === true,
+            autoRejectReason: hit.autoRejectReason || '',
             items
           })
         }
       }
     } catch (e) {
-      console.error('[MV Search] Error:', e.message)
+      writeLogLine(`[MV Search] Error: ${e.message}`)
     }
     return null
     })()
@@ -3810,16 +3956,10 @@ app.whenReady().then(async () => {
         discNo: null,
         bpm: null,
         lyrics: null,
+        lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
         cover: null
       }
     }
-  }
-
-  function normalizeEmbeddedText(text) {
-    return String(text || '')
-      .replace(/\u0000/g, '')
-      .replace(/\r\n/g, '\n')
-      .trim()
   }
 
   function normalizeBpmMetadataValue(value) {
@@ -3954,6 +4094,7 @@ app.whenReady().then(async () => {
           discNo: metadata.common.disk?.no ?? null,
           bpm: extractBpmMetadataValue(metadata),
           lyrics: embeddedLyrics || null,
+          lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
           cover,
           coverExtractorVersion,
           coverBytes,
@@ -4393,65 +4534,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  function decodeEmbeddedTextValue(value) {
-    if (value == null) return ''
-    if (typeof value === 'string') return normalizeEmbeddedText(value)
-
-    if (Array.isArray(value)) {
-      return value
-        .map((item) => decodeEmbeddedTextValue(item))
-        .filter(Boolean)
-        .join('\n')
-        .trim()
-    }
-
-    if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
-      const buffer = Buffer.from(value)
-      const candidates = [
-        buffer.toString('utf8'),
-        buffer.toString('utf16le'),
-        buffer.toString('latin1')
-      ]
-      for (const candidate of candidates) {
-        const normalized = normalizeEmbeddedText(candidate)
-        if (normalized) return normalized
-      }
-      return ''
-    }
-
-    if (typeof value === 'object') {
-      return (
-        decodeEmbeddedTextValue(value.text) ||
-        decodeEmbeddedTextValue(value.value) ||
-        decodeEmbeddedTextValue(value.data) ||
-        decodeEmbeddedTextValue(value.description)
-      )
-    }
-
-    return ''
-  }
-
-  function extractEmbeddedLyricsText(metadata) {
-    const commonLyrics = decodeEmbeddedTextValue(metadata?.common?.lyrics)
-    if (commonLyrics) return commonLyrics
-
-    const lyricTagIds = new Set(['\u00a9lyr', 'lyrics', 'uslt', 'sylt', 'wm/lyrics'])
-    for (const nativeTags of Object.values(metadata?.native || {})) {
-      for (const tag of Array.isArray(nativeTags) ? nativeTags : []) {
-        const tagId = String(tag?.id || '')
-          .trim()
-          .toLowerCase()
-        if (!tagId) continue
-        if (!lyricTagIds.has(tagId) && !tagId.endsWith(':lyrics')) continue
-
-        const text = decodeEmbeddedTextValue(tag?.value)
-        if (text) return text
-      }
-    }
-
-    return ''
-  }
-
   function resolveAudioCodecLabel(metadata, filePath) {
     const explicitCodec = String(metadata?.format?.codec || '').trim()
     const codecProfile = String(metadata?.format?.codecProfile || '').trim()
@@ -4467,9 +4549,11 @@ app.whenReady().then(async () => {
 
   // IPC: Get Extended Audio Metadata (Sample rate, bitrate, format, cover)
   ipcMain.handle('file:getExtendedMetadata', async (_, filePath) => {
-    if (isSubsonicTrackPath(filePath)) {
+    if (isSubsonicTrackPath(filePath) || isJellyfinTrackPath(filePath)) {
       try {
-        const track = await getSubsonicTrackMetadata(filePath)
+        const track = isJellyfinTrackPath(filePath)
+          ? await getJellyfinTrackMetadata(filePath)
+          : await getSubsonicTrackMetadata(filePath)
         const info = track?.info || {}
         const bitrateKbps = Number(info.bitrateKbps || 0)
         const codec = info.codec || 'Remote'
@@ -4514,7 +4598,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('file:detectBpm', async (_, filePath) => {
     try {
-      if (isSubsonicTrackPath(filePath)) {
+      if (isSubsonicTrackPath(filePath) || isJellyfinTrackPath(filePath)) {
         return { success: false, error: 'remote_bpm_unavailable', bpm: null }
       }
       filePath = resolveMetadataFilePath(filePath)
@@ -4734,6 +4818,12 @@ app.whenReady().then(async () => {
     return audioEngine.setPlaybackRate(rate)
   })
 
+  ipcMain.handle('audio:seek', async (_, filePath, startTime, playbackRate, shouldPlay) => {
+    const resolvedPath = filePath ? await resolveRemotePlaybackPath(filePath) : ''
+    const resume = typeof shouldPlay === 'boolean' ? shouldPlay : undefined
+    return audioEngine.seek(resolvedPath, startTime, playbackRate, resume)
+  })
+
   ipcMain.handle('audio:pause', async () => {
     audioEngine.pause()
   })
@@ -4779,20 +4869,18 @@ app.whenReady().then(async () => {
   })
 
   // Start polling playback status
-  let lastAudioStatus = null
+  let lastBroadcastAudioStatus = null
+  let lastBroadcastAudioStatusAt = 0
   setInterval(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return
+    const now = Date.now()
     const status = audioEngine.getStatus()
-    if (
-      !lastAudioStatus ||
-      lastAudioStatus.isPlaying !== status.isPlaying ||
-      lastAudioStatus.filePath !== status.filePath
-    ) {
-      // Playing state changed, notify renderer
+    if (shouldBroadcastAudioStatus(lastBroadcastAudioStatus, status, now, lastBroadcastAudioStatusAt)) {
       broadcastAudioStatus(status)
+      lastBroadcastAudioStatus = status
+      lastBroadcastAudioStatusAt = now
     }
-    lastAudioStatus = status
-  }, 200)
+  }, AUDIO_STATUS_POLL_INTERVAL_MS)
 
   ipcMain.handle('lyricsDesktop:open', async () => {
     try {
@@ -4860,6 +4948,7 @@ app.whenReady().then(async () => {
       lyricsDesktopWindow.on('closed', () => {
         stopLyricsDesktopMainSyncTimer()
         lyricsDesktopWindow = null
+        lyricsDesktopLastPayloadSignature = ''
       })
       let loadUrl
       if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -5524,11 +5613,6 @@ app.whenReady().then(async () => {
     audioEngine.cancelAutomix()
     return { ok: true }
   })
-
-  // 定时推送播放状态到渲染进程 (200ms 间隔)
-  setInterval(() => {
-    broadcastAudioStatus(audioEngine.getStatus())
-  }, 200)
 
   await createWindow()
   registerGlobalMediaShortcuts()

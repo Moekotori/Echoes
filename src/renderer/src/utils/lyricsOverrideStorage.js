@@ -1,4 +1,18 @@
 const STORAGE_KEY = 'echoes_lyrics_override_v1'
+const LYRICS_SOURCE_PREFERENCE_VALUES = new Set([
+  'manual',
+  'local',
+  'lrclib',
+  'netease',
+  'qq',
+  'kugou',
+  'kuwo'
+])
+
+export function normalizeLyricsSourcePreference(value) {
+  const source = String(value || '').trim().toLowerCase()
+  return LYRICS_SOURCE_PREFERENCE_VALUES.has(source) ? source : ''
+}
 
 export function getLyricsOverrideForPath(filePath) {
   if (!filePath || typeof filePath !== 'string') return null
@@ -14,16 +28,57 @@ export function getLyricsOverrideForPath(filePath) {
   }
 }
 
+export function getLyricsSourcePreferenceForPath(filePath) {
+  if (!filePath || typeof filePath !== 'string') return ''
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return ''
+    const map = JSON.parse(raw)
+    return normalizeLyricsSourcePreference(map?.[filePath]?.preferredSource)
+  } catch {
+    return ''
+  }
+}
+
+export function setLyricsSourcePreferenceForPath(filePath, source) {
+  if (!filePath || typeof filePath !== 'string') return
+  const preferredSource = normalizeLyricsSourcePreference(source)
+  if (!preferredSource) return
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    const prev = map[filePath] && typeof map[filePath] === 'object' ? map[filePath] : {}
+    map[filePath] = {
+      ...prev,
+      preferredSource,
+      preferenceSavedAt: Date.now()
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    /* ignore quota */
+  }
+}
+
 export function setLyricsOverrideForPath(filePath, rawLrcText, meta = {}) {
   if (!filePath || typeof filePath !== 'string') return
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const map = raw ? JSON.parse(raw) : {}
+    const prev = map[filePath] && typeof map[filePath] === 'object' ? map[filePath] : {}
+    const source = typeof meta.source === 'string' ? meta.source : ''
+    const origin = typeof meta.origin === 'string' ? meta.origin : ''
+    const preferredSource =
+      normalizeLyricsSourcePreference(meta.preferredSource) ||
+      (source === 'manual' || source === 'link'
+        ? 'manual'
+        : normalizeLyricsSourcePreference(source) || normalizeLyricsSourcePreference(origin))
     map[filePath] = {
+      ...prev,
       raw: rawLrcText,
       savedAt: Date.now(),
-      source: typeof meta.source === 'string' ? meta.source : '',
-      origin: typeof meta.origin === 'string' ? meta.origin : ''
+      source,
+      origin,
+      preferredSource: preferredSource || prev.preferredSource || ''
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
   } catch {

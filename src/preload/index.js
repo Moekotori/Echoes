@@ -70,7 +70,8 @@ contextBridge.exposeInMainWorld('api', {
   fetchNeteaseLyrics: (payload) => ipcRenderer.invoke('lyrics:neteaseFetch', payload),
   searchExternalLyrics: (payload) => ipcRenderer.invoke('lyrics:searchExternal', payload),
   readInfoJsonHandler: (audioPath) => ipcRenderer.invoke('file:readInfoJson', audioPath),
-  searchMVHandler: (query, source) => ipcRenderer.invoke('api:searchMV', query, source),
+  searchMVHandler: (query, source, options) =>
+    ipcRenderer.invoke('api:searchMV', query, source, options),
   convertNcmHandler: (filePath) => ipcRenderer.invoke('file:convertNcm', filePath),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   showItemInFolder: (fullPath) => ipcRenderer.invoke('shell:showItemInFolder', fullPath),
@@ -192,6 +193,8 @@ contextBridge.exposeInMainWorld('api', {
   setAudioEqConfig: (eqConfig) => ipcRenderer.invoke('audio:setEqConfig', eqConfig),
   playAudio: (path, startTime, playbackRate, sourceSampleRateHint) =>
     ipcRenderer.invoke('audio:play', path, startTime, playbackRate, sourceSampleRateHint),
+  seekAudio: (path, startTime, playbackRate, shouldPlay) =>
+    ipcRenderer.invoke('audio:seek', path, startTime, playbackRate, shouldPlay),
   setAudioPlaybackRate: (rate) => ipcRenderer.invoke('audio:setPlaybackRate', rate),
   pauseAudio: () => ipcRenderer.invoke('audio:pause'),
   resumeAudio: () => ipcRenderer.invoke('audio:resume'),

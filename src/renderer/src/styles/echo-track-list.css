@@ -1102,8 +1102,8 @@
     linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent), color-mix(in srgb, #ffffff 8%, transparent)),
     var(--glass-bg, rgba(255, 255, 255, 0.6)) !important;
   border-color: var(--glass-border, rgba(255, 255, 255, 0.28)) !important;
-  backdrop-filter: blur(calc(var(--glass-blur, 20px) + 8px)) saturate(1.18) !important;
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 8px)) saturate(1.18) !important;
+  backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.18) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .browser-toolbar-group,
@@ -1116,8 +1116,8 @@
     linear-gradient(180deg, color-mix(in srgb, #ffffff 20%, transparent), color-mix(in srgb, #ffffff 8%, transparent)),
     color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 86%, transparent) !important;
   border-color: var(--glass-border, rgba(255, 255, 255, 0.28)) !important;
-  backdrop-filter: blur(calc(var(--glass-blur, 20px) + 6px)) saturate(1.16) !important;
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 6px)) saturate(1.16) !important;
+  backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.16) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.16) !important;
 }
 
 .app-root:has(.app-wallpaper-backdrop) .bottom-player-bar:not(.bottom-player-bar--lyrics) {
@@ -1237,8 +1237,8 @@
     inset 0 1px 0 color-mix(in srgb, #ffffff 82%, transparent),
     inset 0 -1px 0 color-mix(in srgb, var(--text-main, #5c4349) 3%, transparent),
     0 20px 52px color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 4px)) saturate(1.14) !important;
-  backdrop-filter: blur(calc(var(--glass-blur, 20px) + 4px)) saturate(1.14) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.14) !important;
+  backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.14) !important;
 }
 
 .track-item {
@@ -1300,8 +1300,8 @@
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
     0 22px 58px color-mix(in srgb, var(--text-main, #1f2937) 10%, transparent) !important;
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 10px)) saturate(1.18) brightness(1.04) !important;
-  backdrop-filter: blur(calc(var(--glass-blur, 20px) + 10px)) saturate(1.18) brightness(1.04) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.18) brightness(1.04) !important;
+  backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.18) brightness(1.04) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item {
@@ -2913,4 +2913,242 @@
 :root[data-echo-theme-tone='dark'] .history-sidebar-empty-clear {
   background: rgba(255, 255, 255, 0.07) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* When glass sliders are pulled down, respect that literally instead of keeping additive blur/tint. */
+:root[data-echo-glass-blur='off'] .app-root:has(.app-wallpaper-backdrop)::before,
+:root[data-echo-glass-transparent='true'] .app-root:has(.app-wallpaper-backdrop)::before,
+:root[data-echo-glass-transparent='true'] .playlist::after,
+:root[data-echo-glass-transparent='true'] .bottom-player-bar::before {
+  content: none !important;
+  background: none !important;
+}
+
+:root[data-echo-glass-blur='off'] .app-wallpaper-backdrop--custom,
+:root[data-echo-glass-blur='off'] .app-wallpaper-backdrop--cover {
+  filter: none !important;
+  transform: none !important;
+}
+
+:root[data-echo-glass-blur='off'] .glass-panel,
+:root[data-echo-glass-blur='off'] .settings-page,
+:root[data-echo-glass-blur='off'] .settings-page.glass-panel,
+:root[data-echo-glass-blur='off'] .settings-nav,
+:root[data-echo-glass-blur='off'] .settings-section,
+:root[data-echo-glass-blur='off'] .settings-disclosure,
+:root[data-echo-glass-blur='off'] .setting-subsection,
+:root[data-echo-glass-blur='off'] .nav-rail,
+:root[data-echo-glass-blur='off'] .sidebar.browser-panel,
+:root[data-echo-glass-blur='off'] .browser-panel,
+:root[data-echo-glass-blur='off'] .browser-toolbar-group,
+:root[data-echo-glass-blur='off'] .browser-panel .search-container,
+:root[data-echo-glass-blur='off'] .playlist,
+:root[data-echo-glass-blur='off'] .track-item,
+:root[data-echo-glass-blur='off'] .track-like-btn,
+:root[data-echo-glass-blur='off'] .track-add-pl-btn,
+:root[data-echo-glass-blur='off'] .track-remove-pl-btn,
+:root[data-echo-glass-blur='off'] .bottom-player-bar:not(.bottom-player-bar--lyrics),
+:root[data-echo-glass-blur='off'] .bottom-bar-transport,
+:root[data-echo-glass-blur='off'] .bottom-bar-toolset {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-echo-glass-transparent='true'] .glass-panel,
+:root[data-echo-glass-transparent='true'] .settings-page,
+:root[data-echo-glass-transparent='true'] .settings-page.glass-panel,
+:root[data-echo-glass-transparent='true'] .settings-nav,
+:root[data-echo-glass-transparent='true'] .settings-section,
+:root[data-echo-glass-transparent='true'] .settings-disclosure,
+:root[data-echo-glass-transparent='true'] .setting-subsection,
+:root[data-echo-glass-transparent='true'] .nav-rail,
+:root[data-echo-glass-transparent='true'] .sidebar.browser-panel,
+:root[data-echo-glass-transparent='true'] .browser-panel,
+:root[data-echo-glass-transparent='true'] .browser-toolbar-group,
+:root[data-echo-glass-transparent='true'] .browser-panel .search-container,
+:root[data-echo-glass-transparent='true'] .playlist,
+:root[data-echo-glass-transparent='true'] .track-item,
+:root[data-echo-glass-transparent='true'] .track-like-btn,
+:root[data-echo-glass-transparent='true'] .track-add-pl-btn,
+:root[data-echo-glass-transparent='true'] .track-remove-pl-btn,
+:root[data-echo-glass-transparent='true'] .bottom-player-bar:not(.bottom-player-bar--lyrics),
+:root[data-echo-glass-transparent='true'] .bottom-bar-transport,
+:root[data-echo-glass-transparent='true'] .bottom-bar-toolset {
+  background: transparent !important;
+  background-image: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Clear glass must be literal: no white list veil, no additive blur, no fade masks. */
+:root[data-echo-glass-clear='true'] .app-root,
+:root[data-echo-glass-transparent='true'] .app-root.glass-transparent,
+.app-root.glass-clear,
+.app-root.glass-clear .app-container,
+.app-root.glass-clear .nav-rail,
+.app-root.glass-clear .sidebar.browser-panel,
+.app-root.glass-clear .sidebar.browser-panel.glass-panel,
+.app-root.glass-clear .browser-panel,
+.app-root.glass-clear .browser-toolbar-group,
+.app-root.glass-clear .browser-panel .search-container,
+.app-root.glass-clear .library-list-header,
+.app-root.glass-clear .playlist,
+.app-root.glass-clear .track-item,
+.app-root.glass-clear .track-like-btn,
+.app-root.glass-clear .track-add-pl-btn,
+.app-root.glass-clear .track-remove-pl-btn,
+.app-root.glass-clear .bottom-player-bar:not(.bottom-player-bar--lyrics),
+.app-root.glass-clear .bottom-bar-transport,
+.app-root.glass-clear .bottom-bar-toolset,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .sidebar.browser-panel,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .sidebar.browser-panel.glass-panel,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-toolbar-group,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-panel .search-container,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .playlist,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-item,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-like-btn,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-add-pl-btn,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-remove-pl-btn {
+  background: transparent !important;
+  background-image: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+.app-root.glass-clear *,
+:root[data-echo-glass-clear='true'] .app-root * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.app-root.glass-clear .app-wallpaper-backdrop,
+.app-root.glass-clear .app-wallpaper-backdrop--custom,
+.app-root.glass-clear .app-wallpaper-backdrop--cover,
+:root[data-echo-glass-clear='true'] .app-wallpaper-backdrop,
+:root[data-echo-glass-clear='true'] .app-wallpaper-backdrop--custom,
+:root[data-echo-glass-clear='true'] .app-wallpaper-backdrop--cover {
+  filter: none !important;
+  transform: none !important;
+}
+
+.app-root.glass-clear::before,
+.app-root.glass-clear::after,
+.app-root.glass-clear .playlist::before,
+.app-root.glass-clear .playlist::after,
+.app-root.glass-clear .bottom-player-bar::before,
+.app-root.glass-clear .bottom-player-bar::after,
+.app-root.glass-clear .browser-panel::before,
+.app-root.glass-clear .browser-panel::after,
+:root[data-echo-glass-clear='true'] .app-root:has(.app-wallpaper-backdrop)::before,
+:root[data-echo-glass-clear='true'] .app-root:has(.app-wallpaper-backdrop)::after,
+:root[data-echo-glass-clear='true'] .playlist::before,
+:root[data-echo-glass-clear='true'] .playlist::after,
+:root[data-echo-glass-clear='true'] .bottom-player-bar::before,
+:root[data-echo-glass-clear='true'] .bottom-player-bar::after,
+:root[data-echo-glass-clear='true'] .browser-panel::before,
+:root[data-echo-glass-clear='true'] .browser-panel::after {
+  content: none !important;
+  background: none !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+.app-root.glass-clear .track-like-btn,
+.app-root.glass-clear .track-add-pl-btn,
+.app-root.glass-clear .track-remove-pl-btn,
+:root[data-echo-glass-clear='true'] .track-like-btn,
+:root[data-echo-glass-clear='true'] .track-add-pl-btn,
+:root[data-echo-glass-clear='true'] .track-remove-pl-btn {
+  color: color-mix(in srgb, var(--text-soft, #5f6f83) 88%, var(--text-main, #1f2937)) !important;
+  background: color-mix(in srgb, #ffffff 38%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-main, #1f2937) 8%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent),
+    0 8px 18px color-mix(in srgb, var(--text-main, #1f2937) 7%, transparent) !important;
+}
+
+.app-root.glass-clear .track-like-btn svg,
+.app-root.glass-clear .track-add-pl-btn svg,
+.app-root.glass-clear .track-remove-pl-btn svg,
+:root[data-echo-glass-clear='true'] .track-like-btn svg,
+:root[data-echo-glass-clear='true'] .track-add-pl-btn svg,
+:root[data-echo-glass-clear='true'] .track-remove-pl-btn svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.app-root.glass-clear .track-like-btn:hover,
+.app-root.glass-clear .track-add-pl-btn:hover,
+.app-root.glass-clear .track-remove-pl-btn:hover,
+:root[data-echo-glass-clear='true'] .track-like-btn:hover,
+:root[data-echo-glass-clear='true'] .track-add-pl-btn:hover,
+:root[data-echo-glass-clear='true'] .track-remove-pl-btn:hover {
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--text-main, #1f2937)) !important;
+  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, #ffffff 26%) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+}
+
+.app-root.glass-clear .track-add-pl-btn.active,
+:root[data-echo-glass-clear='true'] .track-add-pl-btn.active {
+  color: #ffffff !important;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 72%, var(--theme-primary, var(--accent-pink)) 18%)
+    ) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 36%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 8px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+}
+
+.app-root.glass-clear .bottom-player-bar:not(.bottom-player-bar--lyrics),
+:root[data-echo-glass-clear='true'] .bottom-player-bar:not(.bottom-player-bar--lyrics),
+.app-root.glass-clear .main-player:not(.lyrics-mode),
+:root[data-echo-glass-clear='true'] .main-player:not(.lyrics-mode) {
+  background: transparent !important;
+  background-image: none !important;
+  border-top: 0 !important;
+  border-color: transparent !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.app-root.glass-clear .main-player:not(.lyrics-mode)::before,
+.app-root.glass-clear .main-player:not(.lyrics-mode)::after,
+:root[data-echo-glass-clear='true'] .main-player:not(.lyrics-mode)::before,
+:root[data-echo-glass-clear='true'] .main-player:not(.lyrics-mode)::after {
+  content: none !important;
+  background: none !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-root.glass-clear .playlist,
+.app-root.glass-clear .playlist-virtual-list,
+.app-root.glass-clear .sidebar-list-stack,
+.app-root.glass-clear .browser-panel,
+:root[data-echo-glass-clear='true'] .playlist,
+:root[data-echo-glass-clear='true'] .playlist-virtual-list,
+:root[data-echo-glass-clear='true'] .sidebar-list-stack,
+:root[data-echo-glass-clear='true'] .browser-panel {
+  border-bottom: 0 !important;
+  outline: 0 !important;
+}
+
+.app-root.glass-clear .library-list-header + .playlist,
+.app-root.glass-clear .library-list-header--songs + .playlist,
+:root[data-echo-glass-clear='true'] .library-list-header + .playlist,
+:root[data-echo-glass-clear='true'] .library-list-header--songs + .playlist {
+  border-bottom-color: transparent !important;
 }

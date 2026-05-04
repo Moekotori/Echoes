@@ -56,6 +56,47 @@ function buildNeteaseErrorLogPayload(error) {
   })
 }
 
+let quietNeteaseConsoleDepth = 0
+let originalConsoleError = null
+
+function isNeteaseUpstreamErrorLog(args) {
+  if (!Array.isArray(args) || args[0] !== '[ERROR]') return false
+  const payload = args[1]
+  return Boolean(payload && typeof payload === 'object' && (payload.status || payload.body))
+}
+
+async function withQuietNeteaseConsole(task) {
+  if (quietNeteaseConsoleDepth === 0) {
+    originalConsoleError = console.error
+    console.error = (...args) => {
+      if (isNeteaseUpstreamErrorLog(args)) return
+      originalConsoleError(...args)
+    }
+  }
+  quietNeteaseConsoleDepth += 1
+  try {
+    return await task()
+  } finally {
+    quietNeteaseConsoleDepth = Math.max(0, quietNeteaseConsoleDepth - 1)
+    if (quietNeteaseConsoleDepth === 0 && originalConsoleError) {
+      console.error = originalConsoleError
+      originalConsoleError = null
+    }
+  }
+}
+
+function toNeteaseSongCandidate(song) {
+  if (!song) return null
+  const durationMs = Number(song.dt || song.duration || 0)
+  return {
+    id: song.id || null,
+    trackName: song.name || '',
+    artistName: (song.ar || song.artists || []).map((artist) => artist.name).filter(Boolean).join(' / '),
+    album: song.al?.name || song.album?.name || '',
+    duration: Number.isFinite(durationMs) && durationMs > 0 ? durationMs / 1000 : 0
+  }
+}
+
 function parseTimedLyric(raw) {
   const rows = []
   const byTime = new Map()
@@ -86,19 +127,50 @@ function parseTimedLyric(raw) {
   return { rows, byTime }
 }
 
-function mergeTimedLyrics(mainLyrics, romajiLyrics, translatedLyrics) {
+function findTimedExtraText(parsed, timeMs, usedKeys, toleranceMs = 650) {
+  if (!parsed || !Number.isFinite(timeMs)) return ''
+
+  const exact = parsed.byTime?.get(timeMs)
+  if (exact) {
+    const key = `${timeMs}\0${exact}`
+    if (!usedKeys.has(key)) {
+      usedKeys.add(key)
+      return exact
+    }
+  }
+
+  let best = null
+  for (const row of parsed.rows || []) {
+    const diff = Math.abs(Number(row.timeMs) - timeMs)
+    if (!Number.isFinite(diff) || diff > toleranceMs) continue
+    const key = `${row.timeMs}\0${row.text}`
+    if (usedKeys.has(key)) continue
+    if (!best || diff < best.diff) best = { ...row, diff, key }
+  }
+
+  if (!best) return ''
+  usedKeys.add(best.key)
+  return best.text
+}
+
+export function mergeTimedLyrics(mainLyrics, romajiLyrics, translatedLyrics) {
   const main = parseTimedLyric(mainLyrics)
   if (main.rows.length === 0) return ''
 
-  const romaji = parseTimedLyric(romajiLyrics).byTime
-  const translation = parseTimedLyric(translatedLyrics).byTime
+  const romaji = parseTimedLyric(romajiLyrics)
+  const translation = parseTimedLyric(translatedLyrics)
+  const usedRomaji = new Set()
+  const usedTranslation = new Set()
   const merged = []
 
   for (const row of main.rows) {
     merged.push(`${row.tagText}${row.text}`)
 
     const seen = new Set([row.text])
-    const extras = [romaji.get(row.timeMs), translation.get(row.timeMs)]
+    const extras = [
+      findTimedExtraText(romaji, row.timeMs, usedRomaji),
+      findTimedExtraText(translation, row.timeMs, usedTranslation)
+    ]
     for (const extra of extras) {
       const text = String(extra || '').trim()
       if (!text || seen.has(text)) continue
@@ -115,12 +187,14 @@ export async function searchNeteaseSongs(keywords, opts = {}) {
   const ncm = getNcmApi()
   const base = buildNcmRequestOptions(opts.cookie)
   try {
-    const res = await ncm.cloudsearch({
-      keywords: keywords.trim(),
-      limit: 30,
-      type: 1,
-      ...base
-    })
+    const res = await withQuietNeteaseConsole(() =>
+      ncm.cloudsearch({
+        keywords: keywords.trim(),
+        limit: 30,
+        type: 1,
+        ...base
+      })
+    )
     const songs = res?.body?.result?.songs
     if (!Array.isArray(songs)) return []
     return songs.map((s) => ({
@@ -163,15 +237,18 @@ export async function fetchNeteaseLrcText(params) {
 
   let id = songId
   let confidence = songId ? 100 : 0
+  let matchedSong = null
   if (!id) {
     let searchRes
     try {
-      searchRes = await ncm.search({
-        keywords,
-        limit: 10,
-        type: 1,
-        ...base
-      })
+      searchRes = await withQuietNeteaseConsole(() =>
+        ncm.search({
+          keywords,
+          limit: 10,
+          type: 1,
+          ...base
+        })
+      )
     } catch (e) {
       logLine(`[netease lyrics] search ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
       return null
@@ -265,13 +342,14 @@ export async function fetchNeteaseLrcText(params) {
       return null
     }
     id = best.song?.id
+    matchedSong = best.song || null
     confidence = best.score
   }
   if (!id) return null
 
   let lyricRes
   try {
-    lyricRes = await ncm.lyric({ id, ...base })
+    lyricRes = await withQuietNeteaseConsole(() => ncm.lyric({ id, ...base }))
   } catch (e) {
     logLine(`[netease lyrics] lyric ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
     return null
@@ -283,7 +361,7 @@ export async function fetchNeteaseLrcText(params) {
 
   if (lrc) {
     const merged = mergeTimedLyrics(lrc, romalrc, tlyric)
-    return { lrc: merged || lrc, confidence }
+    return { lrc: merged || lrc, confidence, song: toNeteaseSongCandidate(matchedSong) }
   }
 
   return null
@@ -304,7 +382,9 @@ export async function getNeteaseSongDirectUrl(songId, level, opts = {}) {
   const qualityLevel = level || 'exhigh'
 
   try {
-    const res = await ncm.song_url_v1({ id, level: qualityLevel, ...base })
+    const res = await withQuietNeteaseConsole(() =>
+      ncm.song_url_v1({ id, level: qualityLevel, ...base })
+    )
     const data = res?.body?.data
     if (!Array.isArray(data) || data.length === 0) return null
     const entry = data[0]

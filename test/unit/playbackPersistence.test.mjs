@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 
 import {
   containsLegacyPlaybackHistoryEntries,
+  createPlaybackContext,
+  normalizePlaybackContext,
   normalizePlaybackHistory,
   normalizePlaybackSession,
   pickInitialPersistedValue,
@@ -76,6 +78,19 @@ test('normalizePlaybackSession safely rejects invalid payloads', () => {
       continue
     }
     assert.equal(normalizePlaybackSession(fixture), null)
+  }
+})
+
+test('normalizePlaybackContext preserves scoped playback group kinds', () => {
+  for (const kind of ['userPlaylist', 'smartCollection', 'albumGroup', 'folderGroup']) {
+    assert.deepEqual(
+      normalizePlaybackContext(createPlaybackContext(kind, `${kind}-key`, ['A', 'B', 'A'])),
+      {
+        kind,
+        key: `${kind}-key`,
+        trackPaths: ['A', 'B']
+      }
+    )
   }
 })
 

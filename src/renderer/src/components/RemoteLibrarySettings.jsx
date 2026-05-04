@@ -3,14 +3,16 @@ import { CheckCircle2, FolderOpen, Loader2, Plus, Radio, Trash2 } from 'lucide-r
 
 const FILE_BACKED_TYPES = new Set(['networkFolder', 'sshfs'])
 
-function defaultNameForType(type = 'subsonic') {
-  if (type === 'webdav') return 'WebDAV Music'
+function defaultNameForType(type = 'webdav') {
+  if (type === 'jellyfin') return 'Jellyfin Music'
+  if (type === 'emby') return 'Emby Music'
+  if (type === 'webdav') return '网盘音乐'
   if (type === 'sshfs') return 'SSHFS Music'
   if (type === 'networkFolder') return 'NAS Music'
   return 'ECHO Navidrome'
 }
 
-function emptyForm(type = 'subsonic') {
+function emptyForm(type = 'webdav') {
   return {
     id: '',
     type,
@@ -23,14 +25,18 @@ function emptyForm(type = 'subsonic') {
 }
 
 function sourceLabel(source) {
-  if (source?.type === 'webdav') return source.name || 'WebDAV Music'
+  if (source?.type === 'jellyfin') return source.name || 'Jellyfin Music'
+  if (source?.type === 'emby') return source.name || 'Emby Music'
+  if (source?.type === 'webdav') return source.name || '网盘音乐'
   if (source?.type === 'sshfs') return source.name || 'SSHFS Music'
   if (source?.type === 'networkFolder') return source.name || 'NAS Music'
   return source?.name || 'Navidrome'
 }
 
 function typeLabel(type) {
-  if (type === 'webdav') return 'WebDAV'
+  if (type === 'jellyfin') return 'Jellyfin'
+  if (type === 'emby') return 'Emby'
+  if (type === 'webdav') return '网盘 / WebDAV'
   if (type === 'sshfs') return 'SSHFS'
   if (type === 'networkFolder') return 'NAS / SMB'
   return 'Subsonic / Navidrome'
@@ -53,6 +59,7 @@ export default function RemoteLibrarySettings({
   const isFileBackedSource = FILE_BACKED_TYPES.has(form.type)
   const isWebDav = form.type === 'webdav'
   const isSshfs = form.type === 'sshfs'
+  const isJellyfinLike = form.type === 'jellyfin' || form.type === 'emby'
 
   useEffect(() => {
     if (!selectedSource) return
@@ -107,7 +114,7 @@ export default function RemoteLibrarySettings({
     await run(async () => {
       const result = await window.api.remoteLibrary.saveSource(form)
       if (result?.ok) {
-        setStatus('已保存远程音乐库')
+        setStatus('已保存音乐来源')
         await onReload?.()
         onSelectSource?.(result.source?.id)
       } else {
@@ -120,7 +127,7 @@ export default function RemoteLibrarySettings({
     await run(async () => {
       const result = await window.api.remoteLibrary.removeSource(sourceId)
       if (result?.ok) {
-        setStatus('已移除远程音乐库')
+        setStatus('已移除音乐来源')
         setForm(emptyForm())
         await onReload?.()
       } else {
@@ -133,19 +140,19 @@ export default function RemoteLibrarySettings({
     <div className="remote-library-settings">
       <div className="settings-subsection-header">
         <div>
-          <h3>Navidrome / Subsonic / WebDAV / NAS / SSHFS</h3>
+          <h3>网盘 / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby</h3>
           <p>
-            连接音乐服务器，或把 WebDAV、NAS、SMB 共享、SSHFS 挂载盘作为独立来源浏览。
+            连接 AList、坚果云、Nextcloud 等 WebDAV 网盘，也可以把 Jellyfin、Emby、Navidrome、NAS 或 SSHFS 作为独立音乐来源浏览。
           </p>
         </div>
         <button type="button" className="ghost-button compact" onClick={() => setForm(emptyForm(form.type))}>
           <Plus size={16} />
-          新连接
+          新来源
         </button>
       </div>
 
       <div className="remote-source-type-switch">
-        {['subsonic', 'webdav', 'networkFolder', 'sshfs'].map(type => (
+        {['webdav', 'jellyfin', 'emby', 'networkFolder', 'sshfs', 'subsonic'].map(type => (
           <button
             key={type}
             type="button"
@@ -205,15 +212,21 @@ export default function RemoteLibrarySettings({
         ) : (
           <>
             <label>
-              <span>{isWebDav ? 'WebDAV URL' : '服务器 URL'}</span>
+              <span>{isWebDav ? '网盘 WebDAV URL' : isJellyfinLike ? 'Jellyfin / Emby URL' : '服务器 URL'}</span>
               <input
                 value={form.serverUrl}
-                placeholder={isWebDav ? 'https://nas.local/dav/music' : 'http://192.168.1.10:4533'}
+                placeholder={
+                  isWebDav
+                    ? 'https://alist.example.com/dav/music'
+                    : isJellyfinLike
+                      ? 'http://192.168.1.10:8096'
+                      : 'http://192.168.1.10:4533'
+                }
                 onChange={event => update('serverUrl', event.target.value)}
               />
             </label>
             <label>
-              <span>{isWebDav ? '用户名（可选）' : '用户名'}</span>
+              <span>{isWebDav ? '用户名（可选）' : isJellyfinLike ? 'Jellyfin / Emby 用户名' : '用户名'}</span>
               <input value={form.username} onChange={event => update('username', event.target.value)} />
             </label>
             <label>
@@ -221,9 +234,13 @@ export default function RemoteLibrarySettings({
                 {selectedSource?.hasPassword
                   ? isWebDav
                     ? '密码（留空保持不变）'
-                    : '密码/API 密码（留空保持不变）'
+                    : isJellyfinLike
+                      ? 'Jellyfin / Emby 密码（留空保持不变）'
+                      : '密码/API 密码（留空保持不变）'
                   : isWebDav
                     ? '密码（可选）'
+                    : isJellyfinLike
+                      ? 'Jellyfin / Emby 密码'
                     : '密码/API 密码'}
               </span>
               <input
@@ -246,7 +263,13 @@ export default function RemoteLibrarySettings({
 
       {form.type === 'webdav' && (
         <div className="settings-inline-note">
-          WebDAV 会通过目录枚举浏览音乐文件，播放时临时生成带鉴权的流 URL，不把密码写进歌单或队列。
+          适合 AList、坚果云、Nextcloud、群晖 WebDAV 等网盘服务。播放时 ECHO 会临时生成本机流 URL，不把密码写进歌单或队列。
+        </div>
+      )}
+
+      {isJellyfinLike && (
+        <div className="settings-inline-note">
+          支持 Jellyfin / Emby 的音乐库、搜索、专辑、歌单、收藏和播放流。ECHO 会登录后临时生成播放 URL，不会把密码写进歌曲队列。
         </div>
       )}
 
