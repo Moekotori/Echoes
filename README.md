@@ -1,439 +1,573 @@
 <div align="center">
 
-<img src="./logo.png" width="140" alt="ECHO Logo" />
 
-# ECHO
+<img src="logo.png" alt="ECHO Banner" width="100%" />
 
-### 一款可爱、锋利、认真对待声音的 Hi-Fi 桌面音乐播放器
+<br />
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=12,20,24,30&height=140&section=header&text=ECHO&fontSize=72&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=The%20Bit-Perfect%20Bridge%20to%20Your%20Sonic%20Multiverse&descAlignY=62&descSize=18" width="100%" />
+
+<br />
+
+<a href="https://github.com/Moekotori/ECHO">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=24&duration=2800&pause=600&color=8B5CF6&center=true&vCenter=true&multiline=false&width=720&height=50&lines=%E2%99%AB+Bit-Perfect+%C2%B7+%E6%AF%94%E7%89%B9%E5%AE%8C%E7%BE%8E;%F0%9F%8E%A4+Karaoke+Lyrics+%C2%B7+%E9%80%90%E5%AD%97%E5%8D%A1%E6%8B%89OK;%F0%9F%91%AB+Listen+Together+%C2%B7+%E5%85%B1%E8%81%BD%E6%88%BF%E9%97%B4;%F0%9F%94%8C+Plugin+Sandbox+%C2%B7+%E6%B2%99%E7%9B%92%E6%8F%92%E4%BB%B6%E7%B3%BB%E7%BB%9F" alt="Typing SVG" />
+</a>
+
+<br /><br />
+
+<!-- Hero Badges -->
 
 <p>
-  <b>本地音乐</b>
-  ·
-  <b>逐字歌词</b>
-  ·
-  <b>MV 播放</b>
-  ·
-  <b>插件系统</b>
-  ·
-  <b>Bit-perfect 梦想</b>
-</p>
-
-<p>
-  <a href="https://github.com/Moekotori/ECHO/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Moekotori/ECHO?label=最新版本&color=8A7CFF" alt="Latest Release">
+  <a href="https://github.com/Moekotori/ECHO/releases">
+    <img src="https://img.shields.io/github/v/release/Moekotori/ECHO?style=for-the-badge&color=8B5CF6&logo=github&logoColor=white&labelColor=1a1a2e" />
   </a>
   <a href="https://github.com/Moekotori/ECHO/stargazers">
-    <img src="https://img.shields.io/github/stars/Moekotori/ECHO?style=flat&label=Stars&color=FFB6D9" alt="GitHub Stars">
+    <img src="https://img.shields.io/github/stars/Moekotori/ECHO?style=for-the-badge&color=FFD700&logo=apachespark&logoColor=white&labelColor=1a1a2e" />
   </a>
   <a href="https://github.com/Moekotori/ECHO/releases">
-    <img src="https://img.shields.io/github/downloads/Moekotori/ECHO/total?label=下载量&color=7AD7F0" alt="Downloads">
+    <img src="https://img.shields.io/github/downloads/Moekotori/ECHO/total?style=for-the-badge&color=00D9FF&logo=icloud&logoColor=white&labelColor=1a1a2e" />
   </a>
-  <img src="https://img.shields.io/badge/平台-Windows%20Only-111827?color=111827" alt="Platform">
-  <img src="https://img.shields.io/badge/Electron-31.x-47848f" alt="Electron">
-  <img src="https://img.shields.io/badge/React-18-61dafb" alt="React">
+  <a href="https://github.com/Moekotori/ECHO/issues">
+    <img src="https://img.shields.io/github/issues/Moekotori/ECHO?style=for-the-badge&color=FF6B6B&logo=target&logoColor=white&labelColor=1a1a2e" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=1a1a2e" />
+  </a>
 </p>
+
 
 <p>
-  <a href="https://github.com/Moekotori/ECHO/releases/latest"><b>下载最新版本</b></a>
-  ·
-  <a href="#功能特性"><b>功能特性</b></a>
-  ·
-  <a href="#项目架构"><b>项目架构</b></a>
-  ·
-  <a href="docs/plugin-development.md"><b>插件开发</b></a>
+  <img src="https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white" />
+  <img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" />
+  <img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black" />
+  <img src="https://img.shields.io/badge/i18n-EN%20%C2%B7%20%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87%20%C2%B7%20%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87%20%C2%B7%20%E6%97%A5%E6%9C%AC%E8%AA%9E-blueviolet?style=flat-square" />
+  <img src="https://img.shields.io/badge/HiFi-Bit--Perfect-brightgreen?style=flat-square&logo=soundcloud&logoColor=white" />
 </p>
 
+
+<br />
+
+<!-- Quick Nav -->
+
+<p>
+  <a href="#-项目简介--overview"><b>简介</b></a> ·
+  <a href="#-核心特性--features"><b>特性</b></a> ·
+  <a href="#-技术栈--tech-stack"><b>技术栈</b></a> ·
+  <a href="#-架构--architecture"><b>架构</b></a> ·
+  <a href="#-安装--installation"><b>安装</b></a> ·
+  <a href="#-插件开发--plugin-development"><b>插件</b></a> ·
+  <a href="#%EF%B8%8F-路线图--roadmap"><b>路线图</b></a> ·
+  <a href="#-faq--常见问题"><b>FAQ</b></a>
+</p>
+
+
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+
 </div>
 
----
+## 🎴 项目简介 · Overview
 
-## ECHO 是什么？
+如果你想clone代码的话 请移步moe/carnary分支,主分支为最稳定的版本
 
-**ECHO** 是一款现代化桌面音乐播放器。
+> *「让每一段声波都纯净如初,每一次聆听都不再孤单。」*
 
-它不是只把音乐“放出来”的工具，而是一个放在桌面上的小型音乐空间：  
-本地曲库、逐字歌词、MV 播放、主题系统、插件扩展、同步听歌，以及认真设计过的原生音频播放链路。
-
-外表干净、柔软、有一点二次元气质。  
-内部锋利、稳定、尽可能接近你想要的声音。
-
-> 让音乐不是后台噪声，  
-> 而是重新回到屏幕中央。
-
----
-
-## 功能特性
+**ECHO** 是一款专为发烧友与音乐爱好者打造的跨平台桌面音乐播放器。它不只是一个播放器,更是一座连接你与音乐宇宙的「位完美」之桥 🌉
 
 <table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>Hi-Fi 音频引擎</h3>
-      <p>
-        使用独立原生音频宿主进程进行播放，降低主界面与音频链路之间的互相影响。
-        支持低延迟播放、音频输出设备切换、参数均衡器，以及 Windows WASAPI Exclusive Mode，
-        面向更纯净、更稳定的本地音乐体验。
-      </p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>逐字歌词系统</h3>
-      <p>
-        支持 LRC 歌词、逐行同步、逐字高亮与卡拉 OK 式显示效果。
-        可自动获取网易云歌词，也支持手动搜索候选歌词。
-        对日文歌曲支持罗马音转换与桌面悬浮歌词。
-      </p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>MV 播放模式</h3>
-      <p>
-        可从 YouTube 或 Bilibili 匹配并播放音乐视频。
-        支持将 MV 作为播放背景，让播放器不只是列表和进度条，而像一个小小的舞台。
-      </p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>插件系统</h3>
-      <p>
-        提供沙盒化插件架构。
-        插件可以扩展音乐源、歌词源、界面面板、后台逻辑等能力，
-        让 ECHO 不被固定功能边界锁死。
-      </p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>主题系统</h3>
-      <p>
-        基于 CSS 变量的主题引擎，支持主题导入、导出与编辑。
-        可以做成柔和、暗色、赛博、透明、二次元，或者完全属于你的样子。
-      </p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>一起听</h3>
-      <p>
-        通过可选的 WebSocket 服务实现房间式同步听歌。
-        当音乐被同时听见，它就不再只是一个人的声音。
-      </p>
-    </td>
-  </tr>
+<tr>
+<td>
+
+
+🎯 **硬件级音质**
+WASAPI 独占 + C 原生音频宿主,告别系统混音重采样
+
+</td>
+<td>
+
+🎤 **沉浸式歌词**
+逐字卡拉 OK + 日文罗马音 + 网易云自动抓取
+
+</td>
+<td>
+
+📺 **音画一体**
+YouTube / Bilibili MV 智能匹配,音乐与画面同步
+
+</td>
+</tr>
+<tr>
+<td>
+
+👥 **社交共听**
+WebSocket 房间 + DLNA 投屏,与好友隔空同步
+
+</td>
+<td>
+
+🔌 **可扩展**
+沙箱化插件系统,音源 / 歌词 / UI 任你魔改
+
+</td>
+<td>
+
+🎨 **可自定义**
+CSS 变量主题编辑器,一键切换视觉风格
+
+</td>
+</tr>
 </table>
 
----
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
 
-## 更多能力
 
-- 本地音乐文件夹扫描
-- 曲库管理与专辑封面展示
-- 播放列表、喜欢歌曲、播放队列
-- 播放速度控制与音调保持
-- 音频输出设备无缝切换
-- 实时参数均衡器与前级增益
-- NCM 格式转换
-- YouTube / Bilibili / SoundCloud 音频下载
-- 网易云歌单导入
-- DLNA 投放
-- Discord Rich Presence
-- 分享卡片导出
-- 崩溃报告与应用内日志查看器
-- 中文、英文、日文界面
+## ✨ 核心特性 · Features
 
----
+<details open>
+<summary><b>🎧 HiFi 音频引擎</b> · <i>Out-of-process Native Audio Host</i></summary>
 
-## Star 增长趋势
+
+<br />
+
+| 能力                   | 说明                                |
+| :--------------------- | :---------------------------------- |
+| 🔊 **WASAPI Exclusive** | Windows 位完美直通,绕过系统混音器   |
+| ⚙️ **独立音频进程**     | C 语言原生实现,主进程崩了音乐都不停 |
+| 🎚️ **参数化均衡器**     | 多段 EQ 实时调音,内置预设可保存     |
+| 🌊 **高保真支持**       | 24bit / 192kHz 无损采样             |
+| 🎶 **NCM 转换**         | 网易云加密格式无损转码              |
+
+</details>
+
+<details open>
+<summary><b>🎤 同步歌词系统</b> · <i>Karaoke-grade Lyrics</i></summary>
+
+
+<br />
+
+- 📝 **LRC 标准 + 逐字卡拉 OK 模式** —— 一字一闪烁,KTV 既视感
+- 🎵 **网易云歌词 API** —— 自动匹配抓取,翻译 / 音译可选
+- 🇯🇵 **Kuroshiro 日文转换** —— 汉字 ➜ ひらがな ➜ Romaji,一键搞定
+- 🌐 **四语界面** —— English · 简体中文 · 繁體中文 · 日本語
+
+</details>
+
+<details>
+<summary><b>📺 音乐视频 (MV)</b> · <i>Auto-match YouTube & Bilibili</i></summary>
+
+
+<br />
+
+- 🎬 智能识别曲目 → 自动从 YouTube / Bilibili 拉取 MV
+- 📊 多清晰度可选(360p / 720p / 1080p / 4K)
+- 🔁 音画播放进度同步联动
+
+</details>
+
+<details>
+<summary><b>👥 共听房间 · Listen Together</b></summary>
+
+
+<br />
+
+- 🌐 自建 **WebSocket** 共听服务器(`server/listen-together`)
+- 📡 **DLNA / UPnP** 投屏到智能音箱、电视
+- 👫 房主控播,房客实时同步,聊天与点歌一体
+
+</details>
+
+<details>
+<summary><b>⬇️ 媒体下载</b> · <i>YouTube · Bilibili · SoundCloud</i></summary>
+
+
+<br />
+
+- 🎯 基于 `yt-dlp` + `FFmpeg`,支持几乎所有主流平台
+- 🏷️ 自动写入 ID3 / FLAC 元数据 + 高清封面
+- 📦 批量下载,断点续传
+
+</details>
+
+<details>
+<summary><b>🔌 插件系统</b> · <i>Sandboxed Extensibility</i></summary>
+
+
+<br />
+
+| 插件类型          | 用途                                        |
+| :---------------- | :------------------------------------------ |
+| 🎵 Music Source    | 接入第三方曲库(QQ 音乐 / Spotify / 自建源…) |
+| 📝 Lyrics Provider | 自定义歌词来源(LRCLIB / 自建库…)            |
+| 🖼️ UI Panel        | 注入侧边栏 / 浮窗,扩展界面功能              |
+
+详见 [`plugin development/`](./plugin%20development) 目录。
+
+</details>
+
+<details>
+<summary><b>🎨 主题与体验</b> · <i>Beautiful by default, hackable forever</i></summary>
+
+
+<br />
+
+- 🖌️ **CSS 变量主题编辑器** —— 应用内可视化调色,导入导出 JSON
+- 🎮 **Discord Rich Presence** —— 让你的好友看见你正在听什么
+- 🚀 **electron-updater** —— GitHub Releases OTA 自动更新
+- ⌨️ **全局快捷键** + **托盘控制** + **桌面歌词**(Roadmap)
+
+</details>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 🛠️ 技术栈 · Tech Stack
 
 <div align="center">
 
-<a href="https://starchart.cc/Moekotori/ECHO">
-  <img src="https://starchart.cc/Moekotori/ECHO.svg?variant=adaptive" alt="Star History Chart">
+
+<a href="https://skillicons.dev">
+  <img src="https://skillicons.dev/icons?i=electron,react,vite,nodejs,c,cpp,js,css,html,ffmpeg&theme=dark" />
 </a>
+
+<br /><br />
+
+|      模块       | 技术选型                               |    占比     |
+| :-------------: | :------------------------------------- | :---------: |
+| 🖥️ **桌面框架**  | Electron 31.x · electron-vite          |      —      |
+|  ⚛️ **前端 UI**  | React 18 · lucide-react                |  28.6% JS   |
+| 🔊 **原生音频**  | naudiodon · WASAPI Native Host         | **61.6% C** |
+| 🎞️ **媒体处理**  | FFmpeg · yt-dlp · music-metadata       |      —      |
+| 🇯🇵 **文本处理** | Kuroshiro (日文罗马音转换)             |      —      |
+| 🌐 **网络通信**  | WebSocket · DLNA / UPnP                |      —      |
+| 🎨 **样式系统**  | CSS Variables · 主题引擎               |  5.5% CSS   |
+| 🔄 **自动更新**  | electron-updater (GitHub Releases OTA) |      —      |
 
 </div>
 
----
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
 
-## 项目架构
+
+## 🏗️ 架构 · Architecture
 
 ```mermaid
-flowchart TD
-    User["用户 / Listener"]
+flowchart TB
+  subgraph UI["🖼️ Renderer · React UI"]
+    A[Library / Player]
+    B[Lyrics Karaoke]
+    C[MV Viewer]
+    D[Plugin Panels]
+  end
 
-    subgraph Renderer["渲染进程 Renderer"]
-        UI["React 界面"]
-        Theme["主题系统"]
-        LyricsUI["歌词 / MV / 曲库界面"]
-        PluginUI["插件界面面板"]
-    end
+  subgraph Main["⚙️ Electron Main Process"]
+    E[IPC Router]
+    F[Plugin Sandbox]
+    G[Theme Engine]
+    H[Auto Updater]
+  end
 
-    subgraph Preload["预加载层 Preload"]
-        Bridge["Context Bridge"]
-        SafeAPI["安全 API 暴露"]
-    end
+  subgraph Audio["🔊 Out-of-process Audio Host (C)"]
+    I[WASAPI Exclusive]
+    J[Parametric EQ]
+    K[Decoder Pipeline]
+  end
 
-    subgraph Main["Electron 主进程"]
-        IPC["IPC 路由"]
-        Library["曲库管理"]
-        Lyrics["歌词服务"]
-        MV["MV / 媒体服务"]
-        PluginManager["插件管理器"]
-        Settings["设置与本地存储"]
-        Cast["DLNA 投放"]
-        Updater["自动更新"]
-    end
+  subgraph Ext["🌐 External Services"]
+    L[NetEase Lyrics]
+    M[YouTube / Bilibili]
+    N[Listen-Together WS]
+    O[DLNA Devices]
+  end
 
-    subgraph AudioHost["原生音频宿主"]
-        AudioEngine["音频引擎"]
-        WASAPI["WASAPI Exclusive"]
-        EQ["参数均衡器"]
-        Device["输出设备层"]
-    end
+  UI <--> Main
+  Main <--> Audio
+  Main <--> Ext
+  Audio --> I
+  I --> J
+  J --> K
 
-    subgraph External["外部服务"]
-        GitHub["GitHub Releases"]
-        NetEase["网易云歌词"]
-        YouTube["YouTube"]
-        Bilibili["Bilibili"]
-        ListenServer["一起听服务器"]
-    end
-
-    User --> UI
-    UI --> Bridge
-    Bridge --> IPC
-
-    IPC --> Library
-    IPC --> Lyrics
-    IPC --> MV
-    IPC --> PluginManager
-    IPC --> Settings
-    IPC --> Cast
-    IPC --> Updater
-    IPC --> AudioEngine
-
-    Lyrics --> NetEase
-    MV --> YouTube
-    MV --> Bilibili
-    Updater --> GitHub
-    IPC --> ListenServer
-
-    AudioEngine --> WASAPI
-    AudioEngine --> EQ
-    AudioEngine --> Device
-
-    PluginManager --> PluginUI
-    Theme --> UI
-    LyricsUI --> UI
+  style UI fill:#1e1e3f,stroke:#8B5CF6,color:#fff
+  style Main fill:#2d1b4e,stroke:#00D9FF,color:#fff
+  style Audio fill:#3d1a3a,stroke:#FFD700,color:#fff
+  style Ext fill:#1a3a3a,stroke:#FF6B6B,color:#fff
 ```
 
----
+> 💡 **设计哲学**:UI 与音频引擎分离,渲染卡顿绝不影响播放;插件运行在沙箱,安全与扩展性兼得。
 
-## 项目结构
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
 
-```txt
-ECHO/
-├─ src/
-│  ├─ main/
-│  │  ├─ audio/          # 原生音频桥接与音频引擎封装
-│  │  ├─ cast/           # DLNA 投放逻辑
-│  │  ├─ plugins/        # 插件管理器、沙盒与插件存储
-│  │  └─ ...             # IPC、更新、曲库、歌词、媒体服务
-│  │
-│  ├─ preload/           # 安全的 Context Bridge API
-│  │
-│  └─ renderer/
-│     └─ src/
-│        ├─ components/  # 界面组件
-│        ├─ locales/     # 国际化文本：中文、英文、日文
-│        ├─ styles/      # 全局样式与主题变量
-│        └─ App.jsx      # 渲染进程入口
-│
-├─ server/
-│  └─ listen-together/   # 可选的一起听同步服务器
-│
-├─ scripts/              # 构建、发布、维护脚本
-├─ docs/                 # 开发文档
-├─ examples/             # 示例插件
-└─ logo.png              # 项目 Logo
-```
 
----
+## 📦 安装 · Installation
 
-## 环境要求
-
-| 依赖 | 版本 |
-|---|---|
-| Node.js | >= 18 |
-| npm | >= 9 |
-| Electron | 31.x |
-
-> ECHO 当前主要面向 Windows。  
-> 如果需要本地开发原生依赖，例如 `naudiodon`，推荐使用 Node.js 20 LTS。
-
----
-
-## 开始开发
-
-### 克隆仓库
-
-```bash
-git clone https://github.com/Moekotori/ECHO.git
-cd ECHO
-```
-
-### 安装依赖
-
-```bash
-npm install
-```
-
-原生模块会通过项目的 postinstall 流程自动安装和构建。
-
-### 启动开发环境
-
-```bash
-npm run dev
-```
-
----
-
-## 构建
-
-### Windows 构建
-
-```bash
-npm run build:win
-```
-
-### Windows 发布构建
-
-```bash
-npm run build:win:release
-```
-
-发布构建会生成用于 GitHub Releases 与自动更新所需的相关文件。
-
----
-
-## 测试
-
-```bash
-npm run test:unit
-```
-
-发布前建议执行：
-
-```bash
-npm run verify:release
-```
-
-完整发布检查流程见：
-
-```txt
-docs/RELEASE_CHECKLIST.md
-```
-
----
-
-## 插件开发
-
-ECHO 支持通过沙盒化插件系统扩展功能。
-
-一个插件通常包含：
-
-```txt
-plugin.json
-main.js
-renderer.js
-styles.css
-```
-
-插件可以扩展：
-
-- 自定义音乐源
-- 自定义歌词源
-- 渲染进程界面面板
-- 后台逻辑
-- 插件配置与存储
-
-完整插件开发文档：
-
-[docs/plugin-development.md](docs/plugin-development.md)
-
----
-
-## 一起听服务器
-
-可选的一起听服务器用于实现房间式同步播放。
-
-```bash
-cd server/listen-together
-npm install
-PORT=8787 npm start
-```
-
-生产环境部署说明见：
-
-```txt
-server/listen-together/DEPLOY_FROM_ZERO_ZH.md
-```
-
----
-
-## 贡献者
+### 🎁 方式一:下载安装包(推荐)
 
 <div align="center">
 
-<a href="https://github.com/Moekotori/ECHO/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Moekotori/ECHO" alt="ECHO contributors">
+
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Moekotori/ECHO/releases/latest)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Moekotori/ECHO/releases/latest)
+[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://github.com/Moekotori/ECHO/releases/latest)
+
+</div>
+
+### 🔧 方式二:从源码构建
+
+```bash
+# 克隆仓库
+git clone https://github.com/Moekotori/ECHO.git && cd ECHO
+
+# 安装依赖
+npm install
+
+# 开发模式
+npm run dev
+
+# 打包构建
+npm run build:win    # Windows
+npm run build:mac    # macOS
+npm run build:linux  # Linux
+```
+
+> 💡 首次启动会自动下载 FFmpeg / yt-dlp 等运行时,请保持网络畅通。
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 📂 项目结构 · Structure
+
+```
+ECHO/
+├── 🎨 src/                      # React 前端源码
+├── ⚙️  electron-app/            # Electron 主进程
+├── 🔊 _HOTFIX_192K/             # 高采样率原生音频补丁
+├── 🌐 server/listen-together/   # 共听 WebSocket 服务
+├── 🔌 plugin development/       # 插件开发文档与 SDK
+├── 📦 examples/                 # 示例插件
+├── 🛠️ scripts/                  # 构建与工具脚本
+├── 📚 docs/                     # 项目文档
+├── 🪐 website/                  # 官方站点
+├── 🎁 artifacts/                # CI 构建产物
+├── 🧪 test/unit/                # 单元测试
+├── 🐱 .cursor/                  # Cursor IDE 配置
+├── ⚡ electron.vite.config.mjs
+└── 📜 package.json
+```
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 🔌 插件开发 · Plugin Development
+
+ECHO 提供完整的沙箱化插件 API,你可以扩展三大维度:
+
+<table>
+<tr>
+<td align="center" width="33%">
+
+
+### 🎵
+
+**Music Source**
+接入自定义曲库
+</td>
+<td align="center" width="33%">
+
+### 📝
+
+**Lyrics Provider**
+自定义歌词来源
+</td>
+<td align="center" width="33%">
+
+### 🖼️
+
+**UI Panel**
+注入界面组件
+</td>
+</tr>
+</table>
+
+```js
+// 一个最小的歌词插件示例
+export default {
+  name: 'my-lyrics-source',
+  type: 'lyrics',
+  async fetch(track) {
+    const res = await fetch(`https://api.example.com/lyrics?q=${track.title}`)
+    return await res.text()
+  }
+}
+```
+
+📖 完整文档:[`plugin development/`](./plugin%20development)
+🎁 示例集合:[`examples/`](./examples)
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 🗺️ 路线图 · Roadmap
+
+- [x] 🎧 WASAPI 独占输出 + 原生音频宿主
+- [x] 🎤 逐字卡拉 OK 歌词 + 日文罗马音
+- [x] 📺 YouTube / Bilibili MV 自动匹配
+- [x] 👥 共听房间 + DLNA 投屏
+- [x] 🔌 沙箱化插件系统
+- [x] 🎨 CSS 变量主题编辑器
+- [ ] 🖥️ **桌面歌词浮窗**(透明置顶)
+- [ ] 📱 **跨设备播放接力**(Handoff)
+- [ ] 🤖 **AI 智能推荐 / 心情电台**
+- [ ] 🎙️ **本地音色克隆 & AI 翻唱**
+- [ ] 🌍 **更多语言**(한국어 / Français / Español)
+
+> 💡 想要某个功能?来 [Issues](https://github.com/Moekotori/ECHO/issues) 提建议!
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## ❓ FAQ · 常见问题
+
+<details>
+<summary><b>Q: 为什么需要 WASAPI 独占模式?和共享模式有什么区别?</b></summary>
+
+
+<br />
+
+共享模式下,音频会经过 Windows 系统混音器,可能被重采样至默认格式(通常 48kHz / 16bit),导致原始 44.1kHz / 24bit 信号失真。
+**WASAPI 独占模式**直接占用声卡,绕过混音器,实现真正的「比特完美」输出。
+
+</details>
+
+<details>
+<summary><b>Q: 共听房间需要公网服务器吗?</b></summary>
+
+
+<br />
+
+不一定。`server/listen-together` 可以本地局域网部署,也可托管到公网。任意能跑 Node.js 的环境都行。
+
+</details>
+
+<details>
+<summary><b>Q: 插件会不会有安全风险?</b></summary>
+
+
+<br />
+
+ECHO 插件运行在 **沙箱环境** 中,有权限隔离机制。所有网络请求、文件读写都需声明权限,详见插件开发文档。
+
+</details>
+
+<details>
+<summary><b>Q: 支持 Apple Silicon (M1/M2/M3) 吗?</b></summary>
+
+
+<br />
+
+支持。macOS 安装包提供 universal binary,原生支持 ARM64。
+
+</details>
+
+<details>
+<summary><b>Q: 网易云 / Bilibili 接口失效了怎么办?</b></summary>
+
+
+<br />
+
+ECHO 团队会尽快跟进修复,你也可以通过 **插件系统** 自定义替代源,或在 [Issues](https://github.com/Moekotori/ECHO/issues) 反馈。
+
+</details>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 🤝 贡献 · Contributing
+
+欢迎所有形式的贡献!Bug 反馈 · 功能建议 · 文档改进 · 代码 PR 都热烈欢迎 💖
+
+```bash
+# Fork → Branch → Commit → Push → PR
+git checkout -b feature/AmazingFeature
+git commit -m '✨ feat: add some amazing feature'
+git push origin feature/AmazingFeature
+```
+
+<div align="center">
+
+
+[![Contributors](https://contrib.rocks/image?repo=Moekotori/ECHO)](https://github.com/Moekotori/ECHO/graphs/contributors)
+
+</div>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 📊 数据 · Stats
+
+<div align="center">
+
+
+![Repo Stats](https://github-readme-stats.vercel.app/api/pin/?username=Moekotori&repo=ECHO&theme=tokyonight&hide_border=true&bg_color=0d1117)
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Moekotori/ECHO&type=Date&theme=dark)](https://star-history.com/#Moekotori/ECHO&Date)
+
+</div>
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
+</div>
+
+
+## 📜 开源协议 · License
+
+本项目基于 **MIT License** 开源 —— 自由使用,自由魔改,记得保留版权声明 💜
+详见 [LICENSE](LICENSE) 文件。
+
+## 💖 致谢 · Acknowledgements
+
+衷心感谢以下开源项目让 ECHO 成为可能:
+
+<div align="center">
+
+
+[Electron](https://electronjs.org) · [React](https://react.dev) · [electron-vite](https://electron-vite.org) · [naudiodon](https://github.com/streamich/naudiodon) · [Kuroshiro](https://github.com/hexenq/kuroshiro) · [music-metadata](https://github.com/Borewit/music-metadata) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [FFmpeg](https://ffmpeg.org) · [lucide-react](https://lucide.dev)
+
+以及网易云音乐、Bilibili、YouTube 的开放生态,所有星标 / 反馈 / PR 的朋友们 ✨
+
+</div>
+
+<br />
+
+<div align="center">
+
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=12,20,24,30&height=120&section=footer&text=Listen%20as%20ECHO&fontSize=36&fontColor=ffffff&animation=twinkling&fontAlignY=70" width="100%" />
+
+### ⭐ 如果你喜欢 ECHO,请给个 Star!
+
+**Made with 🎵 and ❤️ by [@Moekotori](https://github.com/Moekotori)**
+
+*Listen Bit-Perfect · Listen Together · Listen as ECHO*
+
+<a href="https://github.com/Moekotori">
+  <img src="https://img.shields.io/github/followers/Moekotori?style=social&label=Follow" />
 </a>
 
-<br>
-
-<sub>贡献者头像由 contrib.rocks 自动生成并实时更新。</sub>
-
 </div>
-
----
-
-## 参与贡献
-
-欢迎提交 Pull Request。
-
-提交前建议：
-
-1. Fork 本仓库
-2. 创建新的功能分支
-3. 保持现有代码风格
-4. 必要时运行测试与发布检查
-5. 清楚说明本次修改内容与原因
-
-```bash
-npm run test:unit
-npm run verify:release
-```
-
----
-
-## 鸣谢
-
-ECHO 基于这些优秀的开源项目构建：
-
-- [Electron](https://www.electronjs.org/)
-- [React](https://react.dev/)
-- [electron-vite](https://electron-vite.org/)
-- [naudiodon](https://github.com/Streampunk/naudiodon)
-- [Kuroshiro](https://kuroshiro.org/)
-- [music-metadata](https://github.com/borewit/music-metadata)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- [FFmpeg](https://ffmpeg.org/)
-- [lucide-react](https://lucide.dev/)
-
----
-
-<div align="center">
-
-### ECHO
-
-让播放器不只是播放器。  
-让音乐重新变成一件值得凝视的事。
-
-</div>
-````
