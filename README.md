@@ -255,6 +255,8 @@ Thanks to everyone who has contributed to ECHO!
 
 *This list updates automatically via [contrib.rocks](https://contrib.rocks).*
 
+Special thanks to [@jerry155756294](https://github.com/jerry155756294) for their contributions.
+
 ---
 
 ## Contributing
