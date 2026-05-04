@@ -157,9 +157,14 @@ import {
 } from './utils/trackUtils'
 import { filterAndRankTracksBySearch, getTrackSearchScore } from './utils/librarySearch'
 import {
+  buildLastFmTrackIdentity,
   buildLastFmTrackPayload,
   getLastFmScrobbleThresholdSec
 } from './utils/lastfmTrackPayload'
+import {
+  buildDiscordPresenceActivity,
+  buildDiscordPresenceSignature
+} from './utils/discordPresence'
 import { ArtistLink } from './components/ArtistLink'
 import { EqPlot } from './components/EqPlot'
 import { EQ_PRESETS } from './constants/eq'
@@ -2219,7 +2224,10 @@ export default function App() {
   const lastLoadedTrackPathRef = useRef('')
   const trackStartedAtRef = useRef(null)
   const scrobbledRef = useRef(false)
-  const lastLastFmTrackPathRef = useRef('')
+  const lastLastFmTrackKeyRef = useRef('')
+  const lastLastFmNowPlayingKeyRef = useRef('')
+  const lastLastFmScrobbleKeyRef = useRef('')
+  const lastFmScrobbleInFlightRef = useRef(false)
   const historyNavigationRef = useRef(false)
   const lastHistoryTrackedPathRef = useRef('')
   const lastStatsTrackedPathRef = useRef('')
@@ -3983,25 +3991,6 @@ export default function App() {
   ])
 
   useEffect(() => {
-    if (!config.lastfmEnabled || !config.lastfmSessionKey || scrobbledRef.current) return
-    const track = playlist[currentIndex]
-    if (!track || !window.api?.lastfm?.scrobble) return
-    const payload = buildLastFmTrackPayload(track)
-    if (!payload) return
-    const dur = Number(payload.duration) || 0
-    if (currentTime >= getLastFmScrobbleThresholdSec(dur)) {
-      scrobbledRef.current = true
-      void window.api.lastfm.scrobble(
-        payload.artist,
-        payload.title,
-        payload.album,
-        trackStartedAtRef.current || Date.now(),
-        dur
-      )
-    }
-  }, [currentTime, currentIndex, config.lastfmEnabled, config.lastfmSessionKey, playlist])
-
-  useEffect(() => {
     if (!libraryStateReady || !playbackSessionRestoreReady || isSeeking || currentIndex < 0) return
     persistPlaybackSession(getPlaybackSessionSnapshot(), true)
   }, [
@@ -4295,12 +4284,6 @@ export default function App() {
   useEffect(() => {
     if (currentIndex >= 0 && playlist[currentIndex]) {
       const track = playlist[currentIndex]
-      const isNewLastFmTrack = lastLastFmTrackPathRef.current !== track.path
-      if (isNewLastFmTrack) {
-        lastLastFmTrackPathRef.current = track.path
-        trackStartedAtRef.current = Date.now()
-        scrobbledRef.current = false
-      }
       const pendingSession = pendingTrackStartRef.current
       const restoreStartTime =
         pendingSession?.trackPath === track.path
@@ -4408,31 +4391,17 @@ export default function App() {
         })
       }
 
-      if (
-        isNewLastFmTrack &&
-        config.lastfmEnabled &&
-        config.lastfmSessionKey &&
-        window.api?.lastfm
-      ) {
-        const payload = buildLastFmTrackPayload(track)
-        if (!payload) return
-        void window.api.lastfm.nowPlaying(
-          payload.artist,
-          payload.title,
-          payload.album,
-          Number(payload.duration) || 0
-        )
-      }
     } else {
-      lastLastFmTrackPathRef.current = ''
+      lastLastFmTrackKeyRef.current = ''
+      lastLastFmNowPlayingKeyRef.current = ''
+      lastLastFmScrobbleKeyRef.current = ''
+      lastFmScrobbleInFlightRef.current = false
     }
   }, [
     applyStartTimeToAudio,
     currentIndex,
     isPlaying,
-    playlist,
-    config.lastfmEnabled,
-    config.lastfmSessionKey
+    playlist
   ])
 
   useEffect(() => {
@@ -8768,6 +8737,151 @@ export default function App() {
     if (coverUrlTrackPath === currentTrack?.path && metadata.album) return metadata.album
     return currentTrack?.info?.album || 'Unknown Album'
   }, [coverUrlTrackPath, lastCastStatus, currentDisplayOverride, metadata.album, currentTrack])
+
+  useEffect(() => {
+    const track = currentTrack
+    const trackBaseKey = track ? `${currentIndex}\u001f${track.path || ''}` : ''
+    const displayedTitle = String(displayMainTitle || '').trim()
+    const displayedArtist = String(displayMainArtist || '').trim()
+    const displayedAlbum = String(displayMainAlbum || '').trim()
+    const lastFmOverrides = {
+      title: displayedTitle,
+      artist:
+        displayedArtist && displayedArtist !== t('player.nightcoreMode')
+          ? displayedArtist
+          : currentTrackInfo?.artist || '',
+      album: displayedAlbum !== 'Unknown Album' ? displayedAlbum : currentTrackInfo?.album || '',
+      duration: duration || currentTrackInfo?.duration || track?.info?.duration || 0
+    }
+    const trackKey = buildLastFmTrackIdentity(track, currentIndex, lastFmOverrides)
+
+    if (!track || !trackBaseKey || !trackKey) {
+      lastLastFmTrackKeyRef.current = ''
+      lastLastFmNowPlayingKeyRef.current = ''
+      lastLastFmScrobbleKeyRef.current = ''
+      lastFmScrobbleInFlightRef.current = false
+      return
+    }
+
+    if (lastLastFmTrackKeyRef.current !== trackBaseKey) {
+      lastLastFmTrackKeyRef.current = trackBaseKey
+      lastLastFmNowPlayingKeyRef.current = ''
+      lastLastFmScrobbleKeyRef.current = ''
+      lastFmScrobbleInFlightRef.current = false
+      trackStartedAtRef.current = Date.now()
+      scrobbledRef.current = false
+    }
+
+    if (!config.lastfmEnabled || !config.lastfmSessionKey || !window.api?.lastfm?.nowPlaying) return
+    if (lastLastFmNowPlayingKeyRef.current === trackKey) return
+
+    const payload = buildLastFmTrackPayload(track, lastFmOverrides)
+    if (!payload) return
+
+    let cancelled = false
+    const sendNowPlaying = async () => {
+      try {
+        if (window.api?.lastfm?.setSession) {
+          await window.api.lastfm.setSession(config.lastfmSessionKey, config.lastfmUsername || '')
+        }
+        const result = await window.api.lastfm.nowPlaying(
+          payload.artist,
+          payload.title,
+          payload.album,
+          Number(payload.duration) || 0
+        )
+        if (cancelled) return
+        if (result?.ok) {
+          lastLastFmNowPlayingKeyRef.current = trackKey
+        } else {
+          console.warn('[Last.fm] updateNowPlaying skipped/failed:', result)
+        }
+      } catch (error) {
+        if (!cancelled) console.warn('[Last.fm] updateNowPlaying failed:', error)
+      }
+    }
+
+    void sendNowPlaying()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    currentIndex,
+    currentTrack,
+    currentTrackInfo,
+    config.lastfmEnabled,
+    config.lastfmSessionKey,
+    config.lastfmUsername,
+    displayMainAlbum,
+    displayMainArtist,
+    displayMainTitle,
+    duration,
+    t
+  ])
+
+  useEffect(() => {
+    if (!config.lastfmEnabled || !config.lastfmSessionKey || scrobbledRef.current) return
+    const track = currentTrack
+    if (!track || !window.api?.lastfm?.scrobble) return
+    const displayedArtist = String(displayMainArtist || '').trim()
+    const payload = buildLastFmTrackPayload(track, {
+      title: displayMainTitle,
+      artist:
+        displayedArtist && displayedArtist !== t('player.nightcoreMode')
+          ? displayedArtist
+          : currentTrackInfo?.artist || '',
+      album: displayMainAlbum !== 'Unknown Album' ? displayMainAlbum : currentTrackInfo?.album || '',
+      duration: duration || currentTrackInfo?.duration || track?.info?.duration || 0
+    })
+    if (!payload) return
+    const dur = Number(payload.duration) || 0
+    if (currentTime >= getLastFmScrobbleThresholdSec(dur)) {
+      const trackKey = buildLastFmTrackIdentity(track, currentIndex, {
+        title: payload.title,
+        artist: payload.artist,
+        album: payload.album,
+        duration: dur
+      })
+      if (lastFmScrobbleInFlightRef.current || lastLastFmScrobbleKeyRef.current === trackKey) return
+      lastFmScrobbleInFlightRef.current = true
+      void (async () => {
+        try {
+          if (window.api?.lastfm?.setSession) {
+            await window.api.lastfm.setSession(config.lastfmSessionKey, config.lastfmUsername || '')
+          }
+          const result = await window.api.lastfm.scrobble(
+            payload.artist,
+            payload.title,
+            payload.album,
+            trackStartedAtRef.current || Date.now(),
+            dur
+          )
+          if (result?.ok) {
+            scrobbledRef.current = true
+            lastLastFmScrobbleKeyRef.current = trackKey
+          } else {
+            console.warn('[Last.fm] scrobble skipped/failed:', result)
+          }
+        } catch (error) {
+          console.warn('[Last.fm] scrobble failed:', error)
+        } finally {
+          lastFmScrobbleInFlightRef.current = false
+        }
+      })()
+    }
+  }, [
+    currentTime,
+    currentTrack,
+    currentTrackInfo,
+    config.lastfmEnabled,
+    config.lastfmSessionKey,
+    config.lastfmUsername,
+    displayMainAlbum,
+    displayMainArtist,
+    displayMainTitle,
+    duration,
+    t
+  ])
 
   const displayMainCoverUrl = useMemo(() => {
     const s = lastCastStatus
@@ -13602,48 +13716,56 @@ export default function App() {
     )
   }
 
+  const discordPresenceSignatureRef = useRef('')
+
   useEffect(() => {
     if (!window.api?.setDiscordActivity) return
 
     if (!config.enableDiscordRPC || !config.showDiscordRPC) {
+      discordPresenceSignatureRef.current = ''
       window.api.clearDiscordActivity()
       return
     }
 
-    if (currentIndex >= 0 && playlist[currentIndex]) {
-      const track = playlist[currentIndex]
-      const rawName = track.name.replace(/\.[^/.]+$/, '')
-      const title = (metadata.title && metadata.title.trim()) || rawName
-      const artist = (metadata.artist && metadata.artist.trim()) || track?.info?.artist || 'ECHO'
-
-      window.api.setDiscordActivity({
-        title,
-        artist,
-        isPlaying,
-        playbackRate: playbackRate.toFixed(2),
-        coverUrl,
-        startTimestamp: isPlaying
-          ? Math.floor(Date.now() - (currentTime * 1000) / playbackRate)
-          : null,
-        endTimestamp: isPlaying
-          ? Math.floor(Date.now() + ((duration - currentTime) * 1000) / playbackRate)
-          : null
-      })
-    } else {
+    if (!currentTrack) {
+      discordPresenceSignatureRef.current = ''
       window.api.clearDiscordActivity()
+      return
     }
+
+    const activity = buildDiscordPresenceActivity({
+      track: currentTrack,
+      title: displayMainTitle,
+      artist:
+        displayMainArtist && displayMainArtist !== t('player.nightcoreMode')
+          ? displayMainArtist
+          : currentTrackInfo?.artist || '',
+      artistFallback: currentTrackInfo?.artist || currentTrack?.info?.artist || 'ECHO',
+      isPlaying,
+      playbackRate,
+      coverUrl: displaySafeCoverUrl || coverUrl,
+      currentTime,
+      duration
+    })
+    const signature = buildDiscordPresenceSignature(activity)
+    if (!activity || signature === discordPresenceSignatureRef.current) return
+
+    discordPresenceSignatureRef.current = signature
+    window.api.setDiscordActivity(activity)
   }, [
-    currentIndex,
-    playlist,
-    metadata.title,
-    metadata.artist,
+    currentTrack,
+    currentTrackInfo,
+    displayMainTitle,
+    displayMainArtist,
     isPlaying,
     playbackRate,
     config.enableDiscordRPC,
     config.showDiscordRPC,
+    displaySafeCoverUrl,
     coverUrl,
     duration,
-    currentTime
+    currentTime,
+    t
   ])
 
   // Sync Discord Toggle with Main Process

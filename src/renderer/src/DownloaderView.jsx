@@ -829,14 +829,7 @@ export default function DownloaderView({
         String(s || '')
           .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
           .trim()
-      const safeName =
-        sanitize(
-          song.artist
-            ? `${song.artist} - ${song.name}`
-            : song.artists
-              ? `${song.artists} - ${song.name}`
-              : song.name
-        ) || `nm_${song.id}`
+      const safeName = sanitize(song.name || song.title) || `netease-${song.id || 'track'}`
 
       const usableNeteaseCookie = await ensureUsableNeteaseCookie()
 
@@ -884,6 +877,10 @@ export default function DownloaderView({
             .catch(() => [])
           const newFiles = filesAfter.filter((fa) => !filesBefore.find((fb) => fb.path === fa.path))
           filePath = newFiles.length > 0 ? newFiles[0].path : null
+        }
+
+        if (filePath && window.api?.media?.renameDownloadedMedia) {
+          filePath = await window.api.media.renameDownloadedMedia(filePath, safeName)
         }
 
         let hasLyrics = false

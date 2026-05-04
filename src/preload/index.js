@@ -158,6 +158,8 @@ contextBridge.exposeInMainWorld('api', {
     downloadAudio: (url, folder, options) =>
       ipcRenderer.invoke('media:download', url, folder, options),
     downloadFromUrl: (opts) => ipcRenderer.invoke('media:downloadFromUrl', opts),
+    renameDownloadedMedia: (filePath, desiredStem) =>
+      ipcRenderer.invoke('media:renameDownloadedMedia', filePath, desiredStem),
     applyDownloadedMetadata: (payload) => ipcRenderer.invoke('media:applyDownloadedMetadata', payload),
     onProgress: (callback) => {
       const channel = 'media:download-progress'

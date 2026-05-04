@@ -187,13 +187,16 @@ export class LastFmClient {
       if (album) params.album = String(album).trim()
       if (Number(durationSec) > 0) params.duration = String(Math.round(Number(durationSec)))
       if (!params.artist || !params.track) return { ok: false, skipped: true }
-      await this._post({
+      const data = await this._post({
         ...params,
         api_sig: this._sign(params)
       })
-      return { ok: true }
-    } catch {
-      return { ok: false }
+      if (data?.error) {
+        return { ok: false, error: data.error, message: data.message || '' }
+      }
+      return { ok: true, response: data }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
     }
   }
 
@@ -212,13 +215,16 @@ export class LastFmClient {
       if (album) params.album = String(album).trim()
       if (Number(durationSec) > 0) params.duration = String(Math.round(Number(durationSec)))
       if (!params.artist || !params.track) return { ok: false, skipped: true }
-      await this._post({
+      const data = await this._post({
         ...params,
         api_sig: this._sign(params)
       })
-      return { ok: true }
-    } catch {
-      return { ok: false }
+      if (data?.error) {
+        return { ok: false, error: data.error, message: data.message || '' }
+      }
+      return { ok: true, response: data }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
     }
   }
 

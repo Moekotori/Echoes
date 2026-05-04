@@ -1920,7 +1920,10 @@ let rpcConnecting = false
 let rpcEnabled = true
 let rpcReconnectAttempts = 0
 let rpcLastActivity = null
+let rpcActivityRevision = 0
 let rpcLastActivityErrorLogAt = 0
+let rpcDisposePromise = null
+let discordRpcQuitCleanupDone = false
 /** 应用即将退出（Windows/Linux 关窗链或任意平台 before-quit）：禁止重连 */
 let discordRpcQuitting = false
 const rpcCoverCache = new Map()
@@ -1959,22 +1962,28 @@ function destroyRpcClient() {
 
 /** 退出或用户关闭 RPC：先 clearActivity ?? destroy，减少对端残留「正在玩?? */
 async function disposeDiscordRpc() {
+  if (rpcDisposePromise) return rpcDisposePromise
   clearRpcRetryTimer()
   const c = rpcClient
   const wasReady = rpcReady
   rpcClient = null
   rpcReady = false
   rpcConnecting = false
-  if (!c) return
-  try {
-    c.removeAllListeners()
-  } catch (_) {}
-  try {
-    if (wasReady) await c.clearActivity()
-  } catch (_) {}
-  try {
-    await c.destroy()
-  } catch (_) {}
+  rpcDisposePromise = (async () => {
+    if (!c) return
+    try {
+      if (wasReady) await c.clearActivity()
+    } catch (_) {}
+    try {
+      c.removeAllListeners()
+    } catch (_) {}
+    try {
+      await c.destroy()
+    } catch (_) {}
+  })().finally(() => {
+    rpcDisposePromise = null
+  })
+  return rpcDisposePromise
 }
 
 function handleDiscordRpcCommandFailure(error, reason, client, reconnect = true) {
@@ -2013,18 +2022,38 @@ function buildRpcPayload(activity = {}) {
   return payload
 }
 
-function getDiscordImageKeyCandidates(coverUrl) {
-  if (!coverUrl || typeof coverUrl !== 'string') return []
+function normalizeDiscordExternalImageUrl(coverUrl) {
+  if (!coverUrl || typeof coverUrl !== 'string') return null
   const url = coverUrl.trim()
-  if (!/^https?:\/\//i.test(url)) return []
+  if (!/^https?:\/\//i.test(url)) return null
 
-  // Some Discord clients/extensions accept URL directly, some accept mp: prefixed form.
-  return [url, `mp:${url}`]
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host.endsWith('.localhost')
+    ) {
+      return null
+    }
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:'
+    return parsed.toString()
+  } catch (_) {
+    return null
+  }
+}
+
+function getDiscordImageKeyCandidates(coverUrl) {
+  const url = normalizeDiscordExternalImageUrl(coverUrl)
+  return url ? [url] : []
 }
 
 async function resolveRpcCoverUrl(activity = {}) {
-  if (activity?.coverUrl && /^https?:\/\//i.test(activity.coverUrl)) {
-    return activity.coverUrl
+  const activityCoverUrl = normalizeDiscordExternalImageUrl(activity?.coverUrl)
+  if (activityCoverUrl) {
+    return activityCoverUrl
   }
 
   const title = (activity?.title || '').trim()
@@ -2050,24 +2079,37 @@ async function resolveRpcCoverUrl(activity = {}) {
   }
 }
 
-async function applyRpcActivity(activity, fallbackToDefault = false) {
+async function applyRpcActivity(activity, fallbackToDefault = false, expectedRevision = rpcActivityRevision) {
   if (discordRpcQuitting || !rpcClient || !rpcReady) return false
   const client = rpcClient
+  const isStaleActivity = () => expectedRevision !== rpcActivityRevision
+  const refreshIfStale = () => {
+    if (!isStaleActivity() || discordRpcQuitting || !rpcEnabled) return
+    const revision = rpcActivityRevision
+    setTimeout(() => {
+      applyRpcActivity(rpcLastActivity, true, revision).catch(() => {})
+    }, 0)
+  }
   try {
     if (activity) {
+      if (isStaleActivity()) return false
       const payload = buildRpcPayload(activity)
       const resolvedCoverUrl = await resolveRpcCoverUrl(activity)
-      if (discordRpcQuitting || !rpcReady || rpcClient !== client) return false
+      if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
       const candidates = getDiscordImageKeyCandidates(resolvedCoverUrl)
 
       for (const imageKey of candidates) {
-        if (discordRpcQuitting || !rpcReady || rpcClient !== client) return false
+        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
         try {
           await client.setActivity({
             ...payload,
             largeImageKey: imageKey,
             largeImageText: `${activity.title || 'Unknown Track'} cover`
           })
+          if (isStaleActivity()) {
+            refreshIfStale()
+            return false
+          }
           return true
         } catch (_) {
           // Try next candidate
@@ -2075,18 +2117,22 @@ async function applyRpcActivity(activity, fallbackToDefault = false) {
       }
 
       // Fallback to app default asset if dynamic cover fails.
-      if (discordRpcQuitting || !rpcReady || rpcClient !== client) return false
+      if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
       await client.setActivity(payload)
+      if (isStaleActivity()) {
+        refreshIfStale()
+        return false
+      }
       return true
     }
 
-    if (discordRpcQuitting || !rpcReady || rpcClient !== client) return false
+    if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
     await client.setActivity(DEFAULT_RPC_ACTIVITY)
     return true
   } catch (e) {
     if (fallbackToDefault) {
       try {
-        if (discordRpcQuitting || !rpcReady || rpcClient !== client) return false
+        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
         await client.setActivity(DEFAULT_RPC_ACTIVITY)
         return true
       } catch (_) {}
@@ -2154,6 +2200,7 @@ async function resolveQqMusicAuthState(preferredCookie = '') {
 
 function scheduleDiscordReconnect(reason = 'unknown') {
   if (discordRpcQuitting || !rpcEnabled) return
+  if (!rpcLastActivity) return
   if (rpcRetryTimer) return
   if (rpcReconnectAttempts >= DISCORD_RPC_RECONNECT_MAX) {
     console.warn(
@@ -2167,30 +2214,38 @@ function scheduleDiscordReconnect(reason = 'unknown') {
   rpcReconnectAttempts += 1
   console.log(`[Discord RPC] Reconnect scheduled in ${delay}ms (${reason})`)
   rpcRetryTimer = setTimeout(() => {
-    initDiscordRPC()
+    if (rpcLastActivity) initDiscordRPC()
   }, delay)
 }
 
 function initDiscordRPC() {
-  if (discordRpcQuitting || !rpcEnabled) return
+  if (discordRpcQuitting || !rpcEnabled || !rpcLastActivity) return
   if (rpcReady || rpcConnecting) return
 
   clearRpcRetryTimer()
   destroyRpcClient()
 
   try {
+    try {
+      DiscordRPC.register(DISCORD_CLIENT_ID)
+    } catch (_) {}
     rpcConnecting = true
     rpcClient = new DiscordRPC.Client({ transport: 'ipc' })
+    const client = rpcClient
 
-    rpcClient.on('ready', () => {
+    client.on('ready', () => {
+      if (rpcClient !== client) return
       rpcReady = true
       rpcConnecting = false
       rpcReconnectAttempts = 0
       console.log('[Discord RPC] Connected!')
-      applyRpcActivity(rpcLastActivity, true).catch(() => {})
+      if (rpcLastActivity) {
+        applyRpcActivity(rpcLastActivity, true, rpcActivityRevision).catch(() => {})
+      }
     })
 
-    rpcClient.on('disconnected', () => {
+    client.on('disconnected', () => {
+      if (rpcClient !== client) return
       console.log('[Discord RPC] Disconnected')
       rpcReady = false
       rpcConnecting = false
@@ -2198,7 +2253,8 @@ function initDiscordRPC() {
       scheduleDiscordReconnect('disconnected')
     })
 
-    rpcClient.on('error', (err) => {
+    client.on('error', (err) => {
+      if (rpcClient !== client) return
       console.log('[Discord RPC] Client error:', err?.message || err)
       rpcReady = false
       rpcConnecting = false
@@ -2206,7 +2262,8 @@ function initDiscordRPC() {
       scheduleDiscordReconnect('client-error')
     })
 
-    rpcClient.login({ clientId: DISCORD_CLIENT_ID }).catch((err) => {
+    client.login({ clientId: DISCORD_CLIENT_ID }).catch((err) => {
+      if (rpcClient !== client) return
       console.log('[Discord RPC] Login failed:', err.message)
       rpcReady = false
       rpcConnecting = false
@@ -3479,6 +3536,10 @@ app.whenReady().then(async () => {
     const { url, targetFolder, filename, headers } = opts || {}
     if (!url || !targetFolder || !filename) throw new Error('Missing required parameters')
     return await MediaDownloader.downloadFromUrl(url, targetFolder, filename, event.sender, { headers })
+  })
+
+  ipcMain.handle('media:renameDownloadedMedia', async (_, filePath, desiredStem) => {
+    return MediaDownloader.renameDownloadedMedia(filePath, desiredStem)
   })
 
   ipcMain.handle('media:applyDownloadedMetadata', async (_, payload) => {
@@ -4801,25 +4862,37 @@ app.whenReady().then(async () => {
   // IPC: Update Discord Rich Presence
   ipcMain.on('discord:setActivity', (_, activity) => {
     rpcLastActivity = activity || null
+    rpcActivityRevision += 1
+    const revision = rpcActivityRevision
     if (!rpcEnabled || discordRpcQuitting) return
 
     if (!rpcClient || !rpcReady) {
-      if (!rpcConnecting && !rpcRetryTimer) initDiscordRPC()
+      clearRpcRetryTimer()
+      if (!rpcConnecting) initDiscordRPC()
       return
     }
 
-    applyRpcActivity(rpcLastActivity, true).catch(() => {})
+    applyRpcActivity(rpcLastActivity, true, revision).catch(() => {})
   })
 
   // IPC: Clear Discord Presence
   ipcMain.on('discord:clearActivity', () => {
     rpcLastActivity = null
-    if (!rpcClient || !rpcReady) return
+    rpcActivityRevision += 1
+    clearRpcRetryTimer()
+    if (!rpcClient || !rpcReady) {
+      if (rpcClient && !rpcConnecting) void disposeDiscordRpc()
+      return
+    }
     const client = rpcClient
     try {
-      Promise.resolve(client.clearActivity()).catch((error) => {
-        handleDiscordRpcCommandFailure(error, 'clear-activity-failed', client, false)
-      })
+      Promise.resolve(client.clearActivity())
+        .catch((error) => {
+          handleDiscordRpcCommandFailure(error, 'clear-activity-failed', client, false)
+        })
+        .finally(() => {
+          if (!rpcLastActivity && rpcClient === client) void disposeDiscordRpc()
+        })
     } catch (error) {
       handleDiscordRpcCommandFailure(error, 'clear-activity-failed', client, false)
     }
@@ -4831,9 +4904,10 @@ app.whenReady().then(async () => {
     if (enabled) {
       if (discordRpcQuitting) return
       rpcReconnectAttempts = 0
-      initDiscordRPC()
+      if (rpcLastActivity) initDiscordRPC()
     } else {
       rpcLastActivity = null
+      rpcActivityRevision += 1
       void disposeDiscordRpc()
     }
   })
@@ -5686,7 +5760,6 @@ app.whenReady().then(async () => {
   pluginManager.loadAll().catch((e) => {
     console.error('[PluginManager] loadAll failed:', e?.message || e)
   })
-  initDiscordRPC()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -5697,12 +5770,13 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isQuitting = true
   destroyTray()
   discordRpcQuitting = true
   clearRpcRetryTimer()
-  void disposeDiscordRpc()
+  const shouldWaitForRpcClear = !discordRpcQuitCleanupDone && !!rpcClient && rpcReady
+  const rpcCleanup = disposeDiscordRpc()
   flushAppStateCacheSync()
   stopRendererHttpServer().catch(() => {})
   stopWebDavProxyServer().catch(() => {})
@@ -5711,6 +5785,13 @@ app.on('before-quit', () => {
   upnpSender.shutdown().catch(() => {})
   phoneRemoteServer.stop().catch(() => {})
   libraryWatchManager?.stop()
+  if (shouldWaitForRpcClear) {
+    event.preventDefault()
+    Promise.resolve(rpcCleanup).finally(() => {
+      discordRpcQuitCleanupDone = true
+      app.quit()
+    })
+  }
 })
 
 app.on('will-quit', () => {
@@ -5719,14 +5800,13 @@ app.on('will-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    discordRpcQuitting = true
-  }
   clearRpcRetryTimer()
-  void disposeDiscordRpc()
   // 停止音频引擎
   audioEngine.stop()
   if (process.platform !== 'darwin') {
     app.quit()
+    return
   }
+  discordRpcQuitting = true
+  void disposeDiscordRpc()
 })

@@ -57,7 +57,7 @@ function durationFromTrack(track) {
   return 0
 }
 
-export function buildLastFmTrackPayload(track) {
+export function buildLastFmTrackPayload(track, overrides = {}) {
   if (!track || typeof track !== 'object') return null
 
   const info = track.info || {}
@@ -68,12 +68,20 @@ export function buildLastFmTrackPayload(track) {
     parseArtistTitle(fileTitle) ||
     parseArtistTitle(stripExtension(track.name))
 
-  const title = firstUseful('title', info.title, track.title, parsed?.title, fileTitle)
+  const title = firstUseful(
+    'title',
+    overrides.title,
+    info.title,
+    track.title,
+    parsed?.title,
+    fileTitle
+  )
   if (!title) return null
 
   const artist =
     firstUseful(
       'artist',
+      overrides.artist,
       info.artist,
       track.artist,
       info.albumArtist,
@@ -84,9 +92,21 @@ export function buildLastFmTrackPayload(track) {
   return {
     artist,
     title,
-    album: firstUseful('album', info.album, track.album),
-    duration: durationFromTrack(track)
+    album: firstUseful('album', overrides.album, info.album, track.album),
+    duration: Number(overrides.duration) > 0 ? Number(overrides.duration) : durationFromTrack(track)
   }
+}
+
+export function buildLastFmTrackIdentity(track, index = -1, overrides = {}) {
+  if (!track || typeof track !== 'object') return ''
+  const payload = buildLastFmTrackPayload(track, overrides)
+  return [
+    Number.isFinite(Number(index)) ? Number(index) : -1,
+    cleanText(track.path),
+    cleanText(payload?.artist),
+    cleanText(payload?.title),
+    cleanText(payload?.album)
+  ].join('\u001f')
 }
 
 export function getLastFmScrobbleThresholdSec(durationSec) {

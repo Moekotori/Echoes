@@ -117,11 +117,9 @@ function ensurePlaylistFolder(baseDir, folderName) {
   return resolved
 }
 
-function buildTrackFilename(track) {
-  const title = String(track?.name || '').trim()
-  const artists = String(track?.artists || '').trim()
-  if (artists && title) return `${artists} - ${title}`
-  return title || `nm_${track?.id || 'track'}`
+export function buildNeteaseTrackFilename(track) {
+  const title = String(track?.name || track?.title || '').trim()
+  return title || `netease-${track?.id || 'track'}`
 }
 
 export async function importNeteasePlaylist(
@@ -169,7 +167,7 @@ export async function importNeteasePlaylist(
       artists: track.artists
     })
 
-    const basename = `nm_${track.id}`
+    const basename = buildNeteaseTrackFilename(track)
     try {
       const downloadedPath = await MediaDownloader.downloadAudioWithBasename(
         songUrl,
@@ -180,7 +178,7 @@ export async function importNeteasePlaylist(
       )
       const filePath = MediaDownloader.renameDownloadedMedia(
         downloadedPath,
-        buildTrackFilename(track)
+        buildNeteaseTrackFilename(track)
       )
       const item = { path: filePath, trackTitle: track.name, sourceUrl: songUrl }
       added.push(item)
