@@ -106,6 +106,7 @@ import {
   searchQqMusicSongs
 } from './qqMusicProvider.js'
 import { getMediaDurationSeconds } from './utils/ffmpegProbeDuration.js'
+import { getFfmpegAudioInfo } from './utils/ffmpegProbeAudioInfo.js'
 import { detectBpm } from './utils/detectBpm.js'
 import {
   EMBEDDED_LYRICS_EXTRACTOR_VERSION,
@@ -113,6 +114,7 @@ import {
 } from './utils/embeddedLyrics.js'
 import { findFolderCoverDataUrl } from './utils/folderCover.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
+import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
 import { repairPossiblyMojibakeSearchQuery } from './utils/mojibakeRepair.js'
 import { parseBilibiliSearchHtml } from './utils/bilibiliSearchHtml.js'
 import { logLine as writeLogLine } from './utils/logLine.js'
@@ -1274,7 +1276,8 @@ async function resolveRemotePlaybackUrl(filePath) {
 }
 
 function resolveMetadataFilePath(filePath) {
-  return parseNetworkFolderTrackPath(filePath)?.filePath || filePath
+  const localPath = parseNetworkFolderTrackPath(filePath)?.filePath || filePath
+  return getCueAudioPath(localPath)
 }
 
 async function getSubsonicTrackMetadata(filePath) {
@@ -3177,7 +3180,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('file:batchExists', async (_, paths) => {
     const out = {}
     for (const p of Array.isArray(paths) ? paths : []) {
-      out[p] = typeof p === 'string' && p ? fs.existsSync(p) : false
+      out[p] = typeof p === 'string' && p ? fs.existsSync(resolveMetadataFilePath(p)) : false
     }
     return out
   })
@@ -3198,6 +3201,7 @@ app.whenReady().then(async () => {
   // IPC: Read file as buffer (for jsmediatags or general binary reading)
   ipcMain.handle('file:readBuffer', async (_, filePath) => {
     try {
+      filePath = resolveMetadataFilePath(filePath)
       if (!existsSync(filePath)) {
         return { success: false, error: 'file_not_found' }
       }
@@ -3210,6 +3214,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('file:readText', async (_, filePath) => {
     try {
+      filePath = resolveMetadataFilePath(filePath)
       return fs.readFileSync(filePath, 'utf8')
     } catch (e) {
       return null
@@ -3816,10 +3821,33 @@ app.whenReady().then(async () => {
     return sendPlayerCommand('prev')
   })
 
-  // IPC: Download from SoundCloud using Third-Party Proxy
+  // IPC: Download from SoundCloud. Prefer local yt-dlp; keep the proxy only as a fallback.
   ipcMain.handle('soundcloud:download', async (_, url, downloadPath) => {
+    const targetDir = downloadPath || join(app.getAppPath(), 'downloads')
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true })
+    }
+
     try {
-      // 1. Get Metadata via SoundCloud oEmbed
+      const metadata = await MediaDownloader.getMetadata(url).catch((error) => {
+        console.warn('[SoundCloud] yt-dlp metadata failed, continuing with fallback title:', error)
+        return null
+      })
+      const title = MediaDownloader.sanitizeFilenameStem(metadata?.title || 'SoundCloud Track')
+      const filePath = await MediaDownloader.downloadAudioWithBasename(url, targetDir, title, null, {
+        audioQualityPreset: 'auto'
+      })
+      const renamedPath = MediaDownloader.renameDownloadedMedia(filePath, title)
+      return {
+        success: true,
+        name: basename(renamedPath),
+        path: renamedPath
+      }
+    } catch (ytDlpError) {
+      console.warn('[SoundCloud] yt-dlp download failed, falling back to proxy:', ytDlpError)
+    }
+
+    try {
       const oembedUrl = `https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(url)}`
       const metaRes = await axios.get(oembedUrl)
       const info = metaRes.data || {}
@@ -3828,16 +3856,9 @@ app.whenReady().then(async () => {
 
       const title = sanitizeDownloadStem(info.title)
 
-      // 2. Prepare Download Path
-      const targetDir = downloadPath || join(app.getAppPath(), 'downloads')
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true })
-      }
-
       const filePath = buildUniqueDownloadPath(targetDir, title, '.mp3')
       const fileName = basename(filePath)
 
-      // 3. Download via Proxy
       const proxyUrl = `${SOUNDCLOUD_PROXY_BASE}/stream?url=${encodeURIComponent(url)}`
       console.log(`[SoundCloud] Downloading via proxy: ${proxyUrl}`)
 
@@ -3879,7 +3900,7 @@ app.whenReady().then(async () => {
           e.response?.status === 404
             ? 'SoundCloud 链接不可用，可能已删除、私密或地址写错'
             : e.response?.status >= 500
-              ? 'SoundCloud 代理暂时不可用，请稍后重试'
+              ? 'SoundCloud 下载失败：本地 yt-dlp 与备用代理都不可用'
               : e.message
       }
     }
@@ -4021,7 +4042,31 @@ app.whenReady().then(async () => {
     })
   }
 
+  function shouldUseFfmpegAudioInfo(filePath, metadata, codecLabel) {
+    const ext = extname(filePath).toLowerCase()
+    const sampleRate = Number(metadata?.format?.sampleRate || 0)
+    const bitDepth = Number(metadata?.format?.bitsPerSample || 0)
+    return (
+      sampleRate <= 0 ||
+      bitDepth <= 0 ||
+      /alac/i.test(codecLabel || '') ||
+      ['.m4a', '.m4b', '.mp4', '.alac'].includes(ext)
+    )
+  }
+
+  function normalizeResolvedAudioCodec(metadata, filePath, probedInfo = null) {
+    const codecLabel = resolveAudioCodecLabel(metadata, filePath)
+    const probedCodec = String(probedInfo?.codec || '').trim()
+    if (/alac/i.test(codecLabel) || /alac/i.test(probedCodec) || /\.(m4a|m4b|alac)$/i.test(filePath)) {
+      return 'ALAC'
+    }
+    return codecLabel
+  }
+
   async function buildExtendedMetadataResponse(filePath) {
+    const requestedPath = filePath
+    const cueTrack = parseCueVirtualPath(requestedPath)
+    filePath = getCueAudioPath(filePath)
     try {
       const { parseFile, selectCover } = await import('music-metadata')
       const metadata = await parseFile(filePath)
@@ -4066,18 +4111,27 @@ app.whenReady().then(async () => {
         coverExtractorVersion = cover ? 1 : 0
       }
 
-      const codecLabel = resolveAudioCodecLabel(metadata, filePath)
+      const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
+      const ffmpegInfo = shouldUseFfmpegAudioInfo(filePath, metadata, firstCodecLabel)
+        ? await getFfmpegAudioInfo(filePath)
+        : null
+      const codecLabel = normalizeResolvedAudioCodec(metadata, filePath, ffmpegInfo)
       const embeddedLyrics = extractEmbeddedLyricsText(metadata)
+      const sampleRate = metadata.format.sampleRate || ffmpegInfo?.sampleRate || null
+      const bitrate = metadata.format.bitrate || ffmpegInfo?.bitrate || null
+      const channels = metadata.format.numberOfChannels || ffmpegInfo?.channels || null
+      const bitDepth = metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
+      const displayDuration = getCueDuration(requestedPath, durationSec)
 
       return {
         success: true,
         technical: {
-          sampleRate: metadata.format.sampleRate,
-          bitrate: metadata.format.bitrate,
-          channels: metadata.format.numberOfChannels,
-          bitDepth: metadata.format.bitsPerSample || null,
+          sampleRate,
+          bitrate,
+          channels,
+          bitDepth,
           codec: codecLabel,
-          duration: durationSec,
+          duration: displayDuration,
           isMqa: hasMqaMetadata(metadata),
           lossless:
             metadata.format.lossless ||
@@ -4086,9 +4140,9 @@ app.whenReady().then(async () => {
             metadata.format.container?.toLowerCase() === 'wav'
         },
         common: {
-          title: metadata.common.title || basename(filePath, extname(filePath)),
-          artist: metadata.common.artist || 'Unknown Artist',
-          album: metadata.common.album,
+          title: cueTrack?.title || metadata.common.title || basename(filePath, extname(filePath)),
+          artist: cueTrack?.artist || metadata.common.artist || 'Unknown Artist',
+          album: cueTrack?.albumTitle || metadata.common.album,
           albumArtist: metadata.common.albumartist || metadata.common.albumArtist || null,
           trackNo: metadata.common.track?.no ?? null,
           discNo: metadata.common.disk?.no ?? null,
@@ -4589,8 +4643,8 @@ app.whenReady().then(async () => {
         return { success: false, error: error?.message || String(error) }
       }
     }
-    filePath = resolveMetadataFilePath(filePath)
-    if (!existsSync(filePath)) {
+    const metadataPath = resolveMetadataFilePath(filePath)
+    if (!existsSync(metadataPath)) {
       return { success: false, error: 'file_not_found' }
     }
     return await buildExtendedMetadataResponse(filePath)
@@ -4712,6 +4766,18 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('lastfm:login', async (_, username, password) => {
     return await lastFmClient.authenticate(username, password)
+  })
+
+  ipcMain.handle('lastfm:startWebAuth', async () => {
+    const result = await lastFmClient.createWebAuthToken()
+    if (result?.ok && result.url) {
+      await shell.openExternal(result.url)
+    }
+    return result
+  })
+
+  ipcMain.handle('lastfm:completeWebAuth', async (_, token) => {
+    return await lastFmClient.completeWebAuth(token)
   })
 
   ipcMain.handle('lastfm:logout', () => {

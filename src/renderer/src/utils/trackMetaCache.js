@@ -95,6 +95,15 @@ export function createArtistAvatarCacheKey(artist) {
   return normalizeAlbumCoverCacheKeyPart(artist)
 }
 
+export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
+  if (!entry || typeof entry !== 'object') return false
+  const lowerPath = String(path || '').toLowerCase()
+  const codec = String(entry.codec || '').toLowerCase()
+  const isAlacLike = /\.(m4a|m4b|alac)(?:#|$)/i.test(lowerPath) || codec.includes('alac')
+  if (!isAlacLike) return false
+  return !Number(entry.sampleRateHz || entry.sampleRate || 0) || !Number(entry.bitDepth || 0)
+}
+
 function normalizeAlbumCoverCacheEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const cover = typeof entry.cover === 'string' && entry.cover ? entry.cover : null

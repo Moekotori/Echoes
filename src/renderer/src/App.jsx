@@ -156,6 +156,10 @@ import {
   parseArtistTitleFromName
 } from './utils/trackUtils'
 import { filterAndRankTracksBySearch, getTrackSearchScore } from './utils/librarySearch'
+import {
+  buildLastFmTrackPayload,
+  getLastFmScrobbleThresholdSec
+} from './utils/lastfmTrackPayload'
 import { ArtistLink } from './components/ArtistLink'
 import { EqPlot } from './components/EqPlot'
 import { EQ_PRESETS } from './constants/eq'
@@ -176,6 +180,7 @@ import { inferUiLocaleFromNavigator, normalizeUiLocale, bcp47ForUiLocale } from 
 import { clampBiquadQ } from './utils/eqBiquad'
 import { copySongCardImage, saveSongCardImage } from './utils/songCardImage'
 import { parseLyricsSourceLink } from './utils/lyricsLink'
+import { getDroppedLyricsFile, hasDroppedFiles, readDroppedLyricsFile } from './utils/lyricsDrop'
 import PluginSlot from './plugins/PluginSlot'
 import PluginManagerDrawer from './components/PluginManagerDrawer'
 import { extractAverageHexFromSrc, generatePaletteFromHex } from './utils/color'
@@ -203,6 +208,7 @@ import {
 import { EMBEDDED_LYRICS_EXTRACTOR_VERSION } from '../../shared/embeddedLyricsVersion.mjs'
 import { buildLyricKaraokeState } from '../../shared/lyricsKaraoke.mjs'
 import { getPlaybackSequencePath, resolvePlaybackSequence } from '../../shared/playbackSequence.mjs'
+import { getCueAudioPath } from '../../shared/cueTracks.mjs'
 import { buildBilibiliAutoMvQueries, buildYoutubeAutoMvQueries } from '../../shared/mvSearchRank.mjs'
 import { getAutoMvSearchHit, getBestEffortMvSearchHit } from './utils/mvAutoAccept'
 import {
@@ -213,6 +219,7 @@ import {
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
+  shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
   writeTrackMetaCache
@@ -226,10 +233,11 @@ import {
 
 function localPathToAudioSrc(filePath) {
   if (!filePath || typeof filePath !== 'string') return ''
-  if (isRemoteTrackPath(filePath)) return ''
-  const href = typeof window !== 'undefined' && window.api?.pathToFileURL?.(filePath)
+  const audioPath = getCueAudioPath(filePath)
+  if (isRemoteTrackPath(audioPath)) return ''
+  const href = typeof window !== 'undefined' && window.api?.pathToFileURL?.(audioPath)
   if (href) return href
-  return `file://${filePath}`
+  return `file://${audioPath}`
 }
 
 function clampMvMediaTargetTime(media, targetSec) {
@@ -1716,78 +1724,100 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, 
 })
 
 function LastFmLoginForm({ onLogin }) {
-  const [username, setUsername] = React.useState('')
-  const [password, setPassword] = React.useState('')
   const [loading, setLoading] = React.useState(false)
+  const [finishing, setFinishing] = React.useState(false)
+  const [authToken, setAuthToken] = React.useState('')
+  const [status, setStatus] = React.useState('')
   const [error, setError] = React.useState('')
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const withTimeout = (task, message) =>
+    Promise.race([
+      task,
+      new Promise((resolve) => {
+        window.setTimeout(() => {
+          resolve({ ok: false, error: message })
+        }, 15000)
+      })
+    ])
+
+  const handleStartAuth = async () => {
     setError('')
-    if (!username.trim() || !password) {
-      setError('Please enter username and password')
-      return
-    }
-    if (!window.api?.lastfm?.login) {
-      setError('Last.fm login API is unavailable. Restart the app and try again.')
+    setStatus('')
+    if (!window.api?.lastfm?.startWebAuth) {
+      setError('Last.fm 授权接口不可用，请重启应用后再试')
       return
     }
     setLoading(true)
     try {
-      const timeoutResult = new Promise((resolve) => {
-        window.setTimeout(() => {
-          resolve({ ok: false, error: 'Connection timed out. Please try again later.' })
-        }, 10000)
-      })
-      const result = await Promise.race([
-        window.api.lastfm.login(username.trim(), password),
-        timeoutResult
-      ])
-      if (result?.ok) {
-        onLogin?.(result.sessionKey, result.username)
+      const result = await withTimeout(
+        window.api.lastfm.startWebAuth(),
+        '打开 Last.fm 授权超时，请稍后再试'
+      )
+      if (result?.ok && result.token) {
+        setAuthToken(result.token)
+        setStatus('浏览器已打开，请在 Last.fm 点 Allow，然后回到这里完成连接。')
       } else {
-        setError(result?.error || 'Login failed. Check username and password.')
+        setError(result?.error || '无法打开 Last.fm 授权，请稍后再试')
       }
     } catch (err) {
-      setError('Network error. Please try again later.')
+      setError('无法打开 Last.fm 授权，请检查网络后重试')
     } finally {
       setLoading(false)
     }
   }
 
+  const handleCompleteAuth = async () => {
+    setError('')
+    if (!window.api?.lastfm?.completeWebAuth) {
+      setError('Last.fm 授权接口不可用，请重启应用后再试')
+      return
+    }
+    if (!authToken) {
+      setError('请先打开 Last.fm 授权，并在浏览器里点 Allow。')
+      return
+    }
+    setFinishing(true)
+    try {
+      const result = await withTimeout(
+        window.api.lastfm.completeWebAuth(authToken),
+        '完成 Last.fm 授权超时，请稍后再试'
+      )
+      if (result?.ok) {
+        onLogin?.(result.sessionKey, result.username)
+      } else {
+        setError(result?.error || '尚未完成 Last.fm 授权，请在浏览器点 Allow 后再回来完成连接')
+      }
+    } catch (err) {
+      setError('网络错误，请稍后重试')
+    } finally {
+      setFinishing(false)
+    }
+  }
+
   return (
-    <form className="lastfm-login-form" onSubmit={handleSubmit}>
+    <div className="lastfm-login-form">
       <div className="setting-row lastfm-login-heading">
         <div className="setting-info" style={{ maxWidth: 'none' }}>
           <h3>Connect Last.fm</h3>
-          <p>Log in to record listening history with Scrobble.</p>
+          <p>使用浏览器授权后自动记录听歌历史（Scrobble）。</p>
         </div>
       </div>
       <div className="lastfm-login-grid">
-        <input
-          className="settings-text-input"
-          type="text"
-          placeholder="Last.fm username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
-          disabled={loading}
-        />
-        <input
-          className="settings-text-input"
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          disabled={loading}
-        />
-        <button className="lastfm-submit-btn" type="submit" disabled={loading}>
-          {loading ? 'Logging in...' : 'Log in'}
+        <button className="lastfm-submit-btn" type="button" onClick={handleStartAuth} disabled={loading}>
+          {loading ? '打开中...' : '打开 Last.fm 授权'}
+        </button>
+        <button
+          className="lastfm-submit-btn"
+          type="button"
+          onClick={handleCompleteAuth}
+          disabled={finishing || !authToken}
+        >
+          {finishing ? '连接中...' : '我已授权，完成连接'}
         </button>
       </div>
+      {status ? <p className="lastfm-status">{status}</p> : null}
       {error ? <p className="lastfm-error">{error}</p> : null}
-    </form>
+    </div>
   )
 }
 export default function App() {
@@ -2017,6 +2047,10 @@ export default function App() {
   const [temporarilyHiddenMvTrackPath, setTemporarilyHiddenMvTrackPath] = useState('')
   const [lyricsQuickBarDismissed, setLyricsQuickBarDismissed] = useState(false)
   const [lyricsQuickBarActivityAt, setLyricsQuickBarActivityAt] = useState(() => Date.now())
+  const [lyricsDropActive, setLyricsDropActive] = useState(false)
+  const [lyricsDropMessage, setLyricsDropMessage] = useState('')
+  const lyricsDropDepthRef = useRef(0)
+  const lyricsDropMessageTimerRef = useRef(null)
   const localLyricsPriorityRef = useRef(null)
   const isCurrentTrackLyricsTemporarilyHidden =
     !!currentTrackPath && temporarilyHiddenLyricsTrackPath === currentTrackPath
@@ -3952,14 +3986,15 @@ export default function App() {
     if (!config.lastfmEnabled || !config.lastfmSessionKey || scrobbledRef.current) return
     const track = playlist[currentIndex]
     if (!track || !window.api?.lastfm?.scrobble) return
-    const info = track.info || {}
-    const dur = Number(info.duration) || 0
-    if (currentTime >= 30 && (dur <= 0 || currentTime >= dur * 0.5)) {
+    const payload = buildLastFmTrackPayload(track)
+    if (!payload) return
+    const dur = Number(payload.duration) || 0
+    if (currentTime >= getLastFmScrobbleThresholdSec(dur)) {
       scrobbledRef.current = true
       void window.api.lastfm.scrobble(
-        info.artist || '',
-        info.title || '',
-        info.album || '',
+        payload.artist,
+        payload.title,
+        payload.album,
         trackStartedAtRef.current || Date.now(),
         dur
       )
@@ -4379,12 +4414,13 @@ export default function App() {
         config.lastfmSessionKey &&
         window.api?.lastfm
       ) {
-        const info = track.info || {}
+        const payload = buildLastFmTrackPayload(track)
+        if (!payload) return
         void window.api.lastfm.nowPlaying(
-          info.artist || '',
-          info.title || '',
-          info.album || '',
-          Number(info.duration) || 0
+          payload.artist,
+          payload.title,
+          payload.album,
+          Number(payload.duration) || 0
         )
       }
     } else {
@@ -5205,6 +5241,17 @@ export default function App() {
     setLyricsSourceStatus({ kind: 'none', detail: '', origin: '' })
   }
 
+  const showLyricsDropMessage = useCallback((message) => {
+    setLyricsDropMessage(message)
+    if (lyricsDropMessageTimerRef.current) {
+      clearTimeout(lyricsDropMessageTimerRef.current)
+    }
+    lyricsDropMessageTimerRef.current = setTimeout(() => {
+      setLyricsDropMessage('')
+      lyricsDropMessageTimerRef.current = null
+    }, 2200)
+  }, [])
+
   const applyLyricsFromText = useCallback((raw, sourceMeta = {}) => {
     const parsed = parseAnyLyrics(raw)
     if (parsed.length > 0) {
@@ -5224,6 +5271,88 @@ export default function App() {
           preferredSource: 'manual'
         })
         setLyricsSourcePreferenceRevision((value) => value + 1)
+      }
+      return true
+    }
+    return false
+  }, [])
+
+  const handleLyricsDropDragEnter = useCallback((e) => {
+    const file = getDroppedLyricsFile(e.dataTransfer)
+    if (!file && !hasDroppedFiles(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    lyricsDropDepthRef.current += 1
+    setLyricsDropActive(true)
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const handleLyricsDropDragOver = useCallback((e) => {
+    const file = getDroppedLyricsFile(e.dataTransfer)
+    if (!file && !hasDroppedFiles(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    setLyricsDropActive(true)
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const handleLyricsDropDragLeave = useCallback((e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    lyricsDropDepthRef.current = Math.max(0, lyricsDropDepthRef.current - 1)
+    if (lyricsDropDepthRef.current === 0) {
+      setLyricsDropActive(false)
+    }
+  }, [])
+
+  const handleLyricsDrop = useCallback(
+    async (e) => {
+      const file = getDroppedLyricsFile(e.dataTransfer)
+      if (!file && !hasDroppedFiles(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      lyricsDropDepthRef.current = 0
+      setLyricsDropActive(false)
+
+      if (!file) {
+        showLyricsDropMessage(t('lyrics.dropLrcUnsupported'))
+        return
+      }
+
+      const track = playlistRef.current[currentIndexRef.current]
+      if (!track?.path) {
+        showLyricsDropMessage(t('lyrics.dropLrcNoTrack'))
+        return
+      }
+
+      try {
+        const text = await readDroppedLyricsFile(file, window.api)
+        if (!text.trim()) {
+          showLyricsDropMessage(t('lyrics.dropLrcEmpty'))
+          return
+        }
+        const applied = applyLyricsFromText(text, {
+          origin: file?.name ? `drop:${file.name}` : 'drop'
+        })
+        if (!applied) {
+          showLyricsDropMessage(t('lyrics.dropLrcInvalid'))
+          return
+        }
+        setLyricsQuickBarDismissed(false)
+        setLyricsQuickBarActivityAt(Date.now())
+        showLyricsDropMessage(t('lyrics.dropLrcLoaded'))
+      } catch (error) {
+        console.warn('[lyrics] drop lrc failed:', error)
+        showLyricsDropMessage(t('lyrics.dropLrcReadFailed'))
+      }
+    },
+    [applyLyricsFromText, showLyricsDropMessage, t]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (lyricsDropMessageTimerRef.current) {
+        clearTimeout(lyricsDropMessageTimerRef.current)
       }
     }
   }, [])
@@ -6181,6 +6310,7 @@ export default function App() {
         entry?.mqaChecked &&
         hasCurrentEmbeddedLyricsExtraction(entry) &&
         !shouldRefreshCachedOggOpusCover(entry) &&
+        !shouldRefreshTrackMetaCacheForAudioQuality(filePath, entry) &&
         entry.coverMemoryTrimmed !== true
       )
 
@@ -16096,7 +16226,24 @@ export default function App() {
               <div
                 className={`lyrics-and-mv-wrapper${isLyricsListHidden ? ' lyrics-and-mv-wrapper--lyrics-hidden' : ''}${!isSideMvVisibleInLyrics ? ' lyrics-and-mv-wrapper--lyrics-solo' : ''}`}
               >
-                <div className="lyrics-main-column">
+                <div
+                  className={`lyrics-main-column${lyricsDropActive ? ' lyrics-main-column--lrc-drop-active' : ''}${lyricsDropMessage ? ' lyrics-main-column--lrc-drop-message' : ''}`}
+                  onDragEnter={handleLyricsDropDragEnter}
+                  onDragOver={handleLyricsDropDragOver}
+                  onDragLeave={handleLyricsDropDragLeave}
+                  onDrop={handleLyricsDrop}
+                >
+                  <div className="lyrics-lrc-drop-overlay" aria-hidden={!lyricsDropActive && !lyricsDropMessage}>
+                    <div className="lyrics-lrc-drop-card">
+                      <Upload size={24} strokeWidth={1.7} />
+                      <span>
+                        {lyricsDropMessage ||
+                          (lyricsDropActive
+                            ? t('lyrics.dropLrcRelease')
+                            : t('lyrics.dropLrcPrompt'))}
+                      </span>
+                    </div>
+                  </div>
                   <div
                     className={`lyrics-quick-actions${lyricsQuickBarDismissed ? ' lyrics-quick-actions--hidden' : ''}`}
                   >

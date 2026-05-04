@@ -5761,8 +5761,53 @@ input[type='range']::-moz-range-track {
   max-height: 100%;
   align-self: stretch;
   overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+
+.lyrics-lrc-drop-overlay {
+  position: absolute;
+  inset: clamp(28px, 5vh, 72px) clamp(18px, 5vw, 72px) clamp(88px, 16vh, 180px);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.lyrics-main-column--lrc-drop-active .lyrics-lrc-drop-overlay,
+.lyrics-main-column--lrc-drop-message .lyrics-lrc-drop-overlay {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.lyrics-lrc-drop-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, 84vw);
+  padding: 14px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(14, 20, 32, 0.58);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.lyrics-main-column--lrc-drop-active .lyrics-scroll-area {
+  filter: blur(1px);
 }
 
 /* When lyrics-and-mv-wrapper has no sibling MV column, expand lyrics */
@@ -7078,6 +7123,18 @@ input[type='range']::-moz-range-track {
   border-color: var(--color-accent, #3b82f6);
 }
 
+.lastfm-login-form {
+  display: grid;
+  gap: 12px;
+}
+
+.lastfm-login-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 260px));
+  gap: 10px;
+  align-items: center;
+}
+
 .lastfm-submit-btn {
   min-width: 96px;
   height: 40px;
@@ -7121,6 +7178,20 @@ input[type='range']::-moz-range-track {
   cursor: default;
   opacity: 0.58;
   box-shadow: none;
+}
+
+.lastfm-status,
+.lastfm-error {
+  margin: 0;
+  font-size: 13px;
+}
+
+.lastfm-status {
+  color: var(--text-soft);
+}
+
+.lastfm-error {
+  color: var(--accent-pink);
 }
 
 @media (max-width: 1100px) {
@@ -8821,23 +8892,23 @@ input[type='range']::-moz-range-track {
 .lyrics-drawer-color-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--drawer-gap-2);
-  margin-top: 6px;
+  gap: 7px;
+  margin-top: 2px;
 }
 
 .lyrics-color-inline {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .lyrics-color-card {
   display: grid;
-  grid-template-columns: 132px 1fr;
-  gap: 12px;
+  grid-template-columns: 104px 1fr;
+  gap: 10px;
   align-items: stretch;
-  padding: 12px;
-  border-radius: 18px;
+  padding: 9px 10px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035)),
@@ -8846,8 +8917,8 @@ input[type='range']::-moz-range-track {
 
 .lyrics-color-picker-panel {
   position: relative;
-  min-height: 104px;
-  border-radius: 16px;
+  min-height: 74px;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -8868,10 +8939,10 @@ input[type='range']::-moz-range-track {
 
 .lyrics-color-picker-panel .lyrics-color-inline-label {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
+  left: 8px;
+  bottom: 8px;
   z-index: 1;
-  padding: 5px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: rgba(8, 12, 20, 0.52);
   color: rgba(255, 255, 255, 0.94);
@@ -8881,19 +8952,19 @@ input[type='range']::-moz-range-track {
 .lyrics-color-fields {
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
 .lyrics-color-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .lyrics-color-field > span {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   color: rgba(255, 255, 255, 0.72);
 }
@@ -8971,7 +9042,7 @@ input[type='range']::-moz-range-track {
 }
 
 .lyrics-color-inline-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   opacity: 0.85;
 }
@@ -9011,6 +9082,17 @@ input[type='range']::-moz-range-track {
   transition:
     border-color var(--motion-fast, 150ms) var(--ease-standard, ease),
     background var(--motion-fast, 150ms) var(--ease-standard, ease);
+}
+
+.lyrics-color-card .lyrics-drawer-text-input {
+  min-height: 34px;
+  border-radius: 12px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.lyrics-color-card .lyrics-drawer-range {
+  height: 18px;
 }
 
 .lyrics-drawer-text-input::placeholder {

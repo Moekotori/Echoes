@@ -123,6 +123,8 @@ contextBridge.exposeInMainWorld('api', {
   fetchArtistAvatarImage: (url) => ipcRenderer.invoke('artistAvatar:fetchImageDataUrl', url),
   lastfm: {
     login: (u, p) => ipcRenderer.invoke('lastfm:login', u, p),
+    startWebAuth: () => ipcRenderer.invoke('lastfm:startWebAuth'),
+    completeWebAuth: (token) => ipcRenderer.invoke('lastfm:completeWebAuth', token),
     logout: () => ipcRenderer.invoke('lastfm:logout'),
     setSession: (sk, u) => ipcRenderer.invoke('lastfm:setSession', sk, u),
     nowPlaying: (artist, track, album, dur) =>
