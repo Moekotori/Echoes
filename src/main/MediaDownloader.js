@@ -449,6 +449,10 @@ function logDownloadStageSummary(url, totalStartedAt, downloadCompletedAt, postP
 }
 
 export default class MediaDownloader {
+  static sanitizeFilenameStem(name) {
+    return sanitizeFilenameStem(name)
+  }
+
   static getMetadata(url, options = {}) {
     const normalizedUrl = String(url || '').trim()
     const cookieFile = normalizeCookieFile(options.youtubeCookieFile)

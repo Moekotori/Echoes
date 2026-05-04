@@ -30,7 +30,7 @@ const parser = new XMLParser({
 
 function normalizeServerUrl(value) {
   const raw = String(value || '').trim()
-  if (!raw) throw new Error('WebDAV 地址不能为空')
+  if (!raw) throw new Error('网盘 WebDAV 地址不能为空')
   const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
   const url = new URL(withProtocol)
   url.hash = ''

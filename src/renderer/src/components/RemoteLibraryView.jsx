@@ -16,7 +16,9 @@ function qualityText(track) {
 }
 
 function sourceLabel(source) {
-  if (source?.type === 'webdav') return source.name || 'WebDAV Music'
+  if (source?.type === 'jellyfin') return source.name || 'Jellyfin Music'
+  if (source?.type === 'emby') return source.name || 'Emby Music'
+  if (source?.type === 'webdav') return source.name || '网盘音乐'
   if (source?.type === 'sshfs') return source.name || 'SSHFS Music'
   if (source?.type === 'networkFolder') return source.name || 'NAS Music'
   return source?.name || 'Navidrome'
@@ -45,8 +47,10 @@ export default function RemoteLibraryView({
   )
   const isFileBackedSource = FILE_BACKED_TYPES.has(activeSource?.type)
   const isSubsonicSource = activeSource?.type === 'subsonic'
+  const isJellyfinLikeSource = activeSource?.type === 'jellyfin' || activeSource?.type === 'emby'
+  const hasServerSpecials = isSubsonicSource || isJellyfinLikeSource
   const fileBackedLabel =
-    activeSource?.type === 'webdav' ? 'WebDAV' : activeSource?.type === 'sshfs' ? 'SSHFS' : 'NAS'
+    activeSource?.type === 'webdav' ? '网盘' : activeSource?.type === 'sshfs' ? 'SSHFS' : 'NAS'
 
   useEffect(() => {
     if (!activeSource && sources.length > 0) {
@@ -70,7 +74,7 @@ export default function RemoteLibraryView({
   }
 
   const loadPlaylists = async (sourceId = activeSource?.id) => {
-    if (!sourceId || !isSubsonicSource) {
+    if (!sourceId || !hasServerSpecials) {
       setPlaylists([])
       return
     }
@@ -118,7 +122,7 @@ export default function RemoteLibraryView({
   }, [activeSource?.id])
 
   const loadSpecial = async (kind) => {
-    if (!activeSource?.id || !isSubsonicSource) return
+    if (!activeSource?.id || !hasServerSpecials) return
     setLoading(true)
     setError('')
     setSelectedAlbum(null)
@@ -188,10 +192,10 @@ export default function RemoteLibraryView({
     return (
       <div className="remote-library-empty">
         <Disc3 size={42} />
-        <h2>远程音乐库</h2>
-        <p>先在设置里添加 Navidrome、Subsonic、WebDAV、NAS、SMB 或 SSHFS 音乐来源。</p>
+        <h2>远程 / 网盘音乐库</h2>
+        <p>先在设置里添加 AList、WebDAV 网盘、Navidrome、NAS、SMB 或 SSHFS 音乐来源。</p>
         <button type="button" className="primary-action-button" onClick={onOpenSettings}>
-          添加连接
+          添加来源
         </button>
       </div>
     )
@@ -227,7 +231,7 @@ export default function RemoteLibraryView({
         </button>
       </div>
 
-      {isSubsonicSource && (
+      {hasServerSpecials && (
         <div className="remote-library-quick-actions">
           <button type="button" className="secondary-action-button" onClick={() => loadSpecial('starred')}>
             收藏
@@ -249,7 +253,7 @@ export default function RemoteLibraryView({
               <small>{artist.albumCount || ''}</small>
             </button>
           ))}
-          {isSubsonicSource && playlists.length > 0 && (
+          {hasServerSpecials && playlists.length > 0 && (
             <>
               <div className="remote-section-title">服务器歌单</div>
               {playlists.map(playlist => (

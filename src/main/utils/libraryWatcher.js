@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { basename, dirname, extname, join } from 'path'
+import { createCueVirtualPath, parseCueSheet } from '../../shared/cueTracks.mjs'
 
 const SUPPORTED_AUDIO_EXTS = new Set([
   '.mp3',
@@ -50,13 +51,55 @@ function toAudioEntry(entryPath, stats) {
   }
 }
 
+async function expandAudioEntryWithEmbeddedCue(entry, stats) {
+  if (!entry?.path || extname(entry.path).toLowerCase() !== '.flac') return [entry]
+  try {
+    const { parseFile } = await import('music-metadata')
+    const metadata = await parseFile(entry.path, { duration: true, skipCovers: true })
+    const nativeTags = Object.values(metadata?.native || {}).flat()
+    const cueText =
+      nativeTags.find((tag) => String(tag?.id || '').toUpperCase() === 'CUESHEET')?.value ||
+      metadata?.common?.cuesheet ||
+      ''
+    const cueTracks = parseCueSheet(cueText, entry.path, metadata?.format?.duration || 0)
+    if (cueTracks.length < 2) return [entry]
+
+    return cueTracks.map((cueTrack) => ({
+      ...entry,
+      name: cueTrack.title || `${basename(entry.path, extname(entry.path))} #${cueTrack.trackNo}`,
+      path: createCueVirtualPath(entry.path, cueTrack),
+      folder: dirname(entry.path),
+      birthtimeMs: stats.birthtimeMs || stats.ctimeMs || 0,
+      mtimeMs: stats.mtimeMs || 0,
+      sizeBytes: stats.size || 0,
+      cue: {
+        audioPath: entry.path,
+        trackNo: cueTrack.trackNo,
+        start: cueTrack.start,
+        end: cueTrack.end,
+        duration: cueTrack.duration
+      },
+      info: {
+        ...(entry.info || {}),
+        title: cueTrack.title || entry.info?.title,
+        artist: cueTrack.artist || entry.info?.artist,
+        album: cueTrack.albumTitle || entry.info?.album,
+        duration: cueTrack.duration || entry.info?.duration
+      }
+    }))
+  } catch (error) {
+    console.warn(`[libraryWatcher] embedded cue parse failed ${entry.path}:`, error?.message || error)
+    return [entry]
+  }
+}
+
 export async function collectAudioFilesRecursive(entryPath, out) {
   try {
     const stats = await fs.promises.stat(entryPath)
     if (!stats.isDirectory()) {
       const ext = extname(entryPath).toLowerCase()
       if (SUPPORTED_AUDIO_EXTS.has(ext)) {
-        out.push(toAudioEntry(entryPath, stats))
+        out.push(...(await expandAudioEntryWithEmbeddedCue(toAudioEntry(entryPath, stats), stats)))
       }
       return
     }
@@ -75,7 +118,7 @@ export async function collectAudioFilesRecursive(entryPath, out) {
         if (!SUPPORTED_AUDIO_EXTS.has(ext)) continue
 
         const fileStats = await fs.promises.stat(nextPath)
-        out.push(toAudioEntry(nextPath, fileStats))
+        out.push(...(await expandAudioEntryWithEmbeddedCue(toAudioEntry(nextPath, fileStats), fileStats)))
       } catch (e) {
         console.error(`[collectAudioFilesRecursive] ${nextPath}:`, e?.message || e)
       }

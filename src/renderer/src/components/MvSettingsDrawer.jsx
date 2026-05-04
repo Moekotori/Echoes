@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, ToggleLeft, ToggleRight, Link, Play, Minus, Plus, Search } from 'lucide-react'
+import { buildBilibiliAutoMvQueries, buildYoutubeAutoMvQueries } from '../../../shared/mvSearchRank.mjs'
+import { getBestEffortMvSearchHit } from '../utils/mvAutoAccept'
 import { extractVideoId } from '../utils/mvUrlParse'
 
 const QUALITY_LABELS = {
@@ -50,6 +52,47 @@ function buildDefaultMvQuery(title = '', artist = '') {
   return [safeTitle, safeArtist].filter(Boolean).join(' ').trim()
 }
 
+function buildMvVideoUrl(mvId) {
+  const id = String(mvId?.id || '').trim()
+  if (!id) return ''
+  if (mvId?.source === 'bilibili') return `https://www.bilibili.com/video/${id}`
+  if (mvId?.source === 'youtube') return `https://www.youtube.com/watch?v=${id}`
+  return ''
+}
+
+function collectManualMvSearchQueries(query = '', source = 'bilibili', title = '', artist = '') {
+  const safeQuery = String(query || '').trim()
+  const safeTitle = String(title || '').trim()
+  const safeArtist = String(artist || '').trim()
+  const generated =
+    String(source || '').toLowerCase() === 'youtube'
+      ? buildYoutubeAutoMvQueries(safeTitle, safeArtist)
+      : buildBilibiliAutoMvQueries(safeTitle, safeArtist)
+  const candidates = [
+    safeQuery,
+    ...generated,
+    safeTitle,
+    buildDefaultMvQuery(safeTitle, safeArtist)
+  ]
+  const seen = new Set()
+  return candidates
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter((item) => {
+      const key = item.toLowerCase()
+      if (!item || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function getMvSearchItems(result, source = 'bilibili') {
+  if (Array.isArray(result?.items)) {
+    return result.items.filter((item) => item?.id && item?.source)
+  }
+  const hit = getBestEffortMvSearchHit(result, source)
+  return hit?.result && typeof hit.result === 'object' ? [hit.result] : []
+}
+
 export default function MvSettingsDrawer({
   open,
   onClose,
@@ -72,6 +115,7 @@ export default function MvSettingsDrawer({
   const [urlError, setUrlError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchError, setSearchError] = useState('')
+  const [searchNotice, setSearchNotice] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState([])
 
@@ -88,6 +132,7 @@ export default function MvSettingsDrawer({
     if (!open) {
       setUrlError('')
       setSearchError('')
+      setSearchNotice('')
       setSearching(false)
       setSearchResults([])
     }
@@ -98,6 +143,7 @@ export default function MvSettingsDrawer({
     const nextQuery = buildDefaultMvQuery(currentTrackTitle, currentTrackArtist)
     setSearchQuery((prev) => (prev.trim() ? prev : nextQuery))
     setSearchError('')
+    setSearchNotice('')
     setSearchResults([])
   }, [open, currentTrackArtist, currentTrackTitle])
 
@@ -119,32 +165,51 @@ export default function MvSettingsDrawer({
     const query = searchQuery.trim() || buildDefaultMvQuery(currentTrackTitle, currentTrackArtist)
     if (!query) {
       setSearchError(t('mvDrawer.searchEmpty'))
+      setSearchNotice('')
       setSearchResults([])
       return
     }
     if (!window.api?.searchMVHandler) {
       setSearchError(t('mvDrawer.searchUnavailable'))
+      setSearchNotice('')
       setSearchResults([])
       return
     }
     setSearching(true)
     setSearchError('')
+    setSearchNotice('')
     try {
-      const result = await window.api.searchMVHandler(query, config.mvSource || 'bilibili')
-      const items = Array.isArray(result?.items)
-        ? result.items.filter((item) => item?.id && item?.source)
-        : result?.id && result?.source
-          ? [result]
-          : []
-      if (items.length === 0) {
-        setSearchResults([])
-        setSearchError(t('mvDrawer.searchNoResult'))
+      const source = config.mvSource || 'bilibili'
+      const queries = collectManualMvSearchQueries(
+        query,
+        source,
+        currentTrackTitle,
+        currentTrackArtist
+      )
+
+      for (const mvQuery of queries) {
+        const result = await window.api.searchMVHandler(mvQuery, source, {
+          title: currentTrackTitle,
+          artist: currentTrackArtist
+        })
+        const items = getMvSearchItems(result, source)
+        if (items.length === 0) continue
+
+        const bestEffort = getBestEffortMvSearchHit(result, source)
+        const orderedItems =
+          bestEffort?.id && !items.some((item) => item.id === bestEffort.id)
+            ? [bestEffort.result, ...items].filter((item) => item?.id)
+            : items
+        setSearchQuery(mvQuery)
+        setSearchResults(orderedItems)
         return
       }
-      setSearchQuery(query)
-      setSearchResults(items)
+
+      setSearchResults([])
+      setSearchNotice(t('mvDrawer.searchNoCandidate'))
     } catch (error) {
       setSearchResults([])
+      setSearchNotice('')
       setSearchError(error?.message || t('mvDrawer.searchFailed'))
     } finally {
       setSearching(false)
@@ -154,7 +219,12 @@ export default function MvSettingsDrawer({
   const handleApplySearchResult = useCallback(
     (item) => {
       if (!item?.id || !item?.source) return
-      const next = { id: item.id, source: item.source }
+      const next = {
+        id: item.id,
+        source: item.source,
+        title: item.title || '',
+        author: item.author || ''
+      }
       setMvId(next)
       if (onPersistMvOverride) onPersistMvOverride(next)
       if (onRestartPlayback) onRestartPlayback()
@@ -175,6 +245,10 @@ export default function MvSettingsDrawer({
 
   const qualityPres = getMvQualityPresentation(mvId, mvPlaybackQuality, biliDirectStream, t)
   const mvOffsetMs = config.mvOffsetMs ?? 0
+  const nowPlayingUrl = buildMvVideoUrl(mvId)
+  const nowPlayingTitle = String(mvId?.title || '').trim()
+  const nowPlayingAuthor = String(mvId?.author || '').trim()
+  const nowPlayingText = [mvId?.source, mvId?.id].filter(Boolean).join(' - ')
 
   return (
     <>
@@ -217,6 +291,7 @@ export default function MvSettingsDrawer({
                 onChange={(e) => {
                   setSearchQuery(e.target.value)
                   setSearchError('')
+                  setSearchNotice('')
                   setSearchResults([])
                 }}
                 onKeyDown={(e) => {
@@ -240,6 +315,7 @@ export default function MvSettingsDrawer({
                   const nextQuery = buildDefaultMvQuery(currentTrackTitle, currentTrackArtist)
                   setSearchQuery(nextQuery)
                   setSearchError('')
+                  setSearchNotice('')
                   setSearchResults([])
                 }}
               >
@@ -247,6 +323,7 @@ export default function MvSettingsDrawer({
               </button>
             </div>
             {searchError && <p className="mv-drawer-url-error">{searchError}</p>}
+            {searchNotice && <p className="mv-drawer-search-status">{searchNotice}</p>}
             {searching && <p className="mv-drawer-search-status">{t('mvDrawer.searching')}</p>}
             {searchResults.length > 0 && (
               <div className="mv-drawer-search-list">
@@ -310,11 +387,28 @@ export default function MvSettingsDrawer({
                 className={`mv-drawer-now-playing-box ${qualityPres ? 'mv-drawer-now-playing-box--stack' : ''}`}
               >
                 <p className="mv-drawer-now-playing">
-                  {t('mvDrawer.nowPlaying', {
-                    source: mvId.source,
-                    id: mvId.id
-                  })}
+                  <span>{t('mvDrawer.nowPlayingLabel')}</span>
+                  {nowPlayingUrl ? (
+                    <a
+                      href={nowPlayingUrl}
+                      title={nowPlayingUrl}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        window.api?.openExternal?.(nowPlayingUrl)
+                      }}
+                    >
+                      {nowPlayingText}
+                    </a>
+                  ) : (
+                    <span>{nowPlayingText}</span>
+                  )}
                 </p>
+                {nowPlayingTitle && (
+                  <p className="mv-drawer-now-playing-title" title={nowPlayingTitle}>
+                    {t('mvDrawer.videoTitleLabel')}{nowPlayingTitle}
+                    {nowPlayingAuthor ? ` - ${nowPlayingAuthor}` : ''}
+                  </p>
+                )}
                 {qualityPres && (
                   <>
                     <span className="mv-drawer-quality-badge">{qualityPres.badge}</span>
