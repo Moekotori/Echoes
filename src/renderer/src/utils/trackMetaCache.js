@@ -1,12 +1,12 @@
 const DB_NAME = 'echo-track-meta-cache'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_NAME = 'trackMeta'
 const ALBUM_COVER_STORE_NAME = 'albumCover'
 const ARTIST_AVATAR_STORE_NAME = 'artistAvatar'
-const MAX_CACHE_ENTRIES = 12000
-const MAX_CACHE_COVER_ENTRIES = 6000
-const MAX_ALBUM_COVER_CACHE_ENTRIES = 6000
-const MAX_ARTIST_AVATAR_CACHE_ENTRIES = 8000
+const MAX_CACHE_ENTRIES = 4000
+const MAX_CACHE_COVER_ENTRIES = 1200
+const MAX_ALBUM_COVER_CACHE_ENTRIES = 1200
+const MAX_ARTIST_AVATAR_CACHE_ENTRIES = 2000
 
 let dbPromise = null
 let prunePromise = null
@@ -34,6 +34,9 @@ function openTrackMetaDb() {
       }
       if (trackStore && !trackStore.indexNames.contains('updatedAt')) {
         trackStore.createIndex('updatedAt', 'updatedAt', { unique: false })
+      }
+      if (trackStore && !trackStore.indexNames.contains('hasCover')) {
+        trackStore.createIndex('hasCover', 'hasCover', { unique: false })
       }
 
       let albumCoverStore = null
@@ -92,6 +95,15 @@ export function createArtistAvatarCacheKey(artist) {
   return normalizeAlbumCoverCacheKeyPart(artist)
 }
 
+export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
+  if (!entry || typeof entry !== 'object') return false
+  const lowerPath = String(path || '').toLowerCase()
+  const codec = String(entry.codec || '').toLowerCase()
+  const isAlacLike = /\.(m4a|m4b|alac)(?:#|$)/i.test(lowerPath) || codec.includes('alac')
+  if (!isAlacLike) return false
+  return !Number(entry.sampleRateHz || entry.sampleRate || 0) || !Number(entry.bitDepth || 0)
+}
+
 function normalizeAlbumCoverCacheEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const cover = typeof entry.cover === 'string' && entry.cover ? entry.cover : null
@@ -147,6 +159,10 @@ function normalizeTrackMetaEntry(entry) {
     const value = Number(entry.coverExtractorVersion)
     next.coverExtractorVersion = Number.isFinite(value) && value > 0 ? value : null
   }
+  {
+    const value = Number(entry.lyricsExtractorVersion)
+    next.lyricsExtractorVersion = Number.isFinite(value) && value > 0 ? value : null
+  }
   next.coverChecked = entry.coverChecked === true
   next.bpmChecked = entry.bpmChecked === true
   next.bpmMeasured = entry.bpmMeasured === true
@@ -155,11 +171,54 @@ function normalizeTrackMetaEntry(entry) {
   return next
 }
 
-function getAllRecords(store) {
+function countRecords(source, keyRange = null) {
   return new Promise((resolve) => {
-    const request = store.getAll()
-    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : [])
-    request.onerror = () => resolve([])
+    const request = keyRange ? source.count(keyRange) : source.count()
+    request.onsuccess = () => resolve(Number(request.result) || 0)
+    request.onerror = () => resolve(0)
+  })
+}
+
+function deleteOldestRecords(db, storeName, overflow, shouldDelete = () => true) {
+  if (!(overflow > 0)) return Promise.resolve(0)
+
+  return new Promise((resolve) => {
+    const tx = db.transaction(storeName, 'readwrite')
+    const store = tx.objectStore(storeName)
+    const source = store.indexNames.contains('updatedAt') ? store.index('updatedAt') : store
+    let deleted = 0
+    let cursorDone = false
+
+    const finish = () => {
+      if (cursorDone) resolve(deleted)
+    }
+
+    const request = source.openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor || deleted >= overflow) {
+        cursorDone = true
+        return
+      }
+
+      if (!shouldDelete(cursor.value)) {
+        cursor.continue()
+        return
+      }
+
+      const deleteRequest = cursor.delete()
+      deleteRequest.onsuccess = () => {
+        deleted += 1
+        cursor.continue()
+      }
+      deleteRequest.onerror = () => cursor.continue()
+    }
+    request.onerror = () => {
+      cursorDone = true
+    }
+    tx.oncomplete = finish
+    tx.onerror = () => resolve(deleted)
+    tx.onabort = () => resolve(deleted)
   })
 }
 
@@ -346,22 +405,11 @@ export async function pruneArtistAvatarCache() {
     if (!db) return
 
     const readTx = db.transaction(ARTIST_AVATAR_STORE_NAME, 'readonly')
-    const records = await getAllRecords(readTx.objectStore(ARTIST_AVATAR_STORE_NAME))
-    const overflow = records.length - MAX_ARTIST_AVATAR_CACHE_ENTRIES
+    const total = await countRecords(readTx.objectStore(ARTIST_AVATAR_STORE_NAME))
+    const overflow = total - MAX_ARTIST_AVATAR_CACHE_ENTRIES
     if (overflow <= 0) return
 
-    await new Promise((resolve) => {
-      const tx = db.transaction(ARTIST_AVATAR_STORE_NAME, 'readwrite')
-      const store = tx.objectStore(ARTIST_AVATAR_STORE_NAME)
-      records.sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0))
-      for (const record of records.slice(0, overflow)) {
-        if (record?.key) store.delete(record.key)
-      }
-
-      tx.oncomplete = resolve
-      tx.onerror = resolve
-      tx.onabort = resolve
-    })
+    await deleteOldestRecords(db, ARTIST_AVATAR_STORE_NAME, overflow, (record) => !!record?.key)
   })().finally(() => {
     artistAvatarPrunePromise = null
   })
@@ -377,22 +425,11 @@ export async function pruneAlbumCoverCache() {
     if (!db) return
 
     const readTx = db.transaction(ALBUM_COVER_STORE_NAME, 'readonly')
-    const records = await getAllRecords(readTx.objectStore(ALBUM_COVER_STORE_NAME))
-    const overflow = records.length - MAX_ALBUM_COVER_CACHE_ENTRIES
+    const total = await countRecords(readTx.objectStore(ALBUM_COVER_STORE_NAME))
+    const overflow = total - MAX_ALBUM_COVER_CACHE_ENTRIES
     if (overflow <= 0) return
 
-    await new Promise((resolve) => {
-      const tx = db.transaction(ALBUM_COVER_STORE_NAME, 'readwrite')
-      const store = tx.objectStore(ALBUM_COVER_STORE_NAME)
-      records.sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0))
-      for (const record of records.slice(0, overflow)) {
-        if (record?.key) store.delete(record.key)
-      }
-
-      tx.oncomplete = resolve
-      tx.onerror = resolve
-      tx.onabort = resolve
-    })
+    await deleteOldestRecords(db, ALBUM_COVER_STORE_NAME, overflow, (record) => !!record?.key)
   })().finally(() => {
     albumCoverPrunePromise = null
   })
@@ -408,31 +445,29 @@ export async function pruneTrackMetaCache() {
     if (!db) return
 
     const readTx = db.transaction(STORE_NAME, 'readonly')
-    const records = await getAllRecords(readTx.objectStore(STORE_NAME))
+    const store = readTx.objectStore(STORE_NAME)
+    const total = await countRecords(store)
+    const overflow = total - MAX_CACHE_ENTRIES
+    if (overflow > 0) {
+      await deleteOldestRecords(db, STORE_NAME, overflow, (record) => !!record?.path)
+    }
 
-    await new Promise((resolve) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      records.sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0))
-
-      const removePaths = new Set()
-      const overflow = records.length - MAX_CACHE_ENTRIES
-      if (overflow > 0) {
-        for (const record of records.slice(0, overflow)) removePaths.add(record.path)
-      }
-
-      const coverRecords = records.filter((record) => record.hasCover && !removePaths.has(record.path))
-      const coverOverflow = coverRecords.length - MAX_CACHE_COVER_ENTRIES
-      if (coverOverflow > 0) {
-        for (const record of coverRecords.slice(0, coverOverflow)) removePaths.add(record.path)
-      }
-
-      for (const path of removePaths) store.delete(path)
-
-      tx.oncomplete = resolve
-      tx.onerror = resolve
-      tx.onabort = resolve
-    })
+    const coverReadTx = db.transaction(STORE_NAME, 'readonly')
+    const coverStore = coverReadTx.objectStore(STORE_NAME)
+    const hasCoverIndex =
+      coverStore.indexNames.contains('hasCover') && typeof IDBKeyRange !== 'undefined'
+    const coverSource = hasCoverIndex ? coverStore.index('hasCover') : coverStore
+    const coverKeyRange = hasCoverIndex ? IDBKeyRange.only(true) : null
+    const coverTotal = await countRecords(coverSource, coverKeyRange)
+    const coverOverflow = coverTotal - MAX_CACHE_COVER_ENTRIES
+    if (coverOverflow > 0) {
+      await deleteOldestRecords(
+        db,
+        STORE_NAME,
+        coverOverflow,
+        (record) => record?.hasCover === true && !!record?.path
+      )
+    }
   })().finally(() => {
     prunePromise = null
   })

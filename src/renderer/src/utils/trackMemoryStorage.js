@@ -3,6 +3,25 @@
  * Keyed by absolute file path (same as lyrics override).
  */
 const STORAGE_KEY = 'echoes_mv_override_v1'
+const VALID_ORIGINS = new Set(['manual', 'auto', 'source'])
+
+function normalizeMvOverrideEntry(entry) {
+  if (!entry || typeof entry.id !== 'string' || !entry.id.trim()) return null
+  const source = entry.source
+  if (source !== 'bilibili' && source !== 'youtube') return null
+  const origin =
+    typeof entry.origin === 'string' && VALID_ORIGINS.has(entry.origin)
+      ? entry.origin
+      : 'manual'
+  return {
+    id: entry.id.trim(),
+    source,
+    title: typeof entry.title === 'string' ? entry.title : '',
+    author: typeof entry.author === 'string' ? entry.author : '',
+    origin,
+    savedAt: entry.savedAt
+  }
+}
 
 export function getMvOverrideForPath(filePath) {
   if (!filePath || typeof filePath !== 'string') return null
@@ -10,24 +29,31 @@ export function getMvOverrideForPath(filePath) {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const map = JSON.parse(raw)
-    const e = map[filePath]
-    if (!e || typeof e.id !== 'string' || !e.id.trim()) return null
-    const source = e.source
-    if (source !== 'bilibili' && source !== 'youtube') return null
-    return { id: e.id.trim(), source, savedAt: e.savedAt }
+    return normalizeMvOverrideEntry(map[filePath])
   } catch {
     return null
   }
 }
 
-export function setMvOverrideForPath(filePath, { id, source }) {
+export function setMvOverrideForPath(
+  filePath,
+  { id, source, title = '', author = '', origin = 'manual' }
+) {
   if (!filePath || typeof filePath !== 'string') return
   if (!id || typeof id !== 'string') return
   if (source !== 'bilibili' && source !== 'youtube') return
+  const normalizedOrigin = VALID_ORIGINS.has(origin) ? origin : 'manual'
   try {
     const prev = localStorage.getItem(STORAGE_KEY)
     const map = prev ? JSON.parse(prev) : {}
-    map[filePath] = { id: id.trim(), source, savedAt: Date.now() }
+    map[filePath] = {
+      id: id.trim(),
+      source,
+      title: String(title || '').trim(),
+      author: String(author || '').trim(),
+      origin: normalizedOrigin,
+      savedAt: Date.now()
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
   } catch {
     /* quota */

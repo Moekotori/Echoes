@@ -491,16 +491,7 @@ export const extractAverageHexFromSrc = (src) => {
       ctx.drawImage(img, 0, 0, 64, 64);
       try {
         const data = ctx.getImageData(0, 0, 64, 64).data;
-        let r = 0, g = 0, b = 0, c = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          if (data[i+3] < 128) continue;
-          r += data[i]; g += data[i+1]; b += data[i+2];
-          c++;
-        }
-        if (c > 0) {
-          const hex = `#${((1 << 24) + (r/c) * 65536 + (g/c) * 256 + (b/c) | 0).toString(16).slice(1)}`;
-          resolve(hex);
-        } else resolve(null);
+        resolve(pickDominantHexFromImageData(data));
       } catch (e) {
         resolve(null);
       }
@@ -508,6 +499,108 @@ export const extractAverageHexFromSrc = (src) => {
     img.onerror = () => resolve(null);
     img.src = src;
   });
+}
+
+const rgbToHexColor = (r, g, b) => {
+  const toHex = (value) =>
+    Math.max(0, Math.min(255, Math.round(value)))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+const rgbToHsl = (r, g, b) => {
+  const nr = r / 255
+  const ng = g / 255
+  const nb = b / 255
+  const max = Math.max(nr, ng, nb)
+  const min = Math.min(nr, ng, nb)
+  let h = 0
+  let s = 0
+  const l = (max + min) / 2
+
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case nr:
+        h = (ng - nb) / d + (ng < nb ? 6 : 0)
+        break
+      case ng:
+        h = (nb - nr) / d + 2
+        break
+      default:
+        h = (nr - ng) / d + 4
+        break
+    }
+    h /= 6
+  }
+
+  return { h: h * 360, s: s * 100, l: l * 100 }
+}
+
+export const pickDominantHexFromImageData = (data) => {
+  if (!data || typeof data.length !== 'number') return null
+
+  const buckets = new Map()
+  let fallbackR = 0
+  let fallbackG = 0
+  let fallbackB = 0
+  let fallbackWeight = 0
+
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3]
+    if (alpha < 128) continue
+
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+    const { h, s, l } = rgbToHsl(r, g, b)
+    const chroma = (Math.max(r, g, b) - Math.min(r, g, b)) / 255
+    const alphaWeight = alpha / 255
+
+    fallbackR += r * alphaWeight
+    fallbackG += g * alphaWeight
+    fallbackB += b * alphaWeight
+    fallbackWeight += alphaWeight
+
+    if (s < 14 || chroma < 0.08 || l < 10 || l > 94) continue
+
+    const hueBucket = Math.round(h / 18)
+    const satBucket = Math.round(s / 18)
+    const lightBucket = Math.round(l / 14)
+    const key = `${hueBucket}:${satBucket}:${lightBucket}`
+    const lightBalance = 1 - Math.min(0.55, Math.abs(l - 56) / 100)
+    const colorWeight = alphaWeight * Math.pow(s / 100, 1.25) * lightBalance
+    const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, weight: 0, count: 0 }
+    bucket.r += r * colorWeight
+    bucket.g += g * colorWeight
+    bucket.b += b * colorWeight
+    bucket.weight += colorWeight
+    bucket.count += 1
+    buckets.set(key, bucket)
+  }
+
+  let best = null
+  for (const bucket of buckets.values()) {
+    if (bucket.weight <= 0) continue
+    const score = bucket.weight * Math.log2(bucket.count + 2)
+    if (!best || score > best.score) best = { ...bucket, score }
+  }
+
+  if (best?.weight > 0) {
+    return rgbToHexColor(best.r / best.weight, best.g / best.weight, best.b / best.weight)
+  }
+
+  if (fallbackWeight > 0) {
+    return rgbToHexColor(
+      fallbackR / fallbackWeight,
+      fallbackG / fallbackWeight,
+      fallbackB / fallbackWeight
+    )
+  }
+
+  return null
 }
 
 export const hexToHsl = (hex) => {

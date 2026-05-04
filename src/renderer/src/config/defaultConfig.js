@@ -89,7 +89,7 @@ export const DEFAULT_CONFIG = {
    * 递增并在 App 加载时 run migration（`oldRev < configRevision`）。
    * 老存档无此字段时视为 0。
    */
-  configRevision: 9,
+  configRevision: 11,
   /** UI language: en | zh | ja */
   uiLocale: 'en',
   useEQ: true,
@@ -165,6 +165,10 @@ export const DEFAULT_CONFIG = {
   lyricsWordHighlight: false,
   /** 沉浸式流体背景叠加 */
   lyricsFluidBackground: true,
+  /** Lyrics page background: theme, cover, or custom. */
+  lyricsBackgroundMode: 'theme',
+  /** Custom lyrics page background color. */
+  lyricsBackgroundColor: '#101722',
   /** 歌词非活动行景深模糊效果 */
   lyricsBlurEffect: false,
   /** 逐字高亮前置补偿（毫秒，正值更早） */
@@ -179,7 +183,8 @@ export const DEFAULT_CONFIG = {
    * When null, lyrics colors fall back to theme/runtime defaults.
    */
   lyricsColor: null,
-  lyricsSource: 'lrclib',
+  lyricsSource: 'netease',
+  localLyricsPriority: 'embedded',
   lyricsSourceLink: '',
   lyricsOffsetMs: 0,
   /** 歌词页隐藏滚动歌词（仍保留标题区与侧栏 MV / 沉浸式背景） */

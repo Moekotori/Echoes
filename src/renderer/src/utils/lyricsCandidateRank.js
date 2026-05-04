@@ -2,7 +2,7 @@
  * LRCLIB (and similar) search-result ranking: same heuristics as legacy App.jsx logic.
  */
 
-import { parseAnyLyrics } from './lyricsParse'
+import { parseAnyLyrics } from './lyricsParse.js'
 
 const TIME_TAG_REG = /\[(\d{2}):(\d{2})(\.|\:)(\d{2,3})\]/g
 
@@ -346,6 +346,61 @@ export function rankLrcLibCandidates(payload, audioDuration, options = {}) {
 }
 
 const MIN_CONFIDENCE = 28
+const ONLINE_LYRICS_SOURCES = new Set(['lrclib', 'netease', 'qq', 'kugou', 'kuwo', 'external'])
+const INSTRUMENTAL_WORD_RE =
+  /(^|[\s([{\-_/])(?:instrumental|inst\.?|off\s*vocal|off-vocal|karaoke|no\s*vocals?|without\s+vocals?|backing\s+track)(?=$|[\s)\]}\-_/])/i
+const INSTRUMENTAL_CJK_RE =
+  /(\u7eaf\u97f3\u4e50|\u7d14\u97f3\u6a02|\u7d14\u97f3\u697d|\u4f34\u594f|\u30ab\u30e9\u30aa\u30b1|\u30a4\u30f3\u30b9\u30c8|\u30aa\u30d5\u30dc\u30fc\u30ab\u30eb|\u30dc\u30fc\u30ab\u30eb\u306a\u3057)/
+
+export function isOnlineLyricsOverrideSource(source = '') {
+  return ONLINE_LYRICS_SOURCES.has(String(source || '').trim().toLowerCase())
+}
+
+export function isLikelyInstrumentalText(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return false
+  return INSTRUMENTAL_WORD_RE.test(text) || INSTRUMENTAL_CJK_RE.test(text)
+}
+
+export function isLikelyInstrumentalTrack({ title = '', artist = '', filePath = '' } = {}) {
+  const fileName = String(filePath || '')
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop()
+    ?.replace(/\.[^.]+$/, '')
+  return [title, artist, fileName].some(isLikelyInstrumentalText)
+}
+
+export function getAutoLyricsCandidateRejectReason(candidate, options = {}) {
+  if (!candidate) return 'empty'
+  const score = Number(candidate.score) || 0
+  const titleSim = Number(candidate.titleSim) || 0
+  const artistSim = Number(candidate.artistSim) || 0
+  const diff = Number(candidate.diff)
+  const expectedArtists = (options.artistCandidates || []).filter(Boolean)
+
+  if (score < MIN_CONFIDENCE) return `score ${score.toFixed(2)} < threshold ${MIN_CONFIDENCE}`
+  if (titleSim < 0.25 && artistSim < 0.2) {
+    return `titleSim=${titleSim.toFixed(2)} & artistSim=${artistSim.toFixed(2)} both too low`
+  }
+  if (titleSim < 0.45 && artistSim < 0.35 && score < 42) {
+    return `weak title+artist match (titleSim=${titleSim.toFixed(2)}, artistSim=${artistSim.toFixed(2)}) without high confidence`
+  }
+  if (titleSim < 0.52 && artistSim < 0.35 && score < 54) {
+    return `loose title match (titleSim=${titleSim.toFixed(2)}, artistSim=${artistSim.toFixed(2)})`
+  }
+  if (expectedArtists.length > 0 && titleSim < 0.62 && artistSim < 0.18 && score < 62) {
+    return `artist mismatch (titleSim=${titleSim.toFixed(2)}, artistSim=${artistSim.toFixed(2)})`
+  }
+  if (Number.isFinite(diff) && diff > 75 && titleSim < 0.72 && score < 62) {
+    return `duration mismatch (${diff.toFixed(1)}s)`
+  }
+  return ''
+}
+
+export function isAutoLyricsCandidateAccepted(candidate, options = {}) {
+  return !getAutoLyricsCandidateRejectReason(candidate, options)
+}
 
 /**
  * @returns {string} LRC text or ''
@@ -378,20 +433,9 @@ export function pickLyricsFromLrcLibResult(payload, audioDuration, options = {})
     console.log(
       `[Lyrics] Best candidate: score=${best.score.toFixed(2)}, titleSim=${best.titleSim.toFixed(2)}, artistSim=${best.artistSim.toFixed(2)}, diff=${Number.isFinite(best.diff) ? best.diff.toFixed(1) : 'n/a'}s`
     )
-    if (best.score < MIN_CONFIDENCE) {
-      console.log(`[Lyrics] Rejected: score ${best.score.toFixed(2)} < threshold ${MIN_CONFIDENCE}`)
-      return ''
-    }
-    if (best.titleSim < 0.25 && best.artistSim < 0.2) {
-      console.log(
-        `[Lyrics] Rejected: titleSim=${best.titleSim.toFixed(2)} & artistSim=${best.artistSim.toFixed(2)} both too low`
-      )
-      return ''
-    }
-    if (best.titleSim < 0.45 && best.artistSim < 0.35 && best.score < 42) {
-      console.log(
-        `[Lyrics] Rejected: weak title+artist match (titleSim=${best.titleSim.toFixed(2)}, artistSim=${best.artistSim.toFixed(2)}) without high confidence`
-      )
+    const rejectReason = getAutoLyricsCandidateRejectReason(best, options)
+    if (rejectReason) {
+      console.log(`[Lyrics] Rejected: ${rejectReason}`)
       return ''
     }
     return best.chosenLyrics

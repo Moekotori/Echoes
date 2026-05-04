@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, RefreshCw, Minus, Plus, Upload, Search } from 'lucide-react'
+import {
+  DEFAULT_LYRICS_BACKGROUND_COLOR,
+  DEFAULT_LYRICS_BACKGROUND_MODE,
+  normalizeLyricsBackgroundColor,
+  normalizeLyricsBackgroundMode
+} from '../utils/lyricsBackground'
 
 export default function LyricsSettingsDrawer({
   open,
   onClose,
   config,
   setConfig,
+  selectedLyricsSource,
+  onLyricsSourceChange,
   lyricsMatchStatus,
   lyricTimelineValid,
   lyricsSourceUi,
@@ -25,6 +33,21 @@ export default function LyricsSettingsDrawer({
       { value: 'qq', label: t('lyricsDrawer.sourceQq') },
       { value: 'kugou', label: t('lyricsDrawer.sourceKugou') },
       { value: 'kuwo', label: t('lyricsDrawer.sourceKuwo') }
+    ],
+    [t]
+  )
+  const localPriorityOptions = useMemo(
+    () => [
+      { value: 'embedded', label: t('lyricsDrawer.localPriorityEmbedded') },
+      { value: 'lrc', label: t('lyricsDrawer.localPriorityLrc') }
+    ],
+    [t]
+  )
+  const backgroundModeOptions = useMemo(
+    () => [
+      { value: 'theme', label: t('lyricsDrawer.backgroundModeTheme') },
+      { value: 'cover', label: t('lyricsDrawer.backgroundModeCover') },
+      { value: 'custom', label: t('lyricsDrawer.backgroundModeCustom') }
     ],
     [t]
   )
@@ -67,6 +90,14 @@ export default function LyricsSettingsDrawer({
   const offsetMs = config.lyricsOffsetMs ?? 0
   const fontSize = config.lyricsFontSize ?? 32
   const lyricsColor = config.lyricsColor || null
+  const lyricsBackgroundMode = normalizeLyricsBackgroundMode(config.lyricsBackgroundMode)
+  const lyricsBackgroundColor = normalizeLyricsBackgroundColor(
+    config.lyricsBackgroundColor,
+    DEFAULT_LYRICS_BACKGROUND_COLOR
+  )
+  const selectedSourceValue = sourceOptions.some((option) => option.value === selectedLyricsSource)
+    ? selectedLyricsSource
+    : config.lyricsSource
 
   const stateDefs = useMemo(
     () => [
@@ -125,8 +156,10 @@ export default function LyricsSettingsDrawer({
   const normalInit = getColor('main', 'normal')
   const [activeHexDraft, setActiveHexDraft] = useState(activeInit?.hex || '')
   const [normalHexDraft, setNormalHexDraft] = useState(normalInit?.hex || '')
+  const [backgroundHexDraft, setBackgroundHexDraft] = useState(lyricsBackgroundColor)
   const [activeInvalid, setActiveInvalid] = useState(false)
   const [normalInvalid, setNormalInvalid] = useState(false)
+  const [backgroundInvalid, setBackgroundInvalid] = useState(false)
 
   useEffect(() => {
     const a = getColor('main', 'active')
@@ -136,6 +169,11 @@ export default function LyricsSettingsDrawer({
     setActiveInvalid(false)
     setNormalInvalid(false)
   }, [getColor])
+
+  useEffect(() => {
+    setBackgroundHexDraft(lyricsBackgroundColor)
+    setBackgroundInvalid(false)
+  }, [lyricsBackgroundColor])
 
   const applyColorHex = useCallback(
     (state, hex) => {
@@ -190,6 +228,30 @@ export default function LyricsSettingsDrawer({
     },
     [parseHexWithOptionalAlpha, setMainColor]
   )
+
+  const applyBackgroundColor = useCallback(
+    (value) => {
+      const nextColor = normalizeLyricsBackgroundColor(value, lyricsBackgroundColor)
+      setConfig((p) => ({
+        ...p,
+        lyricsBackgroundMode: 'custom',
+        lyricsBackgroundColor: nextColor
+      }))
+      setBackgroundHexDraft(nextColor)
+      setBackgroundInvalid(false)
+    },
+    [lyricsBackgroundColor, setConfig]
+  )
+
+  const commitBackgroundHexDraft = useCallback(() => {
+    const value = String(backgroundHexDraft || '').trim()
+    const candidate = value.startsWith('#') ? value : `#${value}`
+    if (!/^#[0-9a-fA-F]{6}$/.test(candidate)) {
+      setBackgroundInvalid(true)
+      return
+    }
+    applyBackgroundColor(candidate)
+  }, [applyBackgroundColor, backgroundHexDraft])
 
   const statusLabel =
     lyricsMatchStatus === 'loading'
@@ -347,6 +409,83 @@ export default function LyricsSettingsDrawer({
               />
             </div>
 
+            <div className="lyrics-drawer-background-block">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.background')}</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsBackgroundMode: DEFAULT_LYRICS_BACKGROUND_MODE,
+                      lyricsBackgroundColor: DEFAULT_LYRICS_BACKGROUND_COLOR
+                    }))
+                  }
+                >
+                  {t('lyricsDrawer.reset')}
+                </button>
+              </div>
+              <div className="lyrics-drawer-segmented lyrics-drawer-segmented--three" role="radiogroup">
+                {backgroundModeOptions.map((option) => {
+                  const active = lyricsBackgroundMode === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? 'active' : ''}
+                      onClick={() =>
+                        setConfig((p) => ({
+                          ...p,
+                          lyricsBackgroundMode: option.value
+                        }))
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.backgroundHint')}</p>
+              {lyricsBackgroundMode === 'custom' ? (
+                <div className="lyrics-background-color-card">
+                  <label
+                    className="lyrics-background-color-preview"
+                    style={{ background: lyricsBackgroundColor }}
+                  >
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.backgroundColor')}</span>
+                    <input
+                      type="color"
+                      value={lyricsBackgroundColor}
+                      onChange={(e) => applyBackgroundColor(e.target.value)}
+                      aria-label={t('lyricsDrawer.backgroundColor')}
+                    />
+                  </label>
+                  <div className="lyrics-background-color-controls">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${backgroundInvalid ? 'is-invalid' : ''}`}
+                        value={backgroundHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setBackgroundHexDraft(e.target.value)
+                          setBackgroundInvalid(false)
+                        }}
+                        onBlur={commitBackgroundHexDraft}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitBackgroundHexDraft()
+                        }}
+                      />
+                    </label>
+                    <span className="lyrics-background-color-value">{lyricsBackgroundColor}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="lyrics-drawer-color-grid">
               <div className="lyrics-drawer-label-row">
                 <span className="lyrics-drawer-label">{t('lyricsDrawer.fontColor')}</span>
@@ -482,13 +621,39 @@ export default function LyricsSettingsDrawer({
                 {lyricsSourceUi || t('lyricsDrawer.sourceStateIdle', '--')}
               </span>
             </div>
+            <div className="lyrics-drawer-local-priority">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.localPriority')}</span>
+              <div className="lyrics-drawer-segmented" role="radiogroup">
+                {localPriorityOptions.map((option) => {
+                  const active = (config.localLyricsPriority || 'embedded') === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? 'active' : ''}
+                      onClick={() =>
+                        setConfig((p) => ({
+                          ...p,
+                          localLyricsPriority: option.value
+                        }))
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.localPriorityHint')}</p>
+            </div>
             <div className="lyrics-drawer-dropdown-wrap" ref={dropdownWrapRef}>
               <button
                 type="button"
                 className="lyrics-drawer-dropdown-trigger"
                 onClick={() => setDropdownOpen((v) => !v)}
               >
-                {sourceOptions.find((o) => o.value === config.lyricsSource)?.label ||
+                {sourceOptions.find((o) => o.value === selectedSourceValue)?.label ||
                   t('lyricsDrawer.selectSource')}
               </button>
               {dropdownOpen && (
@@ -497,9 +662,13 @@ export default function LyricsSettingsDrawer({
                     <li key={o.value}>
                       <button
                         type="button"
-                        className={config.lyricsSource === o.value ? 'active' : ''}
+                        className={selectedSourceValue === o.value ? 'active' : ''}
                         onClick={() => {
-                          setConfig((p) => ({ ...p, lyricsSource: o.value }))
+                          if (onLyricsSourceChange) {
+                            onLyricsSourceChange(o.value)
+                          } else {
+                            setConfig((p) => ({ ...p, lyricsSource: o.value }))
+                          }
                           setDropdownOpen(false)
                         }}
                       >

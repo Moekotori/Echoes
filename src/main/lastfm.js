@@ -7,6 +7,11 @@ const MSG_LOGIN_FAILED = '\u767b\u5f55\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u7528
 const MSG_LOGIN_TIMEOUT = '\u8bf7\u6c42\u8d85\u65f6\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5'
 const MSG_NETWORK_FAILED = '\u767b\u5f55\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u8fde\u63a5'
 const MSG_INVALID_API_KEY = 'Last.fm API Key \u65e0\u6548\uff0c\u8bf7\u68c0\u67e5\u5e94\u7528\u914d\u7f6e'
+const MSG_OPEN_AUTH_FAILED = '\u65e0\u6cd5\u6253\u5f00 Last.fm \u6388\u6743\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5'
+const MSG_AUTH_NOT_APPROVED =
+  '\u5c1a\u672a\u5b8c\u6210 Last.fm \u6388\u6743\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u70b9\u51fb Allow \u540e\u518d\u56de\u6765\u5b8c\u6210\u8fde\u63a5'
+const MSG_WEB_AUTH_REQUIRED =
+  '\u5f53\u524d Last.fm \u4e0d\u63a5\u53d7\u5e94\u7528\u5185\u5bc6\u7801\u767b\u5f55\uff0c\u8bf7\u4f7f\u7528\u6d4f\u89c8\u5668\u6388\u6743\u8fde\u63a5'
 
 export class LastFmClient {
   constructor() {
@@ -69,7 +74,97 @@ export class LastFmClient {
       if (data?.error === 10 || String(data?.message || '').includes('Invalid API key')) {
         return { ok: false, error: MSG_INVALID_API_KEY }
       }
-      return { ok: false, error: data?.message || MSG_LOGIN_FAILED }
+      const message = String(data?.message || '')
+      if (/permission|access the service/i.test(message)) {
+        return { ok: false, error: MSG_WEB_AUTH_REQUIRED }
+      }
+      return { ok: false, error: message || MSG_LOGIN_FAILED }
+    } catch (error) {
+      const timeoutMessage = error?.code === 'ECONNABORTED' ? MSG_LOGIN_TIMEOUT : ''
+      return {
+        ok: false,
+        error: timeoutMessage || error?.response?.data?.message || MSG_NETWORK_FAILED
+      }
+    }
+  }
+
+  getAuthorizationUrl(token) {
+    const normalizedToken = String(token || '').trim()
+    const params = new URLSearchParams({
+      api_key: this.apiKey,
+      token: normalizedToken
+    })
+    return `https://www.last.fm/api/auth/?${params.toString()}`
+  }
+
+  async createWebAuthToken() {
+    try {
+      const params = {
+        method: 'auth.getToken',
+        api_key: this.apiKey
+      }
+      const data = await this._post({
+        ...params,
+        api_sig: this._sign(params)
+      })
+
+      if (data?.token) {
+        const token = String(data.token)
+        return {
+          ok: true,
+          token,
+          url: this.getAuthorizationUrl(token)
+        }
+      }
+
+      if (data?.error === 10 || String(data?.message || '').includes('Invalid API key')) {
+        return { ok: false, error: MSG_INVALID_API_KEY }
+      }
+      return { ok: false, error: data?.message || MSG_OPEN_AUTH_FAILED }
+    } catch (error) {
+      const timeoutMessage = error?.code === 'ECONNABORTED' ? MSG_LOGIN_TIMEOUT : ''
+      return {
+        ok: false,
+        error: timeoutMessage || error?.response?.data?.message || MSG_OPEN_AUTH_FAILED
+      }
+    }
+  }
+
+  async completeWebAuth(token) {
+    try {
+      const normalizedToken = String(token || '').trim()
+      if (!normalizedToken) {
+        return { ok: false, error: MSG_AUTH_NOT_APPROVED }
+      }
+
+      const params = {
+        method: 'auth.getSession',
+        api_key: this.apiKey,
+        token: normalizedToken
+      }
+      const data = await this._post({
+        ...params,
+        api_sig: this._sign(params)
+      })
+
+      if (data?.session?.key) {
+        this.sessionKey = data.session.key
+        this.username = data.session.name || null
+        return {
+          ok: true,
+          username: this.username,
+          sessionKey: this.sessionKey
+        }
+      }
+
+      const message = String(data?.message || '')
+      if (data?.error === 10 || message.includes('Invalid API key')) {
+        return { ok: false, error: MSG_INVALID_API_KEY }
+      }
+      if (data?.error === 14 || /token|authorized|permission/i.test(message)) {
+        return { ok: false, error: MSG_AUTH_NOT_APPROVED }
+      }
+      return { ok: false, error: message || MSG_AUTH_NOT_APPROVED }
     } catch (error) {
       const timeoutMessage = error?.code === 'ECONNABORTED' ? MSG_LOGIN_TIMEOUT : ''
       return {

@@ -2,10 +2,12 @@ import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { app } from 'electron'
+import electron from 'electron'
+import { sanitizeRomajiSourceText, shouldRequestGeneratedRomaji } from '../shared/romajiText.mjs'
 
 const require = createRequire(import.meta.url)
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const { app } = electron || {}
 
 /**
  * CJS / electron-vite 打包后 default 可能嵌一层或整包即类，统一解析为构造函数。
@@ -101,8 +103,8 @@ export async function convertLinesToRomaji(texts) {
   const ks = await ensureKuroshiro()
   const out = []
   for (const raw of texts) {
-    const t = typeof raw === 'string' ? raw.trim() : ''
-    if (!t || t === 'No lyrics found') {
+    const t = sanitizeRomajiSourceText(raw)
+    if (!t || t === 'No lyrics found' || !shouldRequestGeneratedRomaji(t)) {
       out.push('')
       continue
     }
