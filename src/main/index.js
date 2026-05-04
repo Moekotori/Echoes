@@ -87,7 +87,9 @@ import {
   rescanImportedFolders
 } from './utils/libraryWatcher.js'
 import {
+  buildNeteaseErrorLogPayload,
   fetchNeteaseLrcText,
+  withQuietNeteaseConsole,
   searchNeteaseSongs,
   getNeteaseSongDirectUrl
 } from './neteaseLyrics.js'
@@ -143,6 +145,85 @@ const require = createRequire(import.meta.url)
 
 function getNcmApi() {
   return require('@neteasecloudmusicapienhanced/api')
+}
+
+const NETEASE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000
+const NETEASE_SEARCH_RATE_LIMIT_COOLDOWN_MS = 60 * 1000
+const neteaseCloudSearchCache = new Map()
+const neteaseCloudSearchInFlight = new Map()
+let neteaseCloudSearchCooldownUntil = 0
+let neteaseCloudSearchLastWarnAt = 0
+
+function buildNeteaseCloudSearchCacheKey(kind, keywords) {
+  return `${kind}:${String(keywords || '').trim().toLowerCase()}`
+}
+
+function getNeteaseErrorText(payload) {
+  return String(
+    payload?.body?.message ||
+      payload?.body?.msg ||
+      payload?.message ||
+      payload?.body?.code ||
+      ''
+  )
+}
+
+function isNeteaseRateLimitPayload(payload) {
+  const status = Number(payload?.status || payload?.body?.code || 0)
+  const text = getNeteaseErrorText(payload)
+  return status === 405 || text.includes('操作频繁') || /rate|frequent/i.test(text)
+}
+
+function warnNeteaseCloudSearchOnce(kind, payload) {
+  const now = Date.now()
+  if (now - neteaseCloudSearchLastWarnAt < 5000) return
+  neteaseCloudSearchLastWarnAt = now
+  const text = isNeteaseRateLimitPayload(payload)
+    ? '操作频繁，请稍候再试'
+    : getNeteaseErrorText(payload) || 'request failed'
+  console.warn(`[netease:${kind}] ${text}`)
+}
+
+async function cachedNeteaseCloudSearch(kind, params, cookie = '') {
+  const keywords = String(params?.keywords || '').trim()
+  if (!keywords) return null
+
+  const key = buildNeteaseCloudSearchCacheKey(kind, keywords)
+  const cached = neteaseCloudSearchCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  if (Date.now() < neteaseCloudSearchCooldownUntil) return null
+  if (neteaseCloudSearchInFlight.has(key)) return await neteaseCloudSearchInFlight.get(key)
+
+  const task = (async () => {
+    try {
+      const ncm = getNcmApi()
+      const value = await withQuietNeteaseConsole(() =>
+        ncm.cloudsearch({
+          ...params,
+          keywords,
+          ...buildNcmRequestOptions(cookie)
+        })
+      )
+      neteaseCloudSearchCache.set(key, {
+        value,
+        expiresAt: Date.now() + NETEASE_SEARCH_CACHE_TTL_MS
+      })
+      return value
+    } catch (error) {
+      const payload = buildNeteaseErrorLogPayload(error)
+      if (isNeteaseRateLimitPayload(payload)) {
+        neteaseCloudSearchCooldownUntil = Date.now() + NETEASE_SEARCH_RATE_LIMIT_COOLDOWN_MS
+      }
+      warnNeteaseCloudSearchOnce(kind, payload)
+      return null
+    } finally {
+      neteaseCloudSearchInFlight.delete(key)
+    }
+  })()
+
+  neteaseCloudSearchInFlight.set(key, task)
+  return await task
 }
 
 function dialogLocaleFromOpts(opts) {
@@ -1466,7 +1547,31 @@ function cloneAppStateSnapshot() {
 
 function getAutoUpdateEnabledFromState() {
   const config = ensureAppStateCache()?.config
-  return config?.autoUpdateEnabled !== false
+  return config?.autoUpdateEnabled !== false && config?.networkAccessDisabled !== true
+}
+
+let networkAccessDisabled = false
+
+function getNetworkAccessDisabledFromState() {
+  const config = ensureAppStateCache()?.config
+  return config?.networkAccessDisabled === true
+}
+
+function isNetworkAccessDisabled() {
+  return networkAccessDisabled || getNetworkAccessDisabledFromState()
+}
+
+function isLocalNetworkUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ''))
+    return ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
+function buildNetworkDisabledResult() {
+  return { ok: false, success: false, error: 'network_disabled' }
 }
 
 function getSavedNeteaseCookieFromAppState() {
@@ -1740,6 +1845,11 @@ function initUpdater() {
   }
 
   const runUpdateCheck = async (source = 'manual') => {
+    if (isNetworkAccessDisabled()) {
+      sendUpdaterEvent('error', { message: 'network_disabled' })
+      return buildNetworkDisabledResult()
+    }
+
     if (updaterCheckPromise) {
       console.log(`[UpdaterState] Reusing in-flight check for source=${source}`)
       if (source === 'manual' && updaterCurrentEvent?.event) {
@@ -1823,6 +1933,10 @@ function initUpdater() {
   }
 
   ipcMain.handle('app:checkForUpdates', async () => {
+    if (isNetworkAccessDisabled()) {
+      sendUpdaterEvent('error', { message: 'network_disabled' })
+      return buildNetworkDisabledResult()
+    }
     if (is.dev) {
       sendUpdaterEvent('update-not-available')
       return { success: true, dev: true }
@@ -1831,6 +1945,7 @@ function initUpdater() {
   })
 
   ipcMain.handle('app:installUpdate', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (is.dev) return { success: true, dev: true }
     try {
       autoUpdater.quitAndInstall(false, true)
@@ -1842,8 +1957,15 @@ function initUpdater() {
 
   // 启动后静默检查一次
   ipcMain.handle('app:setAutoUpdateEnabled', async (_, enabled) => {
-    updaterAutoCheckEnabled = enabled !== false
+    updaterAutoCheckEnabled = enabled !== false && !isNetworkAccessDisabled()
     return { success: true, enabled: updaterAutoCheckEnabled }
+  })
+
+  ipcMain.handle('app:setNetworkAccessDisabled', async (_, disabled) => {
+    networkAccessDisabled = disabled === true
+    updaterAutoCheckEnabled = getAutoUpdateEnabledFromState()
+    autoUpdater.autoDownload = !networkAccessDisabled
+    return { success: true, disabled: networkAccessDisabled }
   })
 
   if (is.dev) return // 不在开发环境自动更新
@@ -2313,6 +2435,18 @@ app.whenReady().then(async () => {
 
   app.userAgentFallback = standardUA
   session.defaultSession.setUserAgent(standardUA)
+  networkAccessDisabled = getNetworkAccessDisabledFromState()
+
+  session.defaultSession.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
+    (details, callback) => {
+      if (isNetworkAccessDisabled() && !isLocalNetworkUrl(details.url)) {
+        callback({ cancel: true })
+        return
+      }
+      callback({})
+    }
+  )
 
   initUpdater()
 
@@ -2518,6 +2652,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:testSource', async (_, payload = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const existing = payload.id ? findRemoteSource(payload.id) : null
       const sourceType = normalizeRemoteSourceType(payload.type || existing?.type)
@@ -2599,6 +2734,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getArtists', async (_, sourceId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
@@ -2648,6 +2784,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getArtist', async (_, sourceId, artistId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
@@ -2717,6 +2854,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getAlbum', async (_, sourceId, albumId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
@@ -2767,6 +2905,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:search', async (_, sourceId, query) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
@@ -2829,6 +2968,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getSubsonicSpecial', async (_, sourceId, kind) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
@@ -2858,6 +2998,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getPlaylists', async (_, sourceId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
@@ -2875,6 +3016,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:getPlaylist', async (_, sourceId, playlistId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       const source = findRemoteSource(sourceId)
       if (isJellyfinLikeSourceType(normalizeRemoteSourceType(source?.type))) {
@@ -2892,6 +3034,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('remoteLibrary:resolveStreamUrl', async (_, filePath) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       if (
         !isSubsonicTrackPath(filePath) &&
@@ -2908,6 +3051,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('shell:openExternal', async (_, url) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (typeof url !== 'string') return { ok: false, error: 'invalid_url' }
     const t = url.trim()
     if (!/^https?:\/\//i.test(t)) return { ok: false, error: 'invalid_url' }
@@ -3105,6 +3249,21 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('dialog:openSettingsJson', async (_, opts) => {
+    const d = getDialogStrings(dialogLocaleFromOpts(opts))
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: d.filterSettingsJson || 'Settings JSON', extensions: ['json'] }]
+    })
+    if (canceled || !filePaths?.length) return null
+    try {
+      const content = fs.readFileSync(filePaths[0], 'utf8')
+      return { path: filePaths[0], content }
+    } catch (e) {
+      return { error: String(e.message || e) }
+    }
+  })
+
   ipcMain.handle('dialog:openPlaylistFile', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: '导入播放列表',
@@ -3130,6 +3289,22 @@ app.whenReady().then(async () => {
       title: d.saveThemeTitle,
       defaultPath: defaultName || 'echoes-studio-theme.json',
       filters: [{ name: d.filterThemeJson, extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return { success: false }
+    try {
+      fs.writeFileSync(filePath, text, 'utf8')
+      return { success: true, filePath }
+    } catch (e) {
+      return { success: false, error: String(e.message || e) }
+    }
+  })
+
+  ipcMain.handle('dialog:saveSettingsJson', async (_, text, defaultName, opts) => {
+    const d = getDialogStrings(dialogLocaleFromOpts(opts))
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: d.saveSettingsTitle || 'Export settings',
+      defaultPath: defaultName || 'echo-settings.json',
+      filters: [{ name: d.filterSettingsJson || 'Settings JSON', extensions: ['json'] }]
     })
     if (canceled || !filePath) return { success: false }
     try {
@@ -3289,6 +3464,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lyrics:neteaseFetch', async (_, payload) => {
+    if (isNetworkAccessDisabled()) return { ok: false, lrc: '', confidence: null, error: 'network_disabled' }
     try {
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
       const result = await fetchNeteaseLrcText({
@@ -3308,6 +3484,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lyrics:searchExternal', async (_, payload) => {
+    if (isNetworkAccessDisabled()) return { ok: false, items: [], error: 'network_disabled' }
     try {
       const items = await searchExternalLyrics(payload || {})
       return { ok: true, items }
@@ -3368,14 +3545,15 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('netease:searchAlbum', async (_, payload) => {
     try {
+      const albumName = String(payload?.albumName || '').trim()
+      const artist = String(payload?.artist || '').trim()
+      if (!albumName && !artist) return []
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
-      const ncm = getNcmApi()
-      const res = await ncm.cloudsearch({
-        keywords: `${payload?.albumName || ''} ${payload?.artist || ''}`.trim(),
+      const res = await cachedNeteaseCloudSearch('searchAlbum', {
+        keywords: `${albumName} ${artist}`.trim(),
         type: 10,
-        limit: 8,
-        ...buildNcmRequestOptions(auth.valid ? auth.cookie : '')
-      })
+        limit: 8
+      }, auth.valid ? auth.cookie : '')
       const albums = res?.body?.result?.albums
       if (!Array.isArray(albums)) return []
       return albums.map((album) => ({
@@ -3389,7 +3567,7 @@ app.whenReady().then(async () => {
         size: album.size || album.trackCount || 0
       }))
     } catch (e) {
-      console.error('[netease:searchAlbum]', e?.message || e)
+      console.warn('[netease:searchAlbum]', e?.message || e)
       return []
     }
   })
@@ -3399,13 +3577,11 @@ app.whenReady().then(async () => {
       const artistName = String(payload?.artist || '').trim()
       if (!artistName) return []
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
-      const ncm = getNcmApi()
-      const res = await ncm.cloudsearch({
+      const res = await cachedNeteaseCloudSearch('searchArtist', {
         keywords: artistName,
         type: 100,
-        limit: 8,
-        ...buildNcmRequestOptions(auth.valid ? auth.cookie : '')
-      })
+        limit: 8
+      }, auth.valid ? auth.cookie : '')
       const artists = res?.body?.result?.artists
       if (!Array.isArray(artists)) return []
       return artists.map((artist) => ({
@@ -3418,7 +3594,7 @@ app.whenReady().then(async () => {
         musicSize: artist.musicSize || 0
       }))
     } catch (e) {
-      console.error('[netease:searchArtist]', e?.message || e)
+      console.warn('[netease:searchArtist]', e?.message || e)
       return []
     }
   })
@@ -3500,6 +3676,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('netease:fetchLrcText', async (event, params) => {
+    if (isNetworkAccessDisabled()) return { ok: false, error: 'network_disabled' }
     const auth = await resolveNeteaseAuthState(params?.cookie || '')
     return await fetchNeteaseLrcText({
       ...(params || {}),
@@ -3514,10 +3691,12 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('media:getMetadata', async (event, url, options = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return await MediaDownloader.getMetadata(url, withResolvedYoutubeCookieOptions(options))
   })
 
   ipcMain.handle('media:download', async (event, url, folder, options = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const auth = await resolveNeteaseAuthState(options?.neteaseCookie || '')
     return await MediaDownloader.downloadAudio(url, folder, event.sender, {
       ...withResolvedYoutubeCookieOptions(options),
@@ -3533,6 +3712,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('media:downloadFromUrl', async (event, opts) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const { url, targetFolder, filename, headers } = opts || {}
     if (!url || !targetFolder || !filename) throw new Error('Missing required parameters')
     return await MediaDownloader.downloadFromUrl(url, targetFolder, filename, event.sender, { headers })
@@ -4826,10 +5006,12 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lastfm:login', async (_, username, password) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return await lastFmClient.authenticate(username, password)
   })
 
   ipcMain.handle('lastfm:startWebAuth', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const result = await lastFmClient.createWebAuthToken()
     if (result?.ok && result.url) {
       await shell.openExternal(result.url)
@@ -4838,6 +5020,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lastfm:completeWebAuth', async (_, token) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return await lastFmClient.completeWebAuth(token)
   })
 
@@ -4852,10 +5035,12 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lastfm:nowPlaying', (_, artist, track, album, duration) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return lastFmClient.nowPlaying(artist, track, album, duration)
   })
 
   ipcMain.handle('lastfm:scrobble', (_, artist, track, album, startedAt, duration) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return lastFmClient.scrobble(artist, track, album, startedAt, duration)
   })
 
@@ -5183,6 +5368,7 @@ app.whenReady().then(async () => {
 
   // === Phone remote control Web app ===
   ipcMain.handle('remote:start', async (_, opts = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     try {
       return await phoneRemoteServer.start(opts || {})
     } catch (error) {
@@ -5202,6 +5388,7 @@ app.whenReady().then(async () => {
 
   // === 手机投流到本机（DLNA MediaRenderer???==
   ipcMain.handle('cast:dlnaStart', async (_, opts) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return dlnaRenderer.start(opts || {})
   })
 
@@ -5210,6 +5397,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('cast:airplayStart', async (_, opts) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return airplayReceiver.start(opts || {})
   })
 
@@ -5247,6 +5435,7 @@ app.whenReady().then(async () => {
 
   // === 本机投送到数播（DLNA/OpenHome Control Point）===
   ipcMain.handle('castSend:discover', async (_, opts = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     return upnpSender.safeCall(() => upnpSender.discover(opts || {}))
   })
 
@@ -5255,6 +5444,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('castSend:playTrack', async (_, payload = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const track = payload?.track || payload
     const deviceId = payload?.deviceId || payload?.targetDeviceId || ''
     return upnpSender.safeCall(() => upnpSender.playTrack(deviceId, track, payload?.options || {}))
@@ -5429,6 +5619,7 @@ app.whenReady().then(async () => {
   }
 
   ipcMain.handle('youtube:openSignInWindow', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: 'no_main_window' }
     }
@@ -5443,6 +5634,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('youtube:openSystemSignIn', async (_, browser = 'edge') => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const normalizedBrowser = browser === 'chrome' ? 'chrome' : 'edge'
     try {
       const executable = resolveYoutubeBrowserExecutable(normalizedBrowser)
@@ -5530,6 +5722,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('bilibili:openSignInWindow', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: 'no_main_window' }
     }
@@ -5544,6 +5737,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('netease:openSignInWindow', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: 'no_main_window' }
     }
@@ -5558,6 +5752,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('qqMusic:openSignInWindow', async () => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: 'no_main_window' }
     }
@@ -5608,6 +5803,7 @@ app.whenReady().then(async () => {
   }
 
   ipcMain.handle('bilibili:resolveStream', async (_, bvid, qualityId) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const normalizedBvid = String(bvid || '').trim()
     const qn = qualityId || 80
     try {

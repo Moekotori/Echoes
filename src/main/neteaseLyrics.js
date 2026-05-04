@@ -19,7 +19,13 @@ const MOJIBAKE_HINT_REG = /[锛鍚鎿璇銆鈥€]/u
 
 function repairPossiblyMojibakeText(value) {
   const text = typeof value === 'string' ? value : String(value || '')
-  if (!text || !MOJIBAKE_HINT_REG.test(text) || !iconvLite?.encode) return text
+  if (
+    !text ||
+    (!MOJIBAKE_HINT_REG.test(text) && !/[鎿嶄綔绋€欒]/u.test(text)) ||
+    !iconvLite?.encode
+  ) {
+    return text
+  }
   try {
     const repaired = iconvLite.encode(text, 'cp936').toString('utf8').trim()
     return repaired || text
@@ -39,7 +45,7 @@ function normalizeNeteaseLogValue(value) {
   return value
 }
 
-function buildNeteaseErrorLogPayload(error) {
+export function buildNeteaseErrorLogPayload(error) {
   const body = error?.response?.body ?? error?.body ?? null
   const status = error?.response?.status ?? error?.status ?? null
   const cookie =
@@ -65,7 +71,7 @@ function isNeteaseUpstreamErrorLog(args) {
   return Boolean(payload && typeof payload === 'object' && (payload.status || payload.body))
 }
 
-async function withQuietNeteaseConsole(task) {
+export async function withQuietNeteaseConsole(task) {
   if (quietNeteaseConsoleDepth === 0) {
     originalConsoleError = console.error
     console.error = (...args) => {

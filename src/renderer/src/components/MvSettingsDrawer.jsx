@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, ToggleLeft, ToggleRight, Link, Play, Minus, Plus, Search } from 'lucide-react'
+import { X, ToggleLeft, ToggleRight, Link, Play, Minus, Plus, Search, ChevronDown, Check } from 'lucide-react'
 import { buildBilibiliAutoMvQueries, buildYoutubeAutoMvQueries } from '../../../shared/mvSearchRank.mjs'
 import { getBestEffortMvSearchHit } from '../utils/mvAutoAccept'
 import { extractVideoId } from '../utils/mvUrlParse'
@@ -83,6 +83,73 @@ function collectManualMvSearchQueries(query = '', source = 'bilibili', title = '
       seen.add(key)
       return true
     })
+}
+
+function MvDrawerSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
+  const selectedOption = options.find((option) => option.value === value) || options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const handlePointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) {
+        setOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div className={`mv-drawer-select${open ? ' is-open' : ''}`} ref={rootRef}>
+      <button
+        type="button"
+        className="mv-drawer-select-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{selectedOption?.label}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="mv-drawer-select-menu" role="listbox">
+          {options.map((option) => {
+            const selected = option.value === selectedOption?.value
+            return (
+              <button
+                type="button"
+                key={option.value}
+                role="option"
+                aria-selected={selected}
+                className={`mv-drawer-select-option${selected ? ' is-selected' : ''}`}
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
+              >
+                <span>{option.label}</span>
+                {selected && <Check size={14} aria-hidden="true" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function getMvSearchItems(result, source = 'bilibili') {
@@ -232,23 +299,23 @@ export default function MvSettingsDrawer({
     [onPersistMvOverride, onRestartPlayback, setMvId]
   )
 
-  const selectStyle = {
-    padding: '8px 12px',
-    borderRadius: '8px',
-    border: '1px solid var(--glass-border)',
-    background: 'rgba(255,255,255,0.08)',
-    color: 'var(--text-main)',
-    outline: 'none',
-    width: '100%',
-    maxWidth: 220
-  }
-
   const qualityPres = getMvQualityPresentation(mvId, mvPlaybackQuality, biliDirectStream, t)
   const mvOffsetMs = config.mvOffsetMs ?? 0
   const nowPlayingUrl = buildMvVideoUrl(mvId)
   const nowPlayingTitle = String(mvId?.title || '').trim()
   const nowPlayingAuthor = String(mvId?.author || '').trim()
   const nowPlayingText = [mvId?.source, mvId?.id].filter(Boolean).join(' - ')
+  const mvSourceOptions = [
+    { value: 'youtube', label: 'YouTube' },
+    { value: 'bilibili', label: 'Bilibili' }
+  ]
+  const mvQualityOptions = [
+    { value: 'ultra', label: t('mvDrawer.qualityUltra') },
+    { value: 'highfps', label: t('mvDrawer.qualityHighFps') },
+    { value: 'high', label: t('mvDrawer.qualityHigh') },
+    { value: 'medium', label: t('mvDrawer.qualityMedium') },
+    { value: 'low', label: t('mvDrawer.qualityLow') }
+  ]
 
   return (
     <>
@@ -276,6 +343,17 @@ export default function MvSettingsDrawer({
         </div>
 
         <div className="lyrics-drawer-body">
+          <div className="mv-drawer-shortcuts" aria-label={t('mvDrawer.shortcutsAria', 'MV shortcuts')}>
+            <span className="mv-drawer-shortcut">
+              <kbd>Esc</kbd>
+              {t('mvDrawer.shortcutEsc', '快速退出 MV 界面')}
+            </span>
+            <span className="mv-drawer-shortcut">
+              <kbd>F11</kbd>
+              {t('mvDrawer.shortcutF11', '全屏')}
+            </span>
+          </div>
+
           <section className="mv-drawer-section">
             <h3 className="mv-drawer-section-title">
               <Search size={16} />
@@ -442,16 +520,53 @@ export default function MvSettingsDrawer({
 
             <div className="mv-drawer-row">
               <div className="mv-drawer-row-info">
+                <span className="mv-drawer-label">{t('mvDrawer.mvAsBg')}</span>
+              </div>
+              <button
+                className={`toggle-btn ${config.mvAsBackground ? 'active' : ''}`}
+                onClick={() => {
+                  setConfig((prev) => ({
+                    ...prev,
+                    mvAsBackground: !prev.mvAsBackground
+                  }))
+                  if (config.mvAsBackground && !config.enableMV) setMvId(null)
+                }}
+              >
+                {config.mvAsBackground ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+              </button>
+            </div>
+
+            <div className="mv-drawer-row">
+              <div className="mv-drawer-row-info">
+                <span className="mv-drawer-label">{t('mvDrawer.mvAsBgMain')}</span>
+              </div>
+              <button
+                className={`toggle-btn ${config.mvAsBackgroundMain ? 'active' : ''}`}
+                onClick={() => {
+                  setConfig((prev) => ({
+                    ...prev,
+                    mvAsBackgroundMain: !prev.mvAsBackgroundMain
+                  }))
+                  if (config.mvAsBackgroundMain && !config.enableMV) setMvId(null)
+                }}
+              >
+                {config.mvAsBackgroundMain ? (
+                  <ToggleRight size={28} />
+                ) : (
+                  <ToggleLeft size={28} />
+                )}
+              </button>
+            </div>
+
+            <div className="mv-drawer-row">
+              <div className="mv-drawer-row-info">
                 <span className="mv-drawer-label">{t('mvDrawer.mvSource')}</span>
               </div>
-              <select
+              <MvDrawerSelect
                 value={config.mvSource || 'bilibili'}
-                onChange={(e) => setConfig((prev) => ({ ...prev, mvSource: e.target.value }))}
-                style={selectStyle}
-              >
-                <option value="youtube">YouTube</option>
-                <option value="bilibili">Bilibili</option>
-              </select>
+                options={mvSourceOptions}
+                onChange={(value) => setConfig((prev) => ({ ...prev, mvSource: value }))}
+              />
             </div>
 
             <div className="mv-drawer-row">
@@ -463,17 +578,11 @@ export default function MvSettingsDrawer({
                   )}
                 </span>
               </div>
-              <select
+              <MvDrawerSelect
                 value={config.mvQuality || 'high'}
-                onChange={(e) => setConfig((prev) => ({ ...prev, mvQuality: e.target.value }))}
-                style={selectStyle}
-              >
-                <option value="ultra">{t('mvDrawer.qualityUltra')}</option>
-                <option value="highfps">{t('mvDrawer.qualityHighFps')}</option>
-                <option value="high">{t('mvDrawer.qualityHigh')}</option>
-                <option value="medium">{t('mvDrawer.qualityMedium')}</option>
-                <option value="low">{t('mvDrawer.qualityLow')}</option>
-              </select>
+                options={mvQualityOptions}
+                onChange={(value) => setConfig((prev) => ({ ...prev, mvQuality: value }))}
+              />
             </div>
 
             <div className="mv-drawer-row">
@@ -547,50 +656,10 @@ export default function MvSettingsDrawer({
             </div>
           </section>
 
-          <section className="mv-drawer-section">
-            <h3 className="mv-drawer-section-title">{t('mvDrawer.immersive')}</h3>
+          {(config.mvAsBackground || config.mvAsBackgroundMain) && (
+            <section className="mv-drawer-section">
+              <h3 className="mv-drawer-section-title">{t('mvDrawer.immersive')}</h3>
 
-            <div className="mv-drawer-row">
-              <div className="mv-drawer-row-info">
-                <span className="mv-drawer-label">{t('mvDrawer.mvAsBg')}</span>
-              </div>
-              <button
-                className={`toggle-btn ${config.mvAsBackground ? 'active' : ''}`}
-                onClick={() => {
-                  setConfig((prev) => ({
-                    ...prev,
-                    mvAsBackground: !prev.mvAsBackground
-                  }))
-                  if (config.mvAsBackground && !config.enableMV) setMvId(null)
-                }}
-              >
-                {config.mvAsBackground ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
-              </button>
-            </div>
-
-            <div className="mv-drawer-row">
-              <div className="mv-drawer-row-info">
-                <span className="mv-drawer-label">{t('mvDrawer.mvAsBgMain')}</span>
-              </div>
-              <button
-                className={`toggle-btn ${config.mvAsBackgroundMain ? 'active' : ''}`}
-                onClick={() => {
-                  setConfig((prev) => ({
-                    ...prev,
-                    mvAsBackgroundMain: !prev.mvAsBackgroundMain
-                  }))
-                  if (config.mvAsBackgroundMain && !config.enableMV) setMvId(null)
-                }}
-              >
-                {config.mvAsBackgroundMain ? (
-                  <ToggleRight size={28} />
-                ) : (
-                  <ToggleLeft size={28} />
-                )}
-              </button>
-            </div>
-
-            {(config.mvAsBackground || config.mvAsBackgroundMain) && (
               <div className="mv-drawer-row">
                 <div className="mv-drawer-row-info">
                   <span className="mv-drawer-label">{t('mvDrawer.bgOpacity')}</span>
@@ -620,9 +689,7 @@ export default function MvSettingsDrawer({
                   style={{ flex: 1, maxWidth: 180 }}
                 />
               </div>
-            )}
 
-            {(config.mvAsBackground || config.mvAsBackgroundMain) && (
               <div className="mv-drawer-row">
                 <div className="mv-drawer-row-info">
                   <span className="mv-drawer-label">{t('mvDrawer.bgBlur')}</span>
@@ -646,35 +713,35 @@ export default function MvSettingsDrawer({
                   style={{ flex: 1, maxWidth: 180 }}
                 />
               </div>
-            )}
 
-            {config.mvAsBackground && (
-              <>
-                <div className="mv-drawer-row">
-                  <div className="mv-drawer-row-info">
-                    <span className="mv-drawer-label">{t('mvDrawer.hideImmersiveChrome')}</span>
+              {config.mvAsBackground && (
+                <>
+                  <div className="mv-drawer-row">
+                    <div className="mv-drawer-row-info">
+                      <span className="mv-drawer-label">{t('mvDrawer.hideImmersiveChrome')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${config.mvHideImmersiveChrome ? 'active' : ''}`}
+                      onClick={() =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          mvHideImmersiveChrome: !prev.mvHideImmersiveChrome
+                        }))
+                      }
+                    >
+                      {config.mvHideImmersiveChrome ? (
+                        <ToggleRight size={28} />
+                      ) : (
+                        <ToggleLeft size={28} />
+                      )}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className={`toggle-btn ${config.mvHideImmersiveChrome ? 'active' : ''}`}
-                    onClick={() =>
-                      setConfig((prev) => ({
-                        ...prev,
-                        mvHideImmersiveChrome: !prev.mvHideImmersiveChrome
-                      }))
-                    }
-                  >
-                    {config.mvHideImmersiveChrome ? (
-                      <ToggleRight size={28} />
-                    ) : (
-                      <ToggleLeft size={28} />
-                    )}
-                  </button>
-                </div>
-                <p className="lyrics-drawer-hint">{t('mvDrawer.hideImmersiveChromeHint')}</p>
-              </>
-            )}
-          </section>
+                  <p className="lyrics-drawer-hint">{t('mvDrawer.hideImmersiveChromeHint')}</p>
+                </>
+              )}
+            </section>
+          )}
 
           <section className="mv-drawer-section">
             <h3 className="mv-drawer-section-title">{t('mvDrawer.account')}</h3>

@@ -6,7 +6,9 @@ const STRINGS = {
     filterLyrics: 'Lyrics',
     filterImages: 'Images',
     filterThemeJson: 'Theme JSON',
+    filterSettingsJson: 'Settings JSON',
     saveThemeTitle: 'Save theme',
+    saveSettingsTitle: 'Export settings',
     saveExportTitle: 'Export Nightcore Audio',
     filterWav: 'Audio File',
     filterFonts: 'Font files'

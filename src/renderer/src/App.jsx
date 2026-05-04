@@ -149,6 +149,7 @@ import {
   getAppThemeBackgroundStyle
 } from './utils/themeColors'
 import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './utils/themeBundle'
+import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
 import {
   parseTrackInfo,
   compareTrackOrder,
@@ -1137,6 +1138,9 @@ function normalizeConfigState(raw) {
   if (typeof merged.sleepTimerEnabled !== 'boolean') {
     merged.sleepTimerEnabled = DEFAULT_CONFIG.sleepTimerEnabled
   }
+  if (typeof merged.phoneRemoteEnabled !== 'boolean') {
+    merged.phoneRemoteEnabled = DEFAULT_CONFIG.phoneRemoteEnabled
+  }
   if (typeof merged.showSidebarLogo !== 'boolean') {
     merged.showSidebarLogo = DEFAULT_CONFIG.showSidebarLogo
   }
@@ -1170,6 +1174,7 @@ function normalizeConfigState(raw) {
     merged.theme = 'minimal'
     merged.customColors = normalizeThemeColors(PRESET_THEMES.minimal.colors)
   }
+  merged.uiAccentBackgroundGlow = false
   if (oldRev < 4) {
     const legacy = merged.lyricsFontColor
     if (!merged.lyricsColor && typeof legacy === 'string' && legacy.trim()) {
@@ -1201,6 +1206,9 @@ const SETTINGS_SECTION_KEYWORDS = {
     'buffer',
     'crossfade',
     'automix',
+    'locate',
+    'current',
+    'playing',
     'sleep',
     'timer',
     'asio',
@@ -1209,6 +1217,8 @@ const SETTINGS_SECTION_KEYWORDS = {
     '\u5747\u8861',
     '\u97f3\u9891',
     '\u6de1\u5165\u6de1\u51fa',
+    '\u5b9a\u4f4d',
+    '\u5f53\u524d\u64ad\u653e',
     '\u7761\u7720',
     '\u5b9a\u65f6',
     '\u30a4\u30b3\u30e9\u30a4\u30b6\u30fc',
@@ -1264,11 +1274,6 @@ const SETTINGS_SECTION_KEYWORDS = {
     'gradient',
     'logo',
     'sidebar',
-    'locate',
-    'current',
-    'playing',
-    '\u5b9a\u4f4d',
-    '\u5f53\u524d\u64ad\u653e',
     '\u4e3b\u9898',
     '\u989c\u8272',
     '\u80cc\u666f',
@@ -2288,6 +2293,7 @@ export default function App() {
   const [queueUndoStack, setQueueUndoStack] = useState([])
   const [selectedSidebarTrackPaths, setSelectedSidebarTrackPaths] = useState([])
   const lastSelectedSidebarTrackPathRef = useRef('')
+  const autoLocateHandledTrackPathRef = useRef('')
 
   // Hi-Fi & Navigation States
   const [view, setView] = useState('player') // 'player', 'lyrics', 'settings'
@@ -2299,6 +2305,7 @@ export default function App() {
     return normalizeConfigState(readStoredJson('nc_config'))
   })
   const [eqSoloBandIdx, setEqSoloBandIdx] = useState(null)
+  const [eqAdvancedOpen, setEqAdvancedOpen] = useState(false)
   const effectiveEqBands = useMemo(() => {
     const list = Array.isArray(config.eqBands) ? config.eqBands : []
     if (eqSoloBandIdx === null || eqSoloBandIdx < 0 || eqSoloBandIdx >= list.length) return list
@@ -2311,6 +2318,14 @@ export default function App() {
   }, [config.eqBands?.length, eqSoloBandIdx])
   const settingsSearchInputRef = useRef(null)
   const settingsContentRef = useRef(null)
+  const settingsScrollbarDragRef = useRef(null)
+  const pendingSettingsScrollRef = useRef(null)
+  const settingsNavLockRef = useRef({ sectionKey: '', until: 0 })
+  const [settingsScrollMetrics, setSettingsScrollMetrics] = useState({
+    visible: false,
+    thumbTop: 0,
+    thumbHeight: 0
+  })
 
   const configRef = useRef(config)
   useEffect(() => {
@@ -2321,14 +2336,15 @@ export default function App() {
     return {
       language: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.language),
       engine: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.engine),
-      integrations: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.integrations),
+      integrations:
+        matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.integrations) ||
+        matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.lastfm),
       remoteLibrary: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.remoteLibrary),
       eq: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.eq),
       aesthetics: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.aesthetics),
       media: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.media),
       about: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.about),
-      danger: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.danger),
-      lastfm: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.lastfm)
+      danger: matchesSettingsSection(settingsQuery, SETTINGS_SECTION_KEYWORDS.danger)
     }
   }, [settingsQuery])
   const settingsHasResults = Object.values(settingsSectionVisibility).some(Boolean)
@@ -2337,43 +2353,69 @@ export default function App() {
       {
         key: 'language',
         icon: Globe,
-        label: t('settings.nav.language'),
+        label: t('settings.nav.general', '\u901a\u7528'),
+        description: t('settings.nav.generalDesc', '\u8bed\u8a00\u3001\u7a97\u53e3\u4e0e\u57fa\u7840\u884c\u4e3a'),
         id: 'settings-sec-language'
       },
-      { key: 'engine', icon: Zap, label: t('settings.nav.engine'), id: 'settings-sec-engine' },
+      {
+        key: 'engine',
+        icon: Zap,
+        label: t('settings.nav.playback', '\u64ad\u653e'),
+        description: t('settings.nav.playbackDesc', '\u961f\u5217\u3001\u8fc7\u6e21\u4e0e\u64ad\u653e\u63a7\u5236'),
+        id: 'settings-sec-engine'
+      },
       {
         key: 'integrations',
         icon: Link,
-        label: t('settings.nav.integrations'),
+        label: t('settings.nav.connections', '\u8054\u52a8'),
+        description: t(
+          'settings.nav.connectionsDesc',
+          'Discord\u3001Last.fm\u3001\u624b\u673a\u9065\u63a7\u4e0e\u5916\u90e8\u8bbe\u5907'
+        ),
         id: 'settings-sec-integrations'
-      },
-      {
-        key: 'lastfm',
-        icon: Radio,
-        label: 'Last.fm',
-        id: 'settings-sec-lastfm'
       },
       {
         key: 'remoteLibrary',
         icon: Globe,
-        label: '网盘 / 远程',
+        label: t('settings.nav.remoteLibrary', '\u7f51\u76d8 / \u8fdc\u7a0b'),
+        description: t('settings.nav.remoteLibraryDesc', 'NAS\u3001WebDAV\u3001Subsonic'),
         id: 'settings-sec-remote-library'
       },
-      { key: 'eq', icon: Sliders, label: t('settings.nav.eq'), id: 'settings-sec-eq' },
+      {
+        key: 'eq',
+        icon: Sliders,
+        label: t('settings.nav.eq'),
+        description: t('settings.nav.eqDesc', '\u5747\u8861\u5668\u4e0e\u8f93\u51fa\u5b89\u5168'),
+        id: 'settings-sec-eq'
+      },
       {
         key: 'aesthetics',
         icon: Palette,
-        label: t('settings.nav.aesthetics'),
+        label: t('settings.nav.appearance', '\u5916\u89c2'),
+        description: t('settings.nav.appearanceDesc', '\u4e3b\u9898\u3001\u5b57\u4f53\u3001\u80cc\u666f'),
         id: 'settings-sec-aesthetics'
       },
       {
         key: 'downloader',
         icon: Download,
-        label: t('settings.nav.downloader'),
+        label: t('settings.nav.libraryMedia', '\u5a92\u4f53\u5e93'),
+        description: t('settings.nav.libraryMediaDesc', '\u4e0b\u8f7d\u3001\u5bfc\u5165\u4e0e\u6e05\u7406'),
         id: 'settings-sec-downloader'
       },
-      { key: 'about', icon: Info, label: t('settings.nav.about'), id: 'settings-sec-about' },
-      { key: 'danger', icon: Trash2, label: t('settings.nav.danger'), id: 'settings-sec-danger' }
+      {
+        key: 'about',
+        icon: Info,
+        label: t('settings.nav.aboutAdvanced', '\u5173\u4e8e / \u9ad8\u7ea7'),
+        description: t('settings.nav.aboutAdvancedDesc', '\u66f4\u65b0\u3001\u7248\u672c\u4e0e\u5f00\u53d1\u5de5\u5177'),
+        id: 'settings-sec-about'
+      },
+      {
+        key: 'danger',
+        icon: Trash2,
+        label: t('settings.nav.dangerActions', '\u5371\u9669\u64cd\u4f5c'),
+        description: t('settings.nav.dangerActionsDesc', '\u6062\u590d\u4e0e\u7f51\u7edc\u5b89\u5168'),
+        id: 'settings-sec-danger'
+      }
     ],
     [t]
   )
@@ -2397,21 +2439,77 @@ export default function App() {
     reloadRemoteLibrarySources()
   }, [reloadRemoteLibrarySources])
 
+  const scrollSettingsSectionIntoView = useCallback((sectionId, behavior = 'smooth') => {
+    const root = settingsContentRef.current
+    const target = document.getElementById(sectionId)
+    if (!root || !target) return false
+
+    const rootRect = root.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const nextTop = Math.max(0, root.scrollTop + targetRect.top - rootRect.top - 2)
+
+    root.scrollTo({ top: nextTop, behavior })
+    return true
+  }, [])
+
+  const getSettingsSectionNearTop = useCallback(() => {
+    const root = settingsContentRef.current
+    if (!root) return ''
+    const rootRect = root.getBoundingClientRect()
+    const visibleItems = settingsNavItems
+      .map((item) => ({ item, target: document.getElementById(item.id) }))
+      .filter(({ target }) => target && target.offsetParent !== null)
+    if (!visibleItems.length) return ''
+    const bottomGap = root.scrollHeight - root.scrollTop - root.clientHeight
+    if (bottomGap <= 8) return visibleItems[visibleItems.length - 1].item.key
+
+    let fallbackKey = ''
+    let fallbackDistance = Number.POSITIVE_INFINITY
+    let currentKey = ''
+    let currentTop = Number.NEGATIVE_INFINITY
+
+    visibleItems.forEach(({ item, target }) => {
+      const offsetTop = target.getBoundingClientRect().top - rootRect.top
+      const distance = Math.abs(offsetTop)
+      if (distance < fallbackDistance) {
+        fallbackDistance = distance
+        fallbackKey = item.key
+      }
+      if (offsetTop <= 28 && offsetTop > currentTop) {
+        currentTop = offsetTop
+        currentKey = item.key
+      }
+    })
+
+    return currentKey || fallbackKey
+  }, [settingsNavItems])
+
   const handleSettingsNavClick = useCallback(
     (sectionKey, sectionId) => {
+      settingsNavLockRef.current = { sectionKey, until: Date.now() + 700 }
       setActiveSettingsSection(sectionKey)
-      setSettingsQuery('')
-      const scrollToSection = () => {
-        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
       if (settingsQuery.trim()) {
-        setTimeout(scrollToSection, 0)
+        pendingSettingsScrollRef.current = { sectionId, sectionKey }
+        setSettingsQuery('')
         return
       }
-      scrollToSection()
+      scrollSettingsSectionIntoView(sectionId)
     },
-    [settingsQuery]
+    [scrollSettingsSectionIntoView, settingsQuery]
   )
+
+  useLayoutEffect(() => {
+    if (view !== 'settings' || settingsQuery.trim()) return
+    const pending = pendingSettingsScrollRef.current
+    if (!pending) return
+    pendingSettingsScrollRef.current = null
+    const frameId = requestAnimationFrame(() => {
+      settingsNavLockRef.current = { sectionKey: pending.sectionKey, until: Date.now() + 700 }
+      setActiveSettingsSection(pending.sectionKey)
+      scrollSettingsSectionIntoView(pending.sectionId)
+    })
+    return () => cancelAnimationFrame(frameId)
+  }, [scrollSettingsSectionIntoView, settingsQuery, settingsHasResults, view])
 
   useEffect(() => {
     if (view !== 'settings') return
@@ -2433,11 +2531,10 @@ export default function App() {
     if (sectionElements.length === 0) return
     const observer = new IntersectionObserver(
       (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)
-        if (visibleEntries.length === 0) return
-        const sectionKey = visibleEntries[0].target.getAttribute('data-settings-section')
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        const lock = settingsNavLockRef.current
+        if (lock.sectionKey && Date.now() < lock.until) return
+        const sectionKey = getSettingsSectionNearTop()
         if (sectionKey) setActiveSettingsSection(sectionKey)
       },
       {
@@ -2447,7 +2544,131 @@ export default function App() {
     )
     sectionElements.forEach((element) => observer.observe(element))
     return () => observer.disconnect()
-  }, [settingsNavItems, settingsQuery, view])
+  }, [getSettingsSectionNearTop, settingsNavItems, settingsQuery, view])
+
+  const updateSettingsScrollMetrics = useCallback(() => {
+    const root = settingsContentRef.current
+    if (view !== 'settings' || !root) {
+      setSettingsScrollMetrics((prev) =>
+        prev.visible || prev.thumbTop || prev.thumbHeight
+          ? { visible: false, thumbTop: 0, thumbHeight: 0 }
+          : prev
+      )
+      return
+    }
+
+    const scrollHeight = root.scrollHeight
+    const clientHeight = root.clientHeight
+    const visible = scrollHeight > clientHeight + 2
+    if (!visible) {
+      setSettingsScrollMetrics((prev) =>
+        prev.visible || prev.thumbTop || prev.thumbHeight
+          ? { visible: false, thumbTop: 0, thumbHeight: 0 }
+          : prev
+      )
+      return
+    }
+
+    const thumbHeight = Math.max(54, Math.round((clientHeight / scrollHeight) * clientHeight))
+    const maxScrollTop = Math.max(1, scrollHeight - clientHeight)
+    const maxThumbTop = Math.max(0, clientHeight - thumbHeight)
+    const thumbTop = Math.round((root.scrollTop / maxScrollTop) * maxThumbTop)
+
+    setSettingsScrollMetrics((prev) =>
+      prev.visible === visible &&
+      prev.thumbTop === thumbTop &&
+      prev.thumbHeight === thumbHeight
+        ? prev
+        : { visible, thumbTop, thumbHeight }
+    )
+  }, [view])
+
+  useLayoutEffect(() => {
+    if (view !== 'settings') {
+      updateSettingsScrollMetrics()
+      return undefined
+    }
+    const root = settingsContentRef.current
+    if (!root) return undefined
+
+    let frameId = 0
+    const scheduleUpdate = () => {
+      if (frameId) cancelAnimationFrame(frameId)
+      frameId = requestAnimationFrame(() => {
+        frameId = 0
+        updateSettingsScrollMetrics()
+      })
+    }
+
+    scheduleUpdate()
+    root.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(scheduleUpdate)
+        : null
+    observer?.observe(root)
+    if (root.firstElementChild) observer?.observe(root.firstElementChild)
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId)
+      root.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+    }
+  }, [settingsHasResults, settingsQuery, updateSettingsScrollMetrics, view])
+
+  const scrollSettingsContentToPointer = useCallback((clientY) => {
+    const root = settingsContentRef.current
+    const drag = settingsScrollbarDragRef.current
+    if (!root || !drag?.track) return
+
+    const rect = drag.track.getBoundingClientRect()
+    const maxThumbTop = Math.max(1, rect.height - drag.thumbHeight)
+    const nextThumbTop = Math.min(
+      maxThumbTop,
+      Math.max(0, clientY - rect.top - drag.pointerOffset)
+    )
+    const ratio = nextThumbTop / maxThumbTop
+    root.scrollTop = ratio * Math.max(0, root.scrollHeight - root.clientHeight)
+  }, [])
+
+  const handleSettingsScrollbarPointerDown = useCallback(
+    (event) => {
+      if (!settingsScrollMetrics.visible) return
+      const target = event.target
+      const thumb = target?.closest?.('.settings-scrollbar-thumb')
+      const track = event.currentTarget
+      const thumbRect = thumb?.getBoundingClientRect?.()
+      const pointerOffset = thumbRect
+        ? event.clientY - thumbRect.top
+        : settingsScrollMetrics.thumbHeight / 2
+
+      settingsScrollbarDragRef.current = {
+        track,
+        pointerOffset,
+        thumbHeight: settingsScrollMetrics.thumbHeight
+      }
+      track.setPointerCapture?.(event.pointerId)
+      scrollSettingsContentToPointer(event.clientY)
+      event.preventDefault()
+    },
+    [scrollSettingsContentToPointer, settingsScrollMetrics.thumbHeight, settingsScrollMetrics.visible]
+  )
+
+  const handleSettingsScrollbarPointerMove = useCallback(
+    (event) => {
+      if (!settingsScrollbarDragRef.current) return
+      scrollSettingsContentToPointer(event.clientY)
+    },
+    [scrollSettingsContentToPointer]
+  )
+
+  const handleSettingsScrollbarPointerUp = useCallback((event) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    settingsScrollbarDragRef.current = null
+  }, [])
 
   useEffect(() => {
     if (config.sleepTimerEnabled !== true) return
@@ -2537,6 +2758,10 @@ export default function App() {
   }, [config.sleepTimerMinutes, config.sleepTimerMode, sleepTimerActive])
 
   const loadReleaseNotes = useCallback(async (force = false) => {
+    if (configRef.current.networkAccessDisabled === true) {
+      setReleaseNotesError(t('settings.networkDisabledStatus', 'Network access is disabled.'))
+      return
+    }
     if (releaseNotesLoadingRef.current) return
     if (releaseNotesFetchedRef.current && !force) return
 
@@ -2596,17 +2821,21 @@ export default function App() {
       releaseNotesLoadingRef.current = false
       setReleaseNotesLoading(false)
     }
-  }, [])
+  }, [t])
 
   const openExternalLink = useCallback((url) => {
     const target = String(url || '').trim()
     if (!target) return
+    if (configRef.current.networkAccessDisabled === true) {
+      alert(t('settings.networkDisabledStatus', 'Network access is disabled.'))
+      return
+    }
     if (window.api?.openExternal) {
       void window.api.openExternal(target)
       return
     }
     window.open(target, '_blank', 'noopener,noreferrer')
-  }, [])
+  }, [t])
 
   useEffect(() => {
     if ((view === 'settings' || releaseNotesOpen) && !releaseNotesFetchedRef.current) {
@@ -2624,6 +2853,11 @@ export default function App() {
     if (!libraryStateReady || !window.api?.setAutoUpdateEnabled) return
     void window.api.setAutoUpdateEnabled(config.autoUpdateEnabled !== false).catch(() => {})
   }, [libraryStateReady, config.autoUpdateEnabled])
+
+  useEffect(() => {
+    if (!libraryStateReady || !window.api?.setNetworkAccessDisabled) return
+    void window.api.setNetworkAccessDisabled(config.networkAccessDisabled === true).catch(() => {})
+  }, [libraryStateReady, config.networkAccessDisabled])
 
   useEffect(() => {
     if (!window.api?.onLyricsDesktopUncheck) return undefined
@@ -3454,14 +3688,8 @@ export default function App() {
         : config.theme === 'custom' && config.customColors
           ? config.customColors
           : PRESET_THEMES[config.theme]?.colors || PRESET_THEMES.minimal.colors
-    return getAppThemeBackgroundStyle(raw, config.uiAccentBackgroundGlow !== false)
-  }, [
-    config.theme,
-    config.customColors,
-    config.uiAccentBackgroundGlow,
-    config.themeDynamicCoverColor,
-    dynamicCoverTheme
-  ])
+    return getAppThemeBackgroundStyle(raw, false)
+  }, [config.theme, config.customColors, config.themeDynamicCoverColor, dynamicCoverTheme])
 
   const activeAccentHex = useMemo(() => {
     const raw =
@@ -3505,10 +3733,89 @@ export default function App() {
       uiRadiusScale: DEFAULT_CONFIG.uiRadiusScale,
       uiShadowIntensity: DEFAULT_CONFIG.uiShadowIntensity,
       uiSaturation: DEFAULT_CONFIG.uiSaturation,
+      uiLineHeightScale: DEFAULT_CONFIG.uiLineHeightScale,
+      uiControlDensity: DEFAULT_CONFIG.uiControlDensity,
       uiAccentBackgroundGlow: DEFAULT_CONFIG.uiAccentBackgroundGlow,
       playerCoverSize: DEFAULT_CONFIG.playerCoverSize
     }))
   }
+
+  const handleResetTypographyConfig = () => {
+    if (
+      !confirm(
+        t(
+          'settings.resetTypographyConfirm',
+          '\u786e\u5b9a\u8981\u5c06\u5b57\u4f53\u3001\u5bc6\u5ea6\u3001\u5706\u89d2\u3001\u9634\u5f71\u4e0e\u4e13\u8f91\u4e3b\u9898\u8272\u53c2\u6570\u6062\u590d\u9ed8\u8ba4\u5417\uff1f'
+        )
+      )
+    ) {
+      return
+    }
+
+    setConfig((prev) => ({
+      ...prev,
+      uiFontFamily: DEFAULT_CONFIG.uiFontFamily,
+      uiCustomFontPath: DEFAULT_CONFIG.uiCustomFontPath,
+      uiBaseFontSize: DEFAULT_CONFIG.uiBaseFontSize,
+      uiRadiusScale: DEFAULT_CONFIG.uiRadiusScale,
+      uiShadowIntensity: DEFAULT_CONFIG.uiShadowIntensity,
+      uiSaturation: DEFAULT_CONFIG.uiSaturation,
+      uiLineHeightScale: DEFAULT_CONFIG.uiLineHeightScale,
+      uiControlDensity: DEFAULT_CONFIG.uiControlDensity,
+      themeDynamicCoverColor: DEFAULT_CONFIG.themeDynamicCoverColor,
+      themeCoverAsBackground: DEFAULT_CONFIG.themeCoverAsBackground
+    }))
+  }
+
+  const handleExportSettingsConfig = useCallback(async () => {
+    if (!window.api?.saveSettingsJsonHandler) return
+    const date = new Date().toISOString().slice(0, 10)
+    const bundle = buildSettingsExportBundle(configRef.current, { appVersion })
+    const json = JSON.stringify(bundle, null, 2)
+    const result = await window.api.saveSettingsJsonHandler(
+      json,
+      `echo-settings-${date}.json`,
+      configRef.current.uiLocale
+    )
+    if (result && result.success === false && result.error) {
+      alert(result.error)
+    }
+  }, [appVersion])
+
+  const handleImportSettingsConfig = useCallback(async () => {
+    if (!window.api?.openSettingsJsonHandler) return
+    if (
+      !confirm(
+        t(
+          'settings.importConfigConfirm',
+          '\u5bfc\u5165\u540e\u4f1a\u8986\u76d6\u5f53\u524d\u8bbe\u7f6e\uff0c\u786e\u5b9a\u7ee7\u7eed\uff1f'
+        )
+      )
+    ) {
+      return
+    }
+
+    const result = await window.api.openSettingsJsonHandler(configRef.current.uiLocale)
+    if (!result) return
+    if (result.error) {
+      alert(result.error)
+      return
+    }
+
+    try {
+      const importedConfig = parseSettingsImportText(result.content)
+      const normalized = normalizeConfigState(importedConfig)
+      setConfig(normalized)
+      if (normalized.lastfmSessionKey && window.api?.lastfm?.setSession) {
+        void window.api.lastfm.setSession(
+          normalized.lastfmSessionKey,
+          normalized.lastfmUsername || ''
+        )
+      }
+    } catch (error) {
+      alert(error?.message || String(error))
+    }
+  }, [t])
 
   const pickUiCustomFont = useCallback(async () => {
     if (!window.api?.openFontFileHandler) return
@@ -3565,6 +3872,17 @@ export default function App() {
 
     const baseFs = config.uiBaseFontSize ?? 15
     root.style.fontSize = `${baseFs}px`
+    const lineHeightScale = Number(config.uiLineHeightScale ?? 1)
+    const uiLineHeight = Number.isFinite(lineHeightScale)
+      ? Math.max(0.9, Math.min(1.25, lineHeightScale))
+      : 1
+    const controlDensity = Number(config.uiControlDensity ?? 1)
+    const uiDensity = Number.isFinite(controlDensity)
+      ? Math.max(0.85, Math.min(1.15, controlDensity))
+      : 1
+    root.style.setProperty('--ui-line-height-scale', String(uiLineHeight))
+    root.style.setProperty('--ui-control-density', String(uiDensity))
+    document.body.style.lineHeight = String(1.45 * uiLineHeight)
     const playerCoverSize = Math.max(180, Math.min(360, Number(config.playerCoverSize ?? 360)))
     root.style.setProperty('--player-cover-size', `${playerCoverSize}px`)
 
@@ -4546,6 +4864,7 @@ export default function App() {
   const lyricsInstantScrollUntilRef = useRef(0)
   const activeLyricIndexRef = useRef(activeLyricIndex)
   const sidebarPlaylistRef = useRef(null)
+  const sidebarScrollbarDragRef = useRef(null)
   const albumGridRef = useRef(null)
   const albumOverviewScrollTopRef = useRef(0)
   const pendingAlbumOverviewRestoreRef = useRef(false)
@@ -11704,6 +12023,7 @@ export default function App() {
   const sidebarRowHeight = sidebarListIsDetail ? SIDEBAR_DETAIL_ROW_HEIGHT : SIDEBAR_ROW_HEIGHT
   const [sidebarScrollTop, setSidebarScrollTop] = useState(0)
   const [sidebarViewportHeight, setSidebarViewportHeight] = useState(0)
+  const [sidebarScrollHeight, setSidebarScrollHeight] = useState(0)
   const [albumGridScrollTop, setAlbumGridScrollTop] = useState(0)
   const [albumGridViewportHeight, setAlbumGridViewportHeight] = useState(0)
   const [albumGridColumnCount, setAlbumGridColumnCount] = useState(1)
@@ -11802,6 +12122,7 @@ export default function App() {
 
     const syncMetrics = () => {
       setSidebarViewportHeight(playlistElement.clientHeight || 0)
+      setSidebarScrollHeight(playlistElement.scrollHeight || 0)
       setSidebarScrollTop(playlistElement.scrollTop || 0)
     }
 
@@ -11820,7 +12141,70 @@ export default function App() {
   }, [listMode, selectedUserPlaylistId, selectedSmartCollectionId])
 
   const handleSidebarScroll = useCallback((event) => {
+    setSidebarScrollHeight(event.currentTarget.scrollHeight || 0)
+    setSidebarViewportHeight(event.currentTarget.clientHeight || 0)
     setSidebarScrollTop(event.currentTarget.scrollTop || 0)
+  }, [])
+
+  const sidebarScrollbarMetrics = useMemo(() => {
+    const viewportHeight = sidebarViewportHeight || 0
+    const scrollHeight = sidebarScrollHeight || 0
+    const visible = scrollHeight > viewportHeight + 2
+    if (!visible) return { visible: false, thumbTop: 0, thumbHeight: 0 }
+    const trackHeight = Math.max(1, viewportHeight - 24)
+    const thumbHeight = Math.max(48, Math.round((viewportHeight / scrollHeight) * trackHeight))
+    const maxScrollTop = Math.max(1, scrollHeight - viewportHeight)
+    const maxThumbTop = Math.max(0, trackHeight - thumbHeight)
+    const thumbTop = Math.round((sidebarScrollTop / maxScrollTop) * maxThumbTop)
+    return { visible: true, thumbTop, thumbHeight }
+  }, [sidebarScrollHeight, sidebarScrollTop, sidebarViewportHeight])
+
+  const scrollSidebarToPointer = useCallback((clientY) => {
+    const root = sidebarPlaylistRef.current
+    const drag = sidebarScrollbarDragRef.current
+    if (!root || !drag?.track) return
+    const rect = drag.track.getBoundingClientRect()
+    const maxThumbTop = Math.max(1, rect.height - drag.thumbHeight)
+    const nextThumbTop = Math.min(
+      maxThumbTop,
+      Math.max(0, clientY - rect.top - drag.pointerOffset)
+    )
+    root.scrollTop = (nextThumbTop / maxThumbTop) * Math.max(0, root.scrollHeight - root.clientHeight)
+  }, [])
+
+  const handleSidebarScrollbarPointerDown = useCallback(
+    (event) => {
+      if (!sidebarScrollbarMetrics.visible) return
+      const target = event.target
+      const thumb = target?.closest?.('.playlist-scrollbar-thumb')
+      const track = event.currentTarget
+      const thumbRect = thumb?.getBoundingClientRect?.()
+      const pointerOffset = thumbRect
+        ? event.clientY - thumbRect.top
+        : sidebarScrollbarMetrics.thumbHeight / 2
+      sidebarScrollbarDragRef.current = {
+        track,
+        pointerOffset,
+        thumbHeight: sidebarScrollbarMetrics.thumbHeight
+      }
+      track.setPointerCapture?.(event.pointerId)
+      scrollSidebarToPointer(event.clientY)
+      event.preventDefault()
+    },
+    [scrollSidebarToPointer, sidebarScrollbarMetrics.thumbHeight, sidebarScrollbarMetrics.visible]
+  )
+
+  const handleSidebarScrollbarPointerMove = useCallback(
+    (event) => {
+      if (!sidebarScrollbarDragRef.current) return
+      scrollSidebarToPointer(event.clientY)
+    },
+    [scrollSidebarToPointer]
+  )
+
+  const handleSidebarScrollbarPointerUp = useCallback((event) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    sidebarScrollbarDragRef.current = null
   }, [])
 
   const setAlbumGridElement = useCallback((node) => {
@@ -12125,11 +12509,15 @@ export default function App() {
   ])
 
   useEffect(() => {
-    if (config.autoLocateCurrentTrack !== true) return
+    if (config.autoLocateCurrentTrack !== true) {
+      autoLocateHandledTrackPathRef.current = ''
+      return
+    }
     if (!showTrackList || showLyrics || view === 'settings') return
 
     const currentPath = currentTrack?.path || ''
     if (!currentPath) return
+    if (autoLocateHandledTrackPathRef.current === currentPath) return
 
     const targetIndex = tracksForSidebarListFiltered.findIndex(
       (track) => track?.path === currentPath
@@ -12141,6 +12529,7 @@ export default function App() {
 
     const viewportHeight = playlistElement.clientHeight || sidebarViewportHeight || 0
     if (viewportHeight <= 0) return
+    autoLocateHandledTrackPathRef.current = currentPath
 
     const rowTop = targetIndex * sidebarRowHeight
     const rowBottom = rowTop + sidebarRowHeight
@@ -13885,7 +14274,7 @@ export default function App() {
   )
 
   useEffect(() => {
-    if (!hideImmersiveMvChrome) return undefined
+    if (!showLyrics) return undefined
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -13894,7 +14283,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [hideImmersiveMvChrome])
+  }, [showLyrics])
 
   const renderMvIframe = (mvObj, isBackground) => {
     if (!mvObj || !mvObj.id) return null
@@ -14790,6 +15179,22 @@ export default function App() {
                 {t('like.filterOnlyTitle')}
               </button>
               <button
+                className={`nav-rail-icon-btn ${audioSettingsDrawerOpen ? 'active' : ''}`}
+                onClick={() => setAudioSettingsDrawerOpen((o) => !o)}
+                title={t('titlebar.audioSettings', 'Audio Settings')}
+                aria-pressed={audioSettingsDrawerOpen}
+              >
+                <Headphones size={15} /> {t('titlebar.audioSettings', 'Audio Settings')}
+              </button>
+              <button
+                className={`nav-rail-icon-btn ${lyricsDrawerOpen ? 'active' : ''}`}
+                onClick={() => setLyricsDrawerOpen(true)}
+                title={t('titlebar.lyricsSettings')}
+                aria-pressed={lyricsDrawerOpen}
+              >
+                <Mic2 size={15} /> {t('titlebar.lyricsSettings')}
+              </button>
+              <button
                 className="nav-rail-icon-btn"
                 onClick={handleImport}
                 title={t('import.folder')}
@@ -15262,11 +15667,12 @@ export default function App() {
               </div>
             )}
 
-            <div
-              className={`playlist${listMode === 'album' ? ' playlist-album-mode' : ''}${listMode === 'folders' ? ' playlist-album-mode' : ''}${listMode === 'artists' ? ' playlist-album-mode' : ''}${listMode === 'queue' ? ' playlist--queue' : ''}${listMode === 'history' ? ' playlist--history' : ''}${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' playlist--pl-detail' : ''}`}
-              ref={sidebarPlaylistRef}
-              onScroll={handleSidebarScroll}
-            >
+            <div className="playlist-scroll-shell">
+              <div
+                className={`playlist playlist--custom-scrollbar${listMode === 'album' ? ' playlist-album-mode' : ''}${listMode === 'folders' ? ' playlist-album-mode' : ''}${listMode === 'artists' ? ' playlist-album-mode' : ''}${listMode === 'queue' ? ' playlist--queue' : ''}${listMode === 'history' ? ' playlist--history' : ''}${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' playlist--pl-detail' : ''}`}
+                ref={sidebarPlaylistRef}
+                onScroll={handleSidebarScroll}
+              >
               {listMode === 'queue' && (
                 <QueueSidebarView
                   items={upNextSidebarItems}
@@ -16267,6 +16673,25 @@ export default function App() {
                   )}
                 </>
               )}
+              </div>
+              {sidebarScrollbarMetrics.visible ? (
+                <div
+                  className="playlist-scrollbar"
+                  aria-hidden
+                  onPointerDown={handleSidebarScrollbarPointerDown}
+                  onPointerMove={handleSidebarScrollbarPointerMove}
+                  onPointerUp={handleSidebarScrollbarPointerUp}
+                  onPointerCancel={handleSidebarScrollbarPointerUp}
+                >
+                  <div
+                    className="playlist-scrollbar-thumb"
+                    style={{
+                      height: sidebarScrollbarMetrics.thumbHeight,
+                      transform: `translateY(${sidebarScrollbarMetrics.thumbTop}px)`
+                    }}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
           <PluginSlot name="sidebar" />
@@ -16989,34 +17414,41 @@ export default function App() {
                       }}
                     >
                       <Icon size={16} />
-                      <span>{item.label}</span>
+                      <span className="settings-nav-copy">
+                        <span className="settings-nav-label">{item.label}</span>
+                        <span className="settings-nav-desc">{item.description}</span>
+                      </span>
                     </button>
                   )
                 })}
               </nav>
 
-              <div className="settings-content" ref={settingsContentRef}>
-                {!settingsHasResults ? (
-                  <div
-                    style={{
-                      textAlign: 'center',
-                      opacity: 0.5,
-                      fontSize: 14,
-                      padding: '24px 0'
-                    }}
-                  >
-                    {t('settings.searchNoResults')}
-                  </div>
-                ) : null}
+              <div className="settings-scroll-shell">
                 <div
-                  id="settings-sec-language"
-                  data-settings-section="language"
-                  style={{ display: settingsSectionVisibility.language ? '' : 'none' }}
+                  className="settings-content settings-content--custom-scrollbar"
+                  ref={settingsContentRef}
                 >
+                  {!settingsHasResults ? (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        opacity: 0.5,
+                        fontSize: 14,
+                        padding: '24px 0'
+                      }}
+                    >
+                      {t('settings.searchNoResults')}
+                    </div>
+                  ) : null}
+                  <div
+                    id="settings-sec-language"
+                    data-settings-section="language"
+                    style={{ display: settingsSectionVisibility.language ? '' : 'none' }}
+                  >
                   <section className="settings-section">
                     <div className="section-title">
                       <MessageSquare size={20} />
-                      <h2>{t('settings.language')}</h2>
+                      <h2>{t('settings.nav.general', '\u901a\u7528')}</h2>
                     </div>
                     <div className="setting-row">
                       <div className="setting-info">
@@ -17044,6 +17476,52 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                    <div className="setting-row">
+                      <div className="setting-info">
+                        <h3>{t('settings.closeButtonBehaviorTitle')}</h3>
+                        <p>{t('settings.closeButtonBehaviorDesc')}</p>
+                      </div>
+                      <div className="settings-chip-row no-drag">
+                        {['tray', 'quit'].map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={`list-filter-chip ${config.closeButtonBehavior === mode ? 'active' : ''}`}
+                            onClick={() =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                closeButtonBehavior: mode
+                              }))
+                            }
+                          >
+                            {mode === 'tray'
+                              ? t('settings.closeButtonBehaviorTray')
+                              : t('settings.closeButtonBehaviorQuit')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="setting-row">
+                      <div className="setting-info">
+                        <h3>{t('settings.configBackupTitle', '\u8bbe\u7f6e\u53c2\u6570\u5907\u4efd')}</h3>
+                        <p>
+                          {t(
+                            'settings.configBackupDesc',
+                            '\u5bfc\u51fa\u6216\u5bfc\u5165 ECHO \u8bbe\u7f6e\u53c2\u6570\uff0c\u7528\u4e8e\u8fc1\u79fb\u5230\u65b0\u8bbe\u5907\u6216\u6062\u590d\u914d\u7f6e\u3002'
+                          )}
+                        </p>
+                      </div>
+                      <div className="settings-chip-row no-drag">
+                        <UiButton variant="secondary" size="sm" onClick={handleExportSettingsConfig}>
+                          <Download size={14} />
+                          {t('settings.exportConfig', '\u5bfc\u51fa\u8bbe\u7f6e')}
+                        </UiButton>
+                        <UiButton variant="secondary" size="sm" onClick={handleImportSettingsConfig}>
+                          <Upload size={14} />
+                          {t('settings.importConfig', '\u5bfc\u5165\u8bbe\u7f6e')}
+                        </UiButton>
+                      </div>
+                    </div>
                   </section>
                 </div>
 
@@ -17055,7 +17533,7 @@ export default function App() {
                   <section className="settings-section">
                     <div className="section-title">
                       <Zap size={20} />
-                      <h2>{t('settings.engineMastery')}</h2>
+                      <h2>{t('settings.playbackAndAudio', '\u64ad\u653e\u4e0e\u97f3\u9891')}</h2>
                     </div>
                     <div className="setting-row">
                       <div className="setting-info">
@@ -17083,19 +17561,6 @@ export default function App() {
 
                     <div className="setting-row">
                       <div className="setting-info">
-                        <h3>{t('settings.eqMasterTitle')}</h3>
-                        <p>{t('settings.eqMasterDesc')}</p>
-                      </div>
-                      <button
-                        className={`toggle-btn ${config.useEQ ? 'active' : ''}`}
-                        onClick={() => setConfig((prev) => ({ ...prev, useEQ: !prev.useEQ }))}
-                      >
-                        {config.useEQ ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-                      </button>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
                         <h3>{t('settings.gaplessTitle')}</h3>
                         <p>{t('settings.gaplessDesc')}</p>
                       </div>
@@ -17106,6 +17571,36 @@ export default function App() {
                         }
                       >
                         {config.gaplessEnabled ? (
+                          <ToggleRight size={32} />
+                        ) : (
+                          <ToggleLeft size={32} />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="setting-row">
+                      <div className="setting-info">
+                        <h3>
+                          {t('settings.autoLocateCurrentTrackTitle', '定位当前播放歌曲')}
+                        </h3>
+                        <p>
+                          {t(
+                            'settings.autoLocateCurrentTrackDesc',
+                            '开启后，切歌时会自动把左侧当前列表滚动到正在播放的歌曲位置。'
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={`toggle-btn ${config.autoLocateCurrentTrack === true ? 'active' : ''}`}
+                        onClick={() =>
+                          setConfig((prev) => ({
+                            ...prev,
+                            autoLocateCurrentTrack: !prev.autoLocateCurrentTrack
+                          }))
+                        }
+                      >
+                        {config.autoLocateCurrentTrack === true ? (
                           <ToggleRight size={32} />
                         ) : (
                           <ToggleLeft size={32} />
@@ -17130,6 +17625,81 @@ export default function App() {
                             )}
                           </button>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="setting-row">
+                      <div className="setting-info">
+                        <h3>{t('settings.sleepTimerTitle')}</h3>
+                        <p>{t('settings.sleepTimerDesc')}</p>
+                        {sleepTimerActive ? (
+                          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-soft)' }}>
+                            {config.sleepTimerMode === 'time'
+                              ? t('settings.sleepTimerRemaining', {
+                                  time: formatSleepTimerRemaining(sleepTimerRemainingMs)
+                                })
+                              : t('settings.sleepTimerArmedTrack')}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div
+                        className="settings-chip-row no-drag"
+                        style={{
+                          justifyContent: 'flex-end',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 8
+                        }}
+                      >
+                        {['time', 'track'].map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={`list-filter-chip ${config.sleepTimerMode === mode ? 'active' : ''}`}
+                            onClick={() =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                sleepTimerMode: mode
+                              }))
+                            }
+                          >
+                            {mode === 'time'
+                              ? t('settings.sleepTimerModeTime')
+                              : t('settings.sleepTimerModeTrack')}
+                          </button>
+                        ))}
+                        {config.sleepTimerMode === 'time'
+                          ? SLEEP_TIMER_MINUTE_OPTIONS.map((minutes) => (
+                              <button
+                                key={minutes}
+                                type="button"
+                                className={`list-filter-chip ${config.sleepTimerMinutes === minutes ? 'active' : ''}`}
+                                onClick={() =>
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    sleepTimerMinutes: minutes
+                                  }))
+                                }
+                              >
+                                {t('settings.sleepTimerMinutes', { count: minutes })}
+                              </button>
+                            ))
+                          : null}
+                        <UiButton
+                          variant={sleepTimerActive ? 'ghost' : 'secondary'}
+                          size="sm"
+                          onClick={() => {
+                            if (sleepTimerActive) {
+                              cancelSleepTimer()
+                              return
+                            }
+                            startSleepTimer()
+                          }}
+                        >
+                          {sleepTimerActive
+                            ? t('settings.sleepTimerCancel')
+                            : t('settings.sleepTimerStart')}
+                        </UiButton>
                       </div>
                     </div>
 
@@ -17284,7 +17854,7 @@ export default function App() {
                   <section className="settings-section">
                     <div className="section-title">
                       <Zap size={20} />
-                      <h2>{t('settings.integrations')}</h2>
+                      <h2>{t('settings.nav.connections', '\u8054\u52a8')}</h2>
                     </div>
                     <div className="setting-row">
                       <div className="setting-info">
@@ -17330,13 +17900,17 @@ export default function App() {
                           {t('remote.openDrawer', 'Open remote')}
                         </UiButton>
                         <button
+                          type="button"
                           className={`toggle-btn ${config.phoneRemoteEnabled ? 'active' : ''}`}
-                          onClick={() =>
-                            setConfig((prev) => ({
-                              ...prev,
-                              phoneRemoteEnabled: !prev.phoneRemoteEnabled
-                            }))
-                          }
+                          disabled={phoneRemoteBusy}
+                          onClick={() => {
+                            if (config.phoneRemoteEnabled === true) {
+                              void handlePhoneRemoteStop()
+                              return
+                            }
+                            void handlePhoneRemoteStart()
+                          }}
+                          aria-pressed={config.phoneRemoteEnabled === true}
                         >
                           {config.phoneRemoteEnabled ? (
                             <ToggleRight size={32} />
@@ -17346,80 +17920,77 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <div className="setting-row">
+                    <div className="setting-row" style={{ alignItems: 'flex-start' }}>
                       <div className="setting-info">
-                        <h3>{t('settings.sleepTimerTitle')}</h3>
-                        <p>{t('settings.sleepTimerDesc')}</p>
-                        {sleepTimerActive ? (
-                          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-soft)' }}>
-                            {config.sleepTimerMode === 'time'
-                              ? t('settings.sleepTimerRemaining', {
-                                  time: formatSleepTimerRemaining(sleepTimerRemainingMs)
-                                })
-                              : t('settings.sleepTimerArmedTrack')}
-                          </p>
-                        ) : null}
+                        <h3>{t('settings.listeningLogTitle', '\u542c\u6b4c\u8bb0\u5f55 / Last.fm')}</h3>
+                        <p>
+                          {t(
+                            'settings.lastfmIntegratedDesc',
+                            '\u4f7f\u7528 Last.fm \u6388\u6743\u540e\u81ea\u52a8\u8bb0\u5f55\u542c\u6b4c\u5386\u53f2\uff08Scrobble\uff09\u3002'
+                          )}
+                        </p>
                       </div>
-                      <div
-                        className="settings-chip-row no-drag"
-                        style={{
-                          justifyContent: 'flex-end',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: 8
-                        }}
-                      >
-                        {['time', 'track'].map((mode) => (
+                    </div>
+
+                    {config.lastfmSessionKey ? (
+                      <>
+                        <div className="setting-row">
+                          <div className="setting-info">
+                            <h3>{t('settings.lastfmConnected', 'Connected')}</h3>
+                            <p>@{config.lastfmUsername || 'unknown'}</p>
+                          </div>
                           <button
-                            key={mode}
-                            type="button"
-                            className={`list-filter-chip ${config.sleepTimerMode === mode ? 'active' : ''}`}
+                            className="ui-btn ui-btn--compact lastfm-disconnect-btn"
+                            onClick={() => {
+                              void window.api?.lastfm?.logout?.()
+                              setConfig((prev) => ({
+                                ...prev,
+                                lastfmEnabled: false,
+                                lastfmSessionKey: null,
+                                lastfmUsername: null
+                              }))
+                            }}
+                          >
+                            {t('settings.lastfmLogout', 'Disconnect')}
+                          </button>
+                        </div>
+                        <div className="setting-row">
+                          <div className="setting-info">
+                            <h3>{t('settings.lastfmScrobbleTitle', 'Scrobble')}</h3>
+                            <p>
+                              {t('settings.lastfmScrobbleDesc', 'Send played tracks to Last.fm.')}
+                            </p>
+                          </div>
+                          <button
+                            className={`toggle-btn ${config.lastfmEnabled ? 'active' : ''}`}
                             onClick={() =>
                               setConfig((prev) => ({
                                 ...prev,
-                                sleepTimerMode: mode
+                                lastfmEnabled: !prev.lastfmEnabled
                               }))
                             }
                           >
-                            {mode === 'time'
-                              ? t('settings.sleepTimerModeTime')
-                              : t('settings.sleepTimerModeTrack')}
+                            {config.lastfmEnabled ? (
+                              <ToggleRight size={32} />
+                            ) : (
+                              <ToggleLeft size={32} />
+                            )}
                           </button>
-                        ))}
-                        {config.sleepTimerMode === 'time'
-                          ? SLEEP_TIMER_MINUTE_OPTIONS.map((minutes) => (
-                              <button
-                                key={minutes}
-                                type="button"
-                                className={`list-filter-chip ${config.sleepTimerMinutes === minutes ? 'active' : ''}`}
-                                onClick={() =>
-                                  setConfig((prev) => ({
-                                    ...prev,
-                                    sleepTimerMinutes: minutes
-                                  }))
-                                }
-                              >
-                                {t('settings.sleepTimerMinutes', { count: minutes })}
-                              </button>
-                            ))
-                          : null}
-                        <UiButton
-                          variant={sleepTimerActive ? 'ghost' : 'secondary'}
-                          size="sm"
-                          onClick={() => {
-                            if (sleepTimerActive) {
-                              cancelSleepTimer()
-                              return
-                            }
-                            startSleepTimer()
-                          }}
-                        >
-                          {sleepTimerActive
-                            ? t('settings.sleepTimerCancel')
-                            : t('settings.sleepTimerStart')}
-                        </UiButton>
-                      </div>
-                    </div>
+                        </div>
+                      </>
+                    ) : (
+                      <LastFmLoginForm
+                        onLogin={(sessionKey, username) => {
+                          setConfig((prev) => ({
+                            ...prev,
+                            lastfmEnabled: true,
+                            lastfmSessionKey: sessionKey,
+                            lastfmUsername: username
+                          }))
+                          void window.api?.lastfm?.setSession?.(sessionKey, username)
+                        }}
+                      />
+                    )}
                   </section>
                 </div>
 
@@ -17457,7 +18028,11 @@ export default function App() {
                           type="button"
                           className={`eq-status-toggle ${config.useEQ ? 'active' : ''}`}
                           aria-pressed={config.useEQ}
-                          onClick={() => setConfig((prev) => ({ ...prev, useEQ: !prev.useEQ }))}
+                          onClick={() => {
+                            const nextUseEq = config.useEQ !== true
+                            if (nextUseEq) setEqAdvancedOpen(true)
+                            setConfig((prev) => ({ ...prev, useEQ: nextUseEq }))
+                          }}
                         >
                           {config.useEQ ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                           <span>{config.useEQ ? t('eqPlot.enabled') : t('eqPlot.disabled')}</span>
@@ -17566,7 +18141,11 @@ export default function App() {
                       </div>
                     </div>
 
-                    <details className="eq-advanced-details">
+                    <details
+                      className="eq-advanced-details"
+                      open={eqAdvancedOpen}
+                      onToggle={(event) => setEqAdvancedOpen(event.currentTarget.open)}
+                    >
                       <summary className="eq-advanced-summary">
                         <span>
                           {t('eqPlot.advancedEditor', { defaultValue: '高级参数编辑' })}
@@ -17587,7 +18166,10 @@ export default function App() {
                         analyser={analyserNode.current}
                         soloIdx={eqSoloBandIdx}
                         onSoloChange={setEqSoloBandIdx}
-                        onEnable={() => setConfig((prev) => ({ ...prev, useEQ: true }))}
+                        onEnable={() => {
+                          setEqAdvancedOpen(true)
+                          setConfig((prev) => ({ ...prev, useEQ: true }))
+                        }}
                         onPreampChange={(val) =>
                           setConfig((prev) => ({
                             ...prev,
@@ -17703,37 +18285,7 @@ export default function App() {
 
                     <div className="setting-row" style={{ marginBottom: 20 }}>
                       <div className="setting-info">
-                        <h3>
-                          {t('settings.autoLocateCurrentTrackTitle', 'Locate current playing song')}
-                        </h3>
-                        <p>
-                          {t(
-                            'settings.autoLocateCurrentTrackDesc',
-                            'When playback switches songs, automatically scroll the current list to the playing track.'
-                          )}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.autoLocateCurrentTrack === true ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            autoLocateCurrentTrack: !prev.autoLocateCurrentTrack
-                          }))
-                        }
-                      >
-                        {config.autoLocateCurrentTrack === true ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="setting-row" style={{ marginBottom: 20 }}>
-                      <div className="setting-info">
-                        <h3>{t('settings.sidebarLogoTitle', 'Sidebar logo')}</h3>
+                        <h3>{t('settings.sidebarLogoTitle', 'Logo显示')}</h3>
                         <p>
                           {t(
                             'settings.sidebarLogoDesc',
@@ -18407,35 +18959,9 @@ export default function App() {
                           </div>
                         </div>
                       )}
-                    </div>
-
-                    {/* Glass Intensity Section */}
-                    <div
-                      className="setting-subsection"
-                      style={{
-                        marginTop: 16,
-                        padding: 24,
-                        background: 'rgba(255,255,255,0.3)',
-                        borderRadius: 16
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          marginBottom: 20
-                        }}
-                      >
-                        <Zap size={18} />
-                        <h3 style={{ fontSize: 16, fontWeight: 800 }}>
-                          {t('settings.glassDetailsTitle')}
-                        </h3>
-                      </div>
-
                       <div
                         className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        style={{ border: 'none', padding: '16px 0 0 0', marginBottom: 20 }}
                       >
                         <div className="setting-info">
                           <h4>{t('settings.panelTransparency')}</h4>
@@ -18518,14 +19044,24 @@ export default function App() {
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 10,
+                          justifyContent: 'space-between',
+                          gap: 12,
                           marginBottom: 20
                         }}
                       >
-                        <Sliders size={18} />
-                        <h3 style={{ fontSize: 16, fontWeight: 800 }}>
-                          {t('settings.typographySection')}
-                        </h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Sliders size={18} />
+                          <h3 style={{ fontSize: 16, fontWeight: 800 }}>
+                            {t('settings.typographySection')}
+                          </h3>
+                        </div>
+                        <UiButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleResetTypographyConfig}
+                        >
+                          {t('settings.resetTypographyParams', '\u6062\u590d\u9ed8\u8ba4\u53c2\u6570')}
+                        </UiButton>
                       </div>
 
                       <div
@@ -18773,30 +19309,92 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="setting-row" style={{ border: 'none', padding: 0 }}>
+                      <div
+                        className="setting-row"
+                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                      >
                         <div className="setting-info">
-                          <h4>{t('settings.accentGlow')}</h4>
+                          <h4>{t('settings.lineHeightScale', 'Interface line spacing')}</h4>
                           <p>
-                            Large radial highlights using accent colors (disable for a flatter
-                            look).
+                            {t(
+                              'settings.lineHeightScaleDesc',
+                              'Adjust text rhythm across settings, lists, and panels.'
+                            )}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          className={`toggle-btn ${config.uiAccentBackgroundGlow !== false ? 'active' : ''}`}
-                          onClick={() =>
-                            setConfig((prev) => ({
-                              ...prev,
-                              uiAccentBackgroundGlow: !(prev.uiAccentBackgroundGlow !== false)
-                            }))
-                          }
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            width: 220
+                          }}
                         >
-                          {config.uiAccentBackgroundGlow !== false ? (
-                            <ToggleRight size={32} />
-                          ) : (
-                            <ToggleLeft size={32} />
-                          )}
-                        </button>
+                          <span style={{ fontSize: 11, opacity: 0.5 }}>
+                            {t('settings.lineHeightCompact', 'Compact')}
+                          </span>
+                          <input
+                            type="range"
+                            min={0.9}
+                            max={1.25}
+                            step={0.05}
+                            value={config.uiLineHeightScale ?? 1}
+                            onChange={(e) =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                uiLineHeightScale: parseFloat(e.target.value)
+                              }))
+                            }
+                            className="slider-nc"
+                          />
+                          <span style={{ fontSize: 11, opacity: 0.5 }}>
+                            {t('settings.lineHeightLoose', 'Loose')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        className="setting-row"
+                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                      >
+                        <div className="setting-info">
+                          <h4>{t('settings.controlDensity', 'Control density')}</h4>
+                          <p>
+                            {t(
+                              'settings.controlDensityDesc',
+                              'Tune spacing for rows, chips, and compact controls.'
+                            )}
+                          </p>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            width: 220
+                          }}
+                        >
+                          <span style={{ fontSize: 11, opacity: 0.5 }}>
+                            {t('settings.densityCompact', 'Tight')}
+                          </span>
+                          <input
+                            type="range"
+                            min={0.85}
+                            max={1.15}
+                            step={0.05}
+                            value={config.uiControlDensity ?? 1}
+                            onChange={(e) =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                uiControlDensity: parseFloat(e.target.value)
+                              }))
+                            }
+                            className="slider-nc"
+                          />
+                          <span style={{ fontSize: 11, opacity: 0.5 }}>
+                            {t('settings.densityRoomy', 'Roomy')}
+                          </span>
+                        </div>
                       </div>
 
                       <div
@@ -18872,7 +19470,7 @@ export default function App() {
                   <section className="settings-section">
                     <div className="section-title">
                       <Download size={20} />
-                      <h2>{t('settings.mediaDownloader')}</h2>
+                      <h2>{t('settings.libraryAndDownloads', '\u5a92\u4f53\u5e93\u4e0e\u4e0b\u8f7d')}</h2>
                     </div>
                     <div className="setting-row">
                       <div className="setting-info">
@@ -18929,31 +19527,6 @@ export default function App() {
                           <ToggleLeft size={32} />
                         )}
                       </button>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.closeButtonBehaviorTitle')}</h3>
-                        <p>{t('settings.closeButtonBehaviorDesc')}</p>
-                      </div>
-                      <div className="settings-chip-row no-drag">
-                        {['tray', 'quit'].map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            className={`list-filter-chip ${config.closeButtonBehavior === mode ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                closeButtonBehavior: mode
-                              }))
-                            }
-                          >
-                            {mode === 'tray'
-                              ? t('settings.closeButtonBehaviorTray')
-                              : t('settings.closeButtonBehaviorQuit')}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                     <div className="setting-row">
                       <div className="setting-info">
@@ -19098,79 +19671,6 @@ export default function App() {
                 </div>
 
                 <div
-                  id="settings-sec-lastfm"
-                  data-settings-section="lastfm"
-                  style={{ display: settingsSectionVisibility.lastfm ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Radio size={20} />
-                      <h2>Last.fm</h2>
-                    </div>
-
-                    {config.lastfmSessionKey ? (
-                      <>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.lastfmConnected', 'Connected')}</h3>
-                            <p>@{config.lastfmUsername || 'unknown'}</p>
-                          </div>
-                          <button
-                            className="toggle-btn active"
-                            onClick={() => {
-                              void window.api?.lastfm?.logout?.()
-                              setConfig((prev) => ({
-                                ...prev,
-                                lastfmEnabled: false,
-                                lastfmSessionKey: null,
-                                lastfmUsername: null
-                              }))
-                            }}
-                          >
-                            {t('settings.lastfmLogout', 'Disconnect')}
-                          </button>
-                        </div>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.lastfmScrobbleTitle', 'Scrobble')}</h3>
-                            <p>
-                              {t('settings.lastfmScrobbleDesc', 'Send played tracks to Last.fm.')}
-                            </p>
-                          </div>
-                          <button
-                            className={`toggle-btn ${config.lastfmEnabled ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                lastfmEnabled: !prev.lastfmEnabled
-                              }))
-                            }
-                          >
-                            {config.lastfmEnabled ? (
-                              <ToggleRight size={32} />
-                            ) : (
-                              <ToggleLeft size={32} />
-                            )}
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <LastFmLoginForm
-                        onLogin={(sessionKey, username) => {
-                          setConfig((prev) => ({
-                            ...prev,
-                            lastfmEnabled: true,
-                            lastfmSessionKey: sessionKey,
-                            lastfmUsername: username
-                          }))
-                          void window.api?.lastfm?.setSession?.(sessionKey, username)
-                        }}
-                      />
-                    )}
-                  </section>
-                </div>
-
-                <div
                   id="settings-sec-remote-library"
                   data-settings-section="remoteLibrary"
                   style={{ display: settingsSectionVisibility.remoteLibrary ? '' : 'none' }}
@@ -19197,10 +19697,16 @@ export default function App() {
                   <section className="settings-section">
                     <div className="section-title">
                       <Info size={20} />
-                      <h2>{t('settings.about')}</h2>
+                      <h2>{t('settings.aboutAdvancedTitle', '\u5173\u4e8e\u4e0e\u9ad8\u7ea7')}</h2>
                     </div>
                     <p style={{ opacity: 0.6, fontSize: '14px', lineHeight: 1.6 }}>
                       {t('settings.aboutBody')}
+                    </p>
+                    <p style={{ opacity: 0.72, fontSize: '13px', lineHeight: 1.6, marginTop: 8 }}>
+                      {t(
+                        'settings.openSourceTrustNote',
+                        'ECHO does not save any account information, contains no dangerous code, and the whole project is fully open source.'
+                      )}
                     </p>
                     <div className="setting-row" style={{ marginTop: 12 }}>
                       <div className="setting-info">
@@ -19234,8 +19740,12 @@ export default function App() {
                       {t('settings.versionText', { version: appVersion || '1.1.2' })}
                       <button
                         className="control-btn"
-                        disabled={isUpdating}
+                        disabled={isUpdating || config.networkAccessDisabled === true}
                         onClick={() => {
+                          if (config.networkAccessDisabled === true) {
+                            alert(t('settings.networkDisabledStatus', 'Network access is disabled.'))
+                            return
+                          }
                           setIsUpdating(true)
                           setUpdateStatus({ event: 'checking' })
                           window.api?.checkForUpdates?.()
@@ -19246,7 +19756,10 @@ export default function App() {
                           borderRadius: '4px',
                           background: 'var(--color-bg-secondary)',
                           border: '1px solid var(--color-border)',
-                          cursor: isUpdating ? 'not-allowed' : 'pointer'
+                          cursor:
+                            isUpdating || config.networkAccessDisabled === true
+                              ? 'not-allowed'
+                              : 'pointer'
                         }}
                       >
                         {isUpdating
@@ -19292,7 +19805,10 @@ export default function App() {
                                 : updateStatus.event === 'update-downloaded'
                                   ? t(
                                       'settings.updateDownloaded',
-                                      `v${updateStatus.version} downloaded, will install on exit.`
+                                      {
+                                        version: updateStatus.version,
+                                        defaultValue: `v${updateStatus.version} downloaded, will install on exit.`
+                                      }
                                     )
                                   : updateStatus.event === 'error'
                                     ? t('settings.updateError', 'Error checking for updates.')
@@ -19353,6 +19869,22 @@ export default function App() {
                         }}
                       >
                         {t('settings.openReleasesPage', 'Open releases page')}
+                      </button>
+                      <button
+                        className="control-btn"
+                        onClick={() =>
+                          openExternalLink('https://github.com/Moekotori/ECHO/tree/moe/carnary')
+                        }
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '12px',
+                          borderRadius: '4px',
+                          background: 'var(--color-bg-secondary)',
+                          border: '1px solid var(--color-border)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {t('settings.openCanaryBranch', 'Canary')}
                       </button>
                     </div>
                     {releaseNotesOpen ? (
@@ -19637,7 +20169,55 @@ export default function App() {
                   <section className="settings-section">
                     <div className="section-title" style={{ color: '#ff4d4f' }}>
                       <Trash2 size={20} aria-hidden />
-                      <h2>{t('settings.dangerZone')}</h2>
+                      <h2>{t('settings.resetDangerTitle', '\u91cd\u7f6e\u4e0e\u5371\u9669\u64cd\u4f5c')}</h2>
+                    </div>
+                    <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
+                      <div className="setting-info">
+                        <h3 style={{ color: '#ff4d4f' }}>
+                          {t('settings.networkDisableTitle', 'Disable all network access')}
+                        </h3>
+                        <p>
+                          {t(
+                            'settings.networkDisableDesc',
+                            'When enabled, ECHO will not connect to the network for updates, lyrics, covers, downloads, sign-in, or external pages.'
+                          )}
+                        </p>
+                        {config.networkAccessDisabled === true ? (
+                          <p style={{ marginTop: 6, fontSize: 12, color: '#ff4d4f' }}>
+                            {t('settings.networkDisabledStatus', 'Network access is disabled.')}
+                          </p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className={`toggle-btn ${config.networkAccessDisabled === true ? 'active' : ''}`}
+                        onClick={() => {
+                          const nextDisabled = config.networkAccessDisabled !== true
+                          if (
+                            nextDisabled &&
+                            !confirm(
+                              t(
+                                'settings.networkDisableConfirm',
+                                'Disable all network access? Online lyrics, covers, downloads, updates, sign-in, and external links will stop working until you turn this off.'
+                              )
+                            )
+                          ) {
+                            return
+                          }
+                          setConfig((prev) => ({
+                            ...prev,
+                            networkAccessDisabled: nextDisabled,
+                            autoUpdateEnabled: nextDisabled ? false : prev.autoUpdateEnabled
+                          }))
+                        }}
+                        aria-pressed={config.networkAccessDisabled === true}
+                      >
+                        {config.networkAccessDisabled === true ? (
+                          <ToggleRight size={32} />
+                        ) : (
+                          <ToggleLeft size={32} />
+                        )}
+                      </button>
                     </div>
                     <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
                       <div className="setting-info">
@@ -19659,6 +20239,25 @@ export default function App() {
                     </div>
                   </section>
                 </div>
+                </div>
+                {settingsScrollMetrics.visible ? (
+                  <div
+                    className="settings-scrollbar"
+                    aria-hidden
+                    onPointerDown={handleSettingsScrollbarPointerDown}
+                    onPointerMove={handleSettingsScrollbarPointerMove}
+                    onPointerUp={handleSettingsScrollbarPointerUp}
+                    onPointerCancel={handleSettingsScrollbarPointerUp}
+                  >
+                    <div
+                      className="settings-scrollbar-thumb"
+                      style={{
+                        height: settingsScrollMetrics.thumbHeight,
+                        transform: `translateY(${settingsScrollMetrics.thumbTop}px)`
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

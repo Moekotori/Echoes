@@ -16,7 +16,6 @@ export function pickThemeExportSlice(config) {
     uiRadiusScale: config.uiRadiusScale,
     uiShadowIntensity: config.uiShadowIntensity,
     uiSaturation: config.uiSaturation,
-    uiAccentBackgroundGlow: config.uiAccentBackgroundGlow,
     includeWallpaper: false
   }
 }
@@ -43,8 +42,6 @@ export function mergeThemeImport(prevConfig, bundle) {
   if (bundle.uiRadiusScale !== undefined) next.uiRadiusScale = bundle.uiRadiusScale
   if (bundle.uiShadowIntensity !== undefined) next.uiShadowIntensity = bundle.uiShadowIntensity
   if (bundle.uiSaturation !== undefined) next.uiSaturation = bundle.uiSaturation
-  if (bundle.uiAccentBackgroundGlow !== undefined)
-    next.uiAccentBackgroundGlow = bundle.uiAccentBackgroundGlow
 
   if (bundle.includeWallpaper && bundle.customBgPath !== undefined) {
     next.customBgPath = bundle.customBgPath
