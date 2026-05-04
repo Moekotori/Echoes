@@ -3152,3 +3152,671 @@
 :root[data-echo-glass-clear='true'] .library-list-header--songs + .playlist {
   border-bottom-color: transparent !important;
 }
+
+/* Settings selection states need to stay obvious above the global list polish. */
+.settings-page .settings-nav-item {
+  position: relative;
+  border: 1px solid transparent !important;
+}
+
+.settings-page .settings-nav-item.active {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 24%, var(--glass-bg, #ffffff) 70%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 18%, var(--glass-bg, #ffffff) 76%)
+    ) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, transparent) !important;
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 68%, var(--text-main, #1f2937)) !important;
+  box-shadow:
+    inset 3px 0 0 var(--theme-primary, var(--accent-pink)),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent),
+    0 10px 22px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, transparent) !important;
+}
+
+.settings-page .settings-nav-item.active svg {
+  color: var(--theme-primary, var(--accent-pink));
+  stroke-width: 2.4;
+}
+
+.settings-page .settings-nav-item:last-child.active {
+  color: #ff4d4f !important;
+  border-color: color-mix(in srgb, #ff4d4f 38%, transparent) !important;
+  box-shadow:
+    inset 3px 0 0 #ff4d4f,
+    inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent),
+    0 10px 22px color-mix(in srgb, #ff4d4f 14%, transparent) !important;
+}
+
+.settings-page .settings-nav-item:last-child.active svg {
+  color: #ff4d4f;
+}
+
+.settings-page .settings-chip-row .list-filter-chip {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--text-main, #1f2937) 12%, transparent) !important;
+}
+
+.settings-page .settings-chip-row .list-filter-chip.active {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 66%, var(--theme-primary, var(--accent-pink)) 20%)
+    ) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 42%, transparent) !important;
+  color: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 8px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 24%, transparent) !important;
+}
+
+.settings-page .settings-chip-row .list-filter-chip.active::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-left: 2px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  flex: 0 0 auto;
+}
+
+.settings-page .toggle-btn {
+  width: 38px;
+  min-width: 38px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 999px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--text-soft, #857178) 82%, var(--text-main, #1f2937) 18%);
+}
+
+.settings-page .toggle-btn.active {
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 72%, var(--theme-accent, var(--accent-blue)) 18%) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.settings-page .toggle-btn:hover {
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--text-main, #1f2937));
+  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 8%, transparent) !important;
+}
+
+.settings-page .toggle-btn svg {
+  width: 32px;
+  height: 32px;
+  stroke-width: 1.8;
+  filter: none;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .settings-nav-item.active {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, rgba(255, 255, 255, 0.09)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 22%, rgba(255, 255, 255, 0.07))
+    ) !important;
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 42%, #ffffff) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 38%, rgba(255, 255, 255, 0.1)) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .settings-chip-row .list-filter-chip:not(.active),
+:root[data-echo-theme-tone='dark'] .settings-page .toggle-btn:not(.active) {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Shared ECHO scrollbars for panels that can otherwise fall back to native chrome. */
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+) {
+  scrollbar-width: thin;
+  scrollbar-color:
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, var(--theme-accent, var(--accent-blue)) 28%)
+    transparent;
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+)::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+)::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+)::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 54%, rgba(255, 255, 255, 0.42)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 48%, rgba(255, 255, 255, 0.34))
+    )
+    padding-box;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 46%, transparent),
+    0 4px 12px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, transparent);
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+):hover::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 70%, rgba(255, 255, 255, 0.48)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 62%, rgba(255, 255, 255, 0.38))
+    )
+    padding-box;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
+    0 6px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 22%, transparent);
+}
+
+:where(
+  .settings-content,
+  .settings-nav,
+  .sidebar-list-stack,
+  .browser-panel,
+  .folder-browser,
+  .folder-list-scroll,
+  .media-downloader-content
+)::-webkit-scrollbar-thumb:active {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, rgba(255, 255, 255, 0.5)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 70%, rgba(255, 255, 255, 0.42))
+    )
+    padding-box;
+}
+
+:root[data-echo-theme-tone='dark']
+  :where(
+    .settings-content,
+    .settings-nav,
+    .sidebar-list-stack,
+    .browser-panel,
+    .folder-browser,
+    .folder-list-scroll,
+    .media-downloader-content
+  )::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 48%, rgba(255, 255, 255, 0.16)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 42%, rgba(255, 255, 255, 0.12))
+    )
+    padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+/* Strong settings-page scrollbar override; index.css has older native-looking rules. */
+.settings-page .settings-content {
+  scrollbar-width: thin !important;
+  scrollbar-color:
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--theme-accent, var(--accent-blue)) 28%)
+    transparent !important;
+}
+
+.settings-page .settings-content::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
+  background: transparent !important;
+}
+
+.settings-page .settings-content::-webkit-scrollbar-button,
+.settings-page .settings-content::-webkit-scrollbar-button:single-button,
+.settings-page .settings-content::-webkit-scrollbar-button:vertical:start:decrement,
+.settings-page .settings-content::-webkit-scrollbar-button:vertical:end:increment {
+  width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  display: none !important;
+  opacity: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.settings-page .settings-content::-webkit-scrollbar-track,
+.settings-page .settings-content::-webkit-scrollbar-track-piece {
+  margin: 8px 0 !important;
+  border: 4px solid transparent !important;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--glass-bg, #ffffff) 48%, transparent),
+      color-mix(in srgb, var(--glass-bg, #ffffff) 20%, transparent)
+    )
+    padding-box !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 70%, transparent) !important;
+}
+
+.settings-page .settings-content::-webkit-scrollbar-thumb {
+  min-height: 54px !important;
+  border: 3px solid transparent !important;
+  border-radius: 999px !important;
+  background:
+    radial-gradient(circle at 34% 18%, rgba(255, 255, 255, 0.66) 0, transparent 44%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, #ffffff 8%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 68%, var(--theme-primary, var(--accent-pink)) 20%)
+    )
+    padding-box !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 6px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+}
+
+.settings-page .settings-content::-webkit-scrollbar-thumb:hover {
+  background:
+    radial-gradient(circle at 34% 18%, rgba(255, 255, 255, 0.78) 0, transparent 48%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 86%, #ffffff 10%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 76%, var(--theme-primary, var(--accent-pink)) 18%)
+    )
+    padding-box !important;
+}
+
+.settings-scroll-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.settings-scroll-shell .settings-content--custom-scrollbar {
+  padding-right: 24px;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.settings-scroll-shell .settings-content--custom-scrollbar::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+.settings-scroll-shell .settings-content--custom-scrollbar::-webkit-scrollbar-button,
+.settings-scroll-shell .settings-content--custom-scrollbar::-webkit-scrollbar-track,
+.settings-scroll-shell .settings-content--custom-scrollbar::-webkit-scrollbar-thumb,
+.settings-scroll-shell .settings-content--custom-scrollbar::-webkit-scrollbar-track-piece {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+.settings-scrollbar {
+  position: absolute;
+  top: 10px;
+  right: 2px;
+  bottom: 10px;
+  width: 12px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--glass-bg, #ffffff) 38%, transparent),
+      color-mix(in srgb, var(--glass-bg, #ffffff) 12%, transparent)
+    );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 55%, transparent);
+  cursor: default;
+  touch-action: none;
+  z-index: 2;
+}
+
+.settings-scrollbar-thumb {
+  width: 100%;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.72) 0, transparent 48%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 82%, #ffffff 6%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 72%, var(--theme-primary, var(--accent-pink)) 18%)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 8px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, transparent);
+  transition:
+    background var(--motion-fast, 150ms) var(--ease-standard, ease),
+    box-shadow var(--motion-fast, 150ms) var(--ease-standard, ease);
+}
+
+.settings-scrollbar:hover .settings-scrollbar-thumb {
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.82) 0, transparent 52%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 90%, #ffffff 7%),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 80%, var(--theme-primary, var(--accent-pink)) 16%)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 10px 22px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, transparent);
+}
+
+:root[data-echo-theme-tone='dark'] .settings-scrollbar {
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+:root[data-echo-theme-tone='dark'] .settings-scrollbar-thumb {
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.32) 0, transparent 48%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 62%, rgba(255, 255, 255, 0.16)),
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 54%, rgba(255, 255, 255, 0.12))
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+/* Quiet settings scrollbar: keep it custom, but make it feel native to ECHO. */
+.settings-scrollbar {
+  top: 12px;
+  right: 6px;
+  bottom: 12px;
+  width: 7px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-scrollbar-thumb {
+  width: 5px;
+  margin: 0 auto;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 62%,
+    var(--theme-accent, var(--accent-blue)) 20%
+  );
+  opacity: 0.58;
+  box-shadow: none;
+  filter: saturate(0.94);
+}
+
+.settings-scrollbar:hover .settings-scrollbar-thumb {
+  width: 6px;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 68%,
+    var(--theme-accent, var(--accent-blue)) 24%
+  );
+  opacity: 0.78;
+  box-shadow: none;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-scrollbar {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 56%,
+    rgba(255, 255, 255, 0.22)
+  );
+  opacity: 0.62;
+  box-shadow: none;
+}
+
+/* Main library scrollbars should match the quiet settings scrollbar. */
+.playlist,
+.playlist-virtual-list,
+.queue-preview-list {
+  scrollbar-width: thin !important;
+  scrollbar-color:
+    color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 62%,
+      var(--theme-accent, var(--accent-blue)) 20%
+    )
+    transparent !important;
+}
+
+.playlist::-webkit-scrollbar,
+.playlist-virtual-list::-webkit-scrollbar,
+.queue-preview-list::-webkit-scrollbar {
+  width: 7px !important;
+  height: 7px !important;
+  background: transparent !important;
+}
+
+.playlist::-webkit-scrollbar-button,
+.playlist::-webkit-scrollbar-corner,
+.playlist-virtual-list::-webkit-scrollbar-button,
+.playlist-virtual-list::-webkit-scrollbar-corner,
+.queue-preview-list::-webkit-scrollbar-button,
+.queue-preview-list::-webkit-scrollbar-corner {
+  width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+
+.playlist::-webkit-scrollbar-track,
+.playlist::-webkit-scrollbar-track-piece,
+.playlist-virtual-list::-webkit-scrollbar-track,
+.playlist-virtual-list::-webkit-scrollbar-track-piece,
+.queue-preview-list::-webkit-scrollbar-track,
+.queue-preview-list::-webkit-scrollbar-track-piece {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.playlist::-webkit-scrollbar-thumb,
+.playlist-virtual-list::-webkit-scrollbar-thumb,
+.queue-preview-list::-webkit-scrollbar-thumb {
+  min-height: 48px !important;
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  background: color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 62%,
+      var(--theme-accent, var(--accent-blue)) 20%
+    )
+    padding-box !important;
+  opacity: 0.58 !important;
+  box-shadow: none !important;
+  filter: saturate(0.94);
+}
+
+.playlist:hover::-webkit-scrollbar-thumb,
+.playlist::-webkit-scrollbar-thumb:hover,
+.playlist-virtual-list:hover::-webkit-scrollbar-thumb,
+.playlist-virtual-list::-webkit-scrollbar-thumb:hover,
+.queue-preview-list:hover::-webkit-scrollbar-thumb,
+.queue-preview-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 68%,
+      var(--theme-accent, var(--accent-blue)) 24%
+    )
+    padding-box !important;
+  opacity: 0.78 !important;
+  box-shadow: none !important;
+}
+
+:root[data-echo-theme-tone='dark'] .playlist,
+:root[data-echo-theme-tone='dark'] .playlist-virtual-list,
+:root[data-echo-theme-tone='dark'] .queue-preview-list {
+  scrollbar-color:
+    color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 56%,
+      rgba(255, 255, 255, 0.22)
+    )
+    transparent !important;
+}
+
+:root[data-echo-theme-tone='dark'] .playlist::-webkit-scrollbar-thumb,
+:root[data-echo-theme-tone='dark'] .playlist-virtual-list::-webkit-scrollbar-thumb,
+:root[data-echo-theme-tone='dark'] .queue-preview-list::-webkit-scrollbar-thumb {
+  background: color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 56%,
+      rgba(255, 255, 255, 0.22)
+    )
+    padding-box !important;
+  opacity: 0.62 !important;
+  box-shadow: none !important;
+}
+
+.playlist-scroll-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.playlist-scroll-shell .playlist--custom-scrollbar {
+  padding-right: 18px;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar-button,
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar-corner,
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar-track,
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar-track-piece,
+.playlist-scroll-shell .playlist--custom-scrollbar::-webkit-scrollbar-thumb {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.playlist-scrollbar {
+  position: absolute;
+  top: 12px;
+  right: 6px;
+  bottom: 12px;
+  width: 7px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: default;
+  touch-action: none;
+  z-index: 3;
+}
+
+.playlist-scrollbar-thumb {
+  width: 5px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 62%,
+    var(--theme-accent, var(--accent-blue)) 20%
+  );
+  opacity: 0.58;
+  box-shadow: none;
+  filter: saturate(0.94);
+}
+
+.playlist-scrollbar:hover .playlist-scrollbar-thumb {
+  width: 6px;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 68%,
+    var(--theme-accent, var(--accent-blue)) 24%
+  );
+  opacity: 0.78;
+}
+
+:root[data-echo-theme-tone='dark'] .playlist-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 56%,
+    rgba(255, 255, 255, 0.22)
+  );
+  opacity: 0.62;
+}

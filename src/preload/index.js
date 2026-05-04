@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
   setAutoUpdateEnabled: (enabled) => ipcRenderer.invoke('app:setAutoUpdateEnabled', !!enabled),
+  setNetworkAccessDisabled: (disabled) =>
+    ipcRenderer.invoke('app:setNetworkAccessDisabled', !!disabled),
   onUpdaterEvent: (callback) => {
     const handler = (_, msg) => callback(msg)
     ipcRenderer.on('updater-message', handler)
@@ -43,9 +45,14 @@ contextBridge.exposeInMainWorld('api', {
   openImageHandler: (locale) => ipcRenderer.invoke('dialog:openImage', { locale }),
   selectImageFile: () => ipcRenderer.invoke('dialog:selectImage'),
   openThemeJsonHandler: (locale) => ipcRenderer.invoke('dialog:openThemeJson', { locale }),
+  openSettingsJsonHandler: (locale) => ipcRenderer.invoke('dialog:openSettingsJson', { locale }),
   openPlaylistFileHandler: () => ipcRenderer.invoke('dialog:openPlaylistFile'),
   saveThemeJsonHandler: (text, defaultName, locale) =>
     ipcRenderer.invoke('dialog:saveThemeJson', text, defaultName, {
+      locale
+    }),
+  saveSettingsJsonHandler: (text, defaultName, locale) =>
+    ipcRenderer.invoke('dialog:saveSettingsJson', text, defaultName, {
       locale
     }),
   openLyricsFileHandler: (locale) => ipcRenderer.invoke('dialog:openLyricsFile', { locale }),

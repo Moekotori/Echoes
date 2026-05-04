@@ -136,6 +136,8 @@ export const DEFAULT_CONFIG = {
   uiRadiusScale: 1,
   uiShadowIntensity: 1,
   uiSaturation: 1,
+  uiLineHeightScale: 1,
+  uiControlDensity: 1,
   uiAccentBackgroundGlow: false,
   showSidebarLogo: true,
   autoLocateCurrentTrack: false,
@@ -215,6 +217,7 @@ export const DEFAULT_CONFIG = {
   /** 自动保存媒体库（播放列表/自定义歌单/收藏） */
   autoSaveLibrary: true,
   autoUpdateEnabled: true,
+  networkAccessDisabled: false,
   downloaderQuickMode: false,
   youtubeCookieBrowser: 'edge',
   youtubeCookieFile: '',
