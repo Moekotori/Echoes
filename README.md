@@ -234,51 +234,56 @@ CSS 变量主题编辑器,一键切换视觉风格
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
 </div>
 
-##  架构 · Architecture
+## 架构 · Architecture
 
 ```mermaid
-flowchart TB
-  subgraph UI[" Renderer · React UI"]
-    A[Library / Player]
-    B[Lyrics Karaoke]
-    C[MV Viewer]
-    D[Plugin Panels]
-  end
+flowchart TD
+    subgraph renderer["Renderer  (React)"]
+        UI["Player · Library · Lyrics · MV"]
+        PluginUI["Plugin Panels"]
+    end
 
-  subgraph Main[" Electron Main Process"]
-    E[IPC Router]
-    F[Plugin Sandbox]
-    G[Theme Engine]
-    H[Auto Updater]
-  end
+    subgraph main["Main Process  (Node.js / Electron)"]
+        CB["Preload · contextBridge"]
+        AE["AudioEngine"]
+        LIB["Library Manager"]
+        LYR["Lyrics Engine"]
+        MVM["MV Matcher"]
+        DL["Media Downloader  (yt-dlp)"]
+        PS["Plugin Sandbox"]
+        LT["Listen Together"]
+        CAST["DLNA Cast"]
+    end
 
-  subgraph Audio[" Out-of-process Audio Host (C)"]
-    I[WASAPI Exclusive]
-    J[Parametric EQ]
-    K[Decoder Pipeline]
-  end
+    subgraph host["echo-audio-host  (独立子进程 · C)"]
+        FFM["FFmpeg Decoder"]
+        EQ["Parametric EQ"]
+        WAS["WASAPI Exclusive Output"]
+    end
 
-  subgraph Ext[" External Services"]
-    L[NetEase Lyrics]
-    M[YouTube / Bilibili]
-    N[Listen-Together WS]
-    O[DLNA Devices]
-  end
+    subgraph ext["External"]
+        NE["NetEase API"]
+        YTBL["YouTube / Bilibili"]
+        WS["WebSocket Server"]
+        DLNA["DLNA Devices"]
+    end
 
-  UI <--> Main
-  Main <--> Audio
-  Main <--> Ext
-  Audio --> I
-  I --> J
-  J --> K
+    UI      <-->|"Electron IPC"| CB
+    PluginUI <-->|"plugin IPC"| PS
+    CB --> AE & LIB & LYR & MVM & DL & LT & CAST
 
-  style UI fill:#1e1e3f,stroke:#8B5CF6,color:#fff
-  style Main fill:#2d1b4e,stroke:#00D9FF,color:#fff
-  style Audio fill:#3d1a3a,stroke:#FFD700,color:#fff
-  style Ext fill:#1a3a3a,stroke:#FF6B6B,color:#fff
+    AE <-->|"stdin: PCM stream
+stdout: JSON status"| host
+    FFM --> EQ --> WAS
+
+    LYR  --> NE
+    MVM  --> YTBL
+    DL   --> YTBL
+    LT   <--> WS
+    CAST <--> DLNA
 ```
 
->  **设计哲学**:UI 与音频引擎分离,渲染卡顿绝不影响播放;插件运行在沙箱,安全与扩展性兼得
+> 音频引擎与主进程完全分离 — 渲染卡顿不影响播放，主进程崩溃音频不中断。插件在沙箱内运行，网络与文件权限需显式声明。
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" width="100%" />
