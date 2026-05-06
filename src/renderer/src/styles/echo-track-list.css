@@ -31,10 +31,15 @@
 .bottom-player-bar {
   border-radius: 0 !important;
   box-shadow: none !important;
-  background: rgba(255, 255, 255, 0.90) !important;
-  backdrop-filter: blur(20px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  /* 提升不透明度,降低 blur 半径,减小 GPU 合成成本 */
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
   border-top: 1px solid var(--echo-border, rgba(15, 23, 42, 0.08)) !important;
+  /* 隔离合成层,避免下面列表/进度条重绘时整条 blur 重新光栅化 */
+  contain: layout paint style !important;
+  will-change: backdrop-filter !important;
+  transform: translateZ(0) !important;
 }
 
 /* 歌词/MV 模式下底栏变为浮动毛玻璃胶囊 */
@@ -50,9 +55,9 @@
   bottom: 20px !important;
 
   /* 毛玻璃：白色半透明 + 纯模糊，不改变背景颜色 */
-  background: rgba(255, 255, 255, 0.18) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
+  background: rgba(255, 255, 255, 0.22) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
 
   border: 1px solid rgba(255, 255, 255, 0.25) !important;
   border-top: 1px solid rgba(255, 255, 255, 0.25) !important;

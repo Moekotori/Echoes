@@ -260,6 +260,12 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  onMiniPlayerClosed: (callback) => {
+    const ch = 'mini-player:closed'
+    const handler = () => callback()
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
   clearAudioStatusListeners: () => ipcRenderer.removeAllListeners('audio:status-update'),
   onAudioStatus: (callback) => {
     const channel = 'audio:status-update'

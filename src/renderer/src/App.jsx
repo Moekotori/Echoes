@@ -401,7 +401,9 @@ const KARAOKE_RENDER_CONTEXT_LINES = 3
 const PLAYBACK_UI_TIME_UPDATE_MS = 1000
 const PLAYBACK_UI_TIME_LYRICS_UPDATE_MS = 500
 const PLAYBACK_UI_TIME_LIBRARY_BROWSER_UPDATE_MS = 2500
+const PLAYBACK_UI_TIME_MINI_PLAYER_UPDATE_MS = 10000
 const PLAYBACK_UI_TIME_SEEK_DELTA_SEC = 1.25
+const MINI_PLAYER_PROGRESS_SYNC_BUCKET_SEC = 10
 const CLOUD_COVER_RESOLUTION = '600x600bb'
 const SIDEBAR_LOGO_IMAGE_SRC = sidebarLogoImage
 const BPM_DETECTOR_VERSION = 2
@@ -2410,12 +2412,14 @@ export default function App() {
     value: Math.max(0, Number(currentTime) || 0),
     second: Math.floor(Math.max(0, Number(currentTime) || 0))
   })
+  const miniPlayerWindowOpenRef = useRef(false)
   const durationRef = useRef(duration)
   const upNextQueueRef = useRef(upNextQueue)
   const playbackHistoryRef = useRef(playbackHistory)
   const userPlaylistsRef = useRef(userPlaylists)
   const likedPathsRef = useRef(likedPaths)
   const trackStatsRef = useRef(trackStats)
+  const trackStatsCommitTimerRef = useRef(null)
   const displayMetadataOverridesRef = useRef(displayMetadataOverrides)
   const activePlaybackContextRef = useRef(activePlaybackContext)
   const playbackSessionSeedRef = useRef(
@@ -2518,6 +2522,9 @@ export default function App() {
   const libraryBrowserVisible = !showLyrics && view !== 'settings'
   const lyricsLoadSurfaceActive =
     (view === 'player' && showLyrics) || config.desktopLyricsEnabled === true
+  const lyricsTimingSurfaceActive =
+    (view === 'player' && showLyrics && config.lyricsHidden !== true) ||
+    config.desktopLyricsEnabled === true
   const mvLoadSurfaceActive = shouldLoadMvForSurface(config, { view, showLyrics })
   useEffect(() => {
     nativeHtmlAudioMirrorNeededRef.current = nativeHtmlAudioMirrorNeeded
@@ -3289,6 +3296,30 @@ export default function App() {
     )
   }, [trackStats, config.autoSaveLibrary, schedulePersistedState])
 
+  const commitTrackStatsStateSoon = useCallback((nextStats, { immediate = false } = {}) => {
+    if (trackStatsCommitTimerRef.current) {
+      window.clearTimeout(trackStatsCommitTimerRef.current)
+      trackStatsCommitTimerRef.current = null
+    }
+    if (immediate) {
+      setTrackStats(nextStats)
+      return
+    }
+    trackStatsCommitTimerRef.current = window.setTimeout(() => {
+      trackStatsCommitTimerRef.current = null
+      setTrackStats(trackStatsRef.current)
+    }, 8000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (trackStatsCommitTimerRef.current) {
+        window.clearTimeout(trackStatsCommitTimerRef.current)
+        trackStatsCommitTimerRef.current = null
+      }
+    }
+  }, [])
+
   useEffect(() => {
     schedulePersistedState(
       'upNextQueue',
@@ -3329,11 +3360,12 @@ export default function App() {
       const previous = playbackUiTimeFlushRef.current || { at: 0, value: 0, second: 0 }
       const previousValue = Math.max(0, Number(previous.value) || 0)
       const nextSecond = Math.floor(nextTime)
-      const minIntervalMs =
-        showLyrics && view === 'player' && configRef.current.lyricsHidden !== true
-          ? PLAYBACK_UI_TIME_LYRICS_UPDATE_MS
-          : libraryBrowserVisible
-            ? PLAYBACK_UI_TIME_LIBRARY_BROWSER_UPDATE_MS
+      const minIntervalMs = lyricsTimingSurfaceActive
+        ? PLAYBACK_UI_TIME_LYRICS_UPDATE_MS
+        : libraryBrowserVisible
+          ? miniPlayerWindowOpenRef.current
+            ? PLAYBACK_UI_TIME_MINI_PLAYER_UPDATE_MS
+            : PLAYBACK_UI_TIME_LIBRARY_BROWSER_UPDATE_MS
           : PLAYBACK_UI_TIME_UPDATE_MS
       const shouldFlush =
         previous.at === 0 ||
@@ -3351,7 +3383,7 @@ export default function App() {
         setCurrentTime(nextTime)
       })
     },
-    [libraryBrowserVisible, showLyrics, view]
+    [libraryBrowserVisible, lyricsTimingSurfaceActive]
   )
 
   useEffect(() => {
@@ -3394,6 +3426,17 @@ export default function App() {
   useEffect(() => {
     trackStatsRef.current = trackStats
   }, [trackStats])
+
+  useEffect(() => {
+    const needsLiveTrackStats =
+      listMode === 'playlists' ||
+      listMode === 'history' ||
+      Boolean(selectedSmartCollectionId) ||
+      songSortMode === 'frequentDesc'
+    if (!needsLiveTrackStats) return
+    if (trackStatsRef.current === trackStats) return
+    commitTrackStatsStateSoon(trackStatsRef.current, { immediate: true })
+  }, [commitTrackStatsStateSoon, listMode, selectedSmartCollectionId, songSortMode, trackStats])
 
   useEffect(() => {
     activePlaybackContextRef.current = activePlaybackContext
@@ -3546,16 +3589,27 @@ export default function App() {
     }
 
     if (isPlaying && lastStatsTrackedPathRef.current !== currentPath) {
-      setTrackStats((prev) => {
-        const current = prev[currentPath] || {}
-        return {
-          ...prev,
-          [currentPath]: {
-            playCount: (Number(current.playCount) || 0) + 1,
-            lastPlayedAt: Date.now()
-          }
+      const current = trackStatsRef.current[currentPath] || {}
+      const nextTrackStats = {
+        ...trackStatsRef.current,
+        [currentPath]: {
+          playCount: (Number(current.playCount) || 0) + 1,
+          lastPlayedAt: Date.now()
         }
-      })
+      }
+      trackStatsRef.current = nextTrackStats
+      const needsLiveTrackStats =
+        listMode === 'playlists' ||
+        listMode === 'history' ||
+        Boolean(selectedSmartCollectionId) ||
+        songSortMode === 'frequentDesc'
+      commitTrackStatsStateSoon(nextTrackStats, { immediate: needsLiveTrackStats })
+      schedulePersistedState(
+        'trackStats',
+        'nc_track_stats',
+        nextTrackStats,
+        config.autoSaveLibrary !== false && trackStatsStoreHydratedRef.current
+      )
       lastStatsTrackedPathRef.current = currentPath
     }
 
@@ -3586,7 +3640,19 @@ export default function App() {
         : next
       return trimPlaybackHistoryEntries(collapsed, config.historyMaxEntries)
     })
-  }, [currentIndex, playlist, isPlaying, config.historyCollapseRepeats, config.historyMaxEntries])
+  }, [
+    commitTrackStatsStateSoon,
+    config.autoSaveLibrary,
+    config.historyCollapseRepeats,
+    config.historyMaxEntries,
+    currentIndex,
+    isPlaying,
+    listMode,
+    playlist,
+    schedulePersistedState,
+    selectedSmartCollectionId,
+    songSortMode
+  ])
 
   const toggleLike = useCallback((path) => {
     if (!path) return
@@ -4926,12 +4992,18 @@ export default function App() {
       if (useNativeEngineRef.current) return
       if (isSeekingRef.current) return
       const time = audio.currentTime
-      setCurrentTime(time)
+      syncCurrentTimeFromNativeStatus(time)
 
-      if (lyricsRef.current.length > 0) {
-        setActiveLyricIndex(
-          getActiveLyricIndex(lyricsRef.current, time, configRef.current.lyricsOffsetMs)
+      if (lyricsTimingSurfaceActive && lyricsRef.current.length > 0) {
+        const nextLyricIndex = getActiveLyricIndex(
+          lyricsRef.current,
+          time,
+          configRef.current.lyricsOffsetMs
         )
+        if (nextLyricIndex !== activeLyricIndexRef.current) {
+          activeLyricIndexRef.current = nextLyricIndex
+          setActiveLyricIndex(nextLyricIndex)
+        }
       }
     }
     const onEnded = () => {
@@ -4948,7 +5020,13 @@ export default function App() {
       audio.removeEventListener('timeupdate', updateTime)
       audio.removeEventListener('ended', onEnded)
     }
-  }, [playlist, currentIndex, handleTrackEndedAdvance])
+  }, [
+    handleTrackEndedAdvance,
+    lyricsTimingSurfaceActive,
+    playlist,
+    currentIndex,
+    syncCurrentTimeFromNativeStatus
+  ])
   const applyStartTimeToAudio = useCallback((audio, nextTime) => {
     if (!audio || !(nextTime > 0)) return
     const apply = () => {
@@ -5218,7 +5296,7 @@ export default function App() {
           }
         }
 
-        if (lyricsRef.current.length > 0) {
+        if (lyricsTimingSurfaceActive && lyricsRef.current.length > 0) {
           const nextLyricIndex = getActiveLyricIndex(
             lyricsRef.current,
             status.currentTime,
@@ -5231,7 +5309,7 @@ export default function App() {
         }
       }
     })
-  }, [maybeArmNativeAutomixFromClock, syncCurrentTimeFromNativeStatus])
+  }, [lyricsTimingSurfaceActive, maybeArmNativeAutomixFromClock, syncCurrentTimeFromNativeStatus])
 
   useEffect(() => {
     if (useNativeEngineRef.current && window.api) {
@@ -5732,11 +5810,7 @@ export default function App() {
 
   const searchAndApplyMvForTrack = useCallback(
     async ({ filePath, title = '', artist = '', hints = {}, requestSeq = null }) => {
-      if (
-        !filePath ||
-        !window.api?.searchMVHandler ||
-        !mvLoadSurfaceActiveRef.current
-      ) {
+      if (!filePath || !window.api?.searchMVHandler || !mvLoadSurfaceActiveRef.current) {
         return
       }
 
@@ -7277,7 +7351,10 @@ export default function App() {
         }))
         setBpmDetectionState('done')
         setTrackMetaMap((prev) => {
-          const mergedEntry = mergeTrackMetaEntryPreservingCover(prev[filePath] || {}, measuredEntry)
+          const mergedEntry = mergeTrackMetaEntryPreservingCover(
+            prev[filePath] || {},
+            measuredEntry
+          )
           return {
             ...prev,
             [filePath]: mergedEntry
@@ -9168,8 +9245,7 @@ export default function App() {
               if (biliAudioRef.current) biliAudioRef.current.playbackRate = nudgedRate
             } else if (v.playbackRate !== playbackRateRef.current) {
               v.playbackRate = playbackRateRef.current
-              if (biliAudioRef.current)
-                biliAudioRef.current.playbackRate = playbackRateRef.current
+              if (biliAudioRef.current) biliAudioRef.current.playbackRate = playbackRateRef.current
             }
           }
         }
@@ -10056,10 +10132,7 @@ export default function App() {
 
   useEffect(() => {
     if (!castMvIdentity || !castVirtualTrack?.metadataTrusted) return
-    if (
-      !window.api?.searchMVHandler ||
-      !mvLoadSurfaceActive
-    ) {
+    if (!window.api?.searchMVHandler || !mvLoadSurfaceActive) {
       return
     }
 
@@ -11315,6 +11388,9 @@ export default function App() {
     volume
   ])
 
+  const miniPlayerProgressBucket = Math.floor(
+    Math.max(0, Number(displayProgressTime) || 0) / MINI_PLAYER_PROGRESS_SYNC_BUCKET_SEC
+  )
   const miniPlayerPayload = useMemo(
     () =>
       buildMiniPlayerPayload({
@@ -11327,7 +11403,8 @@ export default function App() {
         volume,
         liked: !!(currentTrack?.path && likedSet.has(currentTrack.path)),
         position: displayProgressTime || 0,
-        duration: displayProgressDuration || 0
+        duration: displayProgressDuration || 0,
+        updatedAtMs: Date.now()
       }),
     [
       currentTrack?.path,
@@ -11336,22 +11413,54 @@ export default function App() {
       displayMainArtist,
       displayMainTitle,
       displayProgressDuration,
-      displayProgressTime,
       displaySafeCoverUrl,
       likedSet,
+      miniPlayerProgressBucket,
       transportIsPlaying,
       volume
     ]
   )
   const miniPlayerStateRef = useRef(miniPlayerPayload)
+  const [miniPlayerWindowOpen, setMiniPlayerWindowOpen] = useState(false)
+  // Remember the showLyrics state at the moment the mini player was opened, so
+  // we can restore it after the mini player is closed. We auto-switch to the
+  // lyrics view while the mini player is up because it skips the heavy
+  // library/track-list DOM and the wallpaper + backdrop-filter stack on the
+  // main panel — that combo is what drives main-window CPU into the 30%+ range.
+  const showLyricsBeforeMiniPlayerRef = useRef(null)
+
+  useEffect(() => {
+    miniPlayerWindowOpenRef.current = miniPlayerWindowOpen
+  }, [miniPlayerWindowOpen])
+
+  // Tag <html> while the mini player is active so CSS can pause expensive
+  // animations and trim backdrop blur on the main window.
+  useEffect(() => {
+    const root = document.documentElement
+    if (miniPlayerWindowOpen) {
+      root.dataset.echoMiniPlayerActive = 'true'
+    } else {
+      delete root.dataset.echoMiniPlayerActive
+    }
+    return () => {
+      delete root.dataset.echoMiniPlayerActive
+    }
+  }, [miniPlayerWindowOpen])
 
   useEffect(() => {
     miniPlayerStateRef.current = miniPlayerPayload
+  }, [miniPlayerPayload])
+
+  useEffect(() => {
+    if (!miniPlayerWindowOpen) return
     const syncResult = window.api?.updateMiniPlayerData?.(miniPlayerPayload)
-    syncResult?.catch((error) => {
+    syncResult?.then?.((result) => {
+      if (result?.error === 'no_window') setMiniPlayerWindowOpen(false)
+    })
+    syncResult?.catch?.((error) => {
       console.error('[mini player sync]', error)
     })
-  }, [miniPlayerPayload])
+  }, [miniPlayerPayload, miniPlayerWindowOpen])
 
   useEffect(() => {
     window.__getMiniPlayerPayload = () => miniPlayerStateRef.current
@@ -11396,20 +11505,50 @@ export default function App() {
     return window.api.onMiniPlayerCommand(handleMiniPlayerCommand)
   }, [handleMiniPlayerCommand])
 
+  useEffect(() => {
+    if (!window.api?.onMiniPlayerClosed) return undefined
+    return window.api.onMiniPlayerClosed(() => {
+      setMiniPlayerWindowOpen(false)
+      // Restore whatever lyrics-view state the user had before opening
+      // the mini player. If they were in the library view, drop back to it.
+      const previous = showLyricsBeforeMiniPlayerRef.current
+      if (previous !== null) {
+        setShowLyrics(previous)
+        showLyricsBeforeMiniPlayerRef.current = null
+      }
+    })
+  }, [])
+
   const openMiniPlayer = useCallback(async () => {
     try {
       if (!window.api?.openMiniPlayer) {
         console.warn('[mini player open] desktop window API is unavailable')
         return
       }
-      await window.api.openMiniPlayer()
+      const result = await window.api.openMiniPlayer()
+      if (result?.ok === false) {
+        console.warn('[mini player open]', result?.error || 'open_failed')
+        return
+      }
+      setMiniPlayerWindowOpen(true)
+      // Auto-switch the main window to the lyrics view while the mini player
+      // is open — the lyrics surface skips the library list, wallpaper layer
+      // and large glass-panel blur stack, dropping main-window CPU
+      // dramatically when the user is driving playback from the mini player.
+      if (showLyricsBeforeMiniPlayerRef.current === null) {
+        showLyricsBeforeMiniPlayerRef.current = showLyrics === true
+      }
+      if (showLyrics !== true && view === 'player') {
+        setShowLyrics(true)
+      }
+      await window.api?.updateMiniPlayerData?.(miniPlayerStateRef.current)
       await window.api?.setMiniPlayerAlwaysOnTop?.(
         configRef.current.miniPlayerAlwaysOnTop !== false
       )
     } catch (error) {
       console.error('[mini player open]', error)
     }
-  }, [])
+  }, [showLyrics, view])
 
   useEffect(() => {
     if (!window.api?.setMiniPlayerAlwaysOnTop) return
@@ -11465,26 +11604,20 @@ export default function App() {
 
     syncActiveLyricIndex()
     if (!transportIsPlaying || lyricsRef.current.length === 0) return undefined
+    // 主界面(无沉浸歌词、无桌面歌词)时,activeLyricIndex 不参与渲染,
+    // 没必要每帧唤醒主线程做对齐计算 — timeupdate 事件回调那条路径仍然会维护它。
+    if (!lyricsTimingSurfaceActive) return undefined
 
-    let rafId = 0
-    let lastTickMs = 0
-    const tick = (nowMs) => {
-      if (!lastTickMs || nowMs - lastTickMs >= ACTIVE_LYRIC_SYNC_TICK_MS) {
-        lastTickMs = nowMs
-        syncActiveLyricIndex()
-      }
-      rafId = requestAnimationFrame(tick)
-    }
-    rafId = requestAnimationFrame(tick)
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId)
-    }
+    // 直接用 setInterval 即可: ACTIVE_LYRIC_SYNC_TICK_MS = 100ms,
+    // 用 RAF 每帧唤醒只为了 100ms 才做一次工作,纯粹浪费 CPU。
+    const id = window.setInterval(syncActiveLyricIndex, ACTIVE_LYRIC_SYNC_TICK_MS)
+    return () => window.clearInterval(id)
   }, [
     config.lyricsOffsetMs,
     currentTrackPath,
     getLiveLyricsPlaybackTime,
     lyrics,
+    lyricsTimingSurfaceActive,
     transportIsPlaying
   ])
 
@@ -11730,8 +11863,7 @@ export default function App() {
   const shouldBuildAlbumBuckets = listMode === 'album' || selectedAlbum !== 'all'
   const shouldBuildFolderBuckets = listMode === 'folders' || selectedFolder !== 'all'
   const shouldBuildArtistBuckets = listMode === 'artists' || selectedArtist !== 'all'
-  const shouldBuildSmartCollections =
-    listMode === 'playlists' || Boolean(selectedSmartCollectionId)
+  const shouldBuildSmartCollections = listMode === 'playlists' || Boolean(selectedSmartCollectionId)
 
   const albumArtistByName = useMemo(() => {
     if (listMode !== 'history' && !(listMode === 'album' && selectedAlbum === 'all')) return {}
@@ -12084,8 +12216,8 @@ export default function App() {
                   pickImageUrl: pickNeteaseArtistImageUrl,
                   filterCandidates: (candidates) =>
                     (Array.isArray(candidates) ? candidates : []).filter((candidate) =>
-                      [candidate?.picUrl, candidate?.img1v1Url, candidate?.avatar].some(
-                        (url) => normalizeNeteaseArtistImageUrl(url)
+                      [candidate?.picUrl, candidate?.img1v1Url, candidate?.avatar].some((url) =>
+                        normalizeNeteaseArtistImageUrl(url)
                       )
                     )
                 },
@@ -12342,13 +12474,7 @@ export default function App() {
         matchTrackAgainstSmartCollection(track, collection.rules, trackStats, likedPathSet, now)
       )
     }))
-  }, [
-    likedPathSet,
-    parsedPlaylist,
-    shouldBuildSmartCollections,
-    trackStats,
-    userSmartCollections
-  ])
+  }, [likedPathSet, parsedPlaylist, shouldBuildSmartCollections, trackStats, userSmartCollections])
 
   const smartCollections = useMemo(
     () => [
@@ -13454,7 +13580,9 @@ export default function App() {
 
   const folderGroupsFiltered = useMemo(() => {
     if (!showLikedOnly || listMode !== 'folders') return folderGroups
-    return flattenFolderHierarchy(filterFolderHierarchy(folderTree, (track) => likedSet.has(track.path)))
+    return flattenFolderHierarchy(
+      filterFolderHierarchy(folderTree, (track) => likedSet.has(track.path))
+    )
   }, [folderGroups, folderTree, showLikedOnly, listMode, likedSet])
   const folderTreeFiltered = useMemo(() => {
     if (!showLikedOnly || listMode !== 'folders') return folderTree
@@ -14213,26 +14341,29 @@ export default function App() {
     setListMode('folders')
   }, [])
 
-  const handlePickArtistFromSidebar = useCallback((artist) => {
-    if (!artist?.name) return
-    if (artistDetailLeaveTimerRef.current) {
-      window.clearTimeout(artistDetailLeaveTimerRef.current)
-      artistDetailLeaveTimerRef.current = null
-    }
-    setArtistDetailLeaving(false)
-    selectedArtistTracksRef.current = {
-      name: artist.name,
-      tracks: Array.isArray(artist.tracks) ? artist.tracks : [],
-      source: queryFilteredPlaylist
-    }
-    setSelectedArtist(artist.name)
-    setSelectedAlbum('all')
-    setSelectedFolder('all')
-    setSelectedUserPlaylistId(null)
-    setSelectedSmartCollectionId(null)
-    setPlaylistLibraryMoreOpen(false)
-    setListMode('artists')
-  }, [queryFilteredPlaylist])
+  const handlePickArtistFromSidebar = useCallback(
+    (artist) => {
+      if (!artist?.name) return
+      if (artistDetailLeaveTimerRef.current) {
+        window.clearTimeout(artistDetailLeaveTimerRef.current)
+        artistDetailLeaveTimerRef.current = null
+      }
+      setArtistDetailLeaving(false)
+      selectedArtistTracksRef.current = {
+        name: artist.name,
+        tracks: Array.isArray(artist.tracks) ? artist.tracks : [],
+        source: queryFilteredPlaylist
+      }
+      setSelectedArtist(artist.name)
+      setSelectedAlbum('all')
+      setSelectedFolder('all')
+      setSelectedUserPlaylistId(null)
+      setSelectedSmartCollectionId(null)
+      setPlaylistLibraryMoreOpen(false)
+      setListMode('artists')
+    },
+    [queryFilteredPlaylist]
+  )
 
   const handleBackToArtistOverview = useCallback(() => {
     if (artistDetailLeaveTimerRef.current) return
@@ -15282,10 +15413,7 @@ export default function App() {
 
   // Compute inline style for lyrics panel when immersive MV background is enabled
   const isImmersiveLyricsMvVisible = Boolean(
-    showLyrics &&
-      mvId &&
-      isImmersiveLyricsMvEnabled(config) &&
-      !isCurrentTrackMvTemporarilyHidden
+    showLyrics && mvId && isImmersiveLyricsMvEnabled(config) && !isCurrentTrackMvTemporarilyHidden
   )
 
   const lyricsPanelStyle = React.useMemo(() => {
@@ -15313,23 +15441,14 @@ export default function App() {
       border: 'none',
       boxShadow: 'none'
     }
-  }, [
-    isImmersiveLyricsMvVisible,
-    config.lyricsShadow,
-    config.lyricsShadowOpacity,
-    config.uiBlur
-  ])
+  }, [isImmersiveLyricsMvVisible, config.lyricsShadow, config.lyricsShadowOpacity, config.uiBlur])
 
   const hideImmersiveMvChrome = useMemo(
     () =>
       isImmersiveLyricsMvVisible &&
       config.mvHideImmersiveChrome &&
       !isCurrentTrackMvTemporarilyHidden,
-    [
-      isImmersiveLyricsMvVisible,
-      config.mvHideImmersiveChrome,
-      isCurrentTrackMvTemporarilyHidden
-    ]
+    [isImmersiveLyricsMvVisible, config.mvHideImmersiveChrome, isCurrentTrackMvTemporarilyHidden]
   )
 
   /** Full-bleed MV or custom wallpaper behind lyrics -need high-contrast chrome + lyric text */
@@ -15697,13 +15816,7 @@ export default function App() {
     }
     if (!payload) return
     window.api.updateLyricsDesktopData(payload).catch(() => {})
-  }, [
-    config.desktopLyricsEnabled,
-    lyrics,
-    activeLyricIndex,
-    romajiDisplayLines,
-    displayMainTitle
-  ])
+  }, [config.desktopLyricsEnabled, lyrics, activeLyricIndex, romajiDisplayLines, displayMainTitle])
 
   /** Pulled by main process setInterval (not throttled when ECHO is minimized). */
   useEffect(() => {
@@ -15821,41 +15934,37 @@ export default function App() {
             }}
           />
         )}
-        {mvId &&
-          (showLyrics
-            ? isImmersiveLyricsMvVisible
-            : config.mvAsBackgroundMain) && (
+        {mvId && (showLyrics ? isImmersiveLyricsMvVisible : config.mvAsBackgroundMain) && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: -1,
+              opacity: config.mvBackgroundOpacity !== undefined ? config.mvBackgroundOpacity : 0.8,
+              pointerEvents: 'none',
+              overflow: 'hidden'
+            }}
+          >
             <div
               style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
-                zIndex: -1,
-                opacity:
-                  config.mvBackgroundOpacity !== undefined ? config.mvBackgroundOpacity : 0.8,
-                pointerEvents: 'none',
-                overflow: 'hidden'
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                width: '100%',
+                height: '100%',
+                transform: 'translate(-50%, -50%) scale(1.2)',
+                filter: `blur(${Math.max(0, Number(config.mvBackgroundBlur || 0))}px) saturate(1.05)`,
+                willChange: 'transform, filter',
+                pointerEvents: 'none'
               }}
             >
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  width: '100%',
-                  height: '100%',
-                  transform: 'translate(-50%, -50%) scale(1.2)',
-                  filter: `blur(${Math.max(0, Number(config.mvBackgroundBlur || 0))}px) saturate(1.05)`,
-                  willChange: 'transform, filter',
-                  pointerEvents: 'none'
-                }}
-              >
-                {renderMvIframe(mvId, true)}
-              </div>
+              {renderMvIframe(mvId, true)}
             </div>
-          )}
+          </div>
+        )}
         {isConverting && (
           <div className="conversion-overlay">
             <div className="loader-box glass-panel">
@@ -17644,8 +17753,8 @@ export default function App() {
                           listMode === 'artists' && selectedArtist !== 'all'
                             ? `artist-${selectedArtist}`
                             : listMode === 'album' && selectedAlbum !== 'all'
-                            ? selectedAlbum
-                            : 'sidebar-list'
+                              ? selectedAlbum
+                              : 'sidebar-list'
                         }
                         className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
                       >

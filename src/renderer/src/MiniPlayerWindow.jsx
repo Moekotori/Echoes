@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Heart, Music, Pause, Play, SkipBack, SkipForward, Volume2, X } from 'lucide-react'
-import { buildMiniPlayerPayload } from './utils/miniPlayerPayload'
+import { buildMiniPlayerPayload, buildMiniPlayerPayloadSignature } from './utils/miniPlayerPayload'
 
 const EMPTY_PAYLOAD = buildMiniPlayerPayload({
   title: '\u8bf7\u9009\u62e9\u6b4c\u66f2',
@@ -20,13 +20,33 @@ function formatArtist(value) {
   return text
 }
 
+function estimateMiniPlayerPosition(playback, nowMs) {
+  const position = Math.max(0, Number(playback?.position) || 0)
+  const duration = Math.max(0, Number(playback?.duration) || 0)
+  if (!playback?.isPlaying || duration <= 0) return Math.min(position, duration || position)
+  const updatedAtMs = Number(playback?.updatedAtMs) || 0
+  if (updatedAtMs <= 0) return Math.min(position, duration || position)
+  const elapsedSec = Math.max(0, (nowMs - updatedAtMs) / 1000)
+  return Math.min(duration, position + elapsedSec)
+}
+
 export default function MiniPlayerWindow() {
   const [payload, setPayload] = useState(EMPTY_PAYLOAD)
+  const [clockTick, setClockTick] = useState(() => Date.now())
+  const lastPayloadSignatureRef = useRef(buildMiniPlayerPayloadSignature(EMPTY_PAYLOAD))
+
+  const track = payload.track || EMPTY_PAYLOAD.track
+  const playback = payload.playback || EMPTY_PAYLOAD.playback
 
   useEffect(() => {
     if (!window.api?.onMiniPlayerData) return undefined
     const off = window.api.onMiniPlayerData((next) => {
-      setPayload(buildMiniPlayerPayload(next || EMPTY_PAYLOAD))
+      const normalized = buildMiniPlayerPayload(next || EMPTY_PAYLOAD)
+      const signature = buildMiniPlayerPayloadSignature(normalized)
+      if (signature === lastPayloadSignatureRef.current) return
+      lastPayloadSignatureRef.current = signature
+      setPayload(normalized)
+      setClockTick(Date.now())
     })
     window.api.notifyMiniPlayerReady?.()
     return off
@@ -47,16 +67,32 @@ export default function MiniPlayerWindow() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const track = payload.track || EMPTY_PAYLOAD.track
-  const playback = payload.playback || EMPTY_PAYLOAD.playback
+  // 关键优化:计时器只依赖 isPlaying 与 duration 是否合法两个布尔状态,
+  // 不再把 position / updatedAtMs 放入依赖。否则主进程每发一次 payload
+  // (每秒数次),整个 setInterval 就会被重建一次,等于在做无谓的重启,
+  // 而且会立刻重置 1 秒节拍 → 进度条/时间显示出现毛刺,CPU 也跟着抖。
+  // 真正的位置由 estimateMiniPlayerPosition 用 ref 化的 playback 推算。
+  const hasValidDuration = Number(playback.duration) > 0
+  useEffect(() => {
+    if (!playback.isPlaying || !hasValidDuration) return undefined
+    const timer = window.setInterval(() => {
+      setClockTick(Date.now())
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [playback.isPlaying, hasValidDuration])
+
   const title = track.title || EMPTY_PAYLOAD.track.title
   const artist = formatArtist(track.artist)
   const safeVolume = clampVolume(playback.volume)
+  const estimatedPosition = useMemo(
+    () => estimateMiniPlayerPosition(playback, clockTick),
+    [clockTick, playback]
+  )
   const progress = useMemo(() => {
     const duration = Number(playback.duration) || 0
     if (duration <= 0) return 0
-    return Math.min(100, Math.max(0, ((Number(playback.position) || 0) / duration) * 100))
-  }, [playback.duration, playback.position])
+    return Math.min(100, Math.max(0, (estimatedPosition / duration) * 100))
+  }, [estimatedPosition, playback.duration])
 
   const send = (command, data = {}) => {
     window.api?.miniPlayerCommand?.(command, data)
@@ -161,7 +197,7 @@ export default function MiniPlayerWindow() {
           height: 100%;
           margin: 0;
           overflow: hidden;
-          background: transparent;
+          background: #f7fbfb;
         }
 
         body,
@@ -183,7 +219,7 @@ export default function MiniPlayerWindow() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: transparent;
+          background: #f7fbfb;
         }
 
         .mini-player-card {
@@ -191,21 +227,19 @@ export default function MiniPlayerWindow() {
           height: 100%;
           box-sizing: border-box;
           display: grid;
-          grid-template-columns: 44px minmax(84px, 1fr) auto 66px 22px;
+          grid-template-columns: 44px minmax(72px, 1fr) auto 76px 22px;
           align-items: center;
-          gap: 7px;
-          padding: 5px 7px;
+          gap: 8px;
+          padding: 5px 8px;
           border-radius: 16px;
           color: #24323f;
           background:
-            linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(239, 250, 249, 0.88)),
-            linear-gradient(90deg, rgba(52, 183, 173, 0.12), rgba(221, 110, 157, 0.08));
+            linear-gradient(135deg, #ffffff, #eef8f7),
+            linear-gradient(90deg, rgba(52, 183, 173, 0.08), rgba(221, 110, 157, 0.05));
           border: 1px solid rgba(197, 218, 220, 0.72);
           box-shadow:
             inset 0 1px 0 rgba(255, 255, 255, 0.94),
             inset 0 -1px 0 rgba(43, 74, 85, 0.06);
-          -webkit-backdrop-filter: blur(20px) saturate(1.16);
-          backdrop-filter: blur(20px) saturate(1.16);
           -webkit-app-region: drag;
           user-select: none;
         }
@@ -298,11 +332,7 @@ export default function MiniPlayerWindow() {
         .mini-player-controls {
           display: flex;
           align-items: center;
-          gap: 3px;
-          padding: 2px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.5);
-          box-shadow: inset 0 0 0 1px rgba(207, 222, 224, 0.68);
+          gap: 2px;
         }
 
         .mini-player-controls button,
@@ -318,30 +348,35 @@ export default function MiniPlayerWindow() {
           transition:
             transform 150ms ease,
             color 150ms ease,
-            background 150ms ease;
+            background 150ms ease,
+            box-shadow 150ms ease;
         }
 
         .mini-player-controls button {
-          width: 24px;
-          height: 24px;
+          width: 26px;
+          height: 26px;
           border-radius: 999px;
         }
 
         .mini-player-controls button:hover,
         .mini-player-window-actions button:hover {
-          transform: translateY(-1px);
           color: #17343b;
-          background: rgba(255, 255, 255, 0.76);
+          background: rgba(47, 183, 173, 0.1);
         }
 
         .mini-player-controls .mini-player-play {
-          width: 31px;
-          height: 31px;
+          width: 30px;
+          height: 30px;
+          margin: 0 2px;
           color: #ffffff;
           background: linear-gradient(135deg, #2fb7ad, #70bed1);
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.28),
-            inset 0 -1px 0 rgba(21, 85, 91, 0.18);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+        }
+
+        .mini-player-controls .mini-player-play:hover {
+          background: linear-gradient(135deg, #34c4b8, #7ec6d8);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+          transform: translateY(-0.5px);
         }
 
         .mini-player-controls .mini-player-play svg {
@@ -349,25 +384,26 @@ export default function MiniPlayerWindow() {
         }
 
         .mini-player-controls .is-liked {
+          color: #e0497a;
+        }
+
+        .mini-player-controls .is-liked:hover {
           color: #cf3154;
-          background: rgba(255, 244, 247, 0.86);
+          background: rgba(224, 73, 122, 0.1);
         }
 
         .mini-player-volume {
           min-width: 0;
-          height: 25px;
+          height: 24px;
           display: flex;
           align-items: center;
-          gap: 4px;
-          padding: 0 6px;
-          border-radius: 999px;
-          color: rgba(42, 66, 78, 0.68);
-          background: rgba(255, 255, 255, 0.46);
-          box-shadow: inset 0 0 0 1px rgba(207, 222, 224, 0.68);
+          gap: 7px;
+          color: rgba(42, 66, 78, 0.62);
         }
 
         .mini-player-volume input {
-          width: 38px;
+          flex: 1;
+          min-width: 0;
           height: 16px;
           margin: 0;
           cursor: pointer;
@@ -387,13 +423,13 @@ export default function MiniPlayerWindow() {
 
         .mini-player-volume input::-webkit-slider-thumb {
           appearance: none;
-          width: 10px;
-          height: 10px;
-          margin-top: -3.5px;
+          width: 11px;
+          height: 11px;
+          margin-top: -4px;
           border-radius: 999px;
           border: 2px solid #ffffff;
           background: #35b6ad;
-          box-shadow: inset 0 0 0 1px rgba(31, 121, 115, 0.12);
+          box-shadow: 0 1px 3px rgba(31, 121, 115, 0.28);
         }
 
         .mini-player-window-actions {
@@ -406,14 +442,14 @@ export default function MiniPlayerWindow() {
           width: 20px;
           height: 20px;
           border-radius: 999px;
-          opacity: 0.74;
-          background: rgba(255, 255, 255, 0.46);
+          opacity: 0.55;
+          background: transparent;
         }
 
         .mini-player-window-actions button:hover {
           opacity: 1;
           color: #b91c3b;
-          background: rgba(255, 239, 243, 0.82);
+          background: rgba(224, 73, 122, 0.12);
         }
       `}</style>
     </div>

@@ -283,7 +283,7 @@ let miniPlayerAutoHidMainWindow = false
  * minimized fallback case.
  */
 const LYRICS_DESKTOP_SYNC_INTERVAL_MS = 1000
-const MINI_PLAYER_SYNC_INTERVAL_MS = 1000
+const MINI_PLAYER_SYNC_INTERVAL_MS = 5000
 const MINI_PLAYER_DEFAULT_BOUNDS = { width: 412, height: 68 }
 const AUDIO_STATUS_POLL_INTERVAL_MS = 500
 const AUDIO_STATUS_PAUSED_HEARTBEAT_MS = 5000
@@ -592,14 +592,51 @@ function applyMiniPlayerAlwaysOnTop(isAlwaysOnTop) {
   }
 }
 
+function buildMiniPlayerPayloadSignature(payload = {}) {
+  const track = payload?.track || {}
+  const playback = payload?.playback || {}
+  const cover = String(track.cover || '')
+  const position = Math.max(0, Number(playback.position) || 0)
+  return [
+    String(track.path || ''),
+    String(track.title || ''),
+    String(track.artist || ''),
+    String(track.album || ''),
+    cover.length,
+    cover.slice(0, 96),
+    track.liked === true ? '1' : '0',
+    playback.isPlaying === true ? '1' : '0',
+    Math.round((Number(playback.volume) || 0) * 100),
+    Math.floor(position / 10),
+    Math.round(Math.max(0, Number(playback.duration) || 0))
+  ].join('\u0001')
+}
+
+function notifyMiniPlayerClosed() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try {
+    mainWindow.webContents.send('mini-player:closed')
+  } catch {
+    /* ignore */
+  }
+}
+
 function sendMiniPlayerPayloadToWindow(payload, { force = false } = {}) {
-  if (!payload || typeof payload !== 'object') return
-  const payloadSignature = JSON.stringify(payload)
-  if (!force && payloadSignature === miniPlayerLastPayloadSignature) return
+  if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid_payload' }
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) {
+    return { ok: false, error: 'no_window' }
+  }
+  const payloadSignature = buildMiniPlayerPayloadSignature(payload)
+  if (!force && payloadSignature === miniPlayerLastPayloadSignature) {
+    return { ok: true, deduped: true }
+  }
   miniPlayerLastPayloadSignature = payloadSignature
   miniPlayerLastPayload = payload
-  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+  try {
     miniPlayerWindow.webContents.send('mini-player:data', payload)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
   }
 }
 
@@ -643,6 +680,7 @@ function cleanupMiniPlayerWindow() {
   } finally {
     miniPlayerWindow = null
     miniPlayerLastPayloadSignature = ''
+    notifyMiniPlayerClosed()
     restoreMainWindowAfterMiniPlayer()
   }
 }
@@ -5814,8 +5852,9 @@ app.whenReady().then(async () => {
         title: `${APP_NAME} Mini Player`,
         show: false,
         frame: false,
-        transparent: true,
-        hasShadow: false,
+        transparent: false,
+        backgroundColor: '#f7fbfb',
+        hasShadow: true,
         resizable: false,
         maximizable: false,
         minimizable: true,
@@ -5823,12 +5862,12 @@ app.whenReady().then(async () => {
         alwaysOnTop,
         autoHideMenuBar: true,
         ...(appWindowIcon ? { icon: appWindowIcon } : {}),
-        backgroundThrottling: false,
         webPreferences: {
           preload: join(__dirname, '../preload/index.js'),
           contextIsolation: true,
           sandbox: false,
-          webSecurity: false
+          webSecurity: false,
+          backgroundThrottling: true
         }
       })
 
@@ -5853,6 +5892,7 @@ app.whenReady().then(async () => {
         stopMiniPlayerMainSyncTimer()
         miniPlayerWindow = null
         miniPlayerLastPayloadSignature = ''
+        notifyMiniPlayerClosed()
         restoreMainWindowAfterMiniPlayer()
       })
 
@@ -5935,8 +5975,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('miniPlayer:updateData', async (_, payload = {}) => {
     try {
-      sendMiniPlayerPayloadToWindow(payload)
-      return { ok: true }
+      return sendMiniPlayerPayloadToWindow(payload)
     } catch (e) {
       return { ok: false, error: e?.message || String(e) }
     }

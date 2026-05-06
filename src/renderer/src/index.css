@@ -155,8 +155,12 @@ body {
 }
 
 .app-wallpaper-backdrop--cover {
-  filter: blur(20px) saturate(1.08);
-  transform: scale(1.1);
+  /* 降低 blur 半径(20→12),并通过 will-change/translateZ 提示浏览器把它做成独立的 GPU 缓存层,
+     避免每次主界面重绘时全屏 blur 反复光栅化。 */
+  filter: blur(12px) saturate(1.08);
+  transform: scale(1.1) translateZ(0);
+  will-change: transform, filter;
+  contain: layout paint style;
 }
 
 .bottom-player-bar {
@@ -167,9 +171,12 @@ body {
   align-items: center;
   gap: 0;
   padding: 0 28px;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.6));
-  backdrop-filter: blur(32px) saturate(1.6);
-  -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  /* 把 blur 半径从 32 降到 14,不透明度略提以减小 GPU 重新光栅化负担。
+     contain + will-change + translateZ 是关键: 使整个底栏成为独立合成层,
+     列表滚动/进度条更新时浏览器无需重新对整条 blur 取样。 */
+  background: var(--glass-bg, rgba(255, 255, 255, 0.72));
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.28));
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.07);
   box-sizing: border-box;
@@ -179,6 +186,9 @@ body {
   bottom: 0;
   z-index: 100;
   -webkit-app-region: no-drag;
+  contain: layout paint style;
+  will-change: backdrop-filter;
+  transform: translateZ(0);
 }
 
 .bottom-player-bar--lyrics {
@@ -6849,6 +6859,38 @@ input[type='range']::-moz-range-track {
   pointer-events: none;
   animation: fluidPan 30s ease-in-out infinite;
   transform: scale(1.3);
+}
+
+/*
+ * When the mini player is showing, the main window is acting as a lightweight
+ * "now playing" surface in the background. Disable the heaviest effects so
+ * total CPU drops while the user is driving playback from the mini player.
+ *  - .fluid-background uses filter: blur(40px) on a fullscreen layer + an
+ *    infinite animation; both force per-frame compositing.
+ *  - .app-wallpaper-backdrop layers a large background-image behind the
+ *    glass-panel; combined with backdrop-filter it dominates GPU/CPU on Win.
+ *  - .glass-panel's backdrop-filter chain becomes redundant once we're on
+ *    the lyrics surface — a flat, opaque background is enough there.
+ */
+html[data-echo-mini-player-active='true'] .fluid-background,
+html[data-echo-mini-player-active='true'] .app-wallpaper-backdrop {
+  display: none !important;
+}
+
+html[data-echo-mini-player-active='true'] .main-player.glass-panel {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/*
+ * Generic infinite animations on the main window are also paused while the
+ * mini player is up. We deliberately do NOT touch transient transitions
+ * (hovers, dropdowns) — only animations marked `infinite` are noticeable
+ * background CPU drains.
+ */
+html[data-echo-mini-player-active='true'] .fluid-background,
+html[data-echo-mini-player-active='true'] [style*='infinite'] {
+  animation-play-state: paused !important;
 }
 
 .conversion-overlay {
