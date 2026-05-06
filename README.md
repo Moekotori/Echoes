@@ -249,11 +249,7 @@ examples/           # Example plugins
 
 Thanks to everyone who has contributed to ECHO!
 
-<a href="https://github.com/Moekotori/ECHO/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Moekotori/ECHO" />
-</a>
-
-*This list updates automatically via [contrib.rocks](https://contrib.rocks).*
+- [Moekotori](https://github.com/Moekotori)
 
 ---
 
