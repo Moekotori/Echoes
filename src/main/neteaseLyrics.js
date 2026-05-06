@@ -17,8 +17,11 @@ function getNcmApi() {
 const TIME_TAG_REG = /\[(\d{2}):(\d{2})(\.|\:)(\d{2,3})\]/g
 const MOJIBAKE_HINT_REG = /[锛鍚鎿璇銆鈥€]/u
 
-function repairPossiblyMojibakeText(value) {
+export function repairPossiblyMojibakeText(value) {
   const text = typeof value === 'string' ? value : String(value || '')
+  if (text.includes('\u93bf\u5d84\u7d94\u68f0\u6220\u7b92') || /鎿嶄綔|棰戠箒|绋嶅€欏啀璇/u.test(text)) {
+    return '\u64cd\u4f5c\u9891\u7e41\uff0c\u8bf7\u7a0d\u5019\u518d\u8bd5'
+  }
   if (
     !text ||
     (!MOJIBAKE_HINT_REG.test(text) && !/[鎿嶄綔绋€欒]/u.test(text)) ||
@@ -28,6 +31,9 @@ function repairPossiblyMojibakeText(value) {
   }
   try {
     const repaired = iconvLite.encode(text, 'cp936').toString('utf8').trim()
+    if (repaired.includes('\u64cd\u4f5c\u9891\u7e41')) {
+      return '\u64cd\u4f5c\u9891\u7e41\uff0c\u8bf7\u7a0d\u5019\u518d\u8bd5'
+    }
     return repaired || text
   } catch {
     return text
@@ -66,8 +72,8 @@ let quietNeteaseConsoleDepth = 0
 let originalConsoleError = null
 
 function isNeteaseUpstreamErrorLog(args) {
-  if (!Array.isArray(args) || args[0] !== '[ERROR]') return false
-  const payload = args[1]
+  if (!Array.isArray(args) || !args.some((arg) => arg === '[ERROR]')) return false
+  const payload = args.find((arg) => arg && typeof arg === 'object' && (arg.status || arg.body))
   return Boolean(payload && typeof payload === 'object' && (payload.status || payload.body))
 }
 

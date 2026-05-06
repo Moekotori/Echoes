@@ -10,12 +10,15 @@ import './styles/echo-tokens.css'
 import './styles/echo-track-list.css'
 
 const LyricsDesktop = lazy(() => import('./LyricsDesktop'))
+const MiniPlayerWindow = lazy(() => import('./MiniPlayerWindow'))
 
-const desktopMode =
+const rendererMode =
   typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('mode') === 'lyrics-desktop'
+  new URLSearchParams(window.location.search).get('mode')
+const desktopMode = rendererMode === 'lyrics-desktop'
+const miniPlayerMode = rendererMode === 'mini-player'
 
-const lyricsDesktopFallback = (
+const floatingWindowFallback = (
   <div
     style={{
       minHeight: '100vh',
@@ -27,8 +30,12 @@ const lyricsDesktopFallback = (
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   desktopMode ? (
-    <Suspense fallback={lyricsDesktopFallback}>
+    <Suspense fallback={floatingWindowFallback}>
       <LyricsDesktop />
+    </Suspense>
+  ) : miniPlayerMode ? (
+    <Suspense fallback={floatingWindowFallback}>
+      <MiniPlayerWindow />
     </Suspense>
   ) : (
     <React.StrictMode>

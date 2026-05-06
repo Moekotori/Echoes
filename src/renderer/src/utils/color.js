@@ -158,29 +158,6 @@ export const PRESET_THEMES = {
       backdropGlowFade: [34, 38, 52]
     }
   },
-  midnight: {
-    name: 'Midnight Prism',
-    colors: {
-      bgColor: '#0d1221',
-      accent1: '#a4b3ff',
-      accent2: '#c08bff',
-      accent3: '#5fd5e3',
-      textMain: '#f9fbff',
-      textSoft: '#c4ccda',
-      glassColor: '#131c30',
-      bgGradientEnd: '#251e4a',
-      bgGradientAngle: 128,
-      bgMode: 'linear',
-      backdropGlowLayers: 3,
-      backdropGlowIntensity: 0.4,
-      backdropGlowPositions: [
-        [16, 28],
-        [80, 20],
-        [64, 86]
-      ],
-      backdropGlowFade: [38, 36, 44]
-    }
-  },
   matcha: {
     name: 'Matcha Linen',
     colors: {
@@ -446,6 +423,98 @@ export const PRESET_THEMES = {
         [58, 46]
       ],
       backdropGlowFade: [34, 38, 50]
+    }
+  },
+  berryCream: {
+    name: 'Berry Cream',
+    colors: {
+      bgColor: '#fff7fb',
+      accent1: '#c7659e',
+      accent2: '#6fb9e8',
+      accent3: '#f1b85f',
+      textMain: '#2f2634',
+      textSoft: '#6b5b73',
+      glassColor: '#ffffff',
+      bgGradientEnd: '#eef6ff',
+      bgGradientAngle: 132,
+      bgMode: 'linear',
+      backdropGlowLayers: 3,
+      backdropGlowIntensity: 0.34,
+      backdropGlowPositions: [
+        [16, 22],
+        [84, 20],
+        [62, 82]
+      ],
+      backdropGlowFade: [34, 36, 48]
+    }
+  },
+  peachSoda: {
+    name: 'Peach Soda',
+    colors: {
+      bgColor: '#fff8f1',
+      accent1: '#df745e',
+      accent2: '#51b7b0',
+      accent3: '#f0b84f',
+      textMain: '#352a26',
+      textSoft: '#6e5e58',
+      glassColor: '#ffffff',
+      bgGradientEnd: '#eaf9f7',
+      bgGradientAngle: 140,
+      bgMode: 'linear',
+      backdropGlowLayers: 3,
+      backdropGlowIntensity: 0.33,
+      backdropGlowPositions: [
+        [18, 18],
+        [82, 26],
+        [58, 84]
+      ],
+      backdropGlowFade: [34, 38, 50]
+    }
+  },
+  mintParfait: {
+    name: 'Mint Parfait',
+    colors: {
+      bgColor: '#f3fbf6',
+      accent1: '#3fa98b',
+      accent2: '#d66d9f',
+      accent3: '#7aa7e8',
+      textMain: '#19352f',
+      textSoft: '#567068',
+      glassColor: '#ffffff',
+      bgGradientEnd: '#fff4fb',
+      bgGradientAngle: 136,
+      bgMode: 'linear',
+      backdropGlowLayers: 3,
+      backdropGlowIntensity: 0.32,
+      backdropGlowPositions: [
+        [18, 26],
+        [86, 18],
+        [56, 80]
+      ],
+      backdropGlowFade: [34, 36, 50]
+    }
+  },
+  starryCandy: {
+    name: 'Starry Candy',
+    colors: {
+      bgColor: '#f7f5ff',
+      accent1: '#826ee8',
+      accent2: '#e37fa7',
+      accent3: '#58b7ce',
+      textMain: '#2f2b47',
+      textSoft: '#635f7d',
+      glassColor: '#ffffff',
+      bgGradientEnd: '#fff7f0',
+      bgGradientAngle: 128,
+      bgMode: 'linear',
+      backdropGlowLayers: 3,
+      backdropGlowIntensity: 0.33,
+      backdropGlowPositions: [
+        [16, 20],
+        [82, 24],
+        [60, 84]
+      ],
+      backdropGlowFade: [36, 34, 48]
     }
   }
 }

@@ -23,6 +23,18 @@ const STRINGS = {
     filterWav: '音频文件',
     filterFonts: '字体文件'
   },
+  'zh-TW': {
+    filterAudio: '音訊',
+    filterLyrics: '歌詞',
+    filterImages: '圖片',
+    filterThemeJson: '主題 JSON',
+    filterSettingsJson: '設定 JSON',
+    saveThemeTitle: '儲存主題',
+    saveSettingsTitle: '匯出設定',
+    saveExportTitle: '匯出 Nightcore 音訊',
+    filterWav: '音訊檔案',
+    filterFonts: '字型檔案'
+  },
   ja: {
     filterAudio: '音声',
     filterLyrics: '歌詞',
@@ -36,6 +48,6 @@ const STRINGS = {
 }
 
 export function getDialogStrings(locale) {
-  const key = locale === 'zh' || locale === 'ja' ? locale : 'en'
+  const key = locale === 'zh' || locale === 'zh-TW' || locale === 'ja' ? locale : 'en'
   return STRINGS[key]
 }

@@ -372,7 +372,7 @@ export default function LyricsSettingsDrawer({
               </button>
             </div>
             <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.blurEffect', '沉浸歌词景深动效')}</span>
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.blurEffect')}</span>
               <button
                 type="button"
                 role="switch"

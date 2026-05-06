@@ -104,6 +104,32 @@ export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
   return !Number(entry.sampleRateHz || entry.sampleRate || 0) || !Number(entry.bitDepth || 0)
 }
 
+export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {}) {
+  const next = { ...(existing || {}), ...(incoming || {}) }
+  const incomingCover = typeof incoming?.cover === 'string' && incoming.cover ? incoming.cover : ''
+  const existingCover = typeof existing?.cover === 'string' && existing.cover ? existing.cover : ''
+  if (!incomingCover && existingCover) {
+    next.cover = existingCover
+    next.coverChecked = true
+    if (existing.coverExtractorVersion != null && next.coverExtractorVersion == null) {
+      next.coverExtractorVersion = existing.coverExtractorVersion
+    }
+    if (existing.coverMemoryTrimmed === true) {
+      delete next.coverMemoryTrimmed
+    }
+  }
+  return next
+}
+
+export function mergeTrackMetaMapPreservingCovers(existingMap = {}, incomingMap = {}) {
+  const next = { ...(existingMap || {}) }
+  for (const [path, entry] of Object.entries(incomingMap || {})) {
+    if (!path) continue
+    next[path] = mergeTrackMetaEntryPreservingCover(next[path] || {}, entry || {})
+  }
+  return next
+}
+
 function normalizeAlbumCoverCacheEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const cover = typeof entry.cover === 'string' && entry.cover ? entry.cover : null

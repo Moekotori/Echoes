@@ -8,6 +8,48 @@ const PREAMP_RANGE = 20
 const FREQ_MIN = 20
 const FREQ_MAX = 20000
 const SHELF_TYPES = new Set(['lowshelf', 'highshelf'])
+const EQ_CANVAS_FALLBACK_COLORS = {
+  zeroGrid: 'rgba(0,0,0,0.18)',
+  grid: 'rgba(0,0,0,0.045)',
+  label: 'rgba(0,0,0,0.36)',
+  softLabel: 'rgba(0,0,0,0.32)',
+  activeLabel: 'rgba(32,36,46,0.78)',
+  areaTop: 'rgba(34,38,48,0.1)',
+  areaBottom: 'rgba(0,0,0,0)',
+  areaTopBypassed: 'rgba(90,90,100,0.08)',
+  areaMidBypassed: 'rgba(90,90,100,0.035)',
+  curve: 'rgba(32,36,46,0.92)',
+  curveBypassed: 'rgba(80,84,96,0.45)',
+  bandFill: 'rgba(255,255,255,0.94)',
+  bandDisabledFill: 'rgba(244,246,249,0.82)',
+  bandStroke: 'rgba(32,36,46,0.62)',
+  bandDisabledStroke: 'rgba(80,84,96,0.35)',
+  bandLabel: 'rgba(32,36,46,0.78)',
+  bandActiveLabel: 'rgba(32,36,46,0.9)',
+  bandDisabledLabel: 'rgba(80,84,96,0.55)',
+  disabledMark: 'rgba(80,84,96,0.7)'
+}
+const EQ_CANVAS_DARK_FALLBACK_COLORS = {
+  zeroGrid: 'rgba(255,255,255,0.2)',
+  grid: 'rgba(255,255,255,0.08)',
+  label: 'rgba(225,235,249,0.64)',
+  softLabel: 'rgba(225,235,249,0.76)',
+  activeLabel: 'rgba(248,251,255,0.9)',
+  areaTop: 'rgba(255,255,255,0.09)',
+  areaBottom: 'rgba(0,0,0,0)',
+  areaTopBypassed: 'rgba(255,255,255,0.052)',
+  areaMidBypassed: 'rgba(255,255,255,0.026)',
+  curve: 'rgba(245,249,255,0.95)',
+  curveBypassed: 'rgba(196,208,226,0.52)',
+  bandFill: 'rgba(15,24,38,0.94)',
+  bandDisabledFill: 'rgba(20,28,42,0.82)',
+  bandStroke: 'rgba(235,243,255,0.72)',
+  bandDisabledStroke: 'rgba(196,208,226,0.42)',
+  bandLabel: 'rgba(241,247,255,0.86)',
+  bandActiveLabel: 'rgba(255,255,255,0.98)',
+  bandDisabledLabel: 'rgba(196,208,226,0.64)',
+  disabledMark: 'rgba(196,208,226,0.76)'
+}
 
 const EQ_FILTER_TYPES = [
   'lowshelf',
@@ -18,6 +60,37 @@ const EQ_FILTER_TYPES = [
   'notch',
   'allpass'
 ]
+
+function getEqCanvasColors(canvas, accent) {
+  const isDark = document.documentElement.dataset.echoThemeTone === 'dark'
+  const fallback = isDark ? EQ_CANVAS_DARK_FALLBACK_COLORS : EQ_CANVAS_FALLBACK_COLORS
+  const styleSource =
+    canvas?.closest?.('.echo-clean-eq-section') ?? canvas?.parentElement ?? document.documentElement
+  const styles = window.getComputedStyle(styleSource)
+  const pick = (name, fallback) => styles.getPropertyValue(name).trim() || fallback
+  return {
+    zeroGrid: pick('--eq-canvas-zero-grid', fallback.zeroGrid),
+    grid: pick('--eq-canvas-grid', fallback.grid),
+    label: pick('--eq-canvas-label', fallback.label),
+    softLabel: pick('--eq-canvas-soft-label', fallback.softLabel),
+    activeLabel: pick('--eq-canvas-active-label', fallback.activeLabel),
+    areaTop: pick('--eq-canvas-area-top', fallback.areaTop),
+    areaMid: pick('--eq-canvas-area-mid', hexToRgbaString(accent, 0.035)),
+    areaBottom: pick('--eq-canvas-area-bottom', fallback.areaBottom),
+    areaTopBypassed: pick('--eq-canvas-area-top-bypassed', fallback.areaTopBypassed),
+    areaMidBypassed: pick('--eq-canvas-area-mid-bypassed', fallback.areaMidBypassed),
+    curve: pick('--eq-canvas-curve', fallback.curve),
+    curveBypassed: pick('--eq-canvas-curve-bypassed', fallback.curveBypassed),
+    bandFill: pick('--eq-canvas-band-fill', fallback.bandFill),
+    bandDisabledFill: pick('--eq-canvas-band-disabled-fill', fallback.bandDisabledFill),
+    bandStroke: pick('--eq-canvas-band-stroke', fallback.bandStroke),
+    bandDisabledStroke: pick('--eq-canvas-band-disabled-stroke', fallback.bandDisabledStroke),
+    bandLabel: pick('--eq-canvas-band-label', fallback.bandLabel),
+    bandActiveLabel: pick('--eq-canvas-band-active-label', fallback.bandActiveLabel),
+    bandDisabledLabel: pick('--eq-canvas-band-disabled-label', fallback.bandDisabledLabel),
+    disabledMark: pick('--eq-canvas-disabled-mark', fallback.disabledMark)
+  }
+}
 
 function clamp(value, min, max) {
   if (!Number.isFinite(value)) return min
@@ -110,6 +183,21 @@ export function EqPlot({
   const lastSoloCurveSigRef = useRef('')
   const rtaGradientRef = useRef({ key: '', gradient: null })
   const eqAreaGradientRef = useRef({ key: '', gradient: null })
+  /**
+   * Cache of resolved CSS colors keyed by accent + theme tone. Without this
+   * cache the rAF loop hits `getComputedStyle` ~22 times per frame, which
+   * dominated CPU when the EQ panel was mounted but invisible (e.g. when the
+   * user wasn't on the settings page) and the inner `<details>` was closed.
+   */
+  const canvasColorsCacheRef = useRef({ key: '', value: null })
+  /**
+   * Visibility gate for the rAF redraw loop. `<details>` keeps the canvas in
+   * the DOM with `display: none` when collapsed, and the settings tab itself
+   * lives behind `display: none` when the user is on the player view, so the
+   * canvas can easily be invisible while the React tree stays mounted.
+   * IntersectionObserver lets us skip drawing entirely in that case.
+   */
+  const [canvasOnScreen, setCanvasOnScreen] = useState(false)
 
   const safeBands = useMemo(() => (Array.isArray(bands) ? bands : []), [bands])
   const accent = accentHex || '#f7aab5'
@@ -283,6 +371,13 @@ export function EqPlot({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.imageSmoothingEnabled = true
     ctx.clearRect(0, 0, width, height)
+    const themeTone = document.documentElement.dataset.echoThemeTone || ''
+    const colorKey = `${themeTone}|${accent}`
+    let canvasColors = canvasColorsCacheRef.current.value
+    if (!canvasColors || canvasColorsCacheRef.current.key !== colorKey) {
+      canvasColors = getEqCanvasColors(canvas, accent)
+      canvasColorsCacheRef.current = { key: colorKey, value: canvasColors }
+    }
 
     if (enabled && analyser) {
       const bufferLength = analyser.frequencyBinCount
@@ -316,12 +411,12 @@ export function EqPlot({
     ctx.lineWidth = 1
     ;[-24, -18, -12, -6, 0, 6, 12, 18, 24].forEach((g) => {
       const y = gainToY(g, height)
-      ctx.strokeStyle = g === 0 ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.045)'
+      ctx.strokeStyle = g === 0 ? canvasColors.zeroGrid : canvasColors.grid
       ctx.beginPath()
       ctx.moveTo(0, y)
       ctx.lineTo(width, y)
       ctx.stroke()
-      ctx.fillStyle = 'rgba(0,0,0,0.36)'
+      ctx.fillStyle = canvasColors.label
       ctx.font = '800 9px Inter'
       ctx.textAlign = 'right'
       ctx.fillText(`${g > 0 ? '+' : ''}${g}`, width - 5, y - 4)
@@ -330,12 +425,12 @@ export function EqPlot({
     const gridFreqs = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]
     gridFreqs.forEach((f) => {
       const x = freqToX(f, width)
-      ctx.strokeStyle = 'rgba(0,0,0,0.045)'
+      ctx.strokeStyle = canvasColors.grid
       ctx.beginPath()
       ctx.moveTo(x, 0)
       ctx.lineTo(x, height)
       ctx.stroke()
-      ctx.fillStyle = 'rgba(0,0,0,0.36)'
+      ctx.fillStyle = canvasColors.label
       ctx.font = '800 9px Inter'
       ctx.textAlign = 'center'
       ctx.fillText(f >= 1000 ? `${f / 1000}k` : f, x, height - 10)
@@ -348,7 +443,7 @@ export function EqPlot({
         -GAIN_RANGE,
         GAIN_RANGE
       )
-      ctx.fillStyle = 'rgba(0,0,0,0.32)'
+      ctx.fillStyle = canvasColors.softLabel
       ctx.font = '800 10px Inter'
       ctx.textAlign = 'left'
       ctx.fillText(`${formatFreq(mouseFreq)} / ${formatDb(mouseGain)}`, 10, 18)
@@ -371,23 +466,20 @@ export function EqPlot({
         ctx.lineTo(x, gainToY(clamp(db, -GAIN_RANGE, GAIN_RANGE), height))
       }
       ctx.lineTo(width, gainToY(0, height))
-      const fillKey = `${accent}|${height}|${enabled ? 'on' : 'bypass'}`
+      const fillKey = `${accent}|${height}|${enabled ? 'on' : 'bypass'}|${canvasColors.areaTop}|${canvasColors.areaMid}|${canvasColors.areaTopBypassed}|${canvasColors.areaMidBypassed}`
       let fillGrad = eqAreaGradientRef.current.gradient
       if (eqAreaGradientRef.current.key !== fillKey) {
         fillGrad = ctx.createLinearGradient(0, 0, 0, height)
-        fillGrad.addColorStop(0, enabled ? 'rgba(34, 38, 48, 0.1)' : 'rgba(90,90,100,0.08)')
-        fillGrad.addColorStop(
-          0.5,
-          enabled ? hexToRgbaString(accent, 0.035) : 'rgba(90,90,100,0.035)'
-        )
-        fillGrad.addColorStop(1, 'rgba(0,0,0,0)')
+        fillGrad.addColorStop(0, enabled ? canvasColors.areaTop : canvasColors.areaTopBypassed)
+        fillGrad.addColorStop(0.5, enabled ? canvasColors.areaMid : canvasColors.areaMidBypassed)
+        fillGrad.addColorStop(1, canvasColors.areaBottom)
         eqAreaGradientRef.current = { key: fillKey, gradient: fillGrad }
       }
       ctx.fillStyle = fillGrad
       ctx.fill()
 
       ctx.beginPath()
-      ctx.strokeStyle = enabled ? 'rgba(32, 36, 46, 0.92)' : 'rgba(80,84,96,0.45)'
+      ctx.strokeStyle = enabled ? canvasColors.curve : canvasColors.curveBypassed
       ctx.lineWidth = enabled ? 2.5 : 2
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -436,7 +528,7 @@ export function EqPlot({
       ctx.lineTo(width, y)
       ctx.stroke()
       ctx.setLineDash([])
-      ctx.fillStyle = 'rgba(32, 36, 46, 0.78)'
+      ctx.fillStyle = canvasColors.activeLabel
       ctx.font = '900 10px Inter'
       ctx.textAlign = 'center'
       ctx.fillText(formatFreq(activeNode.freq), x, Math.max(16, y - 18))
@@ -454,31 +546,31 @@ export function EqPlot({
       ctx.beginPath()
       ctx.arc(x, y, radius, 0, Math.PI * 2)
       ctx.fillStyle = bandDisabled
-        ? 'rgba(244,246,249,0.82)'
+        ? canvasColors.bandDisabledFill
         : isActive
           ? hexToRgbaString(accent, enabled ? 0.28 : 0.16)
-          : 'rgba(255,255,255,0.94)'
+          : canvasColors.bandFill
       ctx.fill()
       ctx.strokeStyle = bandDisabled
-        ? 'rgba(80,84,96,0.35)'
+        ? canvasColors.bandDisabledStroke
         : isActive
           ? hexToRgbaString(accent, enabled ? 0.95 : 0.58)
-          : 'rgba(32,36,46,0.62)'
+          : canvasColors.bandStroke
       ctx.lineWidth = isActive ? 3 : 2
       ctx.stroke()
 
       ctx.fillStyle = bandDisabled
-        ? 'rgba(80,84,96,0.55)'
+        ? canvasColors.bandDisabledLabel
         : isActive
-          ? 'rgba(32,36,46,0.9)'
-          : 'rgba(32,36,46,0.78)'
+          ? canvasColors.bandActiveLabel
+          : canvasColors.bandLabel
       ctx.font = '900 9px Inter'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(String(idx + 1), x, y + 0.5)
 
       if (bandDisabled) {
-        ctx.strokeStyle = 'rgba(80,84,96,0.7)'
+        ctx.strokeStyle = canvasColors.disabledMark
         ctx.lineWidth = 1.6
         ctx.beginPath()
         ctx.moveTo(x - 4, y - 4)
@@ -510,18 +602,40 @@ export function EqPlot({
   ])
 
   useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof IntersectionObserver === 'undefined') {
+      setCanvasOnScreen(true)
+      return undefined
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setCanvasOnScreen(entry.isIntersecting && entry.intersectionRatio > 0)
+        }
+      },
+      { threshold: 0 }
+    )
+    io.observe(canvas)
+    return () => io.disconnect()
+  }, [])
+
+  useEffect(() => {
+    // Always paint the static curve once when state changes so the canvas is
+    // never blank when it eventually becomes visible.
+    draw()
+
+    if (!enabled || !analyser || !canvasOnScreen) return undefined
+
     let raf = 0
     const tick = () => {
       draw()
-      if (enabled && analyser) {
-        raf = requestAnimationFrame(tick)
-      }
+      raf = requestAnimationFrame(tick)
     }
-    tick()
+    raf = requestAnimationFrame(tick)
     return () => {
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [draw, enabled, analyser])
+  }, [draw, enabled, analyser, canvasOnScreen])
 
   const commitNumber = useCallback(
     (field, rawValue) => {

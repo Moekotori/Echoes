@@ -117,14 +117,26 @@ function normalizeBackdropGlow(base) {
 }
 
 export const FONT_STACKS = {
-  outfit: '"Outfit", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+  outfit: '"Outfit", "Segoe UI", sans-serif',
   /** System sans stack — avoids a second webfont; use tabular-nums in CSS where needed */
-  inter: 'system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-  system: 'system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+  inter: 'system-ui, "Segoe UI", sans-serif',
+  system: 'system-ui, "Segoe UI", sans-serif'
+}
+
+export const CJK_FONT_STACKS = {
+  auto: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC"',
+  yahei: '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC"',
+  jhenghei: '"Microsoft JhengHei", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK TC"',
+  simsun: '"SimSun", "Microsoft YaHei", "PingFang SC"',
+  simhei: '"SimHei", "Microsoft YaHei", "PingFang SC"',
+  pingfang: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC"',
+  noto: '"Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "PingFang SC"',
+  sourcehan: '"Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC"'
 }
 
 /** Registered via @font-face when loaded from user-supplied font file */
 export const UI_CUSTOM_FONT_FAMILY = 'EchoesUserUiFont'
+export const UI_CJK_CUSTOM_FONT_FAMILY = 'EchoesUserCjkFont'
 
 const FONT_FILE_FALLBACK = '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
 
@@ -155,25 +167,34 @@ export function uiFontFileToUrl(absPath) {
  */
 export function getUiFontStack(config) {
   const key = config?.uiFontFamily || 'outfit'
+  const cjkKey = config?.uiCjkFontFamily || 'auto'
+  const hasCjkCustomFont =
+    cjkKey === 'custom' &&
+    typeof config?.uiCjkCustomFontPath === 'string' &&
+    config.uiCjkCustomFontPath.trim()
+  const cjkStack = hasCjkCustomFont
+    ? `"${UI_CJK_CUSTOM_FONT_FAMILY}", ${CJK_FONT_STACKS.auto}`
+    : CJK_FONT_STACKS[cjkKey] || CJK_FONT_STACKS.auto
   if (
     key === 'custom' &&
     typeof config?.uiCustomFontPath === 'string' &&
     config.uiCustomFontPath.trim()
   ) {
-    return `"${UI_CUSTOM_FONT_FAMILY}", ${FONT_FILE_FALLBACK}`
+    return `"${UI_CUSTOM_FONT_FAMILY}", ${cjkStack}, ${FONT_FILE_FALLBACK}`
   }
   if (key === 'custom') {
-    return FONT_STACKS.outfit
+    return `"Outfit", "Segoe UI", ${cjkStack}, sans-serif`
   }
-  return FONT_STACKS[key] || FONT_STACKS.outfit
+  const base = FONT_STACKS[key] || FONT_STACKS.outfit
+  return base.replace(/,\s*sans-serif\s*$/i, `, ${cjkStack}, sans-serif`)
 }
 
 /** CSS @font-face rule body or empty string */
-export function buildUiCustomFontFaceCss(absPath) {
+export function buildUiCustomFontFaceCss(absPath, family = UI_CUSTOM_FONT_FAMILY) {
   if (!absPath || !String(absPath).trim()) return ''
   const url = uiFontFileToUrl(String(absPath).trim())
   const fmt = fontFileFormatSuffix(absPath)
-  return `@font-face{font-family:"${UI_CUSTOM_FONT_FAMILY}";src:url("${url}")${fmt};font-weight:100 900;font-style:normal;font-display:swap;}`
+  return `@font-face{font-family:"${family}";src:url("${url}")${fmt};font-weight:100 900;font-style:normal;font-display:swap;}`
 }
 
 /**

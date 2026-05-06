@@ -257,8 +257,9 @@ export function rankLrcLibCandidates(payload, audioDuration, options = {}) {
     return out
   }
 
+  const knownArtistCandidates = filterKnownArtistCandidates(options.artistCandidates)
   const expectedArtists = [
-    ...new Set(expandArtistCandidates(options.artistCandidates).map(normalizeLyricCompareText))
+    ...new Set(expandArtistCandidates(knownArtistCandidates).map(normalizeLyricCompareText))
   ]
     .filter(Boolean)
     .slice(0, 12)
@@ -347,6 +348,18 @@ export function rankLrcLibCandidates(payload, audioDuration, options = {}) {
 
 const MIN_CONFIDENCE = 28
 const ONLINE_LYRICS_SOURCES = new Set(['lrclib', 'netease', 'qq', 'kugou', 'kuwo', 'external'])
+
+// Placeholders that mean "we don't actually know the artist" so we shouldn't
+// use artistSim as a discriminator (otherwise we'd reject correct lyrics for
+// untagged files). Mirrors the behavior in mvSearchRank's UNKNOWN_ARTIST_RE.
+const UNKNOWN_ARTIST_NORM_RE =
+  /^(unknown|unknown\s+artist|unknown\s+singer|various\s+artists|va|n[\s.]*a|null|undefined|\u672a\u77e5|\u672a\u77e5\u827a\u672f\u5bb6|\u672a\u77e5\u6b4c\u624b|\u4f5a\u540d|\u4e0d\u660e)$/i
+
+function filterKnownArtistCandidates(artistCandidates = []) {
+  return (artistCandidates || [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !UNKNOWN_ARTIST_NORM_RE.test(normalizeLyricCompareText(value)))
+}
 const INSTRUMENTAL_WORD_RE =
   /(^|[\s([{\-_/])(?:instrumental|inst\.?|off\s*vocal|off-vocal|karaoke|no\s*vocals?|without\s+vocals?|backing\s+track)(?=$|[\s)\]}\-_/])/i
 const INSTRUMENTAL_CJK_RE =
@@ -377,7 +390,7 @@ export function getAutoLyricsCandidateRejectReason(candidate, options = {}) {
   const titleSim = Number(candidate.titleSim) || 0
   const artistSim = Number(candidate.artistSim) || 0
   const diff = Number(candidate.diff)
-  const expectedArtists = (options.artistCandidates || []).filter(Boolean)
+  const expectedArtists = filterKnownArtistCandidates(options.artistCandidates)
 
   if (score < MIN_CONFIDENCE) return `score ${score.toFixed(2)} < threshold ${MIN_CONFIDENCE}`
   if (titleSim < 0.25 && artistSim < 0.2) {
@@ -394,6 +407,21 @@ export function getAutoLyricsCandidateRejectReason(candidate, options = {}) {
   }
   if (Number.isFinite(diff) && diff > 75 && titleSim < 0.72 && score < 62) {
     return `duration mismatch (${diff.toFixed(1)}s)`
+  }
+  // Same title, completely unrelated artist, large duration gap: this is the
+  // "different song that just happens to share a title" case. Covers (翻唱)
+  // typically have very similar duration to the original, so a >25s gap with
+  // zero artist overlap is a strong signal we're about to attach the wrong
+  // lyrics. We still allow this pattern through if the audio file has no real
+  // artist tag (filterKnownArtistCandidates would have left expectedArtists
+  // empty), so untagged files keep matching by title alone.
+  if (
+    expectedArtists.length > 0 &&
+    artistSim < 0.2 &&
+    Number.isFinite(diff) &&
+    diff > 25
+  ) {
+    return `same title but unrelated artist with ${diff.toFixed(1)}s duration gap (likely different song)`
   }
   return ''
 }

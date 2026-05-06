@@ -12,11 +12,13 @@ function classifyLine(t) {
 }
 
 function assignGroupedLines(uniqueTexts) {
-  const mainText = uniqueTexts[0]
+  const mainIndex = uniqueTexts.findIndex((text) => classifyLine(text) === 'main')
+  const mainText = uniqueTexts[mainIndex >= 0 ? mainIndex : 0]
   const row = { text: mainText }
   const leftovers = []
 
-  for (const extra of uniqueTexts.slice(1)) {
+  for (const [index, extra] of uniqueTexts.entries()) {
+    if (index === (mainIndex >= 0 ? mainIndex : 0)) continue
     const kind = classifyLine(extra)
     if (kind === 'romaji' && !row.romaji) row.romaji = extra
     else if (kind === 'translation' && !row.translation) row.translation = extra

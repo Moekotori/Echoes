@@ -225,6 +225,7 @@ contextBridge.exposeInMainWorld('api', {
   /** Close overlay and uncheck “desktop lyrics” in the main window (Escape / right-click). */
   dismissLyricsDesktop: () => ipcRenderer.invoke('lyricsDesktop:dismiss'),
   notifyLyricsDesktopReady: () => ipcRenderer.invoke('lyricsDesktop:ready'),
+  updateLyricsDesktopData: (payload) => ipcRenderer.invoke('lyricsDesktop:updateData', payload),
   onLyricsDesktopData: (callback) => {
     const ch = 'lyrics-desktop:data'
     const handler = (_, data) => callback(data)
@@ -234,6 +235,28 @@ contextBridge.exposeInMainWorld('api', {
   onLyricsDesktopUncheck: (callback) => {
     const ch = 'lyrics-desktop:uncheck'
     const handler = () => callback()
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  openMiniPlayer: () => ipcRenderer.invoke('miniPlayer:open'),
+  closeMiniPlayer: () => ipcRenderer.invoke('miniPlayer:close'),
+  hideMiniPlayer: () => ipcRenderer.invoke('miniPlayer:hide'),
+  dismissMiniPlayer: () => ipcRenderer.invoke('miniPlayer:dismiss'),
+  setMiniPlayerAlwaysOnTop: (isAlwaysOnTop) =>
+    ipcRenderer.invoke('miniPlayer:setAlwaysOnTop', isAlwaysOnTop),
+  updateMiniPlayerData: (payload) => ipcRenderer.invoke('miniPlayer:updateData', payload),
+  notifyMiniPlayerReady: () => ipcRenderer.invoke('miniPlayer:ready'),
+  miniPlayerCommand: (command, payload = {}) =>
+    ipcRenderer.invoke('miniPlayer:command', { command, payload }),
+  onMiniPlayerData: (callback) => {
+    const ch = 'mini-player:data'
+    const handler = (_, data) => callback(data)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  onMiniPlayerCommand: (callback) => {
+    const ch = 'mini-player:command'
+    const handler = (_, message) => callback(message)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
@@ -328,11 +351,15 @@ contextBridge.exposeInMainWorld('api', {
   openYoutubeSystemSignIn: (browser) => ipcRenderer.invoke('youtube:openSystemSignIn', browser),
   saveYoutubeSystemCookies: () => ipcRenderer.invoke('youtube:saveSystemCookies'),
   getYoutubeSystemCookieStatus: () => ipcRenderer.invoke('youtube:getSystemCookieStatus'),
+  logoutYoutube: () => ipcRenderer.invoke('youtube:logout'),
   openBilibiliSignInWindow: () => ipcRenderer.invoke('bilibili:openSignInWindow'),
+  logoutBilibili: () => ipcRenderer.invoke('bilibili:logout'),
   openNeteaseSignInWindow: () => ipcRenderer.invoke('netease:openSignInWindow'),
   getNeteaseCookie: (preferredCookie) => ipcRenderer.invoke('netease:getCookie', preferredCookie),
+  logoutNetease: () => ipcRenderer.invoke('netease:logout'),
   openQqMusicSignInWindow: () => ipcRenderer.invoke('qqMusic:openSignInWindow'),
   getQqMusicCookie: (preferredCookie) => ipcRenderer.invoke('qqMusic:getCookie', preferredCookie),
+  logoutQqMusic: () => ipcRenderer.invoke('qqMusic:logout'),
   resolveBilibiliStream: (bvid, quality) =>
     ipcRenderer.invoke('bilibili:resolveStream', bvid, quality),
   checkSignInStatus: () => ipcRenderer.invoke('signin:checkStatus'),

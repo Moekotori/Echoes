@@ -11,7 +11,9 @@ export function pickThemeExportSlice(config) {
     uiBgOpacity: config.uiBgOpacity,
     uiBlur: config.uiBlur,
     uiFontFamily: config.uiFontFamily,
+    uiCjkFontFamily: config.uiCjkFontFamily,
     uiCustomFontPath: config.uiCustomFontPath || undefined,
+    uiCjkCustomFontPath: config.uiCjkCustomFontPath || undefined,
     uiBaseFontSize: config.uiBaseFontSize,
     uiRadiusScale: config.uiRadiusScale,
     uiShadowIntensity: config.uiShadowIntensity,
@@ -36,8 +38,13 @@ export function mergeThemeImport(prevConfig, bundle) {
   if (bundle.uiBgOpacity !== undefined) next.uiBgOpacity = bundle.uiBgOpacity
   if (bundle.uiBlur !== undefined) next.uiBlur = bundle.uiBlur
   if (bundle.uiFontFamily !== undefined) next.uiFontFamily = bundle.uiFontFamily
+  if (bundle.uiCjkFontFamily !== undefined) next.uiCjkFontFamily = bundle.uiCjkFontFamily
   if (bundle.uiCustomFontPath !== undefined) next.uiCustomFontPath = bundle.uiCustomFontPath
+  if (bundle.uiCjkCustomFontPath !== undefined) {
+    next.uiCjkCustomFontPath = bundle.uiCjkCustomFontPath
+  }
   if (next.uiFontFamily !== 'custom') next.uiCustomFontPath = null
+  if (next.uiCjkFontFamily !== 'custom') next.uiCjkCustomFontPath = null
   if (bundle.uiBaseFontSize !== undefined) next.uiBaseFontSize = bundle.uiBaseFontSize
   if (bundle.uiRadiusScale !== undefined) next.uiRadiusScale = bundle.uiRadiusScale
   if (bundle.uiShadowIntensity !== undefined) next.uiShadowIntensity = bundle.uiShadowIntensity

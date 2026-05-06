@@ -1,13 +1,26 @@
 /**
  * Float32 interleaved EQ for the native path.
  * Topology mirrors Web Audio where possible: preamp -> cascaded biquads -> output safety.
+ *
+ * Hot-path notes:
+ *  - Coefficients live in a flat Float64Array so the inner sample loop touches
+ *    contiguous memory (much friendlier to V8's optimizer than [{...}] per section).
+ *  - Per-channel filter state lives in a flat Float64Array as well.
+ *  - Only "active" sections (non-identity) are walked at runtime. With the default
+ *    16-band layout sitting at 0 dB, the entire chain auto-bypasses; previously
+ *    every sample paid for 32 identity biquads + 2x oversampling + soft-clip on
+ *    the main thread, which dominated CPU on 96/192 kHz / DSD-to-PCM streams.
  */
 
 const MIN_EQ_BANDS = 16
 const MAX_STAGES_PER_BAND = 2
+const COEFFS_PER_SECTION = 5
+const STATE_PER_SECTION = 4
 const SOFT_LIMIT = 0.999
 const SOFT_KNEE = 0.944
 const SOFT_DEN = Math.tanh(1.8)
+const SOFT_RANGE = SOFT_LIMIT - SOFT_KNEE
+const EFFECTIVE_GAIN_EPSILON_DB = 0.005
 
 function clampBiquadQ(type, q) {
   const t = type || 'peaking'
@@ -133,91 +146,41 @@ export function computeBiquadCoefficients(type, freqHz, Q, gainDb, sampleRate) {
   return { b0: 1, b1: 0, b2: 0, a1: 0, a2: 0 }
 }
 
-class BiquadChannel {
-  constructor() {
-    this.b0 = 1
-    this.b1 = 0
-    this.b2 = 0
-    this.a1 = 0
-    this.a2 = 0
-    this.x1 = 0
-    this.x2 = 0
-    this.y1 = 0
-    this.y2 = 0
-  }
-
-  setCoeffs(c) {
-    this.b0 = c.b0
-    this.b1 = c.b1
-    this.b2 = c.b2
-    this.a1 = c.a1
-    this.a2 = c.a2
-  }
-
-  processSample(x) {
-    const y =
-      this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2
-    this.x2 = this.x1
-    this.x1 = x
-    this.y2 = this.y1
-    this.y1 = y
-    return y
-  }
-
-  reset() {
-    this.x1 = 0
-    this.x2 = 0
-    this.y1 = 0
-    this.y2 = 0
-  }
-}
-
 function softClipSample(x) {
-  const ax = Math.abs(x)
+  const ax = x < 0 ? -x : x
   if (ax <= SOFT_KNEE) return x
   const sign = x < 0 ? -1 : 1
-  const t = (ax - SOFT_KNEE) / (SOFT_LIMIT - SOFT_KNEE)
-  const shaped = SOFT_KNEE + (SOFT_LIMIT - SOFT_KNEE) * (Math.tanh(t * 1.8) / SOFT_DEN)
-  return sign * Math.min(SOFT_LIMIT, shaped)
-}
-
-function applyOutputSafety(x, mode) {
-  if (mode === 'off') return x
-  if (mode === 'hard') {
-    if (x > SOFT_LIMIT) return SOFT_LIMIT
-    if (x < -SOFT_LIMIT) return -SOFT_LIMIT
-    return x
-  }
-  return softClipSample(x)
+  const t = (ax - SOFT_KNEE) / SOFT_RANGE
+  const shaped = SOFT_KNEE + SOFT_RANGE * (Math.tanh(t * 1.8) / SOFT_DEN)
+  return sign * (shaped < SOFT_LIMIT ? shaped : SOFT_LIMIT)
 }
 
 export function createEqFloatProcessor(eqConfig, sampleRate, channels) {
   const ch = Math.max(1, Math.min(2, channels | 0))
   const bands = Array.isArray(eqConfig?.eqBands) ? eqConfig.eqBands : []
   const bandCount = Math.max(MIN_EQ_BANDS, bands.length)
-  const sectionCount = bandCount * MAX_STAGES_PER_BAND
-  const sections = []
-  for (let i = 0; i < sectionCount; i++) {
-    sections.push([new BiquadChannel(), new BiquadChannel()])
+  const maxSections = bandCount * MAX_STAGES_PER_BAND
+
+  // Coefficients are packed per active section: [b0, b1, b2, a1, a2] x activeCount.
+  // Channel state is packed the same way: [x1, x2, y1, y2] x activeCount.
+  const coeffs = new Float64Array(maxSections * COEFFS_PER_SECTION)
+  const channelState = []
+  for (let c = 0; c < ch; c++) {
+    channelState.push(new Float64Array(maxSections * STATE_PER_SECTION))
   }
 
   const state = {
     sampleRate,
     channels: ch,
-    sections,
+    coeffs,
+    channelState,
+    activeCount: 0,
     preampLin: 1,
     bypass: true,
     oversampleFactor: 2,
     outputSafety: 'soft',
     oversamplePrev: new Float32Array(ch),
     oversamplePrimed: false,
-
-    setIdentity(sectionIndex) {
-      const pair = state.sections[sectionIndex]
-      if (!pair) return
-      pair[0].setCoeffs({ b0: 1, b1: 0, b2: 0, a1: 0, a2: 0 })
-      pair[1].setCoeffs({ b0: 1, b1: 0, b2: 0, a1: 0, a2: 0 })
-    },
 
     update(cfg) {
       const use = !!cfg?.useEQ
@@ -227,85 +190,130 @@ export function createEqFloatProcessor(eqConfig, sampleRate, channels) {
       state.oversampleFactor = nextFactor
       state.outputSafety = resolveOutputSafety(cfg?.eqOutputSafety ?? cfg?.outputSafety)
       state.preampLin = Math.pow(10, pre / 20)
-      state.bypass = !use
 
       const processRate = state.sampleRate * state.oversampleFactor
       const list = Array.isArray(cfg?.eqBands) ? cfg.eqBands : []
-      for (let i = 0; i < state.sections.length; i++) state.setIdentity(i)
+      let active = 0
 
-      for (let i = 0; i < bandCount; i++) {
-        const band = list[i]
-        if (!band) continue
+      if (use) {
+        for (let i = 0; i < bandCount; i++) {
+          const band = list[i]
+          if (!band || band.enabled === false) continue
 
-        const typ = band.type || 'peaking'
-        const enabled = use && band.enabled !== false
-        if (!enabled) continue
-        const gain = clamp(band.gain, -24, 24, 0)
-        const freq = clamp(band.freq, 20, 20000, 1000)
-        const slope = shelfSlope(band.slope)
-        const isShelf = typ === 'lowshelf' || typ === 'highshelf'
-        const stages = isShelf && slope === 24 ? 2 : 1
-        const gainPerStage = stages > 1 ? gain / stages : gain
-        const q = clampBiquadQ(typ, isShelf && slope === 6 ? 0.55 : band.q)
+          const typ = band.type || 'peaking'
+          const gain = clamp(band.gain, -24, 24, 0)
+          const isShelf = typ === 'lowshelf' || typ === 'highshelf'
+          const isPeakOrShelf = isShelf || typ === 'peaking'
+          // Peaking/shelf bands at ~0 dB are mathematically identity; skip them
+          // entirely so the inner loop doesn't pay for no-op biquads.
+          if (isPeakOrShelf && Math.abs(gain) < EFFECTIVE_GAIN_EPSILON_DB) continue
 
-        for (let stage = 0; stage < stages; stage++) {
-          const c = computeBiquadCoefficients(typ, freq, q, gainPerStage, processRate)
-          const sectionIndex = i * MAX_STAGES_PER_BAND + stage
-          const pair = state.sections[sectionIndex]
-          if (!pair) continue
-          pair[0].setCoeffs(c)
-          pair[1].setCoeffs(c)
+          const freq = clamp(band.freq, 20, 20000, 1000)
+          const slope = shelfSlope(band.slope)
+          const stages = isShelf && slope === 24 ? 2 : 1
+          const gainPerStage = stages > 1 ? gain / stages : gain
+          const q = clampBiquadQ(typ, isShelf && slope === 6 ? 0.55 : band.q)
+
+          for (let stage = 0; stage < stages; stage++) {
+            if (active >= maxSections) break
+            const c = computeBiquadCoefficients(typ, freq, q, gainPerStage, processRate)
+            const base = active * COEFFS_PER_SECTION
+            coeffs[base] = c.b0
+            coeffs[base + 1] = c.b1
+            coeffs[base + 2] = c.b2
+            coeffs[base + 3] = c.a1
+            coeffs[base + 4] = c.a2
+            active += 1
+          }
         }
       }
 
-      if (factorChanged) state.reset()
-    },
+      const preampUnity = Math.abs(state.preampLin - 1) < 1e-6
+      // Auto-bypass when there is nothing audible to do. The safety stage
+      // exists to tame EQ/preamp-induced overshoot — when there is no preamp
+      // change and no active biquad, the signal is bit-identical to its
+      // input, so we can skip the per-sample loop entirely. With the default
+      // 16-band / 0 dB layout this is the common case and removes the EQ
+      // from the audio thread completely.
+      state.bypass = !use || (active === 0 && preampUnity)
+      state.activeCount = active
 
-    processChannelSample(x, channel) {
-      let y = x * state.preampLin
-      const sec = state.sections
-      for (let s = 0; s < sec.length; s++) {
-        y = sec[s][channel].processSample(y)
+      if (factorChanged) {
+        state.reset()
+      } else {
+        // Keep state arrays aligned with the new active count.
+        for (let c = 0; c < ch; c++) {
+          channelState[c].fill(0, active * STATE_PER_SECTION)
+        }
       }
-      return y
-    },
-
-    processOversampledSample(x, channel) {
-      const factor = state.oversampleFactor
-      if (factor <= 1) return state.processChannelSample(x, channel)
-      const prev = state.oversamplePrimed ? state.oversamplePrev[channel] : x
-      let acc = 0
-      for (let os = 1; os <= factor; os++) {
-        const interp = prev + (x - prev) * (os / factor)
-        acc += state.processChannelSample(interp, channel)
-      }
-      state.oversamplePrev[channel] = x
-      return acc / factor
     },
 
     processInterleaved(data) {
       if (state.bypass) return
       const n = data.length
+      if (n <= 0) return
       const nCh = state.channels
+      const active = state.activeCount
+      const factor = state.oversampleFactor
+      const preamp = state.preampLin
+      const safetyMode = state.outputSafety
+      const useSoft = safetyMode === 'soft'
+      const useHard = safetyMode === 'hard'
+      const coeffArr = state.coeffs
 
       if (!state.oversamplePrimed && n >= nCh) {
         for (let c = 0; c < nCh; c++) state.oversamplePrev[c] = data[c]
         state.oversamplePrimed = true
       }
 
+      // Fast path: no active sections (only preamp / safety remain).
+      if (active === 0) {
+        if (preamp === 1 && safetyMode === 'off') return
+        for (let i = 0; i < n; i++) {
+          let y = data[i] * preamp
+          if (useSoft) {
+            const ay = y < 0 ? -y : y
+            if (ay > SOFT_KNEE) y = softClipSample(y)
+          } else if (useHard) {
+            if (y > SOFT_LIMIT) y = SOFT_LIMIT
+            else if (y < -SOFT_LIMIT) y = -SOFT_LIMIT
+          }
+          data[i] = y
+        }
+        return
+      }
+
       for (let i = 0; i < n; i += nCh) {
         for (let c = 0; c < nCh; c++) {
-          const x = state.processOversampledSample(data[i + c], c)
-          data[i + c] = applyOutputSafety(x, state.outputSafety)
+          const stateArr = channelState[c]
+          const xIn = data[i + c]
+          let outSample
+          if (factor <= 1) {
+            outSample = runChainSample(xIn * preamp, coeffArr, stateArr, active)
+          } else {
+            const prev = state.oversamplePrev[c]
+            let acc = 0
+            for (let os = 1; os <= factor; os++) {
+              const interp = prev + (xIn - prev) * (os / factor)
+              acc += runChainSample(interp * preamp, coeffArr, stateArr, active)
+            }
+            state.oversamplePrev[c] = xIn
+            outSample = acc / factor
+          }
+          if (useSoft) {
+            const ay = outSample < 0 ? -outSample : outSample
+            if (ay > SOFT_KNEE) outSample = softClipSample(outSample)
+          } else if (useHard) {
+            if (outSample > SOFT_LIMIT) outSample = SOFT_LIMIT
+            else if (outSample < -SOFT_LIMIT) outSample = -SOFT_LIMIT
+          }
+          data[i + c] = outSample
         }
       }
     },
 
     reset() {
-      for (let i = 0; i < state.sections.length; i++) {
-        state.sections[i][0].reset()
-        state.sections[i][1].reset()
-      }
+      for (let c = 0; c < ch; c++) channelState[c].fill(0)
       state.oversamplePrev.fill(0)
       state.oversamplePrimed = false
     }
@@ -313,4 +321,33 @@ export function createEqFloatProcessor(eqConfig, sampleRate, channels) {
 
   state.update(eqConfig || { useEQ: false, preamp: 0, eqBands: [] })
   return state
+}
+
+/**
+ * Tight inner kernel: walk the active biquad chain in one contiguous Float64
+ * pass per channel sample. Hoisted out of the closure so V8 sees a stable shape
+ * and inlines aggressively.
+ */
+function runChainSample(input, coeffArr, stateArr, activeCount) {
+  let y = input
+  for (let s = 0; s < activeCount; s++) {
+    const cBase = s * COEFFS_PER_SECTION
+    const sBase = s * STATE_PER_SECTION
+    const x1 = stateArr[sBase]
+    const x2 = stateArr[sBase + 1]
+    const y1 = stateArr[sBase + 2]
+    const y2 = stateArr[sBase + 3]
+    const x = y
+    y =
+      coeffArr[cBase] * x +
+      coeffArr[cBase + 1] * x1 +
+      coeffArr[cBase + 2] * x2 -
+      coeffArr[cBase + 3] * y1 -
+      coeffArr[cBase + 4] * y2
+    stateArr[sBase] = x
+    stateArr[sBase + 1] = x1
+    stateArr[sBase + 2] = y
+    stateArr[sBase + 3] = y1
+  }
+  return y
 }

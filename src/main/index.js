@@ -89,17 +89,23 @@ import {
 import {
   buildNeteaseErrorLogPayload,
   fetchNeteaseLrcText,
+  repairPossiblyMojibakeText,
   withQuietNeteaseConsole,
   searchNeteaseSongs,
   getNeteaseSongDirectUrl
 } from './neteaseLyrics.js'
 import { searchExternalLyrics } from './lyricsProviders.js'
 import {
+  NETEASE_COOKIE_DOMAINS,
   buildNcmRequestOptions,
   getNeteaseCookieFromSession,
   validateNeteaseCookie
 } from './neteaseAuth.js'
-import { getQqMusicCookieFromSession, validateQqMusicCookie } from './qqMusicAuth.js'
+import {
+  QQ_MUSIC_COOKIE_DOMAINS,
+  getQqMusicCookieFromSession,
+  validateQqMusicCookie
+} from './qqMusicAuth.js'
 import {
   getQqMusicAlbumTracks,
   getQqMusicSongDirectUrl,
@@ -159,7 +165,7 @@ function buildNeteaseCloudSearchCacheKey(kind, keywords) {
 }
 
 function getNeteaseErrorText(payload) {
-  return String(
+  return repairPossiblyMojibakeText(
     payload?.body?.message ||
       payload?.body?.msg ||
       payload?.message ||
@@ -171,7 +177,7 @@ function getNeteaseErrorText(payload) {
 function isNeteaseRateLimitPayload(payload) {
   const status = Number(payload?.status || payload?.body?.code || 0)
   const text = getNeteaseErrorText(payload)
-  return status === 405 || text.includes('操作频繁') || /rate|frequent/i.test(text)
+  return status === 405 || text.includes('\u64cd\u4f5c\u9891\u7e41') || /rate|frequent/i.test(text)
 }
 
 function warnNeteaseCloudSearchOnce(kind, payload) {
@@ -179,7 +185,7 @@ function warnNeteaseCloudSearchOnce(kind, payload) {
   if (now - neteaseCloudSearchLastWarnAt < 5000) return
   neteaseCloudSearchLastWarnAt = now
   const text = isNeteaseRateLimitPayload(payload)
-    ? '操作频繁，请稍候再试'
+    ? '\u64cd\u4f5c\u9891\u7e41\uff0c\u8bf7\u7a0d\u5019\u518d\u8bd5'
     : getNeteaseErrorText(payload) || 'request failed'
   console.warn(`[netease:${kind}] ${text}`)
 }
@@ -205,6 +211,11 @@ async function cachedNeteaseCloudSearch(kind, params, cookie = '') {
           ...buildNcmRequestOptions(cookie)
         })
       )
+      if (isNeteaseRateLimitPayload(value)) {
+        neteaseCloudSearchCooldownUntil = Date.now() + NETEASE_SEARCH_RATE_LIMIT_COOLDOWN_MS
+        warnNeteaseCloudSearchOnce(kind, value)
+        return null
+      }
       neteaseCloudSearchCache.set(key, {
         value,
         expiresAt: Date.now() + NETEASE_SEARCH_CACHE_TTL_MS
@@ -228,7 +239,7 @@ async function cachedNeteaseCloudSearch(kind, params, cookie = '') {
 
 function dialogLocaleFromOpts(opts) {
   const loc = opts && typeof opts === 'object' && opts.locale
-  return loc === 'zh' || loc === 'ja' ? loc : 'en'
+  return loc === 'zh' || loc === 'zh-TW' || loc === 'ja' ? loc : 'en'
 }
 
 let mainWindow = null
@@ -255,13 +266,35 @@ let lyricsDesktopLastPayload = {}
 let lyricsDesktopLastPayloadSignature = ''
 /** Main-process timer pulls lyrics from the main renderer — not throttled when the main window is minimized */
 let lyricsDesktopMainSyncTimer = null
-const LYRICS_DESKTOP_SYNC_INTERVAL_MS = 125
+/** Floating mini player panel (renderer `?mode=mini-player`) */
+let miniPlayerWindow = null
+let miniPlayerLastPayload = {}
+let miniPlayerLastPayloadSignature = ''
+let miniPlayerMainSyncTimer = null
+let miniPlayerAutoHidMainWindow = false
+/**
+ * Fallback poll cadence for companion windows (desktop lyrics / mini player).
+ * Both windows now receive push updates via dedicated IPC channels
+ * (`lyricsDesktop:updateData` / `miniPlayer:updateData`) the moment the
+ * renderer state changes. The poll only matters when ECHO's main window has
+ * been backgrounded long enough for Chromium to throttle its timers; running
+ * `webContents.executeJavaScript` 8 Hz on the main process otherwise burned a
+ * meaningful slice of CPU for nothing. Once-per-second is plenty for the
+ * minimized fallback case.
+ */
+const LYRICS_DESKTOP_SYNC_INTERVAL_MS = 1000
+const MINI_PLAYER_SYNC_INTERVAL_MS = 1000
+const MINI_PLAYER_DEFAULT_BOUNDS = { width: 412, height: 68 }
 const AUDIO_STATUS_POLL_INTERVAL_MS = 500
 const AUDIO_STATUS_PAUSED_HEARTBEAT_MS = 5000
 const AUDIO_STATUS_POSITION_DELTA_SEC = 0.45
 const MAX_EMBEDDED_COVER_DIMENSION = 768
 const MAX_EMBEDDED_COVER_BYTES = 350 * 1024
 const MAX_ARTIST_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024
+const ARTIST_AVATAR_IMAGE_FETCH_TIMEOUT_MS = 12000
+const ARTIST_AVATAR_IMAGE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000
+const artistAvatarImageInFlight = new Map()
+const artistAvatarImageHostCooldowns = new Map()
 
 function stopLyricsDesktopMainSyncTimer() {
   if (lyricsDesktopMainSyncTimer) {
@@ -270,37 +303,150 @@ function stopLyricsDesktopMainSyncTimer() {
   }
 }
 
+function stopMiniPlayerMainSyncTimer() {
+  if (miniPlayerMainSyncTimer) {
+    clearInterval(miniPlayerMainSyncTimer)
+    miniPlayerMainSyncTimer = null
+  }
+}
+
+function buildArtistAvatarImageFailure(error, extra = {}) {
+  return {
+    ok: false,
+    dataUrl: '',
+    error,
+    transient: false,
+    retryAfterMs: 0,
+    ...extra
+  }
+}
+
+function parseRetryAfterMs(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return 0
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000
+  const dateValue = Date.parse(raw)
+  if (Number.isFinite(dateValue)) return Math.max(0, dateValue - Date.now())
+  return 0
+}
+
+function isTransientArtistAvatarHttpStatus(status) {
+  return status === 403 || status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+function getArtistAvatarImageReferer(cleanUrl) {
+  if (/(^|\/\/)(y|qpic)\.qq\.com\//i.test(cleanUrl)) return 'https://y.qq.com/'
+  if (/(^|\/\/)(p\d+|music)\.music\.126\.net\//i.test(cleanUrl)) return 'https://music.163.com/'
+  try {
+    return `${new URL(cleanUrl).origin}/`
+  } catch {
+    return 'https://music.163.com/'
+  }
+}
+
+function getArtistAvatarImageHost(cleanUrl) {
+  try {
+    return new URL(cleanUrl).host.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 async function fetchImageDataUrl(url) {
   const cleanUrl = String(url || '').trim()
-  if (!/^https?:\/\//i.test(cleanUrl)) return null
-
-  const response = await fetch(cleanUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
-      Referer: cleanUrl.includes('y.qq.com') ? 'https://y.qq.com/' : 'https://music.163.com/'
-    }
-  })
-  if (!response.ok) return null
-
-  const contentType = response.headers.get('content-type') || 'image/jpeg'
-  if (!/^image\//i.test(contentType)) return null
-
-  const arrayBuffer = await response.arrayBuffer()
-  if (!arrayBuffer || arrayBuffer.byteLength <= 0) return null
-  if (arrayBuffer.byteLength > MAX_ARTIST_AVATAR_IMAGE_BYTES) return null
-
-  const originalBuffer = Buffer.from(arrayBuffer)
-  const image = nativeImage.createFromBuffer(originalBuffer)
-  if (!image.isEmpty()) {
-    const resized = image.resize({ width: 360, height: 360, quality: 'best' })
-    const encoded = resized.toJPEG(88)
-    if (encoded?.length) {
-      return `data:image/jpeg;base64,${encoded.toString('base64')}`
-    }
+  if (!/^https?:\/\//i.test(cleanUrl)) {
+    return buildArtistAvatarImageFailure('invalid_url')
   }
 
-  return `data:${contentType.split(';')[0]};base64,${originalBuffer.toString('base64')}`
+  const host = getArtistAvatarImageHost(cleanUrl)
+  const cooldownUntil = host ? Number(artistAvatarImageHostCooldowns.get(host) || 0) : 0
+  if (cooldownUntil > Date.now()) {
+    return buildArtistAvatarImageFailure('rate_limited', {
+      transient: true,
+      status: 429,
+      retryAfterMs: cooldownUntil - Date.now()
+    })
+  }
+  if (artistAvatarImageInFlight.has(cleanUrl)) {
+    return await artistAvatarImageInFlight.get(cleanUrl)
+  }
+
+  const task = (async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), ARTIST_AVATAR_IMAGE_FETCH_TIMEOUT_MS)
+    let response = null
+
+    try {
+      response = await fetch(cleanUrl, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+          Referer: getArtistAvatarImageReferer(cleanUrl)
+        }
+      })
+    } catch (error) {
+      return buildArtistAvatarImageFailure(error?.name === 'AbortError' ? 'timeout' : 'network_error', {
+        transient: true,
+        message: error?.message || String(error || '')
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+
+    if (!response?.ok) {
+      const status = Number(response?.status || 0)
+      const retryAfterMs =
+        parseRetryAfterMs(response?.headers?.get?.('retry-after')) ||
+        (isTransientArtistAvatarHttpStatus(status) ? ARTIST_AVATAR_IMAGE_RATE_LIMIT_COOLDOWN_MS : 0)
+      if (host && retryAfterMs > 0 && isTransientArtistAvatarHttpStatus(status)) {
+        artistAvatarImageHostCooldowns.set(host, Date.now() + retryAfterMs)
+      }
+      return buildArtistAvatarImageFailure(`http_${status || 'error'}`, {
+        transient: isTransientArtistAvatarHttpStatus(status),
+        status,
+        retryAfterMs
+      })
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg'
+    if (!/^image\//i.test(contentType)) {
+      return buildArtistAvatarImageFailure('not_image', { status: response.status })
+    }
+
+    const arrayBuffer = await response.arrayBuffer()
+    if (!arrayBuffer || arrayBuffer.byteLength <= 0) {
+      return buildArtistAvatarImageFailure('empty_image', { status: response.status })
+    }
+    if (arrayBuffer.byteLength > MAX_ARTIST_AVATAR_IMAGE_BYTES) {
+      return buildArtistAvatarImageFailure('image_too_large', { status: response.status })
+    }
+
+    const originalBuffer = Buffer.from(arrayBuffer)
+    const image = nativeImage.createFromBuffer(originalBuffer)
+    if (!image.isEmpty()) {
+      const resized = image.resize({ width: 360, height: 360, quality: 'best' })
+      const encoded = resized.toJPEG(88)
+      if (encoded?.length) {
+        return {
+          ok: true,
+          dataUrl: `data:image/jpeg;base64,${encoded.toString('base64')}`
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      dataUrl: `data:${contentType.split(';')[0]};base64,${originalBuffer.toString('base64')}`
+    }
+  })().finally(() => {
+    artistAvatarImageInFlight.delete(cleanUrl)
+  })
+
+  artistAvatarImageInFlight.set(cleanUrl, task)
+  return await task
 }
 
 function compressEmbeddedCoverData(picture) {
@@ -435,6 +581,72 @@ function cleanupLyricsDesktopWindow() {
   }
 }
 
+function applyMiniPlayerAlwaysOnTop(isAlwaysOnTop) {
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return
+  if (isAlwaysOnTop) {
+    miniPlayerWindow.setAlwaysOnTop(true, 'screen-saver')
+    miniPlayerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  } else {
+    miniPlayerWindow.setAlwaysOnTop(false)
+    miniPlayerWindow.setVisibleOnAllWorkspaces(false)
+  }
+}
+
+function sendMiniPlayerPayloadToWindow(payload, { force = false } = {}) {
+  if (!payload || typeof payload !== 'object') return
+  const payloadSignature = JSON.stringify(payload)
+  if (!force && payloadSignature === miniPlayerLastPayloadSignature) return
+  miniPlayerLastPayloadSignature = payloadSignature
+  miniPlayerLastPayload = payload
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.webContents.send('mini-player:data', payload)
+  }
+}
+
+function miniPlayerPullFromMainRenderer({ force = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return
+  mainWindow.webContents
+    .executeJavaScript(
+      `(function(){try{return typeof window.__getMiniPlayerPayload==='function'?window.__getMiniPlayerPayload():null}catch(e){return null}})()`,
+      true
+    )
+    .then((payload) => {
+      sendMiniPlayerPayloadToWindow(payload, { force })
+    })
+    .catch(() => {})
+}
+
+function startMiniPlayerMainSyncTimer() {
+  stopMiniPlayerMainSyncTimer()
+  miniPlayerMainSyncTimer = setInterval(() => {
+    miniPlayerPullFromMainRenderer()
+  }, MINI_PLAYER_SYNC_INTERVAL_MS)
+}
+
+function cleanupMiniPlayerWindow() {
+  try {
+    stopMiniPlayerMainSyncTimer()
+    if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+      try {
+        const bounds = miniPlayerWindow.getBounds()
+        const state = readAppStateJson()
+        state.miniPlayerBounds = bounds
+        writeAppStateJson(state)
+      } catch {
+        /* ignore */
+      }
+      miniPlayerWindow.destroy()
+    }
+  } catch {
+    /* ignore */
+  } finally {
+    miniPlayerWindow = null
+    miniPlayerLastPayloadSignature = ''
+    restoreMainWindowAfterMiniPlayer()
+  }
+}
+
 function getTrayTrackTitle(status) {
   const filePath = status?.filePath
   if (typeof filePath !== 'string' || !filePath) return ''
@@ -464,6 +676,29 @@ function hideMainWindowToTray() {
   if (!mainWindow || mainWindow.isDestroyed()) return { ok: false }
   mainWindow.hide()
   return { ok: true }
+}
+
+function shouldAutoHideMainWindowForMiniPlayer() {
+  try {
+    const state = readAppStateJson()
+    return state.config?.miniPlayerAutoHideMainWindow === true
+  } catch {
+    return false
+  }
+}
+
+function hideMainWindowForMiniPlayer() {
+  if (!shouldAutoHideMainWindowForMiniPlayer()) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  miniPlayerAutoHidMainWindow = true
+  mainWindow.hide()
+}
+
+function restoreMainWindowAfterMiniPlayer() {
+  if (!miniPlayerAutoHidMainWindow) return
+  miniPlayerAutoHidMainWindow = false
+  if (isQuitting) return
+  showMainWindow()
 }
 
 function toggleMainWindowVisibility() {
@@ -776,6 +1011,7 @@ const APP_STATE_KEYS = new Set([
   'remoteLibraries',
   'ltSettings',
   'lyricsDesktopBounds',
+  'miniPlayerBounds',
   'playbackSession'
 ])
 const APP_STATE_IMMEDIATE_FLUSH_KEYS = new Set([
@@ -1594,9 +1830,112 @@ function getSavedQqMusicCookieFromAppState() {
   }
 }
 
+function updateDownloaderSettingsAuth(patch = {}) {
+  const state = ensureAppStateCache()
+  const current =
+    state.downloaderSettings && typeof state.downloaderSettings === 'object'
+      ? state.downloaderSettings
+      : {}
+  state.downloaderSettings = {
+    ...current,
+    ...patch
+  }
+  flushAppStateCacheSync()
+}
+
 async function getMainWindowSession() {
   if (mainWindow?.webContents?.session) return mainWindow.webContents.session
   return session.defaultSession
+}
+
+async function clearSessionCookiesForDomains(electronSession, domains = []) {
+  if (!electronSession?.cookies?.get || !electronSession?.cookies?.remove) {
+    return { removed: 0, errors: [] }
+  }
+  const errors = []
+  let removed = 0
+  const seen = new Set()
+  const normalizedDomains = domains
+    .map((domain) =>
+      String(domain || '')
+        .trim()
+        .replace(/^#HttpOnly_/, '')
+        .replace(/^\./, '')
+        .toLowerCase()
+    )
+    .filter(Boolean)
+
+  const matchesTargetDomain = (cookie) => {
+    const host = String(cookie?.domain || '')
+      .replace(/^#HttpOnly_/, '')
+      .replace(/^\./, '')
+      .toLowerCase()
+    if (!host) return false
+    return normalizedDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+  }
+
+  const candidateCookies = []
+  const addCookie = (cookie) => {
+    if (!cookie || !matchesTargetDomain(cookie)) return
+    candidateCookies.push(cookie)
+  }
+
+  for (const domain of domains) {
+    let cookies = []
+    try {
+      cookies = await electronSession.cookies.get({ domain })
+    } catch (error) {
+      errors.push(error?.message || String(error))
+      continue
+    }
+
+    for (const cookie of cookies) {
+      addCookie(cookie)
+    }
+  }
+
+  try {
+    const allCookies = await electronSession.cookies.get({})
+    for (const cookie of allCookies) {
+      addCookie(cookie)
+    }
+  } catch (error) {
+    errors.push(error?.message || String(error))
+  }
+
+  for (const cookie of candidateCookies) {
+    const name = String(cookie?.name || '')
+    if (!name) continue
+    const host = String(cookie.domain || '')
+      .replace(/^#HttpOnly_/, '')
+      .replace(/^\./, '')
+    if (!host) continue
+    const path = String(cookie.path || '/')
+    const key = `${host}\n${path}\n${name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const encodedPath = path.startsWith('/') ? path : `/${path}`
+    const schemes = cookie.secure === false ? ['http', 'https'] : ['https', 'http']
+    for (const scheme of schemes) {
+      try {
+        await electronSession.cookies.remove(`${scheme}://${host}${encodedPath}`, name)
+        removed += 1
+        break
+      } catch (error) {
+        if (scheme === schemes[schemes.length - 1]) {
+          errors.push(error?.message || String(error))
+        }
+      }
+    }
+  }
+
+  return { removed, errors }
+}
+
+function notifySignInStatusChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('signin:status-changed')
+  }
 }
 
 async function resolveNeteaseAuthState(preferredCookie = '') {
@@ -2015,6 +2354,7 @@ async function createWindow() {
       return
     }
     cleanupLyricsDesktopWindow()
+    cleanupMiniPlayerWindow()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -2035,6 +2375,7 @@ async function createWindow() {
 // Discord RPC Setup
 const DISCORD_CLIENT_ID = '1487118099298779206'
 const DISCORD_RPC_RECONNECT_MAX = 10
+const DISCORD_RPC_LOG_RATE_MS = 30000
 let rpcClient = null
 let rpcReady = false
 let rpcRetryTimer = null
@@ -2048,6 +2389,17 @@ let rpcDisposePromise = null
 let discordRpcQuitCleanupDone = false
 /** 应用即将退出（Windows/Linux 关窗链或任意平台 before-quit）：禁止重连 */
 let discordRpcQuitting = false
+/**
+ * Once we've burned through every reconnect attempt we stop touching Discord
+ * until something meaningful changes (new track, RPC toggle, etc). Without
+ * this flag every periodic setActivity from the renderer would silently kick
+ * off another connect→fail→log cycle, which spammed the console with
+ * "Disconnected" / "Max reconnect attempts reached" pairs when the user
+ * doesn't even have Discord open.
+ */
+let rpcGaveUp = false
+let rpcGaveUpTrackId = ''
+let rpcLastConnectErrorLogAt = 0
 const rpcCoverCache = new Map()
 
 const DEFAULT_RPC_ACTIVITY = {
@@ -2320,23 +2672,40 @@ async function resolveQqMusicAuthState(preferredCookie = '') {
   }
 }
 
+function resetDiscordRpcGiveUp() {
+  rpcGaveUp = false
+  rpcGaveUpTrackId = ''
+  rpcReconnectAttempts = 0
+}
+
+function logDiscordConnectFailure(level, message) {
+  const now = Date.now()
+  if (now - rpcLastConnectErrorLogAt < DISCORD_RPC_LOG_RATE_MS) return
+  rpcLastConnectErrorLogAt = now
+  if (level === 'warn') console.warn(message)
+  else console.log(message)
+}
+
 function scheduleDiscordReconnect(reason = 'unknown') {
   if (discordRpcQuitting || !rpcEnabled) return
   if (!rpcLastActivity) return
   if (rpcRetryTimer) return
+  if (rpcGaveUp) return
   if (rpcReconnectAttempts >= DISCORD_RPC_RECONNECT_MAX) {
+    rpcGaveUp = true
+    rpcGaveUpTrackId = rpcLastActivity?.trackId || ''
     console.warn(
       '[Discord RPC] Max reconnect attempts reached; change track or re-enable RPC to retry.'
     )
     return
   }
-  clearRpcRetryTimer()
 
   const delay = Math.min(5000 * Math.pow(2, rpcReconnectAttempts), 60000)
   rpcReconnectAttempts += 1
   console.log(`[Discord RPC] Reconnect scheduled in ${delay}ms (${reason})`)
   rpcRetryTimer = setTimeout(() => {
-    if (rpcLastActivity) initDiscordRPC()
+    rpcRetryTimer = null
+    if (rpcLastActivity && !rpcGaveUp) initDiscordRPC()
   }, delay)
 }
 
@@ -2359,7 +2728,8 @@ function initDiscordRPC() {
       if (rpcClient !== client) return
       rpcReady = true
       rpcConnecting = false
-      rpcReconnectAttempts = 0
+      resetDiscordRpcGiveUp()
+      rpcLastConnectErrorLogAt = 0
       console.log('[Discord RPC] Connected!')
       if (rpcLastActivity) {
         applyRpcActivity(rpcLastActivity, true, rpcActivityRevision).catch(() => {})
@@ -2368,7 +2738,7 @@ function initDiscordRPC() {
 
     client.on('disconnected', () => {
       if (rpcClient !== client) return
-      console.log('[Discord RPC] Disconnected')
+      logDiscordConnectFailure('log', '[Discord RPC] Disconnected')
       rpcReady = false
       rpcConnecting = false
       destroyRpcClient()
@@ -2377,7 +2747,7 @@ function initDiscordRPC() {
 
     client.on('error', (err) => {
       if (rpcClient !== client) return
-      console.log('[Discord RPC] Client error:', err?.message || err)
+      logDiscordConnectFailure('log', `[Discord RPC] Client error: ${err?.message || err}`)
       rpcReady = false
       rpcConnecting = false
       destroyRpcClient()
@@ -2386,14 +2756,14 @@ function initDiscordRPC() {
 
     client.login({ clientId: DISCORD_CLIENT_ID }).catch((err) => {
       if (rpcClient !== client) return
-      console.log('[Discord RPC] Login failed:', err.message)
+      logDiscordConnectFailure('log', `[Discord RPC] Login failed: ${err?.message || err}`)
       rpcReady = false
       rpcConnecting = false
       destroyRpcClient()
       scheduleDiscordReconnect('login-failed')
     })
   } catch (e) {
-    console.log('[Discord RPC] Init error:', e.message)
+    logDiscordConnectFailure('log', `[Discord RPC] Init error: ${e?.message || e}`)
     rpcReady = false
     rpcConnecting = false
     destroyRpcClient()
@@ -3575,7 +3945,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('netease:searchArtist', async (_, payload) => {
     try {
       const artistName = String(payload?.artist || '').trim()
-      if (!artistName) return []
+      if (!artistName) return { ok: true, artists: [] }
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
       const res = await cachedNeteaseCloudSearch('searchArtist', {
         keywords: artistName,
@@ -3583,43 +3953,55 @@ app.whenReady().then(async () => {
         limit: 8
       }, auth.valid ? auth.cookie : '')
       const artists = res?.body?.result?.artists
-      if (!Array.isArray(artists)) return []
-      return artists.map((artist) => ({
-        id: artist.id,
-        name: artist.name || '',
-        alias: Array.isArray(artist.alias) ? artist.alias.filter(Boolean) : [],
-        picUrl: artist.picUrl || artist.img1v1Url || artist.avatar || '',
-        img1v1Url: artist.img1v1Url || '',
-        albumSize: artist.albumSize || 0,
-        musicSize: artist.musicSize || 0
-      }))
+      if (!res) {
+        return {
+          ok: false,
+          artists: [],
+          error: 'rate_limited_or_network',
+          transient: true,
+          retryAfterMs: Math.max(0, neteaseCloudSearchCooldownUntil - Date.now())
+        }
+      }
+      if (!Array.isArray(artists)) return { ok: true, artists: [] }
+      return {
+        ok: true,
+        artists: artists.map((artist) => ({
+          id: artist.id,
+          name: artist.name || '',
+          alias: Array.isArray(artist.alias) ? artist.alias.filter(Boolean) : [],
+          picUrl: artist.picUrl || artist.img1v1Url || artist.avatar || '',
+          img1v1Url: artist.img1v1Url || '',
+          albumSize: artist.albumSize || 0,
+          musicSize: artist.musicSize || 0
+        }))
+      }
     } catch (e) {
       console.warn('[netease:searchArtist]', e?.message || e)
-      return []
+      return { ok: false, artists: [], error: e?.message || 'network_error', transient: true }
     }
   })
 
   ipcMain.handle('qqMusic:searchArtist', async (_, payload) => {
     try {
       const auth = await resolveQqMusicAuthState(payload?.cookie || '')
-      return await searchQqMusicArtists({
+      const artists = await searchQqMusicArtists({
         artist: payload?.artist || '',
         cookie: auth.cookie || '',
         limit: payload?.limit || 8
       })
+      return { ok: true, artists }
     } catch (e) {
       console.error('[qqMusic:searchArtist]', e?.message || e)
-      return []
+      return { ok: false, artists: [], error: e?.message || 'network_error', transient: true }
     }
   })
 
   ipcMain.handle('artistAvatar:fetchImageDataUrl', async (_, url) => {
     try {
-      const dataUrl = await fetchImageDataUrl(url)
-      return { ok: !!dataUrl, dataUrl: dataUrl || '' }
+      return await fetchImageDataUrl(url)
     } catch (e) {
       console.error('[artistAvatar:fetchImageDataUrl]', e?.message || e)
-      return { ok: false, dataUrl: '' }
+      return { ok: false, dataUrl: '', error: 'network_error', transient: true }
     }
   })
 
@@ -3847,11 +4229,16 @@ app.whenReady().then(async () => {
         block.match(/"ownerText":\{"runs":\[\{"text":"([^"]+)"/) ||
         block.match(/"longBylineText":\{"runs":\[\{"text":"([^"]+)"/)
       const durationMatch = block.match(/"lengthText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/)
+      const viewCountMatch =
+        block.match(/"viewCountText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/) ||
+        block.match(/"shortViewCountText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/)
+      const viewCountText = viewCountMatch?.[1] || viewCountMatch?.[2] || ''
       items.push({
         id: idMatch[1],
         title: titleMatch?.[1] || 'unknown',
         author: ownerMatch?.[1] || '',
         duration: durationMatch?.[1] || durationMatch?.[2] || '',
+        ...(viewCountText ? { viewCountText } : {}),
         source: 'youtube'
       })
       if (items.length >= 8) break
@@ -3875,6 +4262,7 @@ app.whenReady().then(async () => {
       source: 'bilibili',
       resolution: hit.resolution,
       author: hit.author,
+      ...(hit.playCount > 0 ? { playCount: hit.playCount } : {}),
       score: hit.score,
       autoAccepted: hit.autoAccepted === true,
       autoRejectReason: hit.autoRejectReason || '',
@@ -3996,6 +4384,7 @@ app.whenReady().then(async () => {
             source: 'youtube',
             author: hit.author,
             duration: hit.duration,
+            ...(hit.viewCount > 0 ? { viewCount: hit.viewCount } : {}),
             score: hit.score,
             autoAccepted: hit.autoAccepted === true,
             autoRejectReason: hit.autoRejectReason || '',
@@ -5051,9 +5440,18 @@ app.whenReady().then(async () => {
     const revision = rpcActivityRevision
     if (!rpcEnabled || discordRpcQuitting) return
 
+    // If we previously gave up after exhausting reconnect attempts, only try
+    // again when something materially changed (new track). Otherwise the
+    // periodic position-bucket pings would silently re-trigger the whole
+    // connect→fail cycle every 10s and re-spam the console.
+    if (rpcGaveUp) {
+      const nextTrackId = activity?.trackId || ''
+      if (!nextTrackId || nextTrackId === rpcGaveUpTrackId) return
+      resetDiscordRpcGiveUp()
+    }
+
     if (!rpcClient || !rpcReady) {
-      clearRpcRetryTimer()
-      if (!rpcConnecting) initDiscordRPC()
+      if (!rpcConnecting && !rpcRetryTimer) initDiscordRPC()
       return
     }
 
@@ -5088,7 +5486,8 @@ app.whenReady().then(async () => {
     rpcEnabled = !!enabled
     if (enabled) {
       if (discordRpcQuitting) return
-      rpcReconnectAttempts = 0
+      resetDiscordRpcGiveUp()
+      rpcLastConnectErrorLogAt = 0
       if (rpcLastActivity) initDiscordRPC()
     } else {
       rpcLastActivity = null
@@ -5364,6 +5763,194 @@ app.whenReady().then(async () => {
       lyricsDesktopWindow.webContents.send('lyrics-desktop:data', lyricsDesktopLastPayload)
     }
     return { ok: true }
+  })
+
+  ipcMain.handle('lyricsDesktop:updateData', async (_, payload = null) => {
+    if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid_payload' }
+    if (!lyricsDesktopWindow || lyricsDesktopWindow.isDestroyed()) return { ok: false, error: 'no_window' }
+    const payloadSignature = JSON.stringify(payload)
+    if (payloadSignature === lyricsDesktopLastPayloadSignature) return { ok: true, deduped: true }
+    lyricsDesktopLastPayloadSignature = payloadSignature
+    lyricsDesktopLastPayload = payload
+    try {
+      lyricsDesktopWindow.webContents.send('lyrics-desktop:data', payload)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:open', async () => {
+    try {
+      if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+        if (miniPlayerWindow.isMinimized()) miniPlayerWindow.restore()
+        miniPlayerWindow.setSize(
+          MINI_PLAYER_DEFAULT_BOUNDS.width,
+          MINI_PLAYER_DEFAULT_BOUNDS.height,
+          false
+        )
+        miniPlayerWindow.show()
+        miniPlayerWindow.focus()
+        startMiniPlayerMainSyncTimer()
+        miniPlayerPullFromMainRenderer({ force: true })
+        hideMainWindowForMiniPlayer()
+        return { ok: true }
+      }
+
+      const globalState = readAppStateJson()
+      const savedBounds = globalState.miniPlayerBounds || MINI_PLAYER_DEFAULT_BOUNDS
+      const alwaysOnTop = globalState.config?.miniPlayerAlwaysOnTop !== false
+      const appWindowIcon = createAppWindowIcon()
+
+      miniPlayerWindow = new BrowserWindow({
+        width: MINI_PLAYER_DEFAULT_BOUNDS.width,
+        height: MINI_PLAYER_DEFAULT_BOUNDS.height,
+        x: savedBounds.x,
+        y: savedBounds.y,
+        minWidth: 320,
+        minHeight: 64,
+        maxWidth: 430,
+        maxHeight: 74,
+        title: `${APP_NAME} Mini Player`,
+        show: false,
+        frame: false,
+        transparent: true,
+        hasShadow: false,
+        resizable: false,
+        maximizable: false,
+        minimizable: true,
+        skipTaskbar: true,
+        alwaysOnTop,
+        autoHideMenuBar: true,
+        ...(appWindowIcon ? { icon: appWindowIcon } : {}),
+        backgroundThrottling: false,
+        webPreferences: {
+          preload: join(__dirname, '../preload/index.js'),
+          contextIsolation: true,
+          sandbox: false,
+          webSecurity: false
+        }
+      })
+
+      applyMiniPlayerAlwaysOnTop(alwaysOnTop)
+
+      miniPlayerWindow.once('ready-to-show', () => {
+        if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.show()
+      })
+      miniPlayerWindow.on('close', () => {
+        try {
+          if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+            const bounds = miniPlayerWindow.getBounds()
+            const state = readAppStateJson()
+            state.miniPlayerBounds = bounds
+            writeAppStateJson(state)
+          }
+        } catch {
+          // ignore
+        }
+      })
+      miniPlayerWindow.on('closed', () => {
+        stopMiniPlayerMainSyncTimer()
+        miniPlayerWindow = null
+        miniPlayerLastPayloadSignature = ''
+        restoreMainWindowAfterMiniPlayer()
+      })
+
+      let loadUrl
+      if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        const u = new URL(process.env['ELECTRON_RENDERER_URL'])
+        u.searchParams.set('mode', 'mini-player')
+        loadUrl = u.toString()
+      } else {
+        const localUrl = await startRendererHttpServer()
+        const u = new URL(localUrl)
+        u.searchParams.set('mode', 'mini-player')
+        loadUrl = u.toString()
+      }
+      await miniPlayerWindow.loadURL(loadUrl)
+      if (miniPlayerWindow && !miniPlayerWindow.isDestroyed() && !miniPlayerWindow.isVisible()) {
+        miniPlayerWindow.show()
+      }
+      startMiniPlayerMainSyncTimer()
+      miniPlayerPullFromMainRenderer({ force: true })
+      hideMainWindowForMiniPlayer()
+      return { ok: true }
+    } catch (e) {
+      console.error('[miniPlayer] open failed:', e)
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:close', async () => {
+    try {
+      stopMiniPlayerMainSyncTimer()
+      if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+        miniPlayerWindow.close()
+      }
+      miniPlayerWindow = null
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:hide', async () => {
+    try {
+      if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.minimize()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:dismiss', async () => {
+    try {
+      stopMiniPlayerMainSyncTimer()
+      if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.close()
+      miniPlayerWindow = null
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:setAlwaysOnTop', async (_, isAlwaysOnTop) => {
+    try {
+      applyMiniPlayerAlwaysOnTop(isAlwaysOnTop === true)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:ready', async () => {
+    if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+      if (miniPlayerLastPayload && Object.keys(miniPlayerLastPayload).length > 0) {
+        miniPlayerWindow.webContents.send('mini-player:data', miniPlayerLastPayload)
+      }
+      miniPlayerPullFromMainRenderer({ force: true })
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('miniPlayer:updateData', async (_, payload = {}) => {
+    try {
+      sendMiniPlayerPayloadToWindow(payload)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('miniPlayer:command', async (_, message = {}) => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('mini-player:command', message)
+      }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) }
+    }
   })
 
   // === Phone remote control Web app ===
@@ -5721,6 +6308,24 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('youtube:logout', async () => {
+    try {
+      const ses = await getMainWindowSession()
+      const cleared = await clearSessionCookiesForDomains(ses, [
+        '.youtube.com',
+        'youtube.com',
+        '.google.com',
+        'google.com'
+      ])
+      const filePath = getInternalYoutubeCookieFile()
+      if (existsSync(filePath)) fs.rmSync(filePath, { force: true })
+      notifySignInStatusChanged()
+      return { ok: true, removed: cleared.removed, errors: cleared.errors }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
+  })
+
   ipcMain.handle('bilibili:openSignInWindow', async () => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -5734,6 +6339,22 @@ app.whenReady().then(async () => {
       bilibiliSignInWindow = null
     })
     return { ok: true }
+  })
+
+  ipcMain.handle('bilibili:logout', async () => {
+    try {
+      const ses = await getMainWindowSession()
+      const cleared = await clearSessionCookiesForDomains(ses, [
+        '.bilibili.com',
+        'bilibili.com',
+        '.passport.bilibili.com',
+        'passport.bilibili.com'
+      ])
+      notifySignInStatusChanged()
+      return { ok: true, removed: cleared.removed, errors: cleared.errors }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
   })
 
   ipcMain.handle('netease:openSignInWindow', async () => {
@@ -5751,6 +6372,18 @@ app.whenReady().then(async () => {
     return { ok: true }
   })
 
+  ipcMain.handle('netease:logout', async () => {
+    try {
+      const ses = await getMainWindowSession()
+      const cleared = await clearSessionCookiesForDomains(ses, NETEASE_COOKIE_DOMAINS)
+      updateDownloaderSettingsAuth({ neteaseCookie: '' })
+      notifySignInStatusChanged()
+      return { ok: true, removed: cleared.removed, errors: cleared.errors }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
+  })
+
   ipcMain.handle('qqMusic:openSignInWindow', async () => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -5764,6 +6397,18 @@ app.whenReady().then(async () => {
       qqMusicSignInWindow = null
     })
     return { ok: true }
+  })
+
+  ipcMain.handle('qqMusic:logout', async () => {
+    try {
+      const ses = await getMainWindowSession()
+      const cleared = await clearSessionCookiesForDomains(ses, QQ_MUSIC_COOKIE_DOMAINS)
+      updateDownloaderSettingsAuth({ qqMusicCookie: '' })
+      notifySignInStatusChanged()
+      return { ok: true, removed: cleared.removed, errors: cleared.errors }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
   })
 
   ipcMain.handle('netease:getCookie', async (_, preferredCookie = '') => {
@@ -5974,6 +6619,8 @@ app.on('before-quit', (event) => {
   const shouldWaitForRpcClear = !discordRpcQuitCleanupDone && !!rpcClient && rpcReady
   const rpcCleanup = disposeDiscordRpc()
   flushAppStateCacheSync()
+  cleanupMiniPlayerWindow()
+  cleanupLyricsDesktopWindow()
   stopRendererHttpServer().catch(() => {})
   stopWebDavProxyServer().catch(() => {})
   dlnaRenderer.stop().catch(() => {})

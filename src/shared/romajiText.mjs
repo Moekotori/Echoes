@@ -2,6 +2,7 @@ const INLINE_TIMING_TAG_RE = /<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>/g
 const KANA_RE = /[\u3040-\u30ff\u31f0-\u31ff]/
 const CJK_RE = /[\u4e00-\u9fff]/
 const LATIN_RE = /[a-zA-Z]/
+const JAPANESE_HINT_RE = /[\u3040-\u30ff\u31f0-\u31ff\u3005\u3006\u30fc]/
 
 export function sanitizeRomajiSourceText(value) {
   return String(value || '')
@@ -13,11 +14,13 @@ export function sanitizeRomajiSourceText(value) {
 export function shouldRequestGeneratedRomaji(value) {
   const text = sanitizeRomajiSourceText(value)
   if (!text) return false
-  if (KANA_RE.test(text)) return true
+  if (JAPANESE_HINT_RE.test(text)) return true
   if (!CJK_RE.test(text)) return false
   const latinCount = (text.match(LATIN_RE) || []).length
+  const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length
   const compactLength = text.replace(/\s/g, '').length || 1
-  return latinCount / compactLength < 0.25
+  if (cjkCount >= 2 && latinCount / compactLength < 0.65) return true
+  return latinCount / compactLength < 0.35
 }
 
 export function buildRomajiConversionPlan(lyrics, options = {}) {

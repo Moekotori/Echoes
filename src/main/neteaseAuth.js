@@ -2,11 +2,19 @@ import { createRequire } from 'module'
 
 const require = createRequire(import.meta.url)
 
-const NETEASE_COOKIE_DOMAINS = [
+export const NETEASE_COOKIE_DOMAINS = [
+  '.163.com',
+  '163.com',
   '.music.163.com',
   'music.163.com',
+  '.api.music.163.com',
+  'api.music.163.com',
   '.interface.music.163.com',
-  'interface.music.163.com'
+  'interface.music.163.com',
+  '.passport.163.com',
+  'passport.163.com',
+  '.music.126.net',
+  'music.126.net'
 ]
 
 const NETEASE_UA =

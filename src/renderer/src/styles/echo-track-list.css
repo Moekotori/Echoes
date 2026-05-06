@@ -120,12 +120,12 @@
   grid-template-columns:
     48px
     minmax(0, 1fr)
-    64px
-    auto;
+    78px
+    minmax(148px, auto);
   align-items: center;
-  column-gap: 12px;
+  column-gap: 18px;
   min-height: 68px;
-  padding: 0 10px 0 8px !important;
+  padding: 0 24px 0 8px !important;
   margin-bottom: 2px !important;
   border-radius: 8px;
   transition:
@@ -213,8 +213,8 @@
 /* 时长列 */
 .track-row-meta {
   flex: none !important;
-  width: 64px !important;
-  margin-right: 18px !important;
+  width: 78px !important;
+  margin-right: 0 !important;
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
@@ -231,8 +231,9 @@
 .track-add-pl-wrap {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 10px;
   flex-shrink: 0;
+  justify-self: end;
 }
 
 /* 废弃旧的独立音质列（保留 class 不崩溃，但折叠） */
@@ -3749,7 +3750,7 @@
 }
 
 .playlist-scroll-shell .playlist--custom-scrollbar {
-  padding-right: 18px;
+  padding-right: 20px;
   scrollbar-width: none !important;
   -ms-overflow-style: none;
 }
@@ -3777,7 +3778,7 @@
 .playlist-scrollbar {
   position: absolute;
   top: 12px;
-  right: 6px;
+  right: -8px;
   bottom: 12px;
   width: 7px;
   padding: 0;
@@ -3819,4 +3820,470 @@
     rgba(255, 255, 255, 0.22)
   );
   opacity: 0.62;
+}
+
+/* Keep the browser search as inline text instead of a visible input box. */
+.browser-panel .search-container,
+.browser-panel .search-container:focus-within,
+.app-container:has(.app-wallpaper-backdrop) .browser-panel .search-container,
+:root[data-echo-theme-tone='dark'] .browser-panel .search-container,
+:root[data-echo-glass-blur='off'] .browser-panel .search-container,
+:root[data-echo-glass-transparent='true'] .browser-panel .search-container,
+:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-panel .search-container,
+.app-root.glass-clear .browser-panel .search-container {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.browser-panel .search-container input,
+.browser-panel .search-container input:focus,
+.browser-panel .search-container input:focus-visible,
+:root[data-echo-theme-tone='dark'] .browser-panel .search-container input,
+:root[data-echo-theme-tone='dark'] .browser-panel .search-container input:focus,
+:root[data-echo-theme-tone='dark'] .browser-panel .search-container input:focus-visible {
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Dark themes should not show the light fade used to soften the player dock in light mode. */
+:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) {
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 -10px 26px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics)::before {
+  content: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+/* Give row actions and the custom scrollbar their own breathing room. */
+.playlist-virtual-list .track-item {
+  grid-template-columns: 48px minmax(0, 1fr) 78px minmax(148px, auto) !important;
+  column-gap: 18px !important;
+  padding-right: 24px !important;
+}
+
+.playlist-virtual-list .track-row-meta {
+  width: 78px !important;
+  margin-right: 0 !important;
+}
+
+.playlist-virtual-list .track-add-pl-wrap {
+  gap: 10px !important;
+  justify-self: end !important;
+}
+
+.playlist-scrollbar {
+  top: 18px;
+  right: -8px;
+  bottom: 18px;
+}
+
+/* Rebase dark themes onto dark surfaces instead of pale glass. */
+:root[data-echo-theme-tone='dark'] {
+  --echo-bg: color-mix(in srgb, var(--bg-color, #11121d) 90%, #02040a);
+  --echo-surface: color-mix(in srgb, var(--glass-bg, rgba(24, 24, 38, 0.72)) 62%, #070a12);
+  --echo-surface-muted: color-mix(in srgb, var(--glass-bg, rgba(24, 24, 38, 0.72)) 48%, #070a12);
+  --echo-surface-hover: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 10%,
+    rgba(255, 255, 255, 0.045)
+  );
+  --echo-text-primary: color-mix(in srgb, var(--text-main, #f7f7ff) 92%, #ffffff);
+  --echo-text-secondary: color-mix(in srgb, var(--text-soft, #cbd1de) 80%, #94a0b5);
+  --echo-text-tertiary: rgba(192, 200, 218, 0.62);
+  --echo-border: rgba(255, 255, 255, 0.075);
+  --echo-border-strong: rgba(255, 255, 255, 0.12);
+  --echo-row-hover-bg: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 10%,
+    rgba(255, 255, 255, 0.04)
+  );
+  --echo-active-bg: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, rgba(255, 255, 255, 0.055)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 10%, rgba(255, 255, 255, 0.036))
+  );
+  --echo-active-border: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 34%,
+    rgba(255, 255, 255, 0.1)
+  );
+  --surface-elevated: rgba(255, 255, 255, 0.052);
+}
+
+:root[data-echo-theme-tone='dark'] .app-root,
+:root[data-echo-theme-tone='dark'] .app-container {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.025), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--echo-bg) 86%, #141827), #05070d) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .app-wallpaper-backdrop {
+  opacity: 0.74 !important;
+  filter: blur(var(--wallpaper-blur, 22px)) saturate(0.92) brightness(0.68) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .nav-rail,
+:root[data-echo-theme-tone='dark'] .browser-panel,
+:root[data-echo-theme-tone='dark'] .settings-page,
+:root[data-echo-theme-tone='dark'] .playlist,
+:root[data-echo-theme-tone='dark'] .lyrics-main-column,
+:root[data-echo-theme-tone='dark'] .queue-preview-panel,
+:root[data-echo-theme-tone='dark'] .queue-filter-row,
+:root[data-echo-theme-tone='dark'] .folder-browser,
+:root[data-echo-theme-tone='dark'] .browser-toolbar-group,
+:root[data-echo-theme-tone='dark'] .settings-nav,
+:root[data-echo-theme-tone='dark'] .settings-section,
+:root[data-echo-theme-tone='dark'] .settings-disclosure,
+:root[data-echo-theme-tone='dark'] .album-filter-pill,
+:root[data-echo-theme-tone='dark'] .deck-popover,
+:root[data-echo-theme-tone='dark'] .deck-popover--bottom-tools,
+:root[data-echo-theme-tone='dark'] .deck-popover--speed {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.014)),
+    var(--echo-surface) !important;
+  border-color: var(--echo-border) !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045) !important;
+  color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .playlist,
+:root[data-echo-theme-tone='dark'] .playlist-virtual-list {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006)),
+    var(--echo-surface-muted) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .track-item,
+:root[data-echo-theme-tone='dark'] .track-item--in-pl,
+:root[data-echo-theme-tone='dark'] .queue-preview-item,
+:root[data-echo-theme-tone='dark'] .folder-item,
+:root[data-echo-theme-tone='dark'] .album-card,
+:root[data-echo-theme-tone='dark'] .artist-card,
+:root[data-echo-theme-tone='dark'] .playlist-card,
+:root[data-echo-theme-tone='dark'] .user-playlist-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.012)),
+    color-mix(in srgb, var(--echo-surface-muted) 86%, #070a12) !important;
+  border-color: var(--echo-border) !important;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.036) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .track-item:hover,
+:root[data-echo-theme-tone='dark'] .track-item--in-pl:hover,
+:root[data-echo-theme-tone='dark'] .queue-preview-item:hover,
+:root[data-echo-theme-tone='dark'] .folder-item:hover,
+:root[data-echo-theme-tone='dark'] .album-card:hover,
+:root[data-echo-theme-tone='dark'] .artist-card:hover,
+:root[data-echo-theme-tone='dark'] .playlist-card:hover,
+:root[data-echo-theme-tone='dark'] .user-playlist-card:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.046), rgba(255, 255, 255, 0.018)),
+    var(--echo-row-hover-bg) !important;
+  border-color: var(--echo-border-strong) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .track-item.is-active,
+:root[data-echo-theme-tone='dark'] .track-item--active,
+:root[data-echo-theme-tone='dark'] .queue-preview-item.is-active,
+:root[data-echo-theme-tone='dark'] .folder-item.is-active,
+:root[data-echo-theme-tone='dark'] .nav-rail-item.is-active,
+:root[data-echo-theme-tone='dark'] .nav-rail-subitem.is-active {
+  background: var(--echo-active-bg) !important;
+  border-color: var(--echo-active-border) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .browser-toolbar-btn,
+:root[data-echo-theme-tone='dark'] .folder-sort-trigger,
+:root[data-echo-theme-tone='dark'] .list-filter-chip,
+:root[data-echo-theme-tone='dark'] .queue-toggle-btn,
+:root[data-echo-theme-tone='dark'] .track-like-btn,
+:root[data-echo-theme-tone='dark'] .track-add-pl-btn,
+:root[data-echo-theme-tone='dark'] .track-remove-pl-btn,
+:root[data-echo-theme-tone='dark'] .nav-rail-icon-btn,
+:root[data-echo-theme-tone='dark'] .nav-rail-item,
+:root[data-echo-theme-tone='dark'] .nav-rail-subitem,
+:root[data-echo-theme-tone='dark'] .album-filter-pill button,
+:root[data-echo-theme-tone='dark'] .import-btn,
+:root[data-echo-theme-tone='dark'] .deck-popover-btn,
+:root[data-echo-theme-tone='dark'] .user-playlist-card-icon-btn,
+:root[data-echo-theme-tone='dark'] .user-playlist-detail-btn,
+:root[data-echo-theme-tone='dark'] .bottom-bar-transport,
+:root[data-echo-theme-tone='dark'] .bottom-bar-toolset,
+:root[data-echo-theme-tone='dark'] .bottom-bar-right .btn--transport {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.022)),
+    rgba(255, 255, 255, 0.026) !important;
+  border-color: var(--echo-border) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 18px rgba(0, 0, 0, 0.13) !important;
+  color: var(--echo-text-secondary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .browser-toolbar-btn:hover,
+:root[data-echo-theme-tone='dark'] .folder-sort-trigger:hover,
+:root[data-echo-theme-tone='dark'] .list-filter-chip:hover,
+:root[data-echo-theme-tone='dark'] .queue-toggle-btn:hover,
+:root[data-echo-theme-tone='dark'] .track-like-btn:hover,
+:root[data-echo-theme-tone='dark'] .track-add-pl-btn:hover,
+:root[data-echo-theme-tone='dark'] .track-remove-pl-btn:hover,
+:root[data-echo-theme-tone='dark'] .nav-rail-icon-btn:hover,
+:root[data-echo-theme-tone='dark'] .nav-rail-item:hover,
+:root[data-echo-theme-tone='dark'] .nav-rail-subitem:hover,
+:root[data-echo-theme-tone='dark'] .album-filter-pill button:hover,
+:root[data-echo-theme-tone='dark'] .import-btn:hover,
+:root[data-echo-theme-tone='dark'] .deck-popover-btn:hover,
+:root[data-echo-theme-tone='dark'] .user-playlist-card-icon-btn:hover,
+:root[data-echo-theme-tone='dark'] .user-playlist-detail-btn:hover,
+:root[data-echo-theme-tone='dark'] .bottom-bar-right .btn--transport:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.064), rgba(255, 255, 255, 0.028)),
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, rgba(255, 255, 255, 0.035)) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, rgba(255, 255, 255, 0.1)) !important;
+  color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item:hover,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn:hover,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem:hover {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.055), transparent 78%) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item.active,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn.active,
+:root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem.active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent), transparent 74%) !important;
+  border-color: transparent !important;
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--accent-blue)) !important;
+  color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.012)),
+    color-mix(in srgb, var(--bg-color, #11121d) 78%, #05070d) !important;
+  border-top-color: var(--echo-border) !important;
+  box-shadow:
+    0 -14px 32px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.038) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .track-title,
+:root[data-echo-theme-tone='dark'] .playlist-title,
+:root[data-echo-theme-tone='dark'] .settings-section-title,
+:root[data-echo-theme-tone='dark'] .settings-page-title,
+:root[data-echo-theme-tone='dark'] .folder-title {
+  color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .track-artist,
+:root[data-echo-theme-tone='dark'] .track-row-meta,
+:root[data-echo-theme-tone='dark'] .settings-section-description,
+:root[data-echo-theme-tone='dark'] .playlist-subtitle,
+:root[data-echo-theme-tone='dark'] .folder-meta {
+  color: var(--echo-text-secondary) !important;
+}
+
+/* Settings subsections and the EQ editor should inherit the active theme instead of fixed white glass. */
+.settings-page .setting-subsection {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 88%, var(--theme-primary, var(--accent-pink)) 6%),
+      color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 74%, transparent)
+    ) !important;
+  border: 1px solid color-mix(in srgb, var(--settings-glass-border, var(--glass-border)) 82%, transparent);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, var(--text-main) 6%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 30%, transparent);
+  color: var(--text-main);
+}
+
+.settings-page .echo-clean-eq-section {
+  --eq-clean-surface: color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 88%, var(--theme-primary, var(--accent-pink)) 4%);
+  --eq-clean-card: color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 78%, transparent);
+  --eq-clean-border: color-mix(in srgb, var(--settings-glass-border, var(--glass-border)) 86%, transparent);
+  --eq-clean-text: var(--text-main);
+  --eq-clean-muted: var(--text-soft);
+  --eq-clean-shadow: 0 18px 42px color-mix(in srgb, var(--text-main) 8%, transparent);
+  --eq-canvas-zero-grid: color-mix(in srgb, var(--text-main) 20%, transparent);
+  --eq-canvas-grid: color-mix(in srgb, var(--text-main) 7%, transparent);
+  --eq-canvas-label: color-mix(in srgb, var(--text-soft) 76%, transparent);
+  --eq-canvas-soft-label: color-mix(in srgb, var(--text-soft) 70%, transparent);
+  --eq-canvas-active-label: color-mix(in srgb, var(--text-main) 82%, transparent);
+  --eq-canvas-area-top: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent);
+  --eq-canvas-area-mid: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 7%, transparent);
+  --eq-canvas-band-fill: color-mix(in srgb, var(--eq-clean-card) 78%, #ffffff 18%);
+  --eq-canvas-band-disabled-fill: color-mix(in srgb, var(--eq-clean-card) 70%, transparent);
+  --eq-canvas-band-stroke: color-mix(in srgb, var(--text-main) 58%, transparent);
+  --eq-canvas-band-disabled-stroke: color-mix(in srgb, var(--text-soft) 42%, transparent);
+  --eq-canvas-band-label: color-mix(in srgb, var(--text-main) 82%, transparent);
+  --eq-canvas-band-active-label: color-mix(in srgb, var(--text-main) 92%, transparent);
+  --eq-canvas-band-disabled-label: color-mix(in srgb, var(--text-soft) 62%, transparent);
+  --eq-canvas-disabled-mark: color-mix(in srgb, var(--text-soft) 76%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent), color-mix(in srgb, #ffffff 6%, transparent)),
+    var(--eq-clean-surface) !important;
+  border-color: var(--eq-clean-border) !important;
+  color: var(--eq-clean-text) !important;
+}
+
+.settings-page .eq-advanced-summary,
+.settings-page .eq-clean-status-pill,
+.settings-page .eq-status-toggle,
+.settings-page .eq-toolbar-btn,
+.settings-page .dropdown-trigger,
+.settings-page .eq-toolbar-control,
+.settings-page .eq-toolbar-select,
+.settings-page .eq-filter-type-select,
+.settings-page .dropdown-menu,
+.settings-page .eq-number-input,
+.settings-page .eq-mini-btn {
+  background: color-mix(in srgb, var(--eq-clean-card) 88%, transparent) !important;
+  border-color: var(--eq-clean-border) !important;
+  color: var(--eq-clean-text) !important;
+}
+
+.settings-page .hi-fi-eq-plot-main-wrapper.echo-clean-eq-panel,
+.settings-page .eq-canvas-wrapper,
+.settings-page .eq-selected-info-bar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 14%, transparent), color-mix(in srgb, #ffffff 4%, transparent)),
+    var(--eq-clean-card) !important;
+  border-color: var(--eq-clean-border) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent) !important;
+}
+
+.settings-page .hi-fi-eq-plot-main-wrapper.eq-bypassed {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--text-main) 5%, transparent), transparent),
+    var(--eq-clean-card) !important;
+}
+
+.settings-page .eq-canvas-wrapper {
+  background:
+    linear-gradient(to right, var(--eq-canvas-grid, rgba(0, 0, 0, 0.045)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--eq-canvas-grid, rgba(0, 0, 0, 0.045)) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 14%, transparent), color-mix(in srgb, #ffffff 4%, transparent)),
+    var(--eq-clean-card) !important;
+  background-size:
+    12.5% 100%,
+    100% 25%,
+    auto,
+    auto;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .setting-subsection {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.014)),
+    color-mix(in srgb, var(--echo-surface) 86%, var(--theme-accent, var(--accent-blue)) 6%) !important;
+  border-color: var(--echo-border) !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045) !important;
+  color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .echo-clean-eq-section {
+  --eq-clean-surface: color-mix(in srgb, var(--echo-surface) 88%, var(--theme-accent, var(--accent-blue)) 5%);
+  --eq-clean-card: color-mix(in srgb, var(--echo-surface-muted) 88%, rgba(255, 255, 255, 0.035));
+  --eq-clean-border: var(--echo-border);
+  --eq-clean-text: var(--echo-text-primary);
+  --eq-clean-muted: var(--echo-text-secondary);
+  --eq-clean-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  --eq-canvas-zero-grid: rgba(255, 255, 255, 0.18);
+  --eq-canvas-grid: rgba(255, 255, 255, 0.065);
+  --eq-canvas-label: rgba(222, 232, 246, 0.58);
+  --eq-canvas-soft-label: rgba(222, 232, 246, 0.7);
+  --eq-canvas-active-label: rgba(246, 249, 255, 0.84);
+  --eq-canvas-area-top: rgba(255, 255, 255, 0.085);
+  --eq-canvas-area-mid: rgba(139, 160, 194, 0.1);
+  --eq-canvas-area-top-bypassed: rgba(255, 255, 255, 0.05);
+  --eq-canvas-area-mid-bypassed: rgba(255, 255, 255, 0.024);
+  --eq-canvas-curve: rgba(238, 244, 255, 0.92);
+  --eq-canvas-curve-bypassed: rgba(190, 201, 219, 0.48);
+  --eq-canvas-band-fill: rgba(15, 24, 38, 0.94);
+  --eq-canvas-band-disabled-fill: rgba(20, 28, 42, 0.82);
+  --eq-canvas-band-stroke: rgba(231, 239, 252, 0.64);
+  --eq-canvas-band-disabled-stroke: rgba(190, 201, 219, 0.38);
+  --eq-canvas-band-label: rgba(239, 245, 255, 0.8);
+  --eq-canvas-band-active-label: rgba(255, 255, 255, 0.95);
+  --eq-canvas-band-disabled-label: rgba(190, 201, 219, 0.6);
+  --eq-canvas-disabled-mark: rgba(190, 201, 219, 0.74);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.038), rgba(255, 255, 255, 0.016)),
+    var(--eq-clean-surface) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    var(--eq-clean-shadow) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .eq-advanced-summary,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-clean-status-pill,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-status-toggle,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-toolbar-btn,
+:root[data-echo-theme-tone='dark'] .settings-page .dropdown-trigger,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-toolbar-control,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-toolbar-select,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-filter-type-select,
+:root[data-echo-theme-tone='dark'] .settings-page .dropdown-menu,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-number-input,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-mini-btn {
+  background: color-mix(in srgb, var(--eq-clean-card) 82%, rgba(255, 255, 255, 0.026)) !important;
+  border-color: var(--eq-clean-border) !important;
+  color: var(--eq-clean-text) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .eq-advanced-summary small,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-advanced-chevron,
+:root[data-echo-theme-tone='dark'] .settings-page .dropdown-item,
+:root[data-echo-theme-tone='dark'] .settings-page .info-item,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-selected-info-bar .eq-shelf-hint {
+  color: var(--eq-clean-muted) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .hi-fi-eq-plot-main-wrapper.echo-clean-eq-panel,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-canvas-wrapper,
+:root[data-echo-theme-tone='dark'] .settings-page .eq-selected-info-bar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    var(--eq-clean-card) !important;
+  border-color: var(--eq-clean-border) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .settings-page .eq-canvas-wrapper {
+  background:
+    linear-gradient(to right, var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    var(--eq-clean-card) !important;
+  background-size:
+    12.5% 100%,
+    100% 25%,
+    auto,
+    auto;
 }

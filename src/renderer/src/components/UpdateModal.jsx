@@ -23,11 +23,11 @@ export default function UpdateModal({
           if (data && data.body) {
             setReleaseNotesRaw(data.body)
           } else {
-            setReleaseNotesRaw(t('updateModal.noNotesFound', '暂无详细更新日志。'))
+            setReleaseNotesRaw(t('updateModal.noNotesFound'))
           }
         })
         .catch(() => {
-          setReleaseNotesRaw(t('updateModal.fetchFailed', '获取更新日志失败...'))
+          setReleaseNotesRaw(t('updateModal.fetchFailed'))
         })
         .finally(() => {
           setIsLoading(false)
@@ -48,13 +48,13 @@ export default function UpdateModal({
   }
 
   const renderContent = () => {
-    const defaultText = isDownloaded ? t('updateModal.readyToInstall', '新版本已下载完毕，安装后即可体验最新功能！') : t('updateModal.discovering', 'ECHO 有新的版本可用，正在为您下载中...')
+    const defaultText = isDownloaded ? t('updateModal.readyToInstall') : t('updateModal.discovering')
 
     return (
       <div className="update-modal-body">
         {isLoading ? (
           <div className="update-modal-loader">
-            <RefreshCw className="spin" size={18} /> {t('updateModal.loadingNotes', '正在获取更新日志...')}
+            <RefreshCw className="spin" size={18} /> {t('updateModal.loadingNotes')}
           </div>
         ) : (
           <div
@@ -74,10 +74,10 @@ export default function UpdateModal({
         <div className="update-modal-header">
           <div className="update-modal-title">
             <Package size={20} strokeWidth={2} />
-            <span>{t('updateModal.title', '发现新版本')} v{version}</span>
+            <span>{t('updateModal.title')} v{version}</span>
           </div>
           {isDownloaded && (
-            <button className="update-modal-close" onClick={onClose} title={t('common.close', '关闭')}>
+            <button className="update-modal-close" onClick={onClose} title={t('aria.close')}>
               <X size={20} strokeWidth={2.5} />
             </button>
           )}
@@ -90,7 +90,9 @@ export default function UpdateModal({
             <div className="update-modal-progress-wrapper">
               <div className="update-modal-progress-label">
                 <Download size={14} /> 
-                {isDownloading ? `${t('updateModal.downloading', '正在下载')}... ${percent}%` : t('updateModal.startingDownload', '准备下载中...')}
+                {isDownloading
+                  ? `${t('updateModal.downloading')}... ${percent}%`
+                  : t('updateModal.startingDownload')}
               </div>
               <div className="update-modal-progress-bar">
                 <div 
@@ -102,11 +104,11 @@ export default function UpdateModal({
           ) : isDownloaded ? (
             <div className="update-modal-actions">
               <button className="update-modal-btn-secondary" onClick={onClose}>
-                {t('updateModal.installLater', '稍后安装')}
+                {t('updateModal.installLater')}
               </button>
               <button className="update-modal-btn-primary" onClick={handleInstall}>
                 <CheckCircle size={16} />
-                {t('updateModal.installNow', '重启并安装')}
+                {t('updateModal.installNow')}
               </button>
             </div>
           ) : null}

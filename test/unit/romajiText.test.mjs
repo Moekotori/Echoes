@@ -12,6 +12,12 @@ test('sanitizeRomajiSourceText removes enhanced LRC timing tags', () => {
   assert.equal(sanitizeRomajiSourceText('<00:12.34>君の <00:13.00>名は'), '君の 名は')
 })
 
+test('shouldRequestGeneratedRomaji keeps mixed Japanese and Latin lines eligible', () => {
+  assert.equal(shouldRequestGeneratedRomaji('\u541b\u306e\u540d\u306f - intro'), true)
+  assert.equal(shouldRequestGeneratedRomaji('\u5fc3\u304c Dancing'), true)
+  assert.equal(shouldRequestGeneratedRomaji('Dancing in the night'), false)
+})
+
 test('shouldRequestGeneratedRomaji targets Japanese lyric text', () => {
   assert.equal(shouldRequestGeneratedRomaji('君の名は'), true)
   assert.equal(shouldRequestGeneratedRomaji('ありがとう'), true)

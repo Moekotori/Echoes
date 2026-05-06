@@ -49,6 +49,18 @@ export const compareTrackOrder = (a, b) => {
   })
 }
 
+export const compareTrackFrequent = (a, b, trackStats = {}) => {
+  const statA = trackStats?.[a?.path] || {}
+  const statB = trackStats?.[b?.path] || {}
+  const playDelta = Number(statB.playCount || 0) - Number(statA.playCount || 0)
+  if (playDelta !== 0) return playDelta
+
+  const lastPlayedDelta = Number(statB.lastPlayedAt || 0) - Number(statA.lastPlayedAt || 0)
+  if (lastPlayedDelta !== 0) return lastPlayedDelta
+
+  return compareTrackOrder(a, b)
+}
+
 export const parseTrackInfo = (track, meta) => {
   const rawName = track?.name || ''
   const fileName = stripExtension(rawName)
@@ -86,5 +98,76 @@ export const parseTrackInfo = (track, meta) => {
     discNo: meta?.discNo ?? null,
     duration: meta?.duration || 0,
     sizeBytes: track?.sizeBytes || 0
+  }
+}
+
+export function getEffectiveTrackMeta(trackMetaMap = {}, displayMetadataOverrides = {}, path = '') {
+  const baseMeta = path ? trackMetaMap?.[path] || null : null
+  const override = path ? displayMetadataOverrides?.[path] || null : null
+  if (!override) return baseMeta
+  return {
+    ...(baseMeta || {}),
+    ...override,
+    cover: override?.cover || baseMeta?.cover || null
+  }
+}
+
+export function buildParsedPlaylistWithCache(
+  previousCache,
+  playlist = [],
+  trackMetaMap = {},
+  displayMetadataOverrides = {}
+) {
+  const previousEntries =
+    previousCache?.entries instanceof Map ? previousCache.entries : new Map()
+  const nextEntries = new Map()
+  const hasOverrides =
+    displayMetadataOverrides &&
+    typeof displayMetadataOverrides === 'object' &&
+    Object.keys(displayMetadataOverrides).length > 0
+
+  const items = playlist.map((track, originalIdx) => {
+    const path = track?.path || ''
+    const baseMeta = path ? trackMetaMap?.[path] || null : null
+    const override = hasOverrides && path ? displayMetadataOverrides?.[path] || null : null
+    const cacheKey = `${path || '__missing_path__'}\u0000${originalIdx}`
+    const previous = previousEntries.get(cacheKey)
+
+    if (
+      previous &&
+      previous.track === track &&
+      previous.baseMeta === baseMeta &&
+      previous.override === override
+    ) {
+      nextEntries.set(cacheKey, previous)
+      return previous.item
+    }
+
+    const meta = override
+      ? {
+          ...(baseMeta || {}),
+          ...override,
+          cover: override?.cover || baseMeta?.cover || null
+        }
+      : baseMeta
+    const item = {
+      ...track,
+      originalIdx,
+      info: parseTrackInfo(track, meta)
+    }
+    nextEntries.set(cacheKey, {
+      track,
+      baseMeta,
+      override,
+      item
+    })
+    return item
+  })
+
+  return {
+    items,
+    cache: {
+      entries: nextEntries
+    }
   }
 }

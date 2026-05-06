@@ -135,7 +135,8 @@ export function initCrashReporter(getAudioEngineStatus = null) {
     writeCrashReport('GPUCrash', new Error(`GPU process crashed (killed: ${killed})`))
   })
 
-  console.log(`[CrashReporter] All handlers registered. Reports → ${getCrashDir()}`)
+  // Avoid Unicode arrows in Windows consoles (can render as mojibake).
+  console.log(`[CrashReporter] All handlers registered. Reports -> ${getCrashDir()}`)
 }
 
 /**

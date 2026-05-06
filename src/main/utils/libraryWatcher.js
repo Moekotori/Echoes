@@ -20,6 +20,8 @@ const SUPPORTED_AUDIO_EXTS = new Set([
   '.m4b',
   '.caf'
 ])
+const RECURSIVE_WATCH_SUPPORTED =
+  typeof process !== 'undefined' && (process.platform === 'win32' || process.platform === 'darwin')
 
 function normalizeFolderPath(folderPath) {
   if (typeof folderPath !== 'string') return ''
@@ -173,6 +175,15 @@ function collectDirectoriesForFolders(folders) {
     collectDirectoriesRecursive(folder, allDirectories, seenDirectories)
   }
   return allDirectories
+}
+
+function resolveRecursiveWatchScanRoot(rootPath, filename) {
+  const root = normalizeFolderPath(rootPath)
+  if (!filename) return root
+  const changedPath = normalizeFolderPath(join(root, String(filename)))
+  if (!changedPath) return root
+  const ext = extname(changedPath).toLowerCase()
+  return SUPPORTED_AUDIO_EXTS.has(ext) ? dirname(changedPath) : changedPath
 }
 
 function collectUnknownDirectoriesForRescan(entryPath, knownDirectories, out, seen) {
@@ -361,9 +372,6 @@ export function createLibraryWatchManager({ onChange }) {
   }
 
   const rebuildWatchers = (scanRoots = watchedFolders) => {
-    const allDirectories = collectDirectoriesForFolders(scanRoots)
-    const nextDirectorySet = new Set(allDirectories)
-
     for (const [dirPath, watcher] of watchers) {
       if (watchedFolders.some((folder) => isPathInsideFolder(dirPath, folder))) continue
       try {
@@ -374,11 +382,17 @@ export function createLibraryWatchManager({ onChange }) {
       watchers.delete(dirPath)
     }
 
-    for (const dirPath of allDirectories) {
-      if (watchers.has(dirPath)) continue
+    const watchDirectories = RECURSIVE_WATCH_SUPPORTED
+      ? watchedFolders
+      : collectDirectoriesForFolders(scanRoots)
+
+    const watchDirectory = (dirPath, options = undefined) => {
+      if (watchers.has(dirPath)) return
       try {
-        const watcher = fs.watch(dirPath, () => {
-          scheduleRescan(dirPath)
+        const watcher = fs.watch(dirPath, options, (_, filename) => {
+          scheduleRescan(
+            options?.recursive ? resolveRecursiveWatchScanRoot(dirPath, filename) : dirPath
+          )
         })
         watcher.on('error', (error) => {
           console.warn(`[libraryWatcher] ${dirPath}:`, error?.message || error)
@@ -392,7 +406,16 @@ export function createLibraryWatchManager({ onChange }) {
         watchers.set(dirPath, watcher)
       } catch (error) {
         console.warn(`[libraryWatcher] failed to watch ${dirPath}:`, error?.message || error)
+        if (options?.recursive) {
+          for (const fallbackDir of collectDirectoriesForFolders([dirPath])) {
+            watchDirectory(fallbackDir)
+          }
+        }
       }
+    }
+
+    for (const dirPath of watchDirectories) {
+      watchDirectory(dirPath, RECURSIVE_WATCH_SUPPORTED ? { recursive: true } : undefined)
     }
   }
 

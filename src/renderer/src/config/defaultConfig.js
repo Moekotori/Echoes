@@ -90,7 +90,7 @@ export const DEFAULT_CONFIG = {
    * 老存档无此字段时视为 0。
    */
   configRevision: 11,
-  /** UI language: en | zh | ja */
+  /** UI language: en | zh | zh-TW | ja */
   uiLocale: 'en',
   useEQ: true,
   eqBands: DEFAULT_EQ_BANDS.map((b) => ({ ...b })),
@@ -118,6 +118,8 @@ export const DEFAULT_CONFIG = {
   phoneRemoteEnabled: false,
   phoneRemotePort: 18888,
   phoneRemoteAllowNoToken: false,
+  miniPlayerAlwaysOnTop: true,
+  miniPlayerAutoHideMainWindow: false,
   showDiscordRPC: true,
   lastfmEnabled: false,
   lastfmSessionKey: null,
@@ -128,8 +130,12 @@ export const DEFAULT_CONFIG = {
   uiBgOpacity: 0.6,
   uiBlur: 20,
   uiFontFamily: 'outfit',
+  /** Preferred fallback for CJK glyphs when the main UI font has no Chinese coverage. */
+  uiCjkFontFamily: 'auto',
   /** 用户选择的本地字体文件路径（.ttf / .otf / .woff / .woff2）；与 uiFontFamily === "custom" 一起使用 */
   uiCustomFontPath: null,
+  /** User-selected CJK fallback font file (.ttf / .otf / .woff / .woff2). */
+  uiCjkCustomFontPath: null,
   uiBaseFontSize: 15,
   /** Main player album cover size in px */
   playerCoverSize: 360,
@@ -154,6 +160,7 @@ export const DEFAULT_CONFIG = {
   /** 沉浸式 MV 背景模糊强度（px），0 为不模糊 */
   mvBackgroundBlur: 0,
   mvMuted: true,
+  autoSearchMV: false,
   autoFallbackToBilibili: true,
   /** 默认 MV 搜索源 */
   mvSource: 'bilibili',

@@ -1,7 +1,22 @@
 import axios from 'axios'
 import { parseCookieString, stringifyCookiePairs } from './neteaseAuth.js'
 
-const QQ_MUSIC_COOKIE_DOMAINS = ['.qq.com', 'qq.com', '.y.qq.com', 'y.qq.com']
+export const QQ_MUSIC_COOKIE_DOMAINS = [
+  '.qq.com',
+  'qq.com',
+  '.y.qq.com',
+  'y.qq.com',
+  '.music.qq.com',
+  'music.qq.com',
+  '.ptlogin2.qq.com',
+  'ptlogin2.qq.com',
+  '.graph.qq.com',
+  'graph.qq.com',
+  '.qzone.qq.com',
+  'qzone.qq.com',
+  '.tenpay.com',
+  'tenpay.com'
+]
 
 export const QQ_MUSIC_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'

@@ -111,27 +111,55 @@ class AudioProcessor extends Transform {
   _transform(chunk, encoding, callback) {
     if (!this.engine.isPlaying) return callback()
 
+    const engine = this.engine
+    const eqProc = engine._bridge ? engine._eqProcessor : null
+    const eqActive = !!(eqProc && !eqProc.bypass)
+    const automixActive = !!engine._automixState && !engine._automixState.cancelled
+    const vol = engine.volume
+    const volActive = Math.abs(vol - 1) > 1e-6
+
+    // Pass-through fast path: when no DSP stage needs to mutate the PCM we can
+    // forward the FFmpeg buffer to the output sink without allocating a new
+    // ArrayBuffer / Float32Array / Buffer per chunk. Hi-res streams (96k/192k
+    // / DSD-to-PCM) hit this dozens of times per second, and the avoided
+    // allocations remove a steady source of GC pressure on the main thread.
+    if (!eqActive && !automixActive && !volActive) {
+      if (engine._outputSink && engine.isPlaying) {
+        this.push(chunk)
+      }
+      this.bytesWritten += chunk.byteLength
+      if (!engine._bridge) {
+        const secondsProcessed =
+          (this.bytesWritten / (this.targetSampleRate * this.channels * 4)) * this.playbackRate
+        engine.playbackTime = Math.max(0, this.startTime + secondsProcessed)
+      }
+      return callback()
+    }
+
     const ab = new ArrayBuffer(chunk.byteLength)
     const srcFloat32 = new Float32Array(chunk.buffer, chunk.byteOffset, chunk.byteLength / 4)
     const dstFloat32 = new Float32Array(ab)
     dstFloat32.set(srcFloat32)
 
-    this.engine._mixAutomixIntoCurrent(dstFloat32, this.targetSampleRate, this.channels)
+    if (automixActive) {
+      engine._mixAutomixIntoCurrent(dstFloat32, this.targetSampleRate, this.channels)
+    }
 
-    if (this.engine._bridge && this.engine._eqProcessor) {
+    if (eqActive) {
       try {
-        this.engine._eqProcessor.processInterleaved(dstFloat32)
+        eqProc.processInterleaved(dstFloat32)
       } catch (e) {
         /* ignore single-frame EQ errors */
       }
     }
 
-    const vol = this.engine.volume
-    for (let i = 0; i < dstFloat32.length; i++) {
-      dstFloat32[i] *= vol
+    if (volActive) {
+      for (let i = 0; i < dstFloat32.length; i++) {
+        dstFloat32[i] *= vol
+      }
     }
 
-    if (this.engine._outputSink && this.engine.isPlaying) {
+    if (engine._outputSink && engine.isPlaying) {
       this.push(Buffer.from(ab))
     }
 
@@ -139,10 +167,10 @@ class AudioProcessor extends Transform {
 
     // Legacy path: update playbackTime from decoded bytes (input side).
     // When native bridge is active this is overridden by output-side position.
-    if (!this.engine._bridge) {
+    if (!engine._bridge) {
       const secondsProcessed =
         (this.bytesWritten / (this.targetSampleRate * this.channels * 4)) * this.playbackRate
-      this.engine.playbackTime = Math.max(0, this.startTime + secondsProcessed)
+      engine.playbackTime = Math.max(0, this.startTime + secondsProcessed)
     }
 
     callback()
@@ -397,11 +425,13 @@ export class AudioEngine {
     this._automixState = null
     this._automixSerial = 0
     this._onAutomixTrackChanged = null
+    this._directNativePipe = false
 
     if (this._useNativeBridge) {
-      console.log('[AudioEngine] Native bridge available — HiFi mode enabled')
+      // Avoid Unicode punctuation in Windows consoles (can render as mojibake).
+      console.log('[AudioEngine] Native bridge available - HiFi mode enabled')
     } else {
-      console.log('[AudioEngine] Native bridge not found — using naudiodon fallback')
+      console.log('[AudioEngine] Native bridge not found - using naudiodon fallback')
     }
   }
 
@@ -420,6 +450,7 @@ export class AudioEngine {
   setGapless(enabled) {
     this._gaplessEnabled = !!enabled
     logLine(`[AudioEngine] Gapless: ${this._gaplessEnabled ? 'enabled' : 'disabled'}`)
+    if (this._gaplessEnabled) this._restartDirectNativePipeWithProcessor('gapless-enabled')
   }
 
   /**
@@ -581,6 +612,21 @@ export class AudioEngine {
     const nextCue = parseCueVirtualPath(nextPath)
     const nextCueStart = nextCue?.start || 0
     const nextCueDuration = nextCue?.end && nextCue.end > nextCueStart ? nextCue.end - nextCueStart : null
+    if (
+      this._directNativePipe &&
+      nextPath &&
+      this.isPlaying &&
+      this._bridge &&
+      this._outputSink &&
+      this.currentFilePath
+    ) {
+      const currentPath = this.currentFilePath
+      const resumeAt = this._bridge.isReady
+        ? Math.max(0, Number(this._bridge.getPosition()) || 0)
+        : Math.max(0, Number(this.playbackTime) || 0)
+      logLine('[AudioEngine] Switching direct native pipe to DSP path for Automix')
+      await this.play(currentPath, resumeAt, this.playbackRate, { forceProcessor: true })
+    }
     if (!nextPath || !this.isPlaying || !this._bridge || !this._outputSink || !this.processor) {
       return { ok: false, skipped: 'inactive' }
     }
@@ -1105,6 +1151,35 @@ export class AudioEngine {
         console.warn('[AudioEngine] EQ update failed:', e?.message)
       }
     }
+    if (this._directNativePipe && this._eqProcessor && !this._eqProcessor.bypass) {
+      this._restartDirectNativePipeWithProcessor('eq-enabled')
+    }
+  }
+
+  _shouldUseDirectNativePipe({ forceProcessor = false } = {}) {
+    if (forceProcessor) return false
+    if (!this._bridge || !this._outputSink) return false
+    if (this._gaplessEnabled) return false
+    if (this.vstBridge?.enabled) return false
+    if (this._automixState && !this._automixState.cancelled) return false
+    if (this._eqProcessor && !this._eqProcessor.bypass) return false
+    if (Math.abs((Number(this.volume) || 0) - 1) > 1e-6) return false
+    return true
+  }
+
+  _restartDirectNativePipeWithProcessor(reason = 'dsp-enabled') {
+    if (!this._directNativePipe || !this.currentFilePath || !this.isPlaying) return
+    const resumeAt =
+      this._bridge && this._bridge.isReady
+        ? Math.max(0, Number(this._bridge.getPosition()) || 0)
+        : Math.max(0, Number(this.playbackTime) || 0)
+    const filePath = this.currentFilePath
+    const rate = this.playbackRate
+    this._directNativePipe = false
+    logLine(`[AudioEngine] Direct native PCM pipe disabled: ${reason}`)
+    this.play(filePath, resumeAt, rate, { forceProcessor: true }).catch((e) => {
+      console.warn('[AudioEngine] Failed to switch direct pipe to DSP path:', e?.message || e)
+    })
   }
 
   loadVstPlugin(pluginPath) {
@@ -1132,7 +1207,8 @@ export class AudioEngine {
     }
   }
 
-  async play(filePath, startTime = 0, playbackRate = 1.0) {
+  async play(filePath, startTime = 0, playbackRate = 1.0, options = {}) {
+    const forceProcessor = !!(options && typeof options === 'object' && options.forceProcessor)
     while (this._playLocked) {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
@@ -1318,10 +1394,20 @@ export class AudioEngine {
         startTime
       })
 
-      this.ffmpegProcess.pipe(this.processor)
+      if (this._shouldUseDirectNativePipe({ forceProcessor })) {
+        this._directNativePipe = true
+        this.processor = null
+        this.ffmpegProcess.pipe(this._outputSink)
+        logLine('[AudioEngine] Direct native PCM pipe active (no JS DSP)')
+      } else {
+        this._directNativePipe = false
+        this.ffmpegProcess.pipe(this.processor)
+      }
 
       // 【绝对安全隔离】：Native 核心管道同样加锁，仅开启时使用 vstBridge
-      if (this.vstBridge && this.vstBridge.enabled) {
+      if (this._directNativePipe) {
+        // The no-DSP path can stream directly from FFmpeg to the native host.
+      } else if (this.vstBridge && this.vstBridge.enabled) {
         this.vstBridge.pipe(this.processor, this._outputSink, targetSampleRate, channels)
       } else if (this._gaplessEnabled) {
         // Gapless: keep bridge writable open when processor ends
@@ -1615,6 +1701,9 @@ export class AudioEngine {
   setVolume(vol) {
     this._userVolume = vol
     this.volume = vol
+    if (this._directNativePipe && Math.abs((Number(vol) || 0) - 1) > 1e-6) {
+      this._restartDirectNativePipeWithProcessor('volume-non-unity')
+    }
   }
   getVolume() {
     return this._userVolume
@@ -1763,6 +1852,7 @@ export class AudioEngine {
       }
       this.processor = null
     }
+    this._directNativePipe = false
 
     if (this.ffmpegProcess) {
       try {

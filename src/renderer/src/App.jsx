@@ -78,7 +78,8 @@ import {
   Gauge,
   RotateCcw,
   Smartphone,
-  Cast
+  Cast,
+  PictureInPicture2
 } from 'lucide-react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import {
@@ -95,6 +96,7 @@ import CastReceiveDrawer from './components/CastReceiveDrawer'
 import CastSendDrawer from './components/CastSendDrawer'
 import ListenTogetherDrawer from './components/ListenTogetherDrawer'
 import PhoneRemoteDrawer from './components/PhoneRemoteDrawer'
+import AccountLoginSettings from './components/AccountLoginSettings'
 import RemoteLibrarySettings from './components/RemoteLibrarySettings'
 import RemoteLibraryView from './components/RemoteLibraryView'
 import QueueSidebarView from './components/QueueSidebarView'
@@ -102,15 +104,13 @@ import HistorySidebarView from './components/HistorySidebarView'
 import LyricsCandidatePicker from './components/LyricsCandidatePicker'
 import MetadataEditorDrawer from './components/MetadataEditorDrawer'
 import ImportedFolderRail from './components/ImportedFolderRail'
+import FolderTreeBrowser from './components/FolderTreeBrowser'
 import { UiButton } from './components/ui'
 import AudioQualityBadges from './components/AudioQualityBadges'
 import { parseAnyLyrics } from './utils/lyricsParse'
 import { getActiveLyricIndex } from '../../shared/lyricsTimeline.mjs'
 import { getLocalLyricsSourceOrder } from '../../shared/lyricsSourcePriority.mjs'
-import {
-  buildRomajiConversionPlan,
-  rememberRomajiCacheValue
-} from '../../shared/romajiText.mjs'
+import { buildRomajiConversionPlan, rememberRomajiCacheValue } from '../../shared/romajiText.mjs'
 import {
   isAutoLyricsCandidateAccepted,
   isLikelyInstrumentalTrack,
@@ -141,22 +141,33 @@ import {
 } from './utils/trackMemoryStorage'
 import { resolveDownloadedSourceMv } from './utils/mvSourceResolve'
 import { buildDesktopLyricsPayload } from './utils/desktopLyricsPayload'
+import { buildMiniPlayerPayload } from './utils/miniPlayerPayload'
+import { matchesSettingsSection } from './utils/settingsSearch'
 import { PRESET_THEMES, hexToRgbStr, hexToRgbaString, generateRandomPalette } from './utils/color'
 import {
   getUiFontStack,
   buildUiCustomFontFaceCss,
+  UI_CJK_CUSTOM_FONT_FAMILY,
   normalizeThemeColors,
   getAppThemeBackgroundStyle
 } from './utils/themeColors'
 import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './utils/themeBundle'
 import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
 import {
+  buildParsedPlaylistWithCache,
   parseTrackInfo,
   compareTrackOrder,
+  compareTrackFrequent,
+  getEffectiveTrackMeta,
   stripExtension,
   parseArtistTitleFromName
 } from './utils/trackUtils'
 import { filterAndRankTracksBySearch, getTrackSearchScore } from './utils/librarySearch'
+import {
+  buildFolderHierarchy,
+  filterFolderHierarchy,
+  flattenFolderHierarchy
+} from './utils/folderHierarchy'
 import {
   buildLastFmTrackIdentity,
   buildLastFmTrackPayload,
@@ -182,7 +193,12 @@ import {
   hasActiveSmartCollectionRules,
   matchTrackAgainstSmartCollection
 } from './utils/smartCollections'
-import { inferUiLocaleFromNavigator, normalizeUiLocale, bcp47ForUiLocale } from './utils/uiLocale'
+import {
+  inferUiLocaleFromNavigator,
+  normalizeUiLocale,
+  bcp47ForUiLocale,
+  UI_LOCALES
+} from './utils/uiLocale'
 import { clampBiquadQ } from './utils/eqBiquad'
 import { copySongCardImage, saveSongCardImage } from './utils/songCardImage'
 import { parseLyricsSourceLink } from './utils/lyricsLink'
@@ -195,7 +211,13 @@ import {
   normalizeLyricsBackgroundColor,
   normalizeLyricsBackgroundMode
 } from './utils/lyricsBackground'
-import { buildArtistBucketsWithAvatars } from './utils/artistAvatar'
+import {
+  buildArtistBucketsWithAvatars,
+  getArtistAvatarRetryAfterMs,
+  isTransientArtistAvatarFailure,
+  normalizeArtistAvatarSearchResponse,
+  isPlatformDefaultArtistAvatarUrl
+} from './utils/artistAvatar'
 import {
   containsLegacyPlaybackHistoryEntries,
   createPlaybackContext,
@@ -215,8 +237,17 @@ import { EMBEDDED_LYRICS_EXTRACTOR_VERSION } from '../../shared/embeddedLyricsVe
 import { buildLyricKaraokeState } from '../../shared/lyricsKaraoke.mjs'
 import { getPlaybackSequencePath, resolvePlaybackSequence } from '../../shared/playbackSequence.mjs'
 import { getCueAudioPath } from '../../shared/cueTracks.mjs'
-import { buildBilibiliAutoMvQueries, buildYoutubeAutoMvQueries } from '../../shared/mvSearchRank.mjs'
+import {
+  buildBilibiliAutoMvQueries,
+  buildYoutubeAutoMvQueries
+} from '../../shared/mvSearchRank.mjs'
 import { getAutoMvSearchHit, getBestEffortMvSearchHit } from './utils/mvAutoAccept'
+import { orderMvSearchItems } from './utils/mvSearchCandidates'
+import {
+  isImmersiveLyricsMvEnabled,
+  isSideLyricsMvEnabled,
+  shouldLoadMvForSurface
+} from './utils/mvVisibility'
 import {
   buildAlbumCoverCacheEntries,
   createAlbumCoverCacheKey,
@@ -225,6 +256,8 @@ import {
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
+  mergeTrackMetaEntryPreservingCover,
+  mergeTrackMetaMapPreservingCovers,
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
@@ -236,6 +269,22 @@ import {
   isSubsonicTrackPath,
   isWebDavTrackPath
 } from './utils/remoteLibrary'
+
+const CJK_FONT_OPTIONS = [
+  { key: 'auto', labelKey: 'fontCjkAuto' },
+  { key: 'yahei', labelKey: 'fontCjkYahei' },
+  { key: 'custom', labelKey: 'fontCustom' }
+]
+
+const CJK_FONT_CONFIG_KEYS = new Set([
+  ...CJK_FONT_OPTIONS.map((option) => option.key),
+  'jhenghei',
+  'simsun',
+  'simhei',
+  'pingfang',
+  'noto',
+  'sourcehan'
+])
 
 function localPathToAudioSrc(filePath) {
   if (!filePath || typeof filePath !== 'string') return ''
@@ -317,6 +366,7 @@ const MV_DIRECT_SEEK_REPEAT_EPSILON_SEC = 0.35
 const MV_DIRECT_MANUAL_SEEK_THRESHOLD_SEC = 0.12
 const MV_DIRECT_AUTO_HARD_SEEK_THRESHOLD_SEC = 1.25
 const MV_DIRECT_RATE_NUDGE_THRESHOLD_SEC = 0.2
+const MV_DIRECT_DRIFT_TICK_MS = 200
 const MV_TRACK_END_SYNC_FREEZE_SEC = 1.2
 const PLAYBACK_SESSION_LOCAL_KEY = 'nc_playback_session'
 const USER_SMART_COLLECTIONS_LOCAL_KEY = 'nc_user_smart_collections'
@@ -328,24 +378,35 @@ const MAX_TRACK_META_COVER_ENTRIES = 720
 const LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE = 360
 const METADATA_PREFETCH_LIMIT = 160
 const ALBUM_METADATA_PREFETCH_LIMIT = 720
+const STARTUP_IMPORTED_FOLDER_RESCAN_DELAY_MS = 15000
+const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 32
 const ALBUM_METADATA_PARSE_BATCH_SIZE = 48
 const METADATA_PARSE_WORKERS = 4
 const ALBUM_CLOUD_COVER_PREFETCH_LIMIT = 40
 const ALBUM_CLOUD_COVER_WORKERS = 5
-const ARTIST_AVATAR_LOOKUP_VERSION = 2
-const ARTIST_AVATAR_PREFETCH_LIMIT = 48
-const ARTIST_AVATAR_PREFETCH_WORKERS = 2
+const ARTIST_AVATAR_LOOKUP_VERSION = 6
+const ARTIST_AVATAR_PREFETCH_LIMIT = 18
+const ARTIST_AVATAR_PREFETCH_WORKERS = 1
 const ARTIST_AVATAR_MISS_TTL_MS = 12 * 60 * 60 * 1000
+const ARTIST_AVATAR_LOOKUP_GAP_MS = 1200
+const ARTIST_AVATAR_PROVIDER_GAP_MS = 350
+const ARTIST_AVATAR_TRANSIENT_RETRY_MS = 8 * 60 * 1000
+const ARTIST_DETAIL_RETURN_ANIMATION_MS = 120
 const MAX_SHARE_CARD_COVER_CHARS = 600000
 const ALBUM_COVER_PERSIST_SIGNATURE_LIMIT = 2400
 const LYRICS_RENDER_TICK_MS = 80
 const ACTIVE_LYRIC_SYNC_TICK_MS = 100
 const KARAOKE_RENDER_CONTEXT_LINES = 3
+const PLAYBACK_UI_TIME_UPDATE_MS = 1000
+const PLAYBACK_UI_TIME_LYRICS_UPDATE_MS = 500
+const PLAYBACK_UI_TIME_LIBRARY_BROWSER_UPDATE_MS = 2500
+const PLAYBACK_UI_TIME_SEEK_DELTA_SEC = 1.25
 const CLOUD_COVER_RESOLUTION = '600x600bb'
 const SIDEBAR_LOGO_IMAGE_SRC = sidebarLogoImage
 const BPM_DETECTOR_VERSION = 2
-const BPM_DETECTION_START_DELAY_MS = 1200
+const BPM_DETECTION_START_DELAY_MS = 18000
+const MV_SEARCH_PLAYBACK_START_DELAY_MS = 5000
 
 function isCastSessionActive(status) {
   return !!(
@@ -405,12 +466,22 @@ function normalizeItunesCoverUrl(url) {
 function normalizeNeteaseArtistImageUrl(url) {
   const cleanUrl = String(url || '').trim()
   if (!cleanUrl) return null
+  if (isPlatformDefaultArtistAvatarUrl(cleanUrl)) return null
   return `${cleanUrl.replace(/\?.*$/, '')}?param=600y600`
+}
+
+function pickNeteaseArtistImageUrl(candidate) {
+  for (const url of [candidate?.picUrl, candidate?.img1v1Url, candidate?.avatar]) {
+    const normalized = normalizeNeteaseArtistImageUrl(url)
+    if (normalized) return normalized
+  }
+  return null
 }
 
 function normalizeQqMusicArtistImageUrl(url) {
   const cleanUrl = String(url || '').trim()
   if (!cleanUrl) return null
+  if (isPlatformDefaultArtistAvatarUrl(cleanUrl)) return null
   return cleanUrl.replace(/T001R\d+x\d+M000/i, 'T001R500x500M000')
 }
 
@@ -893,7 +964,7 @@ const EDITABLE_SHORTCUT_INPUT_TYPES = new Set([
   'text',
   'time',
   'url',
-  'week',
+  'week'
 ])
 
 function isEditableShortcutTarget(target) {
@@ -989,7 +1060,9 @@ function normalizeHistoryMaxEntries(value) {
 
 function trimPlaybackHistoryEntries(entries, maxEntries = DEFAULT_PLAYBACK_HISTORY_MAX) {
   const normalizedMax = normalizeHistoryMaxEntries(maxEntries)
-  const normalized = Array.isArray(entries) ? normalizePlaybackHistory(entries, Number.MAX_SAFE_INTEGER) : []
+  const normalized = Array.isArray(entries)
+    ? normalizePlaybackHistory(entries, Number.MAX_SAFE_INTEGER)
+    : []
   return normalizedMax === Infinity ? normalized : normalized.slice(-normalizedMax)
 }
 
@@ -1141,11 +1214,38 @@ function normalizeConfigState(raw) {
   if (typeof merged.phoneRemoteEnabled !== 'boolean') {
     merged.phoneRemoteEnabled = DEFAULT_CONFIG.phoneRemoteEnabled
   }
+  if (typeof merged.miniPlayerAlwaysOnTop !== 'boolean') {
+    merged.miniPlayerAlwaysOnTop = DEFAULT_CONFIG.miniPlayerAlwaysOnTop
+  }
+  if (typeof merged.miniPlayerAutoHideMainWindow !== 'boolean') {
+    merged.miniPlayerAutoHideMainWindow = DEFAULT_CONFIG.miniPlayerAutoHideMainWindow
+  }
   if (typeof merged.showSidebarLogo !== 'boolean') {
     merged.showSidebarLogo = DEFAULT_CONFIG.showSidebarLogo
   }
   if (typeof merged.autoLocateCurrentTrack !== 'boolean') {
     merged.autoLocateCurrentTrack = DEFAULT_CONFIG.autoLocateCurrentTrack
+  }
+  if (typeof merged.autoSearchMV !== 'boolean') {
+    merged.autoSearchMV = DEFAULT_CONFIG.autoSearchMV
+  }
+  if (typeof merged.enableMV !== 'boolean') {
+    merged.enableMV = DEFAULT_CONFIG.enableMV
+  }
+  if (typeof merged.mvAsBackground !== 'boolean') {
+    merged.mvAsBackground = DEFAULT_CONFIG.mvAsBackground
+  }
+  if (typeof merged.mvAsBackgroundMain !== 'boolean') {
+    merged.mvAsBackgroundMain = DEFAULT_CONFIG.mvAsBackgroundMain
+  }
+  if (!merged.enableMV) {
+    merged.mvAsBackground = false
+  }
+  if (!CJK_FONT_CONFIG_KEYS.has(merged.uiCjkFontFamily)) {
+    merged.uiCjkFontFamily = DEFAULT_CONFIG.uiCjkFontFamily
+  }
+  if (merged.uiCjkFontFamily !== 'custom') {
+    merged.uiCjkCustomFontPath = null
   }
   merged.historyMaxEntries = normalizeHistoryMaxEntries(merged.historyMaxEntries)
   if (typeof merged.historyCollapseRepeats !== 'boolean') {
@@ -1196,7 +1296,37 @@ function normalizeConfigState(raw) {
 
 const SLEEP_TIMER_MINUTE_OPTIONS = [5, 10, 15, 30, 45, 60, 90]
 const SETTINGS_SECTION_KEYWORDS = {
-  language: ['language', 'locale', '\u8bed\u8a00', 'en', 'zh', 'ja', '\u8a00\u8a9e'],
+  language: [
+    'language',
+    'locale',
+    'window',
+    'close',
+    'button',
+    'behavior',
+    'tray',
+    'quit',
+    'close button behavior',
+    '\u8bed\u8a00',
+    '\u7a97\u53e3',
+    '\u5173\u95ed',
+    '\u6309\u94ae',
+    '\u884c\u4e3a',
+    '\u6258\u76d8',
+    '\u9000\u51fa',
+    '\u5173\u95ed\u6309\u94ae\u884c\u4e3a',
+    'en',
+    'zh',
+    'ja',
+    '\u8a00\u8a9e',
+    '\u95dc\u9589',
+    '\u6309\u9215',
+    '\u884c\u70ba',
+    '\u7cfb\u7d71\u5323',
+    '\u7d50\u675f',
+    '\u9589\u3058\u308b',
+    '\u30dc\u30bf\u30f3',
+    '\u52d5\u4f5c'
+  ],
   engine: [
     'visualizer',
     'spectrum',
@@ -1206,6 +1336,7 @@ const SETTINGS_SECTION_KEYWORDS = {
     'buffer',
     'crossfade',
     'automix',
+    'behavior',
     'locate',
     'current',
     'playing',
@@ -1217,14 +1348,26 @@ const SETTINGS_SECTION_KEYWORDS = {
     '\u5747\u8861',
     '\u97f3\u9891',
     '\u6de1\u5165\u6de1\u51fa',
+    '\u884c\u4e3a',
     '\u5b9a\u4f4d',
     '\u5f53\u524d\u64ad\u653e',
     '\u7761\u7720',
     '\u5b9a\u65f6',
     '\u30a4\u30b3\u30e9\u30a4\u30b6\u30fc',
+    '\u52d5\u4f5c',
     '\u30af\u30ed\u30b9\u30d5\u30a7\u30fc\u30c9'
   ],
   integrations: [
+    'account',
+    'accounts',
+    'login',
+    'sign in',
+    'signin',
+    'cookie',
+    'youtube',
+    'bilibili',
+    'netease',
+    'qq music',
     'discord',
     'rpc',
     'presence',
@@ -1233,6 +1376,11 @@ const SETTINGS_SECTION_KEYWORDS = {
     'wifi',
     '\u624b\u673a',
     '\u9065\u63a7',
+    '\u8d26\u53f7',
+    '\u767b\u5f55',
+    '\u7f51\u6613\u4e91',
+    'qq\u97f3\u4e50',
+    '\u54d4\u54e9\u54d4\u54e9',
     '\u96c6\u6210',
     '\u6574\u5408',
     '\u9023\u643a'
@@ -1336,17 +1484,6 @@ function formatSleepTimerRemaining(ms) {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
-function matchesSettingsSection(query, keywords) {
-  const normalized = String(query || '')
-    .trim()
-    .toLowerCase()
-  if (!normalized) return true
-  return (keywords || []).some((keyword) => {
-    const text = String(keyword || '').toLowerCase()
-    return text.includes(normalized) || normalized.includes(text)
-  })
 }
 
 function normalizeWatchedTrack(track) {
@@ -1813,7 +1950,12 @@ function LastFmLoginForm({ onLogin }) {
         </div>
       </div>
       <div className="lastfm-login-grid">
-        <button className="lastfm-submit-btn" type="button" onClick={handleStartAuth} disabled={loading}>
+        <button
+          className="lastfm-submit-btn"
+          type="button"
+          onClick={handleStartAuth}
+          disabled={loading}
+        >
           {loading ? '打开中...' : '打开 Last.fm 授权'}
         </button>
         <button
@@ -1862,7 +2004,9 @@ export default function App() {
       snapshotValue: getInitialAppStateValue('playbackHistory'),
       localValue: readStoredJson('nc_playback_history'),
       normalize: (value) =>
-        Array.isArray(value) ? trimPlaybackHistoryEntries(value, DEFAULT_PLAYBACK_HISTORY_MAX) : undefined,
+        Array.isArray(value)
+          ? trimPlaybackHistoryEntries(value, DEFAULT_PLAYBACK_HISTORY_MAX)
+          : undefined,
       fallback: []
     })
   })
@@ -1901,6 +2045,7 @@ export default function App() {
     targetPath: '',
     pendingFadeIn: false
   })
+  const nextTrackRef = useRef(null)
 
   const [playbackRate, setPlaybackRate] = useState(1.0)
   const [volume, setVolume] = useState(() => readStoredVolume())
@@ -1921,6 +2066,9 @@ export default function App() {
   const [isVolumeDragging, setIsVolumeDragging] = useState(false)
   const [speedPopoverOpen, setSpeedPopoverOpen] = useState(false)
   const [activeDeckPopover, setActiveDeckPopover] = useState(null)
+  const volumeDeckToolRef = useRef(null)
+  const speedDeckToolRef = useRef(null)
+  const [deckPopoverStyle, setDeckPopoverStyle] = useState(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [lyricsRenderTime, setLyricsRenderTime] = useState(0)
@@ -1945,11 +2093,47 @@ export default function App() {
     const close = (e) => {
       if (!e.target.closest('.deck-popover') && !e.target.closest('.deck-tool-trigger')) {
         setActiveDeckPopover(null)
+        setDeckPopoverStyle(null)
       }
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [activeDeckPopover])
+
+  const updateDeckPopoverPosition = useCallback((kind) => {
+    const node = kind === 'volume' ? volumeDeckToolRef.current : speedDeckToolRef.current
+    if (!node || typeof window === 'undefined') return
+    const rect = node.getBoundingClientRect()
+    const width = 236
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || width
+    const anchorCenter = rect.left + rect.width / 2
+    const left = Math.max(16, Math.min(viewportWidth - width - 16, anchorCenter - width / 2))
+    setDeckPopoverStyle({
+      left: `${left}px`,
+      right: 'auto',
+      ['--deck-popover-anchor-x']: `${anchorCenter - left}px`
+    })
+  }, [])
+
+  const toggleDeckPopover = useCallback(
+    (kind) => {
+      if (activeDeckPopover === kind) {
+        setActiveDeckPopover(null)
+        setDeckPopoverStyle(null)
+        return
+      }
+      updateDeckPopoverPosition(kind)
+      setActiveDeckPopover(kind)
+    },
+    [activeDeckPopover, updateDeckPopoverPosition]
+  )
+
+  useEffect(() => {
+    if (!activeDeckPopover) return undefined
+    const update = () => updateDeckPopoverPosition(activeDeckPopover)
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [activeDeckPopover, updateDeckPopoverPosition])
 
   useEffect(() => {
     if (window.api?.getAppVersion) {
@@ -1992,14 +2176,21 @@ export default function App() {
   const albumCloudCoverAttemptedRef = useRef(new Set())
   const albumCloudCoverPendingRef = useRef(new Set())
   const trackSwitchCountRef = useRef(0)
+  const lyricsMvDeferredLoadRef = useRef(null)
+  const lyricsMvSurfaceLoadKeyRef = useRef('')
+  const lyricsLoadSurfaceActiveRef = useRef(false)
+  const mvLoadSurfaceActiveRef = useRef(false)
 
   // MV State
   const [mvId, setMvId] = useState(null)
   const [isSearchingMV, setIsSearchingMV] = useState(false)
+  const [autoMvSearchResults, setAutoMvSearchResults] = useState(null)
   const [youtubeMvLoginHint, setYoutubeMvLoginHint] = useState(false)
   const [signInStatus, setSignInStatus] = useState({
     youtube: false,
-    bilibili: false
+    bilibili: false,
+    netease: false,
+    qqMusic: false
   })
   const [biliDirectStream, setBiliDirectStream] = useState(null)
   const mvSearchCacheRef = useRef(new Map())
@@ -2035,6 +2226,8 @@ export default function App() {
     if (!currentTrackPath) return
     if (lastResolvedMvTrackPathRef.current === currentTrackPath) return
     lastResolvedMvTrackPathRef.current = currentTrackPath
+    lyricsMvDeferredLoadRef.current = null
+    lyricsMvSurfaceLoadKeyRef.current = ''
     mvSyncCooldownUntilRef.current = Date.now() + MV_TRACK_SWITCH_SYNC_COOLDOWN_MS
     lastMvDirectSeekRef.current = { key: '', at: 0, target: -1 }
     lastMvIframeSeekRef.current = { key: '', at: 0, target: -1 }
@@ -2212,6 +2405,11 @@ export default function App() {
   const currentIndexRef = useRef(currentIndex)
   const isPlayingRef = useRef(isPlaying)
   const currentTimeRef = useRef(currentTime)
+  const playbackUiTimeFlushRef = useRef({
+    at: 0,
+    value: Math.max(0, Number(currentTime) || 0),
+    second: Math.floor(Math.max(0, Number(currentTime) || 0))
+  })
   const durationRef = useRef(duration)
   const upNextQueueRef = useRef(upNextQueue)
   const playbackHistoryRef = useRef(playbackHistory)
@@ -2242,13 +2440,19 @@ export default function App() {
   const releaseNotesLastAttemptAtRef = useRef(0)
   const libraryMetaCacheHydrationKeyRef = useRef('')
   const artistAvatarAttemptedRef = useRef(new Set())
+  const artistAvatarLookupAvailableAtRef = useRef(0)
+  const lastArtistAvatarLookupAtRef = useRef(0)
+  const artistAvatarRetryTimerRef = useRef(null)
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const newPlaylistInputRef = useRef(null)
   const [quickNewPlaylistName, setQuickNewPlaylistName] = useState('')
   const [selectedAlbum, setSelectedAlbum] = useState('all')
   const [selectedFolder, setSelectedFolder] = useState('all')
   const [selectedArtist, setSelectedArtist] = useState('all')
-  const [songSortMode, setSongSortMode] = useState('default') // 'default' | 'dateAsc' | 'dateDesc'
+  const selectedArtistTracksRef = useRef({ name: '', tracks: [], source: null })
+  const [artistDetailLeaving, setArtistDetailLeaving] = useState(false)
+  const artistDetailLeaveTimerRef = useRef(null)
+  const [songSortMode, setSongSortMode] = useState('default') // 'default' | 'dateAsc' | 'dateDesc' | 'frequentDesc'
   const [songSortOpen, setSongSortOpen] = useState(false)
   const songSortRef = useRef(null)
   const [albumSortMode, setAlbumSortMode] = useState('default')
@@ -2267,6 +2471,7 @@ export default function App() {
   })
   const importedFoldersHydratedRef = useRef(false)
   const startupImportedFolderRescanDoneRef = useRef(false)
+  const startupImportedFolderRescanTimerRef = useRef(null)
   const [libraryStateReady, setLibraryStateReady] = useState(false)
   const [playbackSessionRestoreReady, setPlaybackSessionRestoreReady] = useState(false)
   const [libraryCleanupBusy, setLibraryCleanupBusy] = useState(false)
@@ -2274,7 +2479,9 @@ export default function App() {
   const [trackMetaMap, setTrackMetaMap] = useState({})
   const [albumCoverMap, setAlbumCoverMap] = useState({})
   const [artistAvatarMap, setArtistAvatarMap] = useState({})
+  const [artistAvatarRetryNonce, setArtistAvatarRetryNonce] = useState(0)
   const trackMetaMapRef = useRef(trackMetaMap)
+  const parsedPlaylistCacheRef = useRef(null)
   const albumCoverCachePersistedEntriesRef = useRef(new Set())
   const [technicalInfo, setTechnicalInfo] = useState({
     sampleRate: null,
@@ -2306,6 +2513,19 @@ export default function App() {
   })
   const [eqSoloBandIdx, setEqSoloBandIdx] = useState(null)
   const [eqAdvancedOpen, setEqAdvancedOpen] = useState(false)
+  const nativeHtmlAudioMirrorNeeded = view === 'settings' && eqAdvancedOpen
+  const nativeHtmlAudioMirrorNeededRef = useRef(nativeHtmlAudioMirrorNeeded)
+  const libraryBrowserVisible = !showLyrics && view !== 'settings'
+  const lyricsLoadSurfaceActive =
+    (view === 'player' && showLyrics) || config.desktopLyricsEnabled === true
+  const mvLoadSurfaceActive = shouldLoadMvForSurface(config, { view, showLyrics })
+  useEffect(() => {
+    nativeHtmlAudioMirrorNeededRef.current = nativeHtmlAudioMirrorNeeded
+  }, [nativeHtmlAudioMirrorNeeded])
+  useEffect(() => {
+    lyricsLoadSurfaceActiveRef.current = lyricsLoadSurfaceActive
+    mvLoadSurfaceActiveRef.current = mvLoadSurfaceActive
+  }, [lyricsLoadSurfaceActive, mvLoadSurfaceActive])
   const effectiveEqBands = useMemo(() => {
     const list = Array.isArray(config.eqBands) ? config.eqBands : []
     if (eqSoloBandIdx === null || eqSoloBandIdx < 0 || eqSoloBandIdx >= list.length) return list
@@ -2353,67 +2573,64 @@ export default function App() {
       {
         key: 'language',
         icon: Globe,
-        label: t('settings.nav.general', '\u901a\u7528'),
-        description: t('settings.nav.generalDesc', '\u8bed\u8a00\u3001\u7a97\u53e3\u4e0e\u57fa\u7840\u884c\u4e3a'),
+        label: t('settings.nav.general'),
+        description: t('settings.nav.generalDesc'),
         id: 'settings-sec-language'
       },
       {
         key: 'engine',
         icon: Zap,
-        label: t('settings.nav.playback', '\u64ad\u653e'),
-        description: t('settings.nav.playbackDesc', '\u961f\u5217\u3001\u8fc7\u6e21\u4e0e\u64ad\u653e\u63a7\u5236'),
+        label: t('settings.nav.playback'),
+        description: t('settings.nav.playbackDesc'),
         id: 'settings-sec-engine'
       },
       {
         key: 'integrations',
         icon: Link,
-        label: t('settings.nav.connections', '\u8054\u52a8'),
-        description: t(
-          'settings.nav.connectionsDesc',
-          'Discord\u3001Last.fm\u3001\u624b\u673a\u9065\u63a7\u4e0e\u5916\u90e8\u8bbe\u5907'
-        ),
+        label: t('settings.nav.connections'),
+        description: t('settings.nav.connectionsDesc'),
         id: 'settings-sec-integrations'
       },
       {
         key: 'remoteLibrary',
         icon: Globe,
-        label: t('settings.nav.remoteLibrary', '\u7f51\u76d8 / \u8fdc\u7a0b'),
-        description: t('settings.nav.remoteLibraryDesc', 'NAS\u3001WebDAV\u3001Subsonic'),
+        label: t('settings.nav.remoteLibrary'),
+        description: t('settings.nav.remoteLibraryDesc'),
         id: 'settings-sec-remote-library'
       },
       {
         key: 'eq',
         icon: Sliders,
         label: t('settings.nav.eq'),
-        description: t('settings.nav.eqDesc', '\u5747\u8861\u5668\u4e0e\u8f93\u51fa\u5b89\u5168'),
+        description: t('settings.nav.eqDesc'),
         id: 'settings-sec-eq'
       },
       {
         key: 'aesthetics',
         icon: Palette,
-        label: t('settings.nav.appearance', '\u5916\u89c2'),
-        description: t('settings.nav.appearanceDesc', '\u4e3b\u9898\u3001\u5b57\u4f53\u3001\u80cc\u666f'),
+        label: t('settings.nav.appearance'),
+        description: t('settings.nav.appearanceDesc'),
         id: 'settings-sec-aesthetics'
       },
       {
         key: 'downloader',
         icon: Download,
-        label: t('settings.nav.libraryMedia', '\u5a92\u4f53\u5e93'),
-        description: t('settings.nav.libraryMediaDesc', '\u4e0b\u8f7d\u3001\u5bfc\u5165\u4e0e\u6e05\u7406'),
+        label: t('settings.nav.libraryMedia'),
+        description: t('settings.nav.libraryMediaDesc'),
         id: 'settings-sec-downloader'
       },
       {
         key: 'about',
         icon: Info,
-        label: t('settings.nav.aboutAdvanced', '\u5173\u4e8e / \u9ad8\u7ea7'),
-        description: t('settings.nav.aboutAdvancedDesc', '\u66f4\u65b0\u3001\u7248\u672c\u4e0e\u5f00\u53d1\u5de5\u5177'),
+        label: t('settings.nav.aboutAdvanced'),
+        description: t('settings.nav.aboutAdvancedDesc'),
         id: 'settings-sec-about'
       },
       {
         key: 'danger',
         icon: Trash2,
-        label: t('settings.nav.dangerActions', '\u5371\u9669\u64cd\u4f5c'),
-        description: t('settings.nav.dangerActionsDesc', '\u6062\u590d\u4e0e\u7f51\u7edc\u5b89\u5168'),
+        label: t('settings.nav.dangerActions'),
+        description: t('settings.nav.dangerActionsDesc'),
         id: 'settings-sec-danger'
       }
     ],
@@ -2575,9 +2792,7 @@ export default function App() {
     const thumbTop = Math.round((root.scrollTop / maxScrollTop) * maxThumbTop)
 
     setSettingsScrollMetrics((prev) =>
-      prev.visible === visible &&
-      prev.thumbTop === thumbTop &&
-      prev.thumbHeight === thumbHeight
+      prev.visible === visible && prev.thumbTop === thumbTop && prev.thumbHeight === thumbHeight
         ? prev
         : { visible, thumbTop, thumbHeight }
     )
@@ -2605,9 +2820,7 @@ export default function App() {
     window.addEventListener('resize', scheduleUpdate)
 
     const observer =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(scheduleUpdate)
-        : null
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(scheduleUpdate) : null
     observer?.observe(root)
     if (root.firstElementChild) observer?.observe(root.firstElementChild)
 
@@ -2626,10 +2839,7 @@ export default function App() {
 
     const rect = drag.track.getBoundingClientRect()
     const maxThumbTop = Math.max(1, rect.height - drag.thumbHeight)
-    const nextThumbTop = Math.min(
-      maxThumbTop,
-      Math.max(0, clientY - rect.top - drag.pointerOffset)
-    )
+    const nextThumbTop = Math.min(maxThumbTop, Math.max(0, clientY - rect.top - drag.pointerOffset))
     const ratio = nextThumbTop / maxThumbTop
     root.scrollTop = ratio * Math.max(0, root.scrollHeight - root.clientHeight)
   }, [])
@@ -2654,7 +2864,11 @@ export default function App() {
       scrollSettingsContentToPointer(event.clientY)
       event.preventDefault()
     },
-    [scrollSettingsContentToPointer, settingsScrollMetrics.thumbHeight, settingsScrollMetrics.visible]
+    [
+      scrollSettingsContentToPointer,
+      settingsScrollMetrics.thumbHeight,
+      settingsScrollMetrics.visible
+    ]
   )
 
   const handleSettingsScrollbarPointerMove = useCallback(
@@ -2726,6 +2940,65 @@ export default function App() {
     }
   }, [resetCrossfadeState])
 
+  const maybeArmNativeAutomixFromClock = useCallback(
+    (positionSec) => {
+      if (!useNativeEngineRef.current || !window.api?.audioStartAutomixNext) return
+      const sourceConfig = configRef.current || {}
+      if (!sourceConfig.crossfadeEnabled || !isPlayingRef.current) return
+      if (sourceConfig.gaplessEnabled || playbackRateRef.current !== 1) return
+
+      const currentTrackPath = playlistRef.current[currentIndexRef.current]?.path || ''
+      const targetPath = nextTrackRef.current?.path || ''
+      if (!currentTrackPath || !targetPath || targetPath === currentTrackPath) return
+      if (playlistRef.current.length < 2) return
+      if (
+        crossfadeStateRef.current.active &&
+        crossfadeStateRef.current.sourcePath === currentTrackPath &&
+        crossfadeStateRef.current.targetPath === targetPath
+      ) {
+        return
+      }
+
+      const trackDuration = Number(durationRef.current) || 0
+      const playbackPosition = Math.max(0, Number(positionSec) || 0)
+      if (!(trackDuration > 0) || !(playbackPosition >= 0)) return
+
+      const remainingSec = trackDuration - playbackPosition
+      const baseDurationSec = Math.max(1, Math.min(12, Number(sourceConfig.crossfadeDuration || 6)))
+      const trackBoundedDuration = Math.max(
+        1,
+        Math.min(baseDurationSec, trackDuration * 0.18, Math.max(1, trackDuration - 1))
+      )
+      const primingLeadSec = 0.65
+      if (remainingSec > trackBoundedDuration + primingLeadSec || remainingSec < 0) return
+
+      const transitionSec = Math.max(1, Math.min(trackBoundedDuration, remainingSec || 1))
+      const leadSec = Math.max(0, Math.min(primingLeadSec, remainingSec - transitionSec))
+
+      crossfadeStateRef.current = {
+        active: true,
+        sourcePath: currentTrackPath,
+        targetPath,
+        pendingFadeIn: false
+      }
+
+      void window.api
+        .audioStartAutomixNext(targetPath, {
+          durationSec: transitionSec,
+          leadSec
+        })
+        .then((result) => {
+          if (!result?.ok && crossfadeStateRef.current.targetPath === targetPath) {
+            resetCrossfadeState()
+          }
+        })
+        .catch(() => {
+          if (crossfadeStateRef.current.targetPath === targetPath) resetCrossfadeState()
+        })
+    },
+    [resetCrossfadeState]
+  )
+
   useEffect(() => {
     if (!sleepTimerActive || config.sleepTimerMode !== 'time' || !sleepTimerEndMs) return undefined
 
@@ -2757,85 +3030,91 @@ export default function App() {
     setSleepTimerEndMs(null)
   }, [config.sleepTimerMinutes, config.sleepTimerMode, sleepTimerActive])
 
-  const loadReleaseNotes = useCallback(async (force = false) => {
-    if (configRef.current.networkAccessDisabled === true) {
-      setReleaseNotesError(t('settings.networkDisabledStatus', 'Network access is disabled.'))
-      return
-    }
-    if (releaseNotesLoadingRef.current) return
-    if (releaseNotesFetchedRef.current && !force) return
-
-    const now = Date.now()
-    if (
-      !force &&
-      releaseNotesLastAttemptAtRef.current > 0 &&
-      now - releaseNotesLastAttemptAtRef.current < RELEASE_NOTES_AUTO_RETRY_COOLDOWN_MS
-    ) {
-      return
-    }
-
-    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null
-    const timeoutId = abortController
-      ? window.setTimeout(() => abortController.abort(), RELEASE_NOTES_FETCH_TIMEOUT_MS)
-      : 0
-
-    releaseNotesLoadingRef.current = true
-    releaseNotesLastAttemptAtRef.current = now
-    setReleaseNotesLoading(true)
-    setReleaseNotesError('')
-
-    try {
-      const response = await fetch(GITHUB_RELEASES_API_URL, {
-        headers: {
-          Accept: 'application/vnd.github+json'
-        },
-        ...(abortController ? { signal: abortController.signal } : {})
-      })
-      if (!response.ok) {
-        throw new Error(`github_${response.status}`)
+  const loadReleaseNotes = useCallback(
+    async (force = false) => {
+      if (configRef.current.networkAccessDisabled === true) {
+        setReleaseNotesError(t('settings.networkDisabledStatus', 'Network access is disabled.'))
+        return
       }
-      const data = await response.json()
-      const releases = Array.isArray(data)
-        ? data
-            .filter((item) => item && item.draft !== true)
-            .map((item) => ({
-              version: normalizeReleaseVersion(item.tag_name || item.name || ''),
-              title: item.name || item.tag_name || 'Release',
-              url: item.html_url || GITHUB_RELEASES_PAGE_URL,
-              publishedAt: item.published_at || '',
-              publishedLabel: item.published_at
-                ? new Date(item.published_at).toLocaleDateString()
-                : '',
-              previewLines: buildReleasePreviewLines(item.body)
-            }))
-            .filter((item) => item.version || item.title)
-        : []
-      setReleaseNotes(releases)
-      releaseNotesFetchedRef.current = true
-    } catch (e) {
-      setReleaseNotesError(
-        e?.name === 'AbortError' ? 'github_timeout' : e?.message || 'release_notes_unavailable'
-      )
-    } finally {
-      if (timeoutId) window.clearTimeout(timeoutId)
-      releaseNotesLoadingRef.current = false
-      setReleaseNotesLoading(false)
-    }
-  }, [t])
+      if (releaseNotesLoadingRef.current) return
+      if (releaseNotesFetchedRef.current && !force) return
 
-  const openExternalLink = useCallback((url) => {
-    const target = String(url || '').trim()
-    if (!target) return
-    if (configRef.current.networkAccessDisabled === true) {
-      alert(t('settings.networkDisabledStatus', 'Network access is disabled.'))
-      return
-    }
-    if (window.api?.openExternal) {
-      void window.api.openExternal(target)
-      return
-    }
-    window.open(target, '_blank', 'noopener,noreferrer')
-  }, [t])
+      const now = Date.now()
+      if (
+        !force &&
+        releaseNotesLastAttemptAtRef.current > 0 &&
+        now - releaseNotesLastAttemptAtRef.current < RELEASE_NOTES_AUTO_RETRY_COOLDOWN_MS
+      ) {
+        return
+      }
+
+      const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null
+      const timeoutId = abortController
+        ? window.setTimeout(() => abortController.abort(), RELEASE_NOTES_FETCH_TIMEOUT_MS)
+        : 0
+
+      releaseNotesLoadingRef.current = true
+      releaseNotesLastAttemptAtRef.current = now
+      setReleaseNotesLoading(true)
+      setReleaseNotesError('')
+
+      try {
+        const response = await fetch(GITHUB_RELEASES_API_URL, {
+          headers: {
+            Accept: 'application/vnd.github+json'
+          },
+          ...(abortController ? { signal: abortController.signal } : {})
+        })
+        if (!response.ok) {
+          throw new Error(`github_${response.status}`)
+        }
+        const data = await response.json()
+        const releases = Array.isArray(data)
+          ? data
+              .filter((item) => item && item.draft !== true)
+              .map((item) => ({
+                version: normalizeReleaseVersion(item.tag_name || item.name || ''),
+                title: item.name || item.tag_name || 'Release',
+                url: item.html_url || GITHUB_RELEASES_PAGE_URL,
+                publishedAt: item.published_at || '',
+                publishedLabel: item.published_at
+                  ? new Date(item.published_at).toLocaleDateString()
+                  : '',
+                previewLines: buildReleasePreviewLines(item.body)
+              }))
+              .filter((item) => item.version || item.title)
+          : []
+        setReleaseNotes(releases)
+        releaseNotesFetchedRef.current = true
+      } catch (e) {
+        setReleaseNotesError(
+          e?.name === 'AbortError' ? 'github_timeout' : e?.message || 'release_notes_unavailable'
+        )
+      } finally {
+        if (timeoutId) window.clearTimeout(timeoutId)
+        releaseNotesLoadingRef.current = false
+        setReleaseNotesLoading(false)
+      }
+    },
+    [t]
+  )
+
+  const openExternalLink = useCallback(
+    (url) => {
+      const target = String(url || '').trim()
+      if (!target) return
+      if (configRef.current.networkAccessDisabled === true) {
+        alert(t('settings.networkDisabledStatus', 'Network access is disabled.'))
+        return
+      }
+      if (window.api?.openExternal) {
+        void window.api.openExternal(target)
+        return
+      }
+      window.open(target, '_blank', 'noopener,noreferrer')
+    },
+    [t]
+  )
 
   useEffect(() => {
     if ((view === 'settings' || releaseNotesOpen) && !releaseNotesFetchedRef.current) {
@@ -3033,7 +3312,47 @@ export default function App() {
 
   useEffect(() => {
     currentTimeRef.current = currentTime
+    const safeCurrentTime = Math.max(0, Number(currentTime) || 0)
+    playbackUiTimeFlushRef.current = {
+      ...playbackUiTimeFlushRef.current,
+      value: safeCurrentTime,
+      second: Math.floor(safeCurrentTime)
+    }
   }, [currentTime])
+
+  const syncCurrentTimeFromNativeStatus = useCallback(
+    (nextTimeValue) => {
+      const nextTime = Math.max(0, Number(nextTimeValue) || 0)
+      currentTimeRef.current = nextTime
+
+      const now = Date.now()
+      const previous = playbackUiTimeFlushRef.current || { at: 0, value: 0, second: 0 }
+      const previousValue = Math.max(0, Number(previous.value) || 0)
+      const nextSecond = Math.floor(nextTime)
+      const minIntervalMs =
+        showLyrics && view === 'player' && configRef.current.lyricsHidden !== true
+          ? PLAYBACK_UI_TIME_LYRICS_UPDATE_MS
+          : libraryBrowserVisible
+            ? PLAYBACK_UI_TIME_LIBRARY_BROWSER_UPDATE_MS
+          : PLAYBACK_UI_TIME_UPDATE_MS
+      const shouldFlush =
+        previous.at === 0 ||
+        Math.abs(nextTime - previousValue) >= PLAYBACK_UI_TIME_SEEK_DELTA_SEC ||
+        (nextSecond !== previous.second && now - previous.at >= minIntervalMs)
+
+      if (!shouldFlush) return
+
+      playbackUiTimeFlushRef.current = {
+        at: now,
+        value: nextTime,
+        second: nextSecond
+      }
+      startTransition(() => {
+        setCurrentTime(nextTime)
+      })
+    },
+    [libraryBrowserVisible, showLyrics, view]
+  )
 
   useEffect(() => {
     durationRef.current = duration
@@ -3049,9 +3368,14 @@ export default function App() {
 
   useEffect(() => {
     setPlaybackHistory((prev) => {
-      const collapsed = config.historyCollapseRepeats ? collapseConsecutiveHistoryEntries(prev) : prev
+      const collapsed = config.historyCollapseRepeats
+        ? collapseConsecutiveHistoryEntries(prev)
+        : prev
       const trimmed = trimPlaybackHistoryEntries(collapsed, config.historyMaxEntries)
-      if (trimmed.length === prev.length && trimmed.every((entry, index) => entry === prev[index])) {
+      if (
+        trimmed.length === prev.length &&
+        trimmed.every((entry, index) => entry === prev[index])
+      ) {
         return prev
       }
       playbackHistoryRef.current = trimmed
@@ -3257,7 +3581,9 @@ export default function App() {
         playedAt: Date.now()
       }
       const next = [...prev, nextEntry]
-      const collapsed = config.historyCollapseRepeats ? collapseConsecutiveHistoryEntries(next) : next
+      const collapsed = config.historyCollapseRepeats
+        ? collapseConsecutiveHistoryEntries(next)
+        : next
       return trimPlaybackHistoryEntries(collapsed, config.historyMaxEntries)
     })
   }, [currentIndex, playlist, isPlaying, config.historyCollapseRepeats, config.historyMaxEntries])
@@ -3728,7 +4054,9 @@ export default function App() {
       uiBgOpacity: DEFAULT_CONFIG.uiBgOpacity,
       uiBlur: DEFAULT_CONFIG.uiBlur,
       uiFontFamily: DEFAULT_CONFIG.uiFontFamily,
+      uiCjkFontFamily: DEFAULT_CONFIG.uiCjkFontFamily,
       uiCustomFontPath: DEFAULT_CONFIG.uiCustomFontPath,
+      uiCjkCustomFontPath: DEFAULT_CONFIG.uiCjkCustomFontPath,
       uiBaseFontSize: DEFAULT_CONFIG.uiBaseFontSize,
       uiRadiusScale: DEFAULT_CONFIG.uiRadiusScale,
       uiShadowIntensity: DEFAULT_CONFIG.uiShadowIntensity,
@@ -3755,7 +4083,9 @@ export default function App() {
     setConfig((prev) => ({
       ...prev,
       uiFontFamily: DEFAULT_CONFIG.uiFontFamily,
+      uiCjkFontFamily: DEFAULT_CONFIG.uiCjkFontFamily,
       uiCustomFontPath: DEFAULT_CONFIG.uiCustomFontPath,
+      uiCjkCustomFontPath: DEFAULT_CONFIG.uiCjkCustomFontPath,
       uiBaseFontSize: DEFAULT_CONFIG.uiBaseFontSize,
       uiRadiusScale: DEFAULT_CONFIG.uiRadiusScale,
       uiShadowIntensity: DEFAULT_CONFIG.uiShadowIntensity,
@@ -3828,6 +4158,17 @@ export default function App() {
     }))
   }, [])
 
+  const pickUiCjkCustomFont = useCallback(async () => {
+    if (!window.api?.openFontFileHandler) return
+    const path = await window.api.openFontFileHandler(configRef.current.uiLocale)
+    if (!path) return
+    setConfig((prev) => ({
+      ...prev,
+      uiCjkFontFamily: 'custom',
+      uiCjkCustomFontPath: path
+    }))
+  }, [])
+
   useEffect(() => {
     if (!configStoreHydratedRef.current) return
     persistStateImmediately('config', 'nc_config', config, true)
@@ -3868,6 +4209,22 @@ export default function App() {
     } else if (faceEl) {
       faceEl.remove()
     }
+    const cjkFaceId = 'echoes-ui-user-cjk-font-face'
+    const cjkFaceCss = buildUiCustomFontFaceCss(
+      config.uiCjkCustomFontPath,
+      UI_CJK_CUSTOM_FONT_FAMILY
+    )
+    let cjkFaceEl = document.getElementById(cjkFaceId)
+    if (cjkFaceCss) {
+      if (!cjkFaceEl) {
+        cjkFaceEl = document.createElement('style')
+        cjkFaceEl.id = cjkFaceId
+        document.head.appendChild(cjkFaceEl)
+      }
+      cjkFaceEl.textContent = cjkFaceCss
+    } else if (cjkFaceEl) {
+      cjkFaceEl.remove()
+    }
     root.style.setProperty('--font-family-main', getUiFontStack(config))
 
     const baseFs = config.uiBaseFontSize ?? 15
@@ -3892,8 +4249,12 @@ export default function App() {
     root.style.setProperty('--border-radius-sm', `${8 * rs}px`)
 
     const uiOpa = normalizeUnitOpacity(config.uiBgOpacity, DEFAULT_CONFIG.uiBgOpacity ?? 0.6)
-    const uiBlurRaw = Number(config.uiBlur !== undefined ? config.uiBlur : DEFAULT_CONFIG.uiBlur ?? 20)
-    const uiBlur = Number.isFinite(uiBlurRaw) ? Math.max(0, uiBlurRaw) : DEFAULT_CONFIG.uiBlur ?? 20
+    const uiBlurRaw = Number(
+      config.uiBlur !== undefined ? config.uiBlur : (DEFAULT_CONFIG.uiBlur ?? 20)
+    )
+    const uiBlur = Number.isFinite(uiBlurRaw)
+      ? Math.max(0, uiBlurRaw)
+      : (DEFAULT_CONFIG.uiBlur ?? 20)
     const glassOpacityClear = uiOpa <= 0.051
     const glassBlurClear = uiBlur <= 0.001 || glassOpacityClear
     const glassFullyClear = glassOpacityClear && glassBlurClear
@@ -4361,12 +4722,17 @@ export default function App() {
     startupImportedFolderRescanDoneRef.current = true
     let cancelled = false
     const foldersForStartupRescan = importedFolders.slice()
+    const existingPathsForStartupRescan = playlistRef.current
+      .filter((track) => isTrackInsideImportedFolders(track?.path, foldersForStartupRescan))
+      .map((track) => track.path)
+      .filter(Boolean)
     const doRescan = async () => {
       try {
         let scannedTracks = []
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const rescanResult = await window.api.rescanFolders({
-            folders: foldersForStartupRescan
+            folders: foldersForStartupRescan,
+            existingPaths: existingPathsForStartupRescan
           })
           if (cancelled || !Array.isArray(rescanResult)) return
           scannedTracks = rescanResult
@@ -4408,9 +4774,18 @@ export default function App() {
         console.error('Folder rescan failed:', e)
       }
     }
-    doRescan()
+    const delayMs =
+      existingPathsForStartupRescan.length > 0 ? STARTUP_IMPORTED_FOLDER_RESCAN_DELAY_MS : 0
+    startupImportedFolderRescanTimerRef.current = window.setTimeout(() => {
+      startupImportedFolderRescanTimerRef.current = null
+      void doRescan()
+    }, delayMs)
     return () => {
       cancelled = true
+      if (startupImportedFolderRescanTimerRef.current) {
+        window.clearTimeout(startupImportedFolderRescanTimerRef.current)
+        startupImportedFolderRescanTimerRef.current = null
+      }
     }
   }, [libraryStateReady, importedFolders, applyLibraryFolderDelta])
 
@@ -4598,6 +4973,51 @@ export default function App() {
     audio.addEventListener('loadeddata', once)
   }, [])
 
+  const clearNativeHtmlAudioMirror = useCallback(() => {
+    if (!useNativeEngineRef.current) return
+    const audio = audioRef.current
+    if (!audio) return
+    try {
+      audio.pause()
+      if (audio.src) {
+        audio.removeAttribute('src')
+        audio.src = ''
+        audio.load()
+      }
+    } catch {
+      /* best effort: the native engine owns audible playback. */
+    }
+  }, [])
+
+  const prepareNativeHtmlAudioMirror = useCallback(
+    (trackPath, startTime = 0) => {
+      if (
+        !useNativeEngineRef.current ||
+        !nativeHtmlAudioMirrorNeededRef.current ||
+        !trackPath ||
+        isRemoteTrackPath(trackPath)
+      ) {
+        clearNativeHtmlAudioMirror()
+        return false
+      }
+
+      const audio = audioRef.current
+      const nextSrc = localPathToAudioSrc(trackPath)
+      if (!audio || !nextSrc) return false
+      try {
+        if (audio.src !== nextSrc) {
+          audio.src = nextSrc
+          audio.load()
+        }
+        applyStartTimeToAudio(audio, startTime)
+        return true
+      } catch {
+        return false
+      }
+    },
+    [applyStartTimeToAudio, clearNativeHtmlAudioMirror]
+  )
+
   // Play track logic
   useEffect(() => {
     if (currentIndex >= 0 && playlist[currentIndex]) {
@@ -4636,20 +5056,12 @@ export default function App() {
         d.path = track.path
         d.index = currentIndex
         d.t = now
-        if (trackIsRemote) {
-          audioRef.current.pause()
-          audioRef.current.removeAttribute('src')
-          audioRef.current.src = ''
-        } else {
-          audioRef.current.src = localPathToAudioSrc(track.path)
-          audioRef.current.load()
-          applyStartTimeToAudio(audioRef.current, restoreStartTime)
-        }
+        const htmlMirrorReady = prepareNativeHtmlAudioMirror(track.path, restoreStartTime)
         // Important: do NOT start native playback when UI is paused.
         // Otherwise a state refresh (e.g. after window resize/background) can restart from 0
         // while the play button still shows "paused".
         if (isPlaying) {
-          if (!trackIsRemote) {
+          if (htmlMirrorReady) {
             audioRef.current.play().catch(() => {})
           }
           nativePlayJustCalledRef.current = true
@@ -4708,19 +5120,13 @@ export default function App() {
           hasLyrics: track.hasLyrics === true
         })
       }
-
     } else {
       lastLastFmTrackKeyRef.current = ''
       lastLastFmNowPlayingKeyRef.current = ''
       lastLastFmScrobbleKeyRef.current = ''
       lastFmScrobbleInFlightRef.current = false
     }
-  }, [
-    applyStartTimeToAudio,
-    currentIndex,
-    isPlaying,
-    playlist
-  ])
+  }, [applyStartTimeToAudio, currentIndex, isPlaying, playlist, prepareNativeHtmlAudioMirror])
 
   useEffect(() => {
     if (window.api?.getAudioDevices) {
@@ -4796,8 +5202,10 @@ export default function App() {
       if (!status.nativeBridge) return
       if (isSeekingRef.current) return
 
-      if (status.filePath === playlist[currentIndex]?.path) {
-        setCurrentTime(status.currentTime)
+      const activeTrack = playlistRef.current[currentIndexRef.current]
+      if (status.filePath === activeTrack?.path) {
+        maybeArmNativeAutomixFromClock(status.currentTime)
+        syncCurrentTimeFromNativeStatus(status.currentTime)
 
         // Keep HTML audio element in sync with native engine position
         // so waveform analyser, MV sync, and lyrics all read correct time
@@ -4811,28 +5219,38 @@ export default function App() {
         }
 
         if (lyricsRef.current.length > 0) {
-          setActiveLyricIndex(
-            getActiveLyricIndex(
-              lyricsRef.current,
-              status.currentTime,
-              configRef.current.lyricsOffsetMs
-            )
+          const nextLyricIndex = getActiveLyricIndex(
+            lyricsRef.current,
+            status.currentTime,
+            configRef.current.lyricsOffsetMs
           )
+          if (nextLyricIndex !== activeLyricIndexRef.current) {
+            activeLyricIndexRef.current = nextLyricIndex
+            setActiveLyricIndex(nextLyricIndex)
+          }
         }
       }
     })
-  }, [currentIndex, playlist])
+  }, [maybeArmNativeAutomixFromClock, syncCurrentTimeFromNativeStatus])
 
   useEffect(() => {
     if (useNativeEngineRef.current && window.api) {
       if (isPlaying) {
-        initAudioContext()
-        if (audioContext.current?.state === 'suspended') {
-          audioContext.current.resume()
+        const activeTrack = playlistRef.current[currentIndexRef.current]
+        const htmlMirrorReady = prepareNativeHtmlAudioMirror(
+          activeTrack?.path || '',
+          currentTimeRef.current
+        )
+        if (htmlMirrorReady) {
+          initAudioContext()
+          if (audioContext.current?.state === 'suspended') {
+            audioContext.current.resume()
+          }
+          // Native playback owns the audible path. The HTML mirror is only for the EQ RTA.
+          audioRef.current.play().catch(() => {})
+        } else {
+          clearNativeHtmlAudioMirror()
         }
-        // Keep HTML audio playing for waveform analyser + MV sync
-        // (gainNode is muted so no double audio; actual sound from native engine)
-        audioRef.current.play().catch(() => {})
         if (nativePlayJustCalledRef.current) {
           nativePlayJustCalledRef.current = false
         } else {
@@ -4854,7 +5272,13 @@ export default function App() {
         audioRef.current.pause()
       }
     }
-  }, [isPlaying, initAudioContext])
+  }, [
+    clearNativeHtmlAudioMirror,
+    isPlaying,
+    initAudioContext,
+    nativeHtmlAudioMirrorNeeded,
+    prepareNativeHtmlAudioMirror
+  ])
 
   const lyricsRef = useRef([])
   const lyricsRequestSeqRef = useRef(0)
@@ -4970,7 +5394,15 @@ export default function App() {
   }, [config.lyricsOffsetMs])
 
   useEffect(() => {
-    if (!config.lyricsShowRomaji) {
+    const shouldPrepareRomaji =
+      config.lyricsShowRomaji &&
+      ((showLyrics &&
+        view === 'player' &&
+        !config.lyricsHidden &&
+        !isCurrentTrackLyricsTemporarilyHidden) ||
+        (config.desktopLyricsEnabled && config.desktopLyricsShowRomaji))
+
+    if (!shouldPrepareRomaji) {
       setRomajiDisplayLines([])
       return
     }
@@ -5011,7 +5443,17 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [lyrics, config.lyricsShowRomaji, config.uiLocale])
+  }, [
+    lyrics,
+    config.lyricsShowRomaji,
+    config.lyricsHidden,
+    config.desktopLyricsEnabled,
+    config.desktopLyricsShowRomaji,
+    config.uiLocale,
+    isCurrentTrackLyricsTemporarilyHidden,
+    showLyrics,
+    view
+  ])
 
   const cleanTitleForSearch = (rawTitle = '') => {
     if (!rawTitle) return ''
@@ -5142,6 +5584,7 @@ export default function App() {
       setDynamicCoverTheme(null)
       setLyricsCandidateItems([])
       setLyricsCandidateLoading(false)
+      setAutoMvSearchResults(null)
       setBiliDirectStream(null)
       trimRuntimeCaches()
       if (configRef.current?.devModeEnabled && previousTrackPath) {
@@ -5292,11 +5735,7 @@ export default function App() {
       if (
         !filePath ||
         !window.api?.searchMVHandler ||
-        !(
-          configRef.current.enableMV ||
-          configRef.current.mvAsBackground ||
-          configRef.current.mvAsBackgroundMain
-        )
+        !mvLoadSurfaceActiveRef.current
       ) {
         return
       }
@@ -5359,12 +5798,12 @@ export default function App() {
         }
 
         if (!foundId) {
-          if (persistedMv?.id && persistedMv?.source) {
+          if (persistedMv?.id && persistedMv?.source && persistedMv.origin === 'source') {
             applyPersistedMv(persistedMv)
           }
         }
 
-        if (!foundId && title) {
+        if (!foundId && title && configRef.current.autoSearchMV) {
           const cleanedTitle = cleanTitleForSearch(title)
           const mvSearchContext = { title: cleanedTitle, artist: artist || '' }
           const mvSearchContextKey = `${cleanedTitle.toLowerCase()}::${String(
@@ -5374,7 +5813,7 @@ export default function App() {
             mvSource === 'bilibili'
               ? buildBilibiliAutoMvQueries(cleanedTitle, artist || '')
               : buildYoutubeAutoMvQueries(cleanedTitle, artist || '')
-          let fallbackHit = null
+          let foundCandidates = false
           for (const mvQuery of mvQueries) {
             const searchCacheKey = `${filePath}::${mvSource}::${mvQuery.toLowerCase()}::${mvSearchContextKey}`
             let searchResult = autoMvSearchByTrackRef.current.get(searchCacheKey)
@@ -5384,48 +5823,47 @@ export default function App() {
             }
             if (isStaleRequest()) return
             if (searchResult) {
-              const hit = getAutoMvSearchHit(searchResult, mvSource)
-              if (hit?.id) {
-                foundId = hit.id
-                mvSource = hit.source
-                mvSelectionOrigin = 'auto'
-                const resultMeta = hit.result && typeof hit.result === 'object' ? hit.result : {}
-                foundMvTitle = resultMeta.title || ''
-                foundMvAuthor = resultMeta.author || ''
-                console.log(
-                  `[MV] ${mvSource}: "${resultMeta.title || '?'}" | id=${foundId}${resultMeta.resolution ? ` | source_res=${resultMeta.resolution}` : ''}`
-                )
-              } else {
-                const bestEffortHit = getBestEffortMvSearchHit(searchResult, mvSource)
-                if (
-                  bestEffortHit?.id &&
-                  (!fallbackHit || bestEffortHit.score > fallbackHit.score)
-                ) {
-                  fallbackHit = bestEffortHit
+              const items = orderMvSearchItems(searchResult, mvSource)
+              if (items.length > 0) {
+                foundCandidates = true
+                setAutoMvSearchResults({
+                  status: 'ready',
+                  filePath,
+                  title: cleanedTitle,
+                  artist: artist || '',
+                  source: mvSource,
+                  query: mvQuery,
+                  items,
+                  updatedAt: Date.now()
+                })
+                console.log(`[MV] ${mvSource} candidates for "${mvQuery}": items=${items.length}`)
+                const hit =
+                  getAutoMvSearchHit(searchResult, mvSource) ||
+                  getBestEffortMvSearchHit(searchResult, mvSource)
+                const resultMeta =
+                  hit?.result && typeof hit.result === 'object' ? hit.result : items[0] || {}
+                if (hit?.id || items[0]?.id) {
+                  foundId = hit?.id || items[0].id
+                  mvSource = hit?.source || items[0].source || mvSource
+                  foundMvTitle = resultMeta.title || ''
+                  foundMvAuthor = resultMeta.author || ''
+                  mvSelectionOrigin = 'auto'
                 }
-                console.log(
-                  `[MV] keep best-effort candidate for "${mvQuery}": ${
-                    bestEffortHit?.result?.title ||
-                    searchResult?.title ||
-                    searchResult?.autoRejectReason ||
-                    'not accepted'
-                  }`
-                )
+                break
               }
-              if (foundId) break
             }
           }
-          if (!foundId && fallbackHit?.id) {
-            foundId = fallbackHit.id
-            mvSource = fallbackHit.source
-            mvSelectionOrigin = 'auto'
-            const resultMeta =
-              fallbackHit.result && typeof fallbackHit.result === 'object' ? fallbackHit.result : {}
-            foundMvTitle = resultMeta.title || ''
-            foundMvAuthor = resultMeta.author || ''
-            console.log(
-              `[MV] best effort ${mvSource}: "${resultMeta.title || '?'}" | id=${foundId}${resultMeta.resolution ? ` | source_res=${resultMeta.resolution}` : ''}`
-            )
+          if (!foundCandidates && !isStaleRequest()) {
+            setAutoMvSearchResults({
+              status: 'empty',
+              filePath,
+              title: cleanedTitle,
+              artist: artist || '',
+              source: mvSource,
+              query: mvQueries[0] || cleanedTitle,
+              items: [],
+              updatedAt: Date.now()
+            })
           }
         }
 
@@ -6012,12 +6450,14 @@ export default function App() {
     }
 
     if (
-      window.api.searchMVHandler &&
-      (configRef.current.enableMV ||
-        configRef.current.mvAsBackground ||
-        configRef.current.mvAsBackgroundMain)
+      hints?.allowMvSearch !== false &&
+      mvLoadSurfaceActiveRef.current &&
+      window.api.searchMVHandler
     ) {
-      searchAndApplyMvForTrack({ filePath, title, artist, hints, requestSeq: mvRequestSeq })
+      window.setTimeout(() => {
+        if (isStaleRequest() || mvRequestSeq !== trackLoadSeqRef.current) return
+        searchAndApplyMvForTrack({ filePath, title, artist, hints, requestSeq: mvRequestSeq })
+      }, MV_SEARCH_PLAYBACK_START_DELAY_MS)
     }
 
     const tryApplyEmbeddedLyrics = () => {
@@ -6094,7 +6534,8 @@ export default function App() {
       DEFAULT_CONFIG.lyricsSource
     if (lyricsSource === 'manual' && !savedOverride?.raw) {
       lyricsSource =
-        normalizeLyricsSourcePreference(configRef.current.lyricsSource) || DEFAULT_CONFIG.lyricsSource
+        normalizeLyricsSourcePreference(configRef.current.lyricsSource) ||
+        DEFAULT_CONFIG.lyricsSource
     }
     const requestedSourcePreference =
       normalizeLyricsSourcePreference(hints?.sourceOverride) || savedSourcePreference
@@ -6425,9 +6866,7 @@ export default function App() {
             const items = Array.isArray(res?.items) ? res.items : []
             const ranked = rankLrcLibCandidates(items, audioDur, lyricsRankOptions)
             const hit = ranked.find(
-              (r) =>
-                r?.chosenLyrics &&
-                isAutoLyricsCandidateAccepted(r, lyricsRankOptions)
+              (r) => r?.chosenLyrics && isAutoLyricsCandidateAccepted(r, lyricsRankOptions)
             )
             if (!hit) continue
             const raw = hit?.chosenLyrics || hit?.item?.syncedLyrics || hit?.item?.plainLyrics || ''
@@ -6505,6 +6944,7 @@ export default function App() {
       normalizeLyricsSourcePreference(configRef.current.lyricsSource) ||
       DEFAULT_CONFIG.lyricsSource
     if (selectedSource !== 'local') return
+    if (!lyricsLoadSurfaceActiveRef.current) return
 
     const metaTitle = metadata.title || stripExtension(track.name || '')
     const metaArtist = metadata.artist || track?.info?.artist || ''
@@ -6536,6 +6976,7 @@ export default function App() {
 
       setLyricsSourcePreferenceForPath(track.path, nextSource)
       setLyricsSourcePreferenceRevision((value) => value + 1)
+      if (!lyricsLoadSurfaceActiveRef.current) return
 
       const metaTitle = metadata.title || stripExtension(track.name || '')
       const metaArtist = metadata.artist || track?.info?.artist || ''
@@ -6560,11 +7001,18 @@ export default function App() {
     setFailedDisplayCoverUrl(null)
     setShareCardSnapshot(null)
     lyricsLoadedTrackPathRef.current = ''
-    lyricsMatchStatusRef.current = 'loading'
     setLyrics([])
     setActiveLyricIndex(-1)
-    setLyricsMatchStatus('loading')
-    setLyricsSourceStatus({ kind: 'loading', detail: '', origin: '' })
+    if (lyricsLoadSurfaceActiveRef.current && !isRemoteTrackPath(filePath)) {
+      lyricsMatchStatusRef.current = 'loading'
+      setLyricsMatchStatus('loading')
+      setLyricsSourceStatus({ kind: 'loading', detail: '', origin: '' })
+    } else {
+      lyricsMatchStatusRef.current = 'idle'
+      setLyricsMatchStatus('idle')
+      setLyricsSourceStatus({ kind: 'idle', detail: '', origin: '' })
+      setIsSearchingMV(false)
+    }
     const mvOriginUrlHint = trackHints.mvOriginUrl || trackHints.sourceUrl
     const sourceUrlHint = trackHints.sourceUrl || trackHints.mvOriginUrl
 
@@ -6580,6 +7028,47 @@ export default function App() {
         fallbackFromTitle?.artist ||
         'Unknown Artist'
       return { resolvedTitle, resolvedArtist }
+    }
+
+    const rememberDeferredLyricsMvLoad = (
+      resolvedTitle,
+      resolvedArtist,
+      hints = {},
+      options = {}
+    ) => {
+      if (!filePath || !resolvedTitle) return
+      lyricsMvDeferredLoadRef.current = {
+        filePath,
+        title: resolvedTitle,
+        artist: resolvedArtist || '',
+        hints,
+        requestSeq,
+        allowLyrics: options.allowLyrics !== false,
+        allowMv: options.allowMv !== false
+      }
+    }
+
+    const loadLyricsForCurrentSurface = (
+      resolvedTitle,
+      resolvedArtist,
+      hints = {},
+      options = {}
+    ) => {
+      const allowLyrics = options.allowLyrics !== false && !isRemoteTrackPath(filePath)
+      const allowMv = options.allowMv !== false
+      const nextHints = {
+        ...hints,
+        mvRequestSeq: requestSeq,
+        preserveExisting: true,
+        allowMvSearch: allowMv && mvLoadSurfaceActiveRef.current
+      }
+      rememberDeferredLyricsMvLoad(resolvedTitle, resolvedArtist, nextHints, {
+        allowLyrics,
+        allowMv
+      })
+      if (!allowLyrics || !lyricsLoadSurfaceActiveRef.current) return false
+      fetchLyrics(filePath, resolvedTitle, resolvedArtist, nextHints)
+      return true
     }
 
     const shouldRefreshCachedOggOpusCover = (entry) =>
@@ -6610,14 +7099,12 @@ export default function App() {
       })
       if (!resolvedTitle) return false
 
-      fetchLyrics(filePath, resolvedTitle, resolvedArtist, {
+      loadLyricsForCurrentSurface(resolvedTitle, resolvedArtist, {
         album: entry.album || trackHints.album || '',
         embeddedLyrics: entry.lyrics || trackHints.embeddedLyrics || '',
         hasLyrics: trackHints.hasLyrics === true,
         mvOriginUrl: mvOriginUrlHint,
-        sourceUrl: sourceUrlHint,
-        mvRequestSeq: requestSeq,
-        preserveExisting: true
+        sourceUrl: sourceUrlHint
       })
       return true
     }
@@ -6656,14 +7143,12 @@ export default function App() {
         })
       }
       if (loadLyrics) {
-        fetchLyrics(filePath, resolvedTitle, resolvedArtist, {
+        loadLyricsForCurrentSurface(resolvedTitle, resolvedArtist, {
           album: entry.album || '',
           embeddedLyrics: entry.lyrics || '',
           hasLyrics: trackHints.hasLyrics === true,
           mvOriginUrl: mvOriginUrlHint,
-          sourceUrl: sourceUrlHint,
-          mvRequestSeq: requestSeq,
-          preserveExisting: true
+          sourceUrl: sourceUrlHint
         })
       }
       return { resolvedTitle, resolvedArtist }
@@ -6685,17 +7170,24 @@ export default function App() {
       setLyricsMatchStatus('none')
       setLyricsSourceStatus({ kind: 'none', detail: '', origin: 'remote' })
       const { resolvedTitle, resolvedArtist } = applyCachedMeta(remoteMeta, { loadLyrics: false })
-      searchAndApplyMvForTrack({
-        filePath,
-        title: resolvedTitle,
-        artist: resolvedArtist,
-        hints: {
-          album: remoteMeta.album || '',
-          mvOriginUrl: mvOriginUrlHint,
-          sourceUrl: sourceUrlHint
-        },
-        requestSeq
+      const remoteMvHints = {
+        album: remoteMeta.album || '',
+        mvOriginUrl: mvOriginUrlHint,
+        sourceUrl: sourceUrlHint
+      }
+      rememberDeferredLyricsMvLoad(resolvedTitle, resolvedArtist, remoteMvHints, {
+        allowLyrics: false,
+        allowMv: true
       })
+      if (mvLoadSurfaceActiveRef.current) {
+        searchAndApplyMvForTrack({
+          filePath,
+          title: resolvedTitle,
+          artist: resolvedArtist,
+          hints: remoteMvHints,
+          requestSeq
+        })
+      }
       writeTrackMetaCache({ [filePath]: remoteMeta })
       return
     }
@@ -6734,6 +7226,8 @@ export default function App() {
         setBpmDetectionState('unavailable')
         return
       }
+      const mergeBpmEntryWithLatestMeta = (entry = {}) =>
+        mergeTrackMetaEntryPreservingCover(trackMetaMapRef.current?.[filePath] || {}, entry)
 
       try {
         await new Promise((resolve) => setTimeout(resolve, BPM_DETECTION_START_DELAY_MS))
@@ -6744,21 +7238,30 @@ export default function App() {
         const bpm = Number(result?.bpm)
         if (!result?.success || !Number.isFinite(bpm) || bpm <= 0) {
           setBpmDetectionState('failed')
-          writeTrackMetaCache({
-            [filePath]: {
-              ...baseMeta,
-              bpm: null,
-              bpmChecked: true,
-              bpmMeasured: false,
-              bpmDetectorVersion: BPM_DETECTOR_VERSION,
-              bpmBackend: result?.backend || null
+          const failedBpmEntry = mergeBpmEntryWithLatestMeta({
+            ...baseMeta,
+            bpm: null,
+            bpmChecked: true,
+            bpmMeasured: false,
+            bpmDetectorVersion: BPM_DETECTOR_VERSION,
+            bpmBackend: result?.backend || null
+          })
+          setTrackMetaMap((prev) => {
+            const mergedEntry = mergeTrackMetaEntryPreservingCover(
+              prev[filePath] || {},
+              failedBpmEntry
+            )
+            return {
+              ...prev,
+              [filePath]: mergedEntry
             }
           })
+          writeTrackMetaCache({ [filePath]: failedBpmEntry })
           return
         }
 
         const measuredBpm = Math.round(bpm)
-        const measuredEntry = {
+        const measuredEntry = mergeBpmEntryWithLatestMeta({
           ...baseMeta,
           bpm: measuredBpm,
           bpmChecked: true,
@@ -6766,20 +7269,20 @@ export default function App() {
           bpmDetectorVersion: BPM_DETECTOR_VERSION,
           bpmBackend: result?.backend || null,
           bpmConfidence: Number(result?.confidence) || 0
-        }
+        })
 
         setTechnicalInfo((prev) => ({
           ...prev,
           originalBpm: measuredBpm
         }))
         setBpmDetectionState('done')
-        setTrackMetaMap((prev) => ({
-          ...prev,
-          [filePath]: {
-            ...(prev[filePath] || {}),
-            ...measuredEntry
+        setTrackMetaMap((prev) => {
+          const mergedEntry = mergeTrackMetaEntryPreservingCover(prev[filePath] || {}, measuredEntry)
+          return {
+            ...prev,
+            [filePath]: mergedEntry
           }
-        }))
+        })
         writeTrackMetaCache({ [filePath]: measuredEntry })
       } catch {
         setBpmDetectionState('failed')
@@ -6818,6 +7321,11 @@ export default function App() {
           const resolvedAlbumArtist = common.albumArtist || cachedMeta?.albumArtist || ''
           const resolvedCover = common.cover || cachedMeta?.cover || null
           const resolvedLyrics = common.lyrics || cachedMeta?.lyrics || null
+          const existingBpmEntry = trackMetaMapRef.current?.[filePath] || cachedMeta || {}
+          const existingMeasuredBpm =
+            existingBpmEntry?.bpmDetectorVersion === BPM_DETECTOR_VERSION &&
+            existingBpmEntry?.bpmMeasured === true &&
+            Number(existingBpmEntry?.bpm) > 0
 
           setMetadata({
             title: resolvedTitle,
@@ -6835,7 +7343,7 @@ export default function App() {
             bitDepth: technical.bitDepth,
             isMqa: technical.isMqa === true,
             codec: technical.codec,
-            originalBpm: null
+            originalBpm: existingMeasuredBpm ? Number(existingBpmEntry?.bpm) : prev.originalBpm
           }))
 
           // DSD / native HiFi: <audio> duration is unreliable (browser does not decode DSD correctly).
@@ -6853,14 +7361,12 @@ export default function App() {
             fetchCloudCover(resolvedTitle, resolvedArtist, requestSeq, { album: resolvedAlbum })
           }
 
-          fetchLyrics(filePath, resolvedTitle, resolvedArtist, {
+          loadLyricsForCurrentSurface(resolvedTitle, resolvedArtist, {
             album: resolvedAlbum,
             embeddedLyrics: resolvedLyrics || '',
             hasLyrics: trackHints.hasLyrics === true,
             mvOriginUrl: mvOriginUrlHint,
-            sourceUrl: sourceUrlHint,
-            mvRequestSeq: requestSeq,
-            preserveExisting: true
+            sourceUrl: sourceUrlHint
           })
           const parsedMetaEntry = {
             title: resolvedTitle || null,
@@ -6876,7 +7382,7 @@ export default function App() {
             duration: technical.duration || null,
             coverChecked: true,
             bpmChecked: true,
-            bpmMeasured: false,
+            bpmMeasured: existingMeasuredBpm,
             mqaChecked: true,
             codec: technical.codec || null,
             bitrateKbps: technical.bitrate ? Math.round(technical.bitrate / 1000) : null,
@@ -6884,7 +7390,10 @@ export default function App() {
             bitDepth: technical.bitDepth || null,
             channels: technical.channels || null,
             isMqa: technical.isMqa === true,
-            bpm: null,
+            bpmDetectorVersion: existingMeasuredBpm ? BPM_DETECTOR_VERSION : null,
+            bpmBackend: existingMeasuredBpm ? existingBpmEntry?.bpmBackend || null : null,
+            bpmConfidence: existingMeasuredBpm ? Number(existingBpmEntry?.bpmConfidence) || 0 : 0,
+            bpm: existingMeasuredBpm ? Number(existingBpmEntry?.bpm) : null,
             lyrics: resolvedLyrics
           }
           writeTrackMetaCache({ [filePath]: parsedMetaEntry })
@@ -6910,12 +7419,10 @@ export default function App() {
             discNo: null
           })
           fetchCloudCover(resolvedTitle, resolvedArtist, requestSeq)
-          fetchLyrics(filePath, resolvedTitle, resolvedArtist, {
+          loadLyricsForCurrentSurface(resolvedTitle, resolvedArtist, {
             hasLyrics: trackHints.hasLyrics === true,
             mvOriginUrl: mvOriginUrlHint,
-            sourceUrl: sourceUrlHint,
-            mvRequestSeq: requestSeq,
-            preserveExisting: true
+            sourceUrl: sourceUrlHint
           })
         }
       }
@@ -6923,6 +7430,96 @@ export default function App() {
       console.error('Track data extraction error:', e)
     }
   }
+
+  useEffect(() => {
+    if (!lyricsLoadSurfaceActive && !mvLoadSurfaceActive) return
+
+    const activeTrack = playlistRef.current[currentIndexRef.current]
+    if (!activeTrack?.path) return
+
+    const filePath = activeTrack.path
+    const deferred =
+      lyricsMvDeferredLoadRef.current?.filePath === filePath
+        ? lyricsMvDeferredLoadRef.current
+        : null
+    const storedMeta = trackMetaMapRef.current?.[filePath] || {}
+    const parsedInfo = parseTrackInfo(activeTrack, storedMeta)
+    const title =
+      deferred?.title ||
+      metadata.title ||
+      parsedInfo?.title ||
+      stripExtension(activeTrack.name || '')
+    const artist =
+      deferred?.artist ||
+      metadata.artist ||
+      (parsedInfo?.artist && parsedInfo.artist !== 'Unknown Artist' ? parsedInfo.artist : '') ||
+      activeTrack.info?.artist ||
+      ''
+    if (!title) return
+
+    const requestSeq = Number.isFinite(Number(deferred?.requestSeq))
+      ? Number(deferred.requestSeq)
+      : trackLoadSeqRef.current
+    const hints = {
+      album:
+        metadata.album ||
+        parsedInfo?.album ||
+        activeTrack.info?.album ||
+        storedMeta.album ||
+        deferred?.hints?.album ||
+        '',
+      embeddedLyrics:
+        storedMeta.lyrics ||
+        activeTrack.info?.lyrics ||
+        activeTrack.lyrics ||
+        deferred?.hints?.embeddedLyrics ||
+        '',
+      hasLyrics: activeTrack.hasLyrics === true,
+      mvOriginUrl: activeTrack.mvOriginUrl || activeTrack.sourceUrl || deferred?.hints?.mvOriginUrl,
+      sourceUrl: activeTrack.sourceUrl || activeTrack.mvOriginUrl || deferred?.hints?.sourceUrl,
+      ...(deferred?.hints || {})
+    }
+    const loadKey = [
+      filePath,
+      requestSeq,
+      lyricsLoadSurfaceActive ? 'lyrics' : '',
+      mvLoadSurfaceActive ? 'mv' : '',
+      config.lyricsSource,
+      config.localLyricsPriority
+    ].join('::')
+    if (lyricsMvSurfaceLoadKeyRef.current === loadKey) return
+    lyricsMvSurfaceLoadKeyRef.current = loadKey
+
+    if (lyricsLoadSurfaceActive && !isRemoteTrackPath(filePath)) {
+      fetchLyrics(filePath, title, artist, {
+        ...hints,
+        mvRequestSeq: requestSeq,
+        preserveExisting: true,
+        allowMvSearch: mvLoadSurfaceActive
+      }).catch((e) => console.error('Deferred lyrics/MV load error', e))
+      return
+    }
+
+    if (mvLoadSurfaceActive) {
+      searchAndApplyMvForTrack({
+        filePath,
+        title,
+        artist,
+        hints,
+        requestSeq
+      })
+    }
+  }, [
+    lyricsLoadSurfaceActive,
+    mvLoadSurfaceActive,
+    currentTrackPath,
+    metadata.title,
+    metadata.artist,
+    metadata.album,
+    config.lyricsSource,
+    config.localLyricsPriority,
+    searchAndApplyMvForTrack
+  ])
 
   const openMetadataEditorForTrack = useCallback((track) => {
     if (!track?.path) return
@@ -7100,7 +7697,9 @@ export default function App() {
         setIsPlaying(wasPlayingBeforeSave)
         await loadTrackData(draft.path, {
           title:
-            activeTrack?.info?.title || activeTrack?.title || stripExtension(activeTrack?.name || ''),
+            activeTrack?.info?.title ||
+            activeTrack?.title ||
+            stripExtension(activeTrack?.name || ''),
           artist: activeTrack?.info?.artist || activeTrack?.artist || '',
           album: activeTrack?.info?.album || '',
           embeddedLyrics: activeTrack?.info?.lyrics || activeTrack?.lyrics || '',
@@ -7927,6 +8526,9 @@ export default function App() {
   }, [playlist, queuePlaybackEnabled, playMode, currentIndex, getPlaybackSequenceSnapshot])
 
   const nextTrack = getNextTrack()
+  useEffect(() => {
+    nextTrackRef.current = nextTrack
+  }, [nextTrack])
 
   useEffect(() => {
     if (!config.gaplessEnabled || !useNativeEngineRef.current) return
@@ -8031,53 +8633,7 @@ export default function App() {
   }, [cancelCrossfade, config.crossfadeEnabled])
 
   useEffect(() => {
-    if (!useNativeEngineRef.current || !window.api?.audioStartAutomixNext) return
-    if (!config.crossfadeEnabled || !isPlaying || playlist.length < 2) return
-    if (config.gaplessEnabled || playbackRateRef.current !== 1) return
-    const currentTrackPath = playlist[currentIndex]?.path || ''
-    const targetPath = nextTrack?.path || ''
-    if (!currentTrackPath || !targetPath || targetPath === currentTrackPath) return
-    if (
-      crossfadeStateRef.current.active &&
-      crossfadeStateRef.current.sourcePath === currentTrackPath &&
-      crossfadeStateRef.current.targetPath === targetPath
-    ) {
-      return
-    }
-    if (!(duration > 0) || !(currentTime >= 0)) return
-
-    const remainingSec = duration - currentTime
-    const baseDurationSec = Math.max(1, Math.min(12, Number(config.crossfadeDuration || 6)))
-    const trackBoundedDuration = Math.max(
-      1,
-      Math.min(baseDurationSec, duration * 0.18, Math.max(1, duration - 1))
-    )
-    const primingLeadSec = 0.65
-    if (remainingSec > trackBoundedDuration + primingLeadSec || remainingSec < 0) return
-
-    const transitionSec = Math.max(1, Math.min(trackBoundedDuration, remainingSec || 1))
-    const leadSec = Math.max(0, Math.min(primingLeadSec, remainingSec - transitionSec))
-
-    crossfadeStateRef.current = {
-      active: true,
-      sourcePath: currentTrackPath,
-      targetPath,
-      pendingFadeIn: false
-    }
-
-    void window.api
-      .audioStartAutomixNext(targetPath, {
-        durationSec: transitionSec,
-        leadSec
-      })
-      .then((result) => {
-        if (!result?.ok && crossfadeStateRef.current.targetPath === targetPath) {
-          resetCrossfadeState()
-        }
-      })
-      .catch(() => {
-        if (crossfadeStateRef.current.targetPath === targetPath) resetCrossfadeState()
-      })
+    maybeArmNativeAutomixFromClock(currentTimeRef.current)
   }, [
     config.crossfadeDuration,
     config.crossfadeEnabled,
@@ -8086,9 +8642,9 @@ export default function App() {
     currentTime,
     duration,
     isPlaying,
+    maybeArmNativeAutomixFromClock,
     nextTrack?.path,
-    playlist,
-    resetCrossfadeState
+    playlist
   ])
 
   const formatTime = (time) => {
@@ -8213,8 +8769,15 @@ export default function App() {
     pauseBiliDirectMedia()
   }, [currentTrackPath, pauseBiliDirectMedia])
 
+  const shouldLoadActiveMvMedia =
+    shouldLoadMvForSurface(config, { view, showLyrics }) &&
+    !(showLyrics && isCurrentTrackMvTemporarilyHidden)
+  const shouldLoadActiveBiliDirectStream = Boolean(
+    mvId?.id && mvId?.source === 'bilibili' && shouldLoadActiveMvMedia
+  )
+
   useEffect(() => {
-    if (!mvId || !config.enableMV || config.mvAsBackground || !showLyrics) {
+    if (!mvId || !isSideLyricsMvEnabled(config) || !showLyrics) {
       return undefined
     }
     const el = mvContainerRef.current
@@ -8250,7 +8813,11 @@ export default function App() {
   }, [mvId?.id, mvId?.source])
 
   useEffect(() => {
-    if (!mvId || mvId.source !== 'bilibili') return
+    if (!shouldLoadActiveBiliDirectStream) {
+      setBiliDirectStream(null)
+      setMvPlaybackQuality(null)
+      return
+    }
     const qMap = { ultra: 120, highfps: 116, high: 80, medium: 64, low: 16 }
     const qn = qMap[config.mvQuality || 'high'] || 80
     const cacheKey = `${mvId.id}::${qn}`
@@ -8292,6 +8859,7 @@ export default function App() {
     mvId?.source,
     readRuntimeCache,
     resolveBiliDirectStreamCached,
+    shouldLoadActiveBiliDirectStream,
     signInStatus.bilibili
   ])
 
@@ -8302,28 +8870,6 @@ export default function App() {
         if (s) setSignInStatus(s)
       })
       .catch(() => {})
-  }, [])
-
-  const handleOpenYoutubeSignIn = useCallback(async () => {
-    try {
-      const r = await window.api?.openYoutubeSignInWindow?.()
-      if (r && !r.ok) {
-        console.warn('[YouTube sign-in]', r.error || r)
-      }
-    } catch (e) {
-      console.warn('[YouTube sign-in]', e?.message || e)
-    }
-  }, [])
-
-  const handleOpenBilibiliSignIn = useCallback(async () => {
-    try {
-      const r = await window.api?.openBilibiliSignInWindow?.()
-      if (r && !r.ok) {
-        console.warn('[Bilibili sign-in]', r.error || r)
-      }
-    } catch (e) {
-      console.warn('[Bilibili sign-in]', e?.message || e)
-    }
   }, [])
 
   // Bilibili direct video: play/pause sync
@@ -8402,7 +8948,7 @@ export default function App() {
 
   const postMvIframeCommand = useCallback(
     (func, args = []) => {
-      if (!mvId) return
+      if (!mvId || !shouldLoadActiveMvMedia) return
       if (mvId.source === 'youtube') {
         postToAllMvIframes(
           JSON.stringify({
@@ -8422,7 +8968,7 @@ export default function App() {
         )
       }
     },
-    [biliDirectStream?.videoUrl, mvId, postToAllMvIframes]
+    [biliDirectStream?.videoUrl, mvId, postToAllMvIframes, shouldLoadActiveMvMedia]
   )
 
   const postThrottledMvIframeSeek = useCallback(
@@ -8450,7 +8996,7 @@ export default function App() {
   )
 
   useEffect(() => {
-    if (!mvId) return
+    if (!mvId || !shouldLoadActiveMvMedia) return
     const applyIframePlaybackState = () => {
       if (mvId.source === 'youtube') {
         postMvIframeCommand(isPlayingRef.current ? 'playVideo' : 'pauseVideo')
@@ -8478,7 +9024,8 @@ export default function App() {
     isPlaying,
     mvId,
     playbackRate,
-    postMvIframeCommand
+    postMvIframeCommand,
+    shouldLoadActiveMvMedia
   ])
 
   const pushYTQuality = useCallback(() => {
@@ -8487,39 +9034,44 @@ export default function App() {
     postMvIframeCommand('setPlaybackQuality', [q])
   }, [config.mvQuality, postMvIframeCommand])
 
-  const syncYTVideo = useCallback((time, options = {}) => {
-    const audioT = Number(time) || 0
-    const mvOffSec = (configRef.current.mvOffsetMs ?? 0) / 1000
-    const t = Math.max(0, audioT + mvOffSec)
-    const force = options.force !== false
+  const syncYTVideo = useCallback(
+    (time, options = {}) => {
+      if (!shouldLoadActiveMvMedia) return
+      const audioT = Number(time) || 0
+      const mvOffSec = (configRef.current.mvOffsetMs ?? 0) / 1000
+      const t = Math.max(0, audioT + mvOffSec)
+      const force = options.force !== false
 
-    if (mvId?.source === 'bilibili') {
-      if (biliDirectStream?.videoUrl) {
-        seekBiliDirectMedia(t, {
-          force,
-          minIntervalMs: force
-            ? MV_DIRECT_FORCE_SEEK_MIN_INTERVAL_MS
-            : MV_DIRECT_HARD_SEEK_MIN_INTERVAL_MS,
-          thresholdSec: force
-            ? MV_DIRECT_MANUAL_SEEK_THRESHOLD_SEC
-            : MV_DIRECT_AUTO_HARD_SEEK_THRESHOLD_SEC
-        })
+      if (mvId?.source === 'bilibili') {
+        if (biliDirectStream?.videoUrl) {
+          seekBiliDirectMedia(t, {
+            force,
+            minIntervalMs: force
+              ? MV_DIRECT_FORCE_SEEK_MIN_INTERVAL_MS
+              : MV_DIRECT_HARD_SEEK_MIN_INTERVAL_MS,
+            thresholdSec: force
+              ? MV_DIRECT_MANUAL_SEEK_THRESHOLD_SEC
+              : MV_DIRECT_AUTO_HARD_SEEK_THRESHOLD_SEC
+          })
+          return
+        }
+        const didSeek = postThrottledMvIframeSeek('seek', [Math.floor(t)], t, { force })
+        if (didSeek && isPlayingRef.current) postMvIframeCommand('play')
         return
       }
-      const didSeek = postThrottledMvIframeSeek('seek', [Math.floor(t)], t, { force })
-      if (didSeek && isPlayingRef.current) postMvIframeCommand('play')
-      return
-    }
 
-    const didSeek = postThrottledMvIframeSeek('seekTo', [t, true], t, { force })
-    if (didSeek && isPlayingRef.current) postMvIframeCommand('playVideo')
-  }, [
-    biliDirectStream?.videoUrl,
-    mvId?.source,
-    postMvIframeCommand,
-    postThrottledMvIframeSeek,
-    seekBiliDirectMedia
-  ])
+      const didSeek = postThrottledMvIframeSeek('seekTo', [t, true], t, { force })
+      if (didSeek && isPlayingRef.current) postMvIframeCommand('playVideo')
+    },
+    [
+      biliDirectStream?.videoUrl,
+      mvId?.source,
+      postMvIframeCommand,
+      postThrottledMvIframeSeek,
+      seekBiliDirectMedia,
+      shouldLoadActiveMvMedia
+    ]
+  )
 
   const syncYTVideoRef = useRef(syncYTVideo)
   syncYTVideoRef.current = syncYTVideo
@@ -8545,7 +9097,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!isPlaying || !mvId) return
+    if (!isPlaying || !mvId || !shouldLoadActiveMvMedia) return
     if (mvId.source !== 'youtube') return
     const id = window.setInterval(() => {
       if (isSeekingRef.current) return
@@ -8554,47 +9106,71 @@ export default function App() {
       syncYTVideoRef.current(syncTime, { force: false })
     }, 3000)
     return () => clearInterval(id)
-  }, [getMvSyncTime, isPlaying, mvId?.id, mvId?.source, shouldFreezeMvAtTrackEnd])
+  }, [
+    getMvSyncTime,
+    isPlaying,
+    mvId?.id,
+    mvId?.source,
+    shouldFreezeMvAtTrackEnd,
+    shouldLoadActiveMvMedia
+  ])
 
   useEffect(() => {
-    if (!isPlaying || !mvId || mvId.source !== 'bilibili' || !biliDirectStream?.videoUrl) return
+    if (
+      !isPlaying ||
+      !mvId ||
+      !shouldLoadActiveMvMedia ||
+      mvId.source !== 'bilibili' ||
+      !biliDirectStream?.videoUrl
+    )
+      return
     let raf = 0
+    let lastTickAt = 0
     const hardSeekThresholdSec = MV_DIRECT_AUTO_HARD_SEEK_THRESHOLD_SEC
     const rateNudgeThresholdSec = MV_DIRECT_RATE_NUDGE_THRESHOLD_SEC
+    // Drift correction work is throttled to MV_DIRECT_DRIFT_TICK_MS (~5Hz) -
+    // well below the rate-nudge threshold (200ms) - so we still keep the RAF
+    // schedule in sync with the rendering pipeline but avoid running the full
+    // body every frame while a 4K MV is decoding alongside Hi-Fi audio.
     const tick = () => {
-      if (!isSeekingRef.current && Date.now() >= mvSyncCooldownUntilRef.current) {
+      const now = Date.now()
+      if (
+        now - lastTickAt >= MV_DIRECT_DRIFT_TICK_MS &&
+        !isSeekingRef.current &&
+        now >= mvSyncCooldownUntilRef.current
+      ) {
+        lastTickAt = now
         const v = biliVideoRef.current || biliBackgroundVideoRef.current
         if (v) {
           const audioTime = getMvSyncTime()
           if (shouldFreezeMvAtTrackEnd(audioTime)) {
-            const now = Date.now()
             if (now - lastMvTailPauseAtRef.current > 500) {
               lastMvTailPauseAtRef.current = now
               pauseBiliDirectMedia()
             }
-            raf = requestAnimationFrame(tick)
-            return
-          }
-          const target = Math.max(0, audioTime + (configRef.current.mvOffsetMs ?? 0) / 1000)
-          const drift = target - (v.currentTime || 0)
-          const absDrift = Math.abs(drift)
-          const targetPastTail = isMvTargetPastMediaTail(v, target)
-          if (absDrift > hardSeekThresholdSec) {
-            seekBiliDirectMedia(target, {
-              force: false,
-              thresholdSec: hardSeekThresholdSec,
-              minIntervalMs: MV_DIRECT_HARD_SEEK_MIN_INTERVAL_MS
-            })
-          } else if (!targetPastTail && absDrift > rateNudgeThresholdSec) {
-            const nudgedRate = Math.max(
-              0.5,
-              Math.min(2, playbackRateRef.current + (drift > 0 ? 0.04 : -0.04))
-            )
-            v.playbackRate = nudgedRate
-            if (biliAudioRef.current) biliAudioRef.current.playbackRate = nudgedRate
-          } else if (v.playbackRate !== playbackRateRef.current) {
-            v.playbackRate = playbackRateRef.current
-            if (biliAudioRef.current) biliAudioRef.current.playbackRate = playbackRateRef.current
+          } else {
+            const target = Math.max(0, audioTime + (configRef.current.mvOffsetMs ?? 0) / 1000)
+            const drift = target - (v.currentTime || 0)
+            const absDrift = Math.abs(drift)
+            const targetPastTail = isMvTargetPastMediaTail(v, target)
+            if (absDrift > hardSeekThresholdSec) {
+              seekBiliDirectMedia(target, {
+                force: false,
+                thresholdSec: hardSeekThresholdSec,
+                minIntervalMs: MV_DIRECT_HARD_SEEK_MIN_INTERVAL_MS
+              })
+            } else if (!targetPastTail && absDrift > rateNudgeThresholdSec) {
+              const nudgedRate = Math.max(
+                0.5,
+                Math.min(2, playbackRateRef.current + (drift > 0 ? 0.04 : -0.04))
+              )
+              v.playbackRate = nudgedRate
+              if (biliAudioRef.current) biliAudioRef.current.playbackRate = nudgedRate
+            } else if (v.playbackRate !== playbackRateRef.current) {
+              v.playbackRate = playbackRateRef.current
+              if (biliAudioRef.current)
+                biliAudioRef.current.playbackRate = playbackRateRef.current
+            }
           }
         }
       }
@@ -8610,6 +9186,7 @@ export default function App() {
     mvId?.source,
     pauseBiliDirectMedia,
     shouldFreezeMvAtTrackEnd,
+    shouldLoadActiveMvMedia,
     seekBiliDirectMedia
   ])
 
@@ -8843,7 +9420,13 @@ export default function App() {
     return bufferArray
   }
 
+  const hasDisplayMetadataOverrides = useMemo(
+    () => Object.keys(displayMetadataOverrides || {}).length > 0,
+    [displayMetadataOverrides]
+  )
+
   const effectiveTrackMetaMap = useMemo(() => {
+    if (!hasDisplayMetadataOverrides) return trackMetaMap
     const next = { ...trackMetaMap }
     for (const [path, override] of Object.entries(displayMetadataOverrides || {})) {
       const prev = next[path] || {}
@@ -8854,12 +9437,19 @@ export default function App() {
       }
     }
     return next
-  }, [trackMetaMap, displayMetadataOverrides])
+  }, [trackMetaMap, displayMetadataOverrides, hasDisplayMetadataOverrides])
 
   const currentTrack = currentIndex >= 0 ? playlist[currentIndex] : null
   const currentDisplayOverride = currentTrack?.path
     ? displayMetadataOverrides[currentTrack.path] || null
     : null
+  const currentTrackEffectiveMeta = useMemo(
+    () =>
+      currentTrack?.path
+        ? getEffectiveTrackMeta(trackMetaMap, displayMetadataOverrides, currentTrack.path)
+        : null,
+    [currentTrack?.path, displayMetadataOverrides, trackMetaMap]
+  )
   const listenTogetherSyncContent = useMemo(
     () => ({
       coverUrl: coverUrl || '',
@@ -8869,9 +9459,8 @@ export default function App() {
     [coverUrl, mvId, lyrics]
   )
   const currentTrackInfo = useMemo(
-    () =>
-      currentTrack ? parseTrackInfo(currentTrack, effectiveTrackMetaMap[currentTrack.path]) : null,
-    [currentTrack, effectiveTrackMetaMap]
+    () => (currentTrack ? parseTrackInfo(currentTrack, currentTrackEffectiveMeta) : null),
+    [currentTrack, currentTrackEffectiveMeta]
   )
   const currentTrackMeta = currentTrack?.path ? trackMetaMap[currentTrack.path] || null : null
   const currentBpmRaw = Number(
@@ -8892,6 +9481,7 @@ export default function App() {
     async (reason = 'youtube-error') => {
       if (!window.api?.searchMVHandler) return
       if (!configRef.current?.autoFallbackToBilibili) return
+      if (!shouldLoadActiveMvMedia) return
       if (!mvId || mvId.source !== 'youtube') return
 
       const title =
@@ -8934,7 +9524,15 @@ export default function App() {
         mvFallbackRunningRef.current = false
       }
     },
-    [mvId, metadata.title, metadata.artist, currentTrack, currentTrackInfo, searchBilibiliMv]
+    [
+      mvId,
+      metadata.title,
+      metadata.artist,
+      currentTrack,
+      currentTrackInfo,
+      searchBilibiliMv,
+      shouldLoadActiveMvMedia
+    ]
   )
 
   useEffect(() => {
@@ -8952,6 +9550,7 @@ export default function App() {
       if (!/youtube\.com$|youtube-nocookie\.com$/i.test(origin.replace(/^https?:\/\//, ''))) {
         return
       }
+      if (!shouldLoadActiveMvMedia) return
 
       let payload = event.data
       if (typeof payload === 'string') {
@@ -8989,12 +9588,13 @@ export default function App() {
 
     window.addEventListener('message', handleYouTubeMessage)
     return () => window.removeEventListener('message', handleYouTubeMessage)
-  }, [config.autoFallbackToBilibili, triggerAutoMvFallback, pushYTQuality])
+  }, [config.autoFallbackToBilibili, triggerAutoMvFallback, pushYTQuality, shouldLoadActiveMvMedia])
 
   useEffect(() => {
-    if (!mvId || mvId.source !== 'youtube' || !ytReadyRef.current) return
+    if (!mvId || !shouldLoadActiveMvMedia || mvId.source !== 'youtube' || !ytReadyRef.current)
+      return
     pushYTQuality()
-  }, [config.mvQuality, mvId, pushYTQuality])
+  }, [config.mvQuality, mvId, pushYTQuality, shouldLoadActiveMvMedia])
 
   const resolvedDisplayArtist = useMemo(() => {
     if (currentDisplayOverride?.artist) return currentDisplayOverride.artist
@@ -9149,7 +9749,8 @@ export default function App() {
         displayedArtist && displayedArtist !== t('player.nightcoreMode')
           ? displayedArtist
           : currentTrackInfo?.artist || '',
-      album: displayMainAlbum !== 'Unknown Album' ? displayMainAlbum : currentTrackInfo?.album || '',
+      album:
+        displayMainAlbum !== 'Unknown Album' ? displayMainAlbum : currentTrackInfo?.album || '',
       duration: duration || currentTrackInfo?.duration || track?.info?.duration || 0
     })
     if (!payload) return
@@ -9457,7 +10058,7 @@ export default function App() {
     if (!castMvIdentity || !castVirtualTrack?.metadataTrusted) return
     if (
       !window.api?.searchMVHandler ||
-      !(config.enableMV || config.mvAsBackground || config.mvAsBackgroundMain)
+      !mvLoadSurfaceActive
     ) {
       return
     }
@@ -9498,6 +10099,78 @@ export default function App() {
           return
         }
 
+        if (config.autoSearchMV) {
+          let foundCandidates = false
+          for (const mvQuery of mvQueries) {
+            const searchCacheKey = `${castVirtualTrack.path}::${mvSource}::${mvQuery.toLowerCase()}::${mvSearchContextKey}`
+            const cached = autoMvSearchByTrackRef.current.get(searchCacheKey)
+            const searchResult =
+              cached === undefined
+                ? await searchMvWithCache(mvQuery, mvSource, mvSearchContext)
+                : cached
+            if (cached === undefined) {
+              autoMvSearchByTrackRef.current.set(searchCacheKey, searchResult || null)
+            }
+            if (cancelled) return
+            const items = orderMvSearchItems(searchResult, mvSource)
+            if (items.length > 0) {
+              foundCandidates = true
+              setAutoMvSearchResults({
+                status: 'ready',
+                filePath: castVirtualTrack.path,
+                title: cleanedTitle,
+                artist: artist || '',
+                source: mvSource,
+                query: mvQuery,
+                items,
+                updatedAt: Date.now()
+              })
+              const hit =
+                getAutoMvSearchHit(searchResult, mvSource) ||
+                getBestEffortMvSearchHit(searchResult, mvSource)
+              const resultMeta =
+                hit?.result && typeof hit.result === 'object' ? hit.result : items[0] || {}
+              const selectedId = hit?.id || items[0]?.id
+              if (selectedId) {
+                setMvId((prev) => {
+                  const nextMv = {
+                    id: selectedId,
+                    source: hit?.source || items[0]?.source || mvSource,
+                    title: resultMeta.title || '',
+                    author: resultMeta.author || ''
+                  }
+                  return prev?.id === nextMv.id &&
+                    prev?.source === nextMv.source &&
+                    (prev?.title || '') === nextMv.title &&
+                    (prev?.author || '') === nextMv.author
+                    ? prev
+                    : nextMv
+                })
+              }
+              break
+            }
+          }
+          if (!foundCandidates && !cancelled) {
+            setAutoMvSearchResults({
+              status: 'empty',
+              filePath: castVirtualTrack.path,
+              title: cleanedTitle,
+              artist: artist || '',
+              source: mvSource,
+              query: mvQueries[0] || cleanedTitle,
+              items: [],
+              updatedAt: Date.now()
+            })
+          }
+          if (cancelled) return
+          if (!foundCandidates) {
+            setMvId(null)
+            setBiliDirectStream(null)
+            setMvPlaybackQuality(null)
+          }
+          return
+        }
+
         let searchResult = null
         let fallbackHit = null
         for (const mvQuery of mvQueries) {
@@ -9516,7 +10189,8 @@ export default function App() {
           }
         }
         if (cancelled) return
-        const hit = (searchResult ? getAutoMvSearchHit(searchResult, mvSource) : null) || fallbackHit
+        const hit =
+          (searchResult ? getAutoMvSearchHit(searchResult, mvSource) : null) || fallbackHit
         if (hit?.id) {
           const resultMeta = hit.result && typeof hit.result === 'object' ? hit.result : {}
           setMvId((prev) => {
@@ -9551,10 +10225,9 @@ export default function App() {
   }, [
     castMvIdentity,
     castVirtualTrack,
-    config.enableMV,
-    config.mvAsBackground,
-    config.mvAsBackgroundMain,
+    config.autoSearchMV,
     config.mvSource,
+    mvLoadSurfaceActive,
     searchMvWithCache
   ])
 
@@ -9575,8 +10248,8 @@ export default function App() {
     [config.uiBgOpacity]
   )
   const uiPanelBlur = useMemo(() => {
-    const raw = Number(config.uiBlur !== undefined ? config.uiBlur : DEFAULT_CONFIG.uiBlur ?? 20)
-    return Number.isFinite(raw) ? Math.max(0, raw) : DEFAULT_CONFIG.uiBlur ?? 20
+    const raw = Number(config.uiBlur !== undefined ? config.uiBlur : (DEFAULT_CONFIG.uiBlur ?? 20))
+    return Number.isFinite(raw) ? Math.max(0, raw) : (DEFAULT_CONFIG.uiBlur ?? 20)
   }, [config.uiBlur])
   const isGlassTransparent = uiPanelOpacity <= 0.051
   const isGlassBlurOff = uiPanelBlur <= 0.001 || isGlassTransparent
@@ -9700,7 +10373,7 @@ export default function App() {
 
   const lyricsNeedsCoverTheme =
     showLyrics &&
-    !(config.mvAsBackground && mvId) &&
+    !(isImmersiveLyricsMvEnabled(config) && mvId) &&
     normalizeLyricsBackgroundMode(config.lyricsBackgroundMode) === 'cover'
   const shouldResolveDynamicCoverTheme = config.themeDynamicCoverColor || lyricsNeedsCoverTheme
 
@@ -9892,10 +10565,14 @@ export default function App() {
 
   useEffect(() => {
     displayProgressTimeRef.current = displayProgressTime
-    playbackClockAnchorRef.current = createPlaybackClockAnchor(displayProgressTime, performance.now(), {
-      isPlaying: transportIsPlaying === true,
-      playbackRate
-    })
+    playbackClockAnchorRef.current = createPlaybackClockAnchor(
+      displayProgressTime,
+      performance.now(),
+      {
+        isPlaying: transportIsPlaying === true,
+        playbackRate
+      }
+    )
   }, [displayProgressTime, playbackRate, transportIsPlaying])
 
   const getLiveLyricsPlaybackTime = useCallback(() => {
@@ -10501,7 +11178,9 @@ export default function App() {
           const meta = trackMetaMapRef.current?.[track.path] || null
           const parsedInfo = parseTrackInfo(track, meta)
           const title =
-            parsedInfo?.title || track?.info?.title || stripExtension(track.name || fileNameFromPath(track.path))
+            parsedInfo?.title ||
+            track?.info?.title ||
+            stripExtension(track.name || fileNameFromPath(track.path))
           const artist = parsedInfo?.artist || track?.info?.artist || ''
           const album = parsedInfo?.album || track?.info?.album || ''
           const fileName =
@@ -10527,7 +11206,9 @@ export default function App() {
           query,
           offset: append ? Math.max(0, Number(prev?.offset) || 0) : offset,
           total: sortedPaths.length,
-          paths: append ? [...(Array.isArray(prev?.paths) ? prev.paths : []), ...nextPaths] : nextPaths
+          paths: append
+            ? [...(Array.isArray(prev?.paths) ? prev.paths : []), ...nextPaths]
+            : nextPaths
         }))
         return
       }
@@ -10545,7 +11226,9 @@ export default function App() {
           const meta = trackMetaMapRef.current?.[track.path] || null
           const parsedInfo = parseTrackInfo(track, meta)
           const title =
-            parsedInfo?.title || track?.info?.title || stripExtension(track.name || fileNameFromPath(track.path))
+            parsedInfo?.title ||
+            track?.info?.title ||
+            stripExtension(track.name || fileNameFromPath(track.path))
           const artist = parsedInfo?.artist || track?.info?.artist || ''
           const album = parsedInfo?.album || track?.info?.album || ''
           const fileName =
@@ -10576,7 +11259,9 @@ export default function App() {
         : null
       if (command === 'playTrack' || command === 'playQueueItem') {
         if (!remoteTrack?.path) return
-        const trackIndex = playlistRef.current.findIndex((track) => track?.path === remoteTrack.path)
+        const trackIndex = playlistRef.current.findIndex(
+          (track) => track?.path === remoteTrack.path
+        )
         if (trackIndex === -1) return
         setCurrentIndex(trackIndex)
         setIsPlaying(true)
@@ -10630,13 +11315,116 @@ export default function App() {
     volume
   ])
 
+  const miniPlayerPayload = useMemo(
+    () =>
+      buildMiniPlayerPayload({
+        trackPath: currentTrack?.path || '',
+        title: displayMainTitle || '',
+        artist: displayMainArtist || '',
+        album: displayMainAlbum || '',
+        cover: displaySafeCoverUrl || currentTrackMeta?.cover || '',
+        isPlaying: transportIsPlaying === true,
+        volume,
+        liked: !!(currentTrack?.path && likedSet.has(currentTrack.path)),
+        position: displayProgressTime || 0,
+        duration: displayProgressDuration || 0
+      }),
+    [
+      currentTrack?.path,
+      currentTrackMeta?.cover,
+      displayMainAlbum,
+      displayMainArtist,
+      displayMainTitle,
+      displayProgressDuration,
+      displayProgressTime,
+      displaySafeCoverUrl,
+      likedSet,
+      transportIsPlaying,
+      volume
+    ]
+  )
+  const miniPlayerStateRef = useRef(miniPlayerPayload)
+
+  useEffect(() => {
+    miniPlayerStateRef.current = miniPlayerPayload
+    const syncResult = window.api?.updateMiniPlayerData?.(miniPlayerPayload)
+    syncResult?.catch((error) => {
+      console.error('[mini player sync]', error)
+    })
+  }, [miniPlayerPayload])
+
+  useEffect(() => {
+    window.__getMiniPlayerPayload = () => miniPlayerStateRef.current
+    return () => {
+      try {
+        delete window.__getMiniPlayerPayload
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
+  const handleMiniPlayerCommand = useCallback(
+    async (message) => {
+      const command = String(message?.command || '')
+      const payload = message?.payload || {}
+      if (command === 'togglePlay') {
+        await togglePlay()
+        return
+      }
+      if (command === 'next') {
+        handleNext()
+        return
+      }
+      if (command === 'previous') {
+        handlePrev()
+        return
+      }
+      if (command === 'setVolume') {
+        setVolume(clampVolume(payload.volume))
+        return
+      }
+      if (command === 'toggleLike') {
+        if (currentTrack?.path) toggleLike(currentTrack.path)
+      }
+    },
+    [currentTrack?.path, handleNext, handlePrev, toggleLike, togglePlay]
+  )
+
+  useEffect(() => {
+    if (!window.api?.onMiniPlayerCommand) return undefined
+    return window.api.onMiniPlayerCommand(handleMiniPlayerCommand)
+  }, [handleMiniPlayerCommand])
+
+  const openMiniPlayer = useCallback(async () => {
+    try {
+      if (!window.api?.openMiniPlayer) {
+        console.warn('[mini player open] desktop window API is unavailable')
+        return
+      }
+      await window.api.openMiniPlayer()
+      await window.api?.setMiniPlayerAlwaysOnTop?.(
+        configRef.current.miniPlayerAlwaysOnTop !== false
+      )
+    } catch (error) {
+      console.error('[mini player open]', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!window.api?.setMiniPlayerAlwaysOnTop) return
+    window.api.setMiniPlayerAlwaysOnTop(config.miniPlayerAlwaysOnTop !== false).catch((error) => {
+      console.error('[mini player always on top]', error)
+    })
+  }, [config.miniPlayerAlwaysOnTop])
+
   useEffect(() => {
     if (!showLyrics || config.lyricsWordHighlight === false) {
       setLyricsRenderTime(getLiveLyricsPlaybackTime())
       return
     }
 
-    if (!transportIsPlaying) {
+    if (!transportIsPlaying || lyrics.length === 0) {
       setLyricsRenderTime(getLiveLyricsPlaybackTime())
       return
     }
@@ -10659,7 +11447,8 @@ export default function App() {
     showLyrics,
     config.lyricsWordHighlight,
     transportIsPlaying,
-    getLiveLyricsPlaybackTime
+    getLiveLyricsPlaybackTime,
+    lyrics.length
   ])
 
   useEffect(() => {
@@ -10890,15 +11679,16 @@ export default function App() {
     [t]
   )
 
-  const parsedPlaylist = useMemo(
-    () =>
-      playlist.map((track, originalIdx) => ({
-        ...track,
-        originalIdx,
-        info: parseTrackInfo(track, effectiveTrackMetaMap[track.path])
-      })),
-    [playlist, effectiveTrackMetaMap]
-  )
+  const parsedPlaylist = useMemo(() => {
+    const result = buildParsedPlaylistWithCache(
+      parsedPlaylistCacheRef.current,
+      playlist,
+      trackMetaMap,
+      displayMetadataOverrides
+    )
+    parsedPlaylistCacheRef.current = result.cache
+    return result.items
+  }, [playlist, trackMetaMap, displayMetadataOverrides])
 
   const queryFilteredPlaylist = useMemo(() => {
     const localTracks = parsedPlaylist.filter((track) => !isRemoteTrackPath(track.path))
@@ -10906,6 +11696,7 @@ export default function App() {
   }, [parsedPlaylist, deferredSearchQuery])
 
   useEffect(() => {
+    if (listMode !== 'album') return
     const foundCovers = {}
     const foundCoverItems = []
     for (const track of parsedPlaylist) {
@@ -10934,9 +11725,16 @@ export default function App() {
       }
       return changed ? next : prev
     })
-  }, [parsedPlaylist, persistAlbumCoverCacheItems])
+  }, [listMode, parsedPlaylist, persistAlbumCoverCacheItems])
+
+  const shouldBuildAlbumBuckets = listMode === 'album' || selectedAlbum !== 'all'
+  const shouldBuildFolderBuckets = listMode === 'folders' || selectedFolder !== 'all'
+  const shouldBuildArtistBuckets = listMode === 'artists' || selectedArtist !== 'all'
+  const shouldBuildSmartCollections =
+    listMode === 'playlists' || Boolean(selectedSmartCollectionId)
 
   const albumArtistByName = useMemo(() => {
+    if (listMode !== 'history' && !(listMode === 'album' && selectedAlbum === 'all')) return {}
     const m = {}
     for (const track of queryFilteredPlaylist) {
       const name = track.info.album || 'Singles'
@@ -10945,8 +11743,14 @@ export default function App() {
       }
     }
     return m
-  }, [queryFilteredPlaylist])
+  }, [listMode, queryFilteredPlaylist, selectedAlbum])
 
+  // Build hydration targets for every album in the library, regardless of the
+  // currently active view. The album cover cache is reused by the album wall,
+  // sidebar album rows, and the "now playing" fallback art, so we want it
+  // populated as soon as the library is ready - not lazily on the first switch
+  // to the album view (which previously caused a noticeable empty-cover window
+  // when reopening the app).
   const albumCoverCacheTargets = useMemo(() => {
     const targetsByAlbum = new Map()
     for (const track of queryFilteredPlaylist) {
@@ -10969,27 +11773,56 @@ export default function App() {
     let cancelled = false
 
     const hydrateAlbumCoverCache = async () => {
+      // Progressive hydration: reading every album key at once can overwhelm
+      // IndexedDB when the library is large (thousands of tracks / many albums),
+      // causing CPU spikes and long main-thread stalls. Batch the lookups and
+      // yield between batches so playback/UI stay responsive.
       const keys = []
       for (const target of albumCoverCacheTargets) {
         if (target.exactKey) keys.push(target.exactKey)
         if (target.fallbackKey) keys.push(target.fallbackKey)
       }
-      const cached = await readAlbumCoverCache(keys).catch(() => ({}))
-      if (cancelled || Object.keys(cached).length === 0) return
+      const uniqueKeys = [...new Set(keys.filter(Boolean))]
+      if (uniqueKeys.length === 0) return
 
-      setAlbumCoverMap((prev) => {
-        let changed = false
-        const next = { ...prev }
-        for (const target of albumCoverCacheTargets) {
-          if (next[target.albumName]) continue
-          const entry = cached[target.exactKey] || cached[target.fallbackKey]
-          if (entry?.cover) {
-            next[target.albumName] = entry.cover
+      const keyToAlbum = new Map()
+      for (const target of albumCoverCacheTargets) {
+        if (target.exactKey) keyToAlbum.set(target.exactKey, target.albumName)
+        if (target.fallbackKey && !keyToAlbum.has(target.fallbackKey)) {
+          keyToAlbum.set(target.fallbackKey, target.albumName)
+        }
+      }
+
+      const BATCH_KEYS = 220
+      const MAX_KEYS_PER_RUN = 1800
+      const cappedKeys = uniqueKeys.slice(0, MAX_KEYS_PER_RUN)
+
+      for (let offset = 0; offset < cappedKeys.length; offset += BATCH_KEYS) {
+        if (cancelled) return
+        const batch = cappedKeys.slice(offset, offset + BATCH_KEYS)
+        const cached = await readAlbumCoverCache(batch).catch(() => ({}))
+        if (cancelled || Object.keys(cached).length === 0) {
+          // Yield anyway; IDB can still be busy even if no entries were found.
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          continue
+        }
+
+        setAlbumCoverMap((prev) => {
+          let changed = false
+          const next = { ...prev }
+          for (const [key, entry] of Object.entries(cached)) {
+            if (!entry?.cover) continue
+            const albumName = keyToAlbum.get(key)
+            if (!albumName || next[albumName]) continue
+            next[albumName] = entry.cover
             changed = true
           }
-        }
-        return changed ? next : prev
-      })
+          return changed ? next : prev
+        })
+
+        // Let the browser breathe between IDB batches.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
     }
 
     hydrateAlbumCoverCache()
@@ -10999,15 +11832,17 @@ export default function App() {
   }, [albumCoverCacheTargets, libraryStateReady])
 
   const albumNamesSet = useMemo(() => {
+    if (selectedAlbum === 'all' || listMode === 'album') return EMPTY_SET
     const s = new Set()
     for (const t of queryFilteredPlaylist) {
       s.add(t.info.album || 'Singles')
     }
     return s
-  }, [queryFilteredPlaylist])
+  }, [listMode, queryFilteredPlaylist, selectedAlbum])
 
-  /* Keep album grouping off listMode so switching to Albums does not re-run reduce/sort on the main thread. */
+  /* Build heavyweight library groupings only for the views that need them. */
   const albumBuckets = useMemo(() => {
+    if (!shouldBuildAlbumBuckets) return []
     const groups = queryFilteredPlaylist.reduce((acc, track) => {
       const key = track.info.album || 'Singles'
       if (!acc.has(key)) acc.set(key, [])
@@ -11055,49 +11890,28 @@ export default function App() {
     })
 
     return buckets
-  }, [queryFilteredPlaylist, albumSortMode, albumCoverMap, trackMetaMap])
+  }, [albumCoverMap, albumSortMode, queryFilteredPlaylist, shouldBuildAlbumBuckets, trackMetaMap])
 
   const albumGroups = listMode === 'album' ? albumBuckets : []
 
-  /* Folder grouping -extract parent folder from track path */
-  const folderBuckets = useMemo(() => {
-    const groups = queryFilteredPlaylist.reduce((acc, track) => {
-      const parts = (track.path || '').replace(/\\/g, '/').split('/')
-      const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '/'
-      const folderName = parts.length > 1 ? parts[parts.length - 2] : '/'
-      if (!acc.has(folderPath)) acc.set(folderPath, { name: folderName, folderPath, tracks: [] })
-      acc.get(folderPath).tracks.push(track)
-      return acc
-    }, new Map())
+  const folderTree = useMemo(() => {
+    if (!shouldBuildFolderBuckets) return []
+    return buildFolderHierarchy(queryFilteredPlaylist, importedFolders, folderSortMode)
+  }, [folderSortMode, importedFolders, queryFilteredPlaylist, shouldBuildFolderBuckets])
 
-    const buckets = Array.from(groups.values())
-    if (folderSortMode === 'dateAsc') {
-      buckets.sort((a, b) => {
-        const aTime = Math.min(...a.tracks.map((t) => t.birthtimeMs || Infinity))
-        const bTime = Math.min(...b.tracks.map((t) => t.birthtimeMs || Infinity))
-        return aTime - bTime
-      })
-    } else if (folderSortMode === 'dateDesc') {
-      buckets.sort((a, b) => {
-        const aTime = Math.min(...a.tracks.map((t) => t.birthtimeMs || Infinity))
-        const bTime = Math.min(...b.tracks.map((t) => t.birthtimeMs || Infinity))
-        return bTime - aTime
-      })
-    } else {
-      buckets.sort((a, b) => a.name.localeCompare(b.name))
-    }
-    return buckets
-  }, [queryFilteredPlaylist, folderSortMode])
+  const folderBuckets = useMemo(() => flattenFolderHierarchy(folderTree), [folderTree])
 
   const folderNamesSet = useMemo(() => {
+    if (selectedFolder === 'all') return EMPTY_SET
     const s = new Set()
     for (const b of folderBuckets) s.add(b.folderPath)
     return s
-  }, [folderBuckets])
+  }, [folderBuckets, selectedFolder])
 
   const folderGroups = listMode === 'folders' ? folderBuckets : []
 
   const artistBuckets = useMemo(() => {
+    if (!shouldBuildArtistBuckets) return []
     const unknownArtist = t('artists.unknown', 'Unknown Artist')
     return buildArtistBucketsWithAvatars(queryFilteredPlaylist, {
       unknownArtist,
@@ -11105,13 +11919,21 @@ export default function App() {
       albumCoverMap,
       artistAvatarMap
     })
-  }, [queryFilteredPlaylist, t, trackMetaMap, albumCoverMap, artistAvatarMap])
+  }, [
+    albumCoverMap,
+    artistAvatarMap,
+    queryFilteredPlaylist,
+    shouldBuildArtistBuckets,
+    t,
+    trackMetaMap
+  ])
 
   const artistNamesSet = useMemo(() => {
+    if (selectedArtist === 'all') return EMPTY_SET
     const s = new Set()
     for (const b of artistBuckets) s.add(b.name)
     return s
-  }, [artistBuckets])
+  }, [artistBuckets, selectedArtist])
 
   const artistGroups = listMode === 'artists' ? artistBuckets : []
 
@@ -11123,7 +11945,7 @@ export default function App() {
     if (!window.api?.neteaseSearchArtist && !window.api?.qqMusicSearchArtist) return undefined
 
     const targets = artistBuckets
-      .filter((artist) => !artist.hasLocalCover && !artist.hasRemoteAvatar)
+      .filter((artist) => !artist.isUnknownArtist && !artist.hasRemoteAvatar)
       .map((artist) => ({
         name: artist.name,
         key: createArtistAvatarCacheKey(artist.name),
@@ -11145,6 +11967,47 @@ export default function App() {
       }).catch(() => {})
     }
 
+    const delay = (ms) =>
+      new Promise((resolve) => {
+        window.setTimeout(resolve, Math.max(0, Number(ms) || 0))
+      })
+
+    const waitForArtistAvatarLookupSlot = async (gapMs = ARTIST_AVATAR_LOOKUP_GAP_MS) => {
+      const now = Date.now()
+      const blockedUntil = Math.max(
+        artistAvatarLookupAvailableAtRef.current,
+        lastArtistAvatarLookupAtRef.current + gapMs
+      )
+      const waitMs = blockedUntil - now
+      if (waitMs > 0) {
+        await delay(waitMs)
+      }
+      if (cancelled) return false
+      lastArtistAvatarLookupAtRef.current = Date.now()
+      return true
+    }
+
+    const deferArtistAvatarLookup = (target, retryAfterMs = 0) => {
+      const waitMs = Math.max(
+        ARTIST_AVATAR_TRANSIENT_RETRY_MS,
+        getArtistAvatarRetryAfterMs({ retryAfterMs }, 0)
+      )
+      artistAvatarLookupAvailableAtRef.current = Math.max(
+        artistAvatarLookupAvailableAtRef.current,
+        Date.now() + waitMs
+      )
+      artistAvatarAttemptedRef.current.delete(target.key)
+      if (artistAvatarRetryTimerRef.current) {
+        window.clearTimeout(artistAvatarRetryTimerRef.current)
+      }
+      artistAvatarRetryTimerRef.current = window.setTimeout(() => {
+        artistAvatarRetryTimerRef.current = null
+        artistAvatarLookupAvailableAtRef.current = 0
+        artistAvatarAttemptedRef.current.delete(target.key)
+        setArtistAvatarRetryNonce((value) => value + 1)
+      }, waitMs)
+    }
+
     const run = async () => {
       const cached = await readArtistAvatarCache(targets.map((target) => target.key)).catch(
         () => ({})
@@ -11154,12 +12017,29 @@ export default function App() {
       const cachedAvatars = {}
       const unresolved = []
       const now = Date.now()
+      const currentAvatarSourceSuffix = `-v${ARTIST_AVATAR_LOOKUP_VERSION}`
+      const acceptedAvatarSourceSuffixes = [currentAvatarSourceSuffix, '-v5', '-v4']
       for (const target of targets) {
         const entry = cached[target.key]
-        if (entry?.avatarUrl) {
-          cachedAvatars[target.name] = entry.avatarUrl
+        const cachedAvatarUrl = String(entry?.avatarUrl || '').trim()
+        const cachedAvatarSource = String(entry?.source || '')
+        if (
+          cachedAvatarUrl &&
+          !cachedAvatarSource.startsWith('miss-') &&
+          acceptedAvatarSourceSuffixes.some((suffix) => cachedAvatarSource.endsWith(suffix)) &&
+          !isPlatformDefaultArtistAvatarUrl(cachedAvatarUrl)
+        ) {
+          cachedAvatars[target.name] = cachedAvatarUrl
           artistAvatarAttemptedRef.current.add(target.key)
           continue
+        }
+        if (
+          cachedAvatarSource &&
+          cachedAvatarSource !== `miss-v${ARTIST_AVATAR_LOOKUP_VERSION}` &&
+          (cachedAvatarSource.startsWith('miss-') ||
+            !acceptedAvatarSourceSuffixes.some((suffix) => cachedAvatarSource.endsWith(suffix)))
+        ) {
+          artistAvatarAttemptedRef.current.delete(target.key)
         }
         if (
           entry?.checkedAt &&
@@ -11184,6 +12064,9 @@ export default function App() {
 
       const runNext = async () => {
         while (!cancelled) {
+          if (artistAvatarLookupAvailableAtRef.current - Date.now() > ARTIST_AVATAR_LOOKUP_GAP_MS) {
+            return
+          }
           const target = queue[nextIndex]
           nextIndex += 1
           if (!target) return
@@ -11191,28 +12074,63 @@ export default function App() {
 
           try {
             let resolved = null
+            let transientFailure = false
+            let transientRetryAfterMs = 0
             for (const query of target.queries) {
               const providerAttempts = [
                 {
                   source: 'netease',
                   search: window.api.neteaseSearchArtist,
-                  normalizeUrl: normalizeNeteaseArtistImageUrl
+                  pickImageUrl: pickNeteaseArtistImageUrl,
+                  filterCandidates: (candidates) =>
+                    (Array.isArray(candidates) ? candidates : []).filter((candidate) =>
+                      [candidate?.picUrl, candidate?.img1v1Url, candidate?.avatar].some(
+                        (url) => normalizeNeteaseArtistImageUrl(url)
+                      )
+                    )
                 },
                 {
                   source: 'qq',
                   search: window.api.qqMusicSearchArtist,
-                  normalizeUrl: normalizeQqMusicArtistImageUrl
+                  pickImageUrl: (candidate) =>
+                    normalizeQqMusicArtistImageUrl(
+                      candidate?.picUrl || candidate?.img1v1Url || candidate?.avatar
+                    )
                 }
               ].filter((provider) => typeof provider.search === 'function')
 
               for (const provider of providerAttempts) {
-                const candidates = await provider.search({ artist: query })
+                const canLookup = await waitForArtistAvatarLookupSlot()
+                if (!canLookup) return
+                const response = await provider.search({ artist: query })
                 if (cancelled) return
-                const best = pickBestArtistAvatarCandidate(candidates, target.name, query)
-                const avatarUrl = provider.normalizeUrl(best?.picUrl || best?.img1v1Url)
+                const searchResult = normalizeArtistAvatarSearchResponse(response)
+                if (searchResult.transient) {
+                  transientFailure = true
+                  transientRetryAfterMs = Math.max(
+                    transientRetryAfterMs,
+                    getArtistAvatarRetryAfterMs(searchResult, 0)
+                  )
+                }
+                const candidatePool = provider.filterCandidates
+                  ? provider.filterCandidates(searchResult.candidates)
+                  : searchResult.candidates
+                const best = pickBestArtistAvatarCandidate(candidatePool, target.name, query)
+                const avatarUrl = provider.pickImageUrl(best)
                 if (!avatarUrl) continue
+                const canFetchImage = await waitForArtistAvatarLookupSlot(
+                  ARTIST_AVATAR_PROVIDER_GAP_MS
+                )
+                if (!canFetchImage) return
                 const imageResult = await window.api?.fetchArtistAvatarImage?.(avatarUrl)
                 if (cancelled) return
+                if (isTransientArtistAvatarFailure(imageResult)) {
+                  transientFailure = true
+                  transientRetryAfterMs = Math.max(
+                    transientRetryAfterMs,
+                    getArtistAvatarRetryAfterMs(imageResult, 0)
+                  )
+                }
                 const dataUrl = imageResult?.ok && imageResult?.dataUrl ? imageResult.dataUrl : ''
                 if (dataUrl) {
                   resolved = { dataUrl, source: provider.source }
@@ -11234,11 +12152,15 @@ export default function App() {
                   checkedAt: Date.now()
                 }
               }).catch(() => {})
+            } else if (transientFailure) {
+              deferArtistAvatarLookup(target, transientRetryAfterMs)
+              return
             } else {
               writeArtistAvatarMiss(target)
             }
           } catch (e) {
-            writeArtistAvatarMiss(target)
+            deferArtistAvatarLookup(target, getArtistAvatarRetryAfterMs(e, 0))
+            return
           }
         }
       }
@@ -11253,8 +12175,12 @@ export default function App() {
     run()
     return () => {
       cancelled = true
+      if (artistAvatarRetryTimerRef.current) {
+        window.clearTimeout(artistAvatarRetryTimerRef.current)
+        artistAvatarRetryTimerRef.current = null
+      }
     }
-  }, [artistAvatarMap, artistBuckets, libraryStateReady, listMode])
+  }, [artistAvatarMap, artistAvatarRetryNonce, artistBuckets, libraryStateReady, listMode])
 
   const importedFolderItems = useMemo(() => {
     const seen = new Set()
@@ -11276,6 +12202,8 @@ export default function App() {
       }))
   }, [importedFolders, playlist])
 
+  const frequentSortTrackStats = songSortMode === 'frequentDesc' ? trackStats : null
+
   const filteredPlaylist = useMemo(() => {
     let result = queryFilteredPlaylist
     if (listMode === 'folders' && selectedFolder !== 'all') {
@@ -11285,12 +12213,21 @@ export default function App() {
         return fp === selectedFolder || isTrackInsideImportedFolders(track.path, [selectedFolder])
       })
     } else if (listMode === 'artists' && selectedArtist !== 'all') {
-      result = queryFilteredPlaylist
-        .filter(
-          (track) =>
-            (track.info.artist || t('artists.unknown', 'Unknown Artist')) === selectedArtist
-        )
-        .sort(compareTrackOrder)
+      const pickedArtistTracks = selectedArtistTracksRef.current
+      if (
+        pickedArtistTracks.name === selectedArtist &&
+        pickedArtistTracks.source === queryFilteredPlaylist &&
+        pickedArtistTracks.tracks.length > 0
+      ) {
+        result = [...pickedArtistTracks.tracks].sort(compareTrackOrder)
+      } else {
+        result = queryFilteredPlaylist
+          .filter(
+            (track) =>
+              (track.info.artist || t('artists.unknown', 'Unknown Artist')) === selectedArtist
+          )
+          .sort(compareTrackOrder)
+      }
     } else if (selectedAlbum !== 'all') {
       result = queryFilteredPlaylist
         .filter((track) => track.info.album === selectedAlbum)
@@ -11324,6 +12261,8 @@ export default function App() {
         )
       } else if (mode === 'qualityDesc') {
         return [...result].sort((a, b) => (b.info.sizeBytes || 0) - (a.info.sizeBytes || 0))
+      } else if (mode === 'frequentDesc') {
+        return [...result].sort((a, b) => compareTrackFrequent(a, b, frequentSortTrackStats || {}))
       }
     }
     return result
@@ -11334,6 +12273,7 @@ export default function App() {
     selectedArtist,
     listMode,
     songSortMode,
+    frequentSortTrackStats,
     t
   ])
 
@@ -11361,6 +12301,7 @@ export default function App() {
   )
 
   const recentPlayedTracks = useMemo(() => {
+    if (!shouldBuildSmartCollections) return []
     return parsedPlaylist
       .filter((track) => Number(trackStats[track.path]?.lastPlayedAt) > 0)
       .sort((a, b) => {
@@ -11370,9 +12311,10 @@ export default function App() {
         if (diff !== 0) return diff
         return a.info.title.localeCompare(b.info.title)
       })
-  }, [parsedPlaylist, trackStats])
+  }, [parsedPlaylist, shouldBuildSmartCollections, trackStats])
 
   const mostPlayedTracks = useMemo(() => {
+    if (!shouldBuildSmartCollections) return []
     return parsedPlaylist
       .filter((track) => Number(trackStats[track.path]?.playCount) > 0)
       .sort((a, b) => {
@@ -11385,11 +12327,12 @@ export default function App() {
         if (recentDiff !== 0) return recentDiff
         return a.info.title.localeCompare(b.info.title)
       })
-  }, [parsedPlaylist, trackStats])
+  }, [parsedPlaylist, shouldBuildSmartCollections, trackStats])
 
   const likedPathSet = useMemo(() => new Set(likedPaths), [likedPaths])
 
   const customSmartCollections = useMemo(() => {
+    if (!shouldBuildSmartCollections) return []
     const now = Date.now()
     return userSmartCollections.map((collection) => ({
       ...collection,
@@ -11399,7 +12342,13 @@ export default function App() {
         matchTrackAgainstSmartCollection(track, collection.rules, trackStats, likedPathSet, now)
       )
     }))
-  }, [userSmartCollections, parsedPlaylist, trackStats, likedPathSet])
+  }, [
+    likedPathSet,
+    parsedPlaylist,
+    shouldBuildSmartCollections,
+    trackStats,
+    userSmartCollections
+  ])
 
   const smartCollections = useMemo(
     () => [
@@ -11883,11 +12832,14 @@ export default function App() {
     [stopCastBeforeLocalPlayback]
   )
 
-  const playUpNextPathNext = useCallback((path) => {
-    const track = playlistRef.current.find((item) => item.path === path)
-    if (!track) return
-    enqueueUpNextTrackAtFront(track)
-  }, [enqueueUpNextTrackAtFront])
+  const playUpNextPathNext = useCallback(
+    (path) => {
+      const track = playlistRef.current.find((item) => item.path === path)
+      if (!track) return
+      enqueueUpNextTrackAtFront(track)
+    },
+    [enqueueUpNextTrackAtFront]
+  )
 
   const saveUpNextQueueAsPlaylist = useCallback(() => {
     const paths = upNextQueueRef.current.map((item) => item?.path).filter(Boolean)
@@ -11907,6 +12859,7 @@ export default function App() {
   }, [t])
 
   const playbackHistoryEntries = useMemo(() => {
+    if (listMode !== 'history') return []
     if (playbackHistory.length === 0) return []
     const now = Date.now()
     const pathToTrackInLibrary = new Map(playlist.map((track) => [track.path, track]))
@@ -11972,6 +12925,7 @@ export default function App() {
     albumCoverMap,
     config.historyCollapseRepeats,
     effectiveTrackMetaMap,
+    listMode,
     playbackHistory,
     playlist,
     t,
@@ -12104,6 +13058,7 @@ export default function App() {
   )
 
   const metadataPrefetchSidebarTracks = useMemo(() => {
+    if (!libraryBrowserVisible) return []
     if (tracksForSidebarListFiltered.length === 0) return []
     const startIndex = Math.max(
       0,
@@ -12114,9 +13069,10 @@ export default function App() {
       visibleSidebarRange.endIndex + SIDEBAR_META_PREFETCH_AHEAD_ROWS
     )
     return tracksForSidebarListFiltered.slice(startIndex, endIndex)
-  }, [tracksForSidebarListFiltered, visibleSidebarRange])
+  }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange])
 
   useEffect(() => {
+    if (!libraryBrowserVisible) return undefined
     const playlistElement = sidebarPlaylistRef.current
     if (!playlistElement) return undefined
 
@@ -12138,7 +13094,7 @@ export default function App() {
     })
     ro.observe(playlistElement)
     return () => ro.disconnect()
-  }, [listMode, selectedUserPlaylistId, selectedSmartCollectionId])
+  }, [libraryBrowserVisible, listMode, selectedUserPlaylistId, selectedSmartCollectionId])
 
   const handleSidebarScroll = useCallback((event) => {
     setSidebarScrollHeight(event.currentTarget.scrollHeight || 0)
@@ -12165,11 +13121,9 @@ export default function App() {
     if (!root || !drag?.track) return
     const rect = drag.track.getBoundingClientRect()
     const maxThumbTop = Math.max(1, rect.height - drag.thumbHeight)
-    const nextThumbTop = Math.min(
-      maxThumbTop,
-      Math.max(0, clientY - rect.top - drag.pointerOffset)
-    )
-    root.scrollTop = (nextThumbTop / maxThumbTop) * Math.max(0, root.scrollHeight - root.clientHeight)
+    const nextThumbTop = Math.min(maxThumbTop, Math.max(0, clientY - rect.top - drag.pointerOffset))
+    root.scrollTop =
+      (nextThumbTop / maxThumbTop) * Math.max(0, root.scrollHeight - root.clientHeight)
   }, [])
 
   const handleSidebarScrollbarPointerDown = useCallback(
@@ -12313,7 +13267,7 @@ export default function App() {
     albumSortOptions[0]?.label
 
   useEffect(() => {
-    if (listMode !== 'album' || selectedAlbum !== 'all') {
+    if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
       setAlbumGridScrollTop(0)
       setAlbumGridViewportHeight(0)
       return undefined
@@ -12368,10 +13322,11 @@ export default function App() {
     const firstCard = gridElement.querySelector('.album-card')
     if (firstCard) ro.observe(firstCard)
     return () => ro.disconnect()
-  }, [listMode, selectedAlbum, albumGroupsFiltered.length])
+  }, [libraryBrowserVisible, listMode, selectedAlbum, albumGroupsFiltered.length])
 
   useEffect(() => {
     if (
+      !libraryBrowserVisible ||
       listMode !== 'album' ||
       selectedAlbum !== 'all' ||
       !pendingAlbumOverviewRestoreRef.current
@@ -12390,10 +13345,10 @@ export default function App() {
 
     const rafId = window.requestAnimationFrame(restoreScroll)
     return () => window.cancelAnimationFrame(rafId)
-  }, [listMode, selectedAlbum, albumGroupsFiltered.length])
+  }, [libraryBrowserVisible, listMode, selectedAlbum, albumGroupsFiltered.length])
 
   useEffect(() => {
-    if (listMode !== 'album' || selectedAlbum !== 'all') {
+    if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
       setAlbumGridScrollTop(0)
       setAlbumGridViewportHeight(0)
       return
@@ -12410,6 +13365,7 @@ export default function App() {
     setAlbumGridViewportHeight((prev) => (prev === nextViewportHeight ? prev : nextViewportHeight))
   }, [
     listMode,
+    libraryBrowserVisible,
     selectedAlbum,
     albumGroupsFiltered.length,
     albumGridColumnCount,
@@ -12463,35 +13419,54 @@ export default function App() {
   )
 
   const metadataPrefetchAlbumGroups = useMemo(() => {
+    if (!libraryBrowserVisible) return []
     if (albumGroupsFiltered.length === 0) return []
-    if (listMode === 'album' && selectedAlbum === 'all') return albumGroupsFiltered
     const columnCount = Math.max(1, albumGridColumnCount)
-    const startIndex = Math.max(
+    const visibleStart = Math.max(
       0,
       visibleAlbumRange.startIndex - columnCount * ALBUM_META_PREFETCH_BEHIND_ROWS
     )
-    const endIndex = Math.min(
+    const visibleEnd = Math.min(
       albumGroupsFiltered.length,
       visibleAlbumRange.endIndex + columnCount * ALBUM_META_PREFETCH_AHEAD_ROWS
     )
-    return albumGroupsFiltered.slice(startIndex, endIndex)
-  }, [albumGroupsFiltered, albumGridColumnCount, listMode, selectedAlbum, visibleAlbumRange])
+    if (listMode === 'album' && selectedAlbum === 'all') {
+      // Reorder so the cards currently in view (and a generous overscan) are
+      // parsed first by the metadata worker pool. Otherwise the parse queue
+      // walks albums in stored order, the first batch (METADATA_PARSE_BATCH_SIZE
+      // tracks) only covers the top of the list, and visible cards further down
+      // appear "missing" until the next batch lands - matching the reported
+      // "loads half, then suddenly all loads" symptom on the album wall.
+      const visible = albumGroupsFiltered.slice(visibleStart, visibleEnd)
+      const before = albumGroupsFiltered.slice(0, visibleStart)
+      const after = albumGroupsFiltered.slice(visibleEnd)
+      return [...visible, ...after, ...before]
+    }
+    return albumGroupsFiltered.slice(visibleStart, visibleEnd)
+  }, [
+    albumGroupsFiltered,
+    albumGridColumnCount,
+    libraryBrowserVisible,
+    listMode,
+    selectedAlbum,
+    visibleAlbumRange
+  ])
 
   const folderGroupsFiltered = useMemo(() => {
     if (!showLikedOnly || listMode !== 'folders') return folderGroups
-    return folderGroups
-      .map((folder) => ({
-        ...folder,
-        tracks: folder.tracks.filter((t) => likedSet.has(t.path))
-      }))
-      .filter((folder) => folder.tracks.length > 0)
-  }, [folderGroups, showLikedOnly, listMode, likedSet])
+    return flattenFolderHierarchy(filterFolderHierarchy(folderTree, (track) => likedSet.has(track.path)))
+  }, [folderGroups, folderTree, showLikedOnly, listMode, likedSet])
+  const folderTreeFiltered = useMemo(() => {
+    if (!showLikedOnly || listMode !== 'folders') return folderTree
+    return filterFolderHierarchy(folderTree, (track) => likedSet.has(track.path))
+  }, [folderTree, showLikedOnly, listMode, likedSet])
   const selectedFolderGroup = useMemo(() => {
     if (listMode !== 'folders' || selectedFolder === 'all') return null
     return folderGroupsFiltered.find((folder) => folder.folderPath === selectedFolder) || null
   }, [folderGroupsFiltered, listMode, selectedFolder])
 
   const showTrackList = useMemo(() => {
+    if (!libraryBrowserVisible) return false
     if (listMode === 'songs') return true
     if (listMode === 'album' && selectedAlbum !== 'all') return true
     if (listMode === 'folders' && selectedFolder !== 'all') return true
@@ -12501,6 +13476,7 @@ export default function App() {
     return false
   }, [
     listMode,
+    libraryBrowserVisible,
     selectedAlbum,
     selectedFolder,
     selectedArtist,
@@ -12747,7 +13723,7 @@ export default function App() {
       }
       if (!cancelled && Object.keys(cached).length > 0) {
         setTrackMetaMap((prev) => {
-          const merged = { ...prev, ...cached }
+          const merged = mergeTrackMetaMapPreservingCovers(prev, cached)
           return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
         })
       }
@@ -12766,6 +13742,54 @@ export default function App() {
           : METADATA_PARSE_BATCH_SIZE
       const parseQueue = uncachedPending.slice(0, parseBatchSize)
       let nextIndex = 0
+
+      // Stream parsed entries into trackMetaMap as workers complete tracks,
+      // throttled to ~120ms, so visible album cards populate progressively
+      // instead of waiting for the whole 48-track batch to finish.
+      const STREAM_FLUSH_INTERVAL_MS = 120
+      const pendingFlushPaths = []
+      let lastFlushAt = 0
+      const flushPendingMeta = (force = false) => {
+        if (cancelled || pendingFlushPaths.length === 0) return
+        const now = Date.now()
+        if (!force && now - lastFlushAt < STREAM_FLUSH_INTERVAL_MS) return
+        const flush = {}
+        for (const path of pendingFlushPaths) {
+          if (loaded[path]) flush[path] = loaded[path]
+        }
+        pendingFlushPaths.length = 0
+        if (Object.keys(flush).length === 0) return
+        lastFlushAt = now
+        const flushAlbumCovers = {}
+        for (const [path, entry] of Object.entries(flush)) {
+          if (!entry?.cover) continue
+          const track = parseQueue.find((t) => t?.path === path)
+          const albumName = entry.album || track?.info?.album || 'Singles'
+          if (albumName && !flushAlbumCovers[albumName]) {
+            flushAlbumCovers[albumName] = {
+              cover: entry.cover,
+              artist: entry.albumArtist || entry.artist || track?.info?.artist || ''
+            }
+          }
+        }
+        if (Object.keys(flushAlbumCovers).length > 0) {
+          setAlbumCoverMap((prev) => {
+            let changed = false
+            const next = { ...prev }
+            for (const [albumName, item] of Object.entries(flushAlbumCovers)) {
+              if (!next[albumName] && item.cover) {
+                next[albumName] = item.cover
+                changed = true
+              }
+            }
+            return changed ? next : prev
+          })
+        }
+        setTrackMetaMap((prev) => {
+          const merged = mergeTrackMetaMapPreservingCovers(prev, flush)
+          return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
+        })
+      }
 
       const parseNextTrack = async () => {
         while (!cancelled) {
@@ -12807,6 +13831,8 @@ export default function App() {
           } catch (error) {
             loaded[track.path] = buildEmptyMetaEntry()
           }
+          pendingFlushPaths.push(track.path)
+          flushPendingMeta(false)
         }
       }
 
@@ -12815,6 +13841,7 @@ export default function App() {
           parseNextTrack()
         )
       )
+      flushPendingMeta(true)
 
       for (const track of parseQueue) {
         if (track?.path) albumCoverProbePathsRef.current.add(track.path)
@@ -12856,14 +13883,19 @@ export default function App() {
         }
 
         setTrackMetaMap((prev) => {
-          const merged = { ...prev, ...loaded }
+          const merged = mergeTrackMetaMapPreservingCovers(prev, loaded)
           return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
         })
       }
 
       const freshLoaded = {}
       for (const track of parseQueue) {
-        if (loaded[track.path]) freshLoaded[track.path] = loaded[track.path]
+        if (loaded[track.path]) {
+          freshLoaded[track.path] = mergeTrackMetaEntryPreservingCover(
+            trackMetaMapRef.current?.[track.path] || {},
+            loaded[track.path]
+          )
+        }
       }
       if (Object.keys(freshLoaded).length > 0) {
         writeTrackMetaCache(freshLoaded)
@@ -13183,6 +14215,16 @@ export default function App() {
 
   const handlePickArtistFromSidebar = useCallback((artist) => {
     if (!artist?.name) return
+    if (artistDetailLeaveTimerRef.current) {
+      window.clearTimeout(artistDetailLeaveTimerRef.current)
+      artistDetailLeaveTimerRef.current = null
+    }
+    setArtistDetailLeaving(false)
+    selectedArtistTracksRef.current = {
+      name: artist.name,
+      tracks: Array.isArray(artist.tracks) ? artist.tracks : [],
+      source: queryFilteredPlaylist
+    }
     setSelectedArtist(artist.name)
     setSelectedAlbum('all')
     setSelectedFolder('all')
@@ -13190,11 +14232,84 @@ export default function App() {
     setSelectedSmartCollectionId(null)
     setPlaylistLibraryMoreOpen(false)
     setListMode('artists')
-  }, [])
+  }, [queryFilteredPlaylist])
 
   const handleBackToArtistOverview = useCallback(() => {
-    setSelectedArtist('all')
+    if (artistDetailLeaveTimerRef.current) return
+    setArtistDetailLeaving(true)
+    artistDetailLeaveTimerRef.current = window.setTimeout(() => {
+      selectedArtistTracksRef.current = { name: '', tracks: [], source: null }
+      setSelectedArtist('all')
+      setArtistDetailLeaving(false)
+      artistDetailLeaveTimerRef.current = null
+    }, ARTIST_DETAIL_RETURN_ANIMATION_MS)
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (artistDetailLeaveTimerRef.current) {
+        window.clearTimeout(artistDetailLeaveTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleBackToFolderParent = useCallback(() => {
+    setSelectedFolder((current) => {
+      if (!current || current === 'all') return 'all'
+      const currentGroup = folderGroupsFiltered.find((folder) => folder.folderPath === current)
+      return currentGroup?.parentPath || 'all'
+    })
+  }, [folderGroupsFiltered])
+
+  useEffect(() => {
+    const hasOpenFloatingUi =
+      !!addToPlaylistMenu ||
+      !!trackContextMenu ||
+      !!coverContextMenu ||
+      !!groupContextMenu ||
+      playlistLibraryMoreOpen ||
+      folderSortOpen ||
+      songSortOpen ||
+      activeDeckPopover
+
+    if (showLyrics || view === 'settings' || hasOpenFloatingUi) return undefined
+
+    const onKey = (event) => {
+      if (event.key !== 'Escape' || event.altKey || event.ctrlKey || event.metaKey) return
+
+      if (listMode === 'album' && selectedAlbum !== 'all') {
+        event.preventDefault()
+        handleBackToAlbumOverview()
+      } else if (listMode === 'artists' && selectedArtist !== 'all') {
+        event.preventDefault()
+        handleBackToArtistOverview()
+      } else if (listMode === 'folders' && selectedFolder !== 'all') {
+        event.preventDefault()
+        handleBackToFolderParent()
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    activeDeckPopover,
+    addToPlaylistMenu,
+    coverContextMenu,
+    folderSortOpen,
+    groupContextMenu,
+    handleBackToAlbumOverview,
+    handleBackToArtistOverview,
+    handleBackToFolderParent,
+    listMode,
+    playlistLibraryMoreOpen,
+    selectedAlbum,
+    selectedArtist,
+    selectedFolder,
+    showLyrics,
+    songSortOpen,
+    trackContextMenu,
+    view
+  ])
 
   const handleOpenImportedFolder = useCallback((folder) => {
     if (!folder?.path) return
@@ -14105,6 +15220,7 @@ export default function App() {
     )
   }
 
+  const discordPresencePositionBucket = Math.floor(Math.max(0, Number(currentTime) || 0) / 10)
   const discordPresenceSignatureRef = useRef('')
 
   useEffect(() => {
@@ -14153,7 +15269,7 @@ export default function App() {
     displaySafeCoverUrl,
     coverUrl,
     duration,
-    currentTime,
+    discordPresencePositionBucket,
     t
   ])
 
@@ -14165,9 +15281,15 @@ export default function App() {
   }, [config.enableDiscordRPC])
 
   // Compute inline style for lyrics panel when immersive MV background is enabled
+  const isImmersiveLyricsMvVisible = Boolean(
+    showLyrics &&
+      mvId &&
+      isImmersiveLyricsMvEnabled(config) &&
+      !isCurrentTrackMvTemporarilyHidden
+  )
+
   const lyricsPanelStyle = React.useMemo(() => {
-    if (!(config.mvAsBackground && mvId && showLyrics && !isCurrentTrackMvTemporarilyHidden))
-      return {}
+    if (!isImmersiveLyricsMvVisible) return {}
 
     const useShadow = config.lyricsShadow !== undefined ? config.lyricsShadow : true
     const opa = config.lyricsShadowOpacity !== undefined ? config.lyricsShadowOpacity : 0.6
@@ -14192,26 +15314,19 @@ export default function App() {
       boxShadow: 'none'
     }
   }, [
-    config.mvAsBackground,
+    isImmersiveLyricsMvVisible,
     config.lyricsShadow,
     config.lyricsShadowOpacity,
-    config.uiBlur,
-    isCurrentTrackMvTemporarilyHidden,
-    mvId,
-    showLyrics
+    config.uiBlur
   ])
 
   const hideImmersiveMvChrome = useMemo(
     () =>
-      showLyrics &&
-      Boolean(mvId) &&
-      config.mvAsBackground &&
+      isImmersiveLyricsMvVisible &&
       config.mvHideImmersiveChrome &&
       !isCurrentTrackMvTemporarilyHidden,
     [
-      showLyrics,
-      mvId,
-      config.mvAsBackground,
+      isImmersiveLyricsMvVisible,
       config.mvHideImmersiveChrome,
       isCurrentTrackMvTemporarilyHidden
     ]
@@ -14219,11 +15334,8 @@ export default function App() {
 
   /** Full-bleed MV or custom wallpaper behind lyrics -need high-contrast chrome + lyric text */
   const brightLyricsBackdrop = useMemo(
-    () =>
-      Boolean(showLyrics) &&
-      Boolean(config.mvAsBackground && mvId) &&
-      !isCurrentTrackMvTemporarilyHidden,
-    [showLyrics, config.mvAsBackground, mvId, isCurrentTrackMvTemporarilyHidden]
+    () => isImmersiveLyricsMvVisible,
+    [isImmersiveLyricsMvVisible]
   )
   const themePaletteForLyricsBackground = useMemo(() => {
     const raw =
@@ -14233,12 +15345,7 @@ export default function App() {
           ? config.customColors
           : PRESET_THEMES[config.theme]?.colors || PRESET_THEMES.minimal.colors
     return normalizeThemeColors(raw)
-  }, [
-    config.theme,
-    config.customColors,
-    config.themeDynamicCoverColor,
-    dynamicCoverTheme
-  ])
+  }, [config.theme, config.customColors, config.themeDynamicCoverColor, dynamicCoverTheme])
   const lyricsBackgroundPresentation = useMemo(() => {
     if (!showLyrics || brightLyricsBackdrop) return null
     return buildLyricsBackgroundPresentation({
@@ -14270,7 +15377,7 @@ export default function App() {
   const isLyricsListHidden =
     config.lyricsHidden || isCurrentTrackLyricsTemporarilyHidden || lyricsOnlyInstrumental
   const isSideMvVisibleInLyrics = Boolean(
-    mvId && config.enableMV && !config.mvAsBackground && !isCurrentTrackMvTemporarilyHidden
+    mvId && isSideLyricsMvEnabled(config) && !isCurrentTrackMvTemporarilyHidden
   )
 
   useEffect(() => {
@@ -14568,6 +15675,36 @@ export default function App() {
     }
   }, [lyrics, activeLyricIndex, romajiDisplayLines, displayMainTitle])
 
+  /**
+   * Push the desktop-lyrics payload whenever the relevant state changes. The
+   * main-process pull poll is kept as a 1 Hz fallback (for when ECHO has been
+   * backgrounded long enough for Chromium to throttle the renderer), so this
+   * push removes ~8 `webContents.executeJavaScript` calls per second whenever
+   * the floating overlay is open and the main window is visible.
+   */
+  useEffect(() => {
+    if (!config.desktopLyricsEnabled || !window.api?.updateLyricsDesktopData) return
+    let payload
+    try {
+      payload = buildDesktopLyricsPayload(
+        configRef.current,
+        desktopLyricsSyncRef.current,
+        i18n.t('lyrics.none')
+      )
+    } catch (e) {
+      console.error('[desktop lyrics] push payload', e)
+      return
+    }
+    if (!payload) return
+    window.api.updateLyricsDesktopData(payload).catch(() => {})
+  }, [
+    config.desktopLyricsEnabled,
+    lyrics,
+    activeLyricIndex,
+    romajiDisplayLines,
+    displayMainTitle
+  ])
+
   /** Pulled by main process setInterval (not throttled when ECHO is minimized). */
   useEffect(() => {
     if (!config.desktopLyricsEnabled) {
@@ -14640,14 +15777,14 @@ export default function App() {
           customWallpaperUrl &&
           !config.themeCoverAsBackground &&
           hasVisibleWallpaper && (
-          <div
-            className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
-            style={{
-              opacity: wallpaperOpacity,
-              backgroundImage: `url("${customWallpaperUrl}")`
-            }}
-          />
-        )}
+            <div
+              className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
+              style={{
+                opacity: wallpaperOpacity,
+                backgroundImage: `url("${customWallpaperUrl}")`
+              }}
+            />
+          )}
         {!showLyrics &&
           config.themeCoverAsBackground &&
           displaySafeCoverUrl &&
@@ -14686,38 +15823,39 @@ export default function App() {
         )}
         {mvId &&
           (showLyrics
-            ? config.mvAsBackground && !isCurrentTrackMvTemporarilyHidden
+            ? isImmersiveLyricsMvVisible
             : config.mvAsBackgroundMain) && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100vw',
-              height: '100vh',
-              zIndex: -1,
-              opacity: config.mvBackgroundOpacity !== undefined ? config.mvBackgroundOpacity : 0.8,
-              pointerEvents: 'none',
-              overflow: 'hidden'
-            }}
-          >
             <div
               style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                width: '100%',
-                height: '100%',
-                transform: 'translate(-50%, -50%) scale(1.2)',
-                filter: `blur(${Math.max(0, Number(config.mvBackgroundBlur || 0))}px) saturate(1.05)`,
-                willChange: 'transform, filter',
-                pointerEvents: 'none'
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                zIndex: -1,
+                opacity:
+                  config.mvBackgroundOpacity !== undefined ? config.mvBackgroundOpacity : 0.8,
+                pointerEvents: 'none',
+                overflow: 'hidden'
               }}
             >
-              {renderMvIframe(mvId, true)}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  width: '100%',
+                  height: '100%',
+                  transform: 'translate(-50%, -50%) scale(1.2)',
+                  filter: `blur(${Math.max(0, Number(config.mvBackgroundBlur || 0))}px) saturate(1.05)`,
+                  willChange: 'transform, filter',
+                  pointerEvents: 'none'
+                }}
+              >
+                {renderMvIframe(mvId, true)}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         {isConverting && (
           <div className="conversion-overlay">
             <div className="loader-box glass-panel">
@@ -14855,7 +15993,7 @@ export default function App() {
               onMouseOut={(e) => {
                 e.currentTarget.style.color = castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit'
               }}
-              title={t('titlebar.castSender', '投送到数播')}
+              title={t('titlebar.castSender')}
             >
               <Cast size={18} />
             </button>
@@ -15245,15 +16383,20 @@ export default function App() {
                         count: albumGroupsFiltered.length,
                         defaultValue: '{{count}} 张'
                       })
-                    : listMode === 'folders' && selectedFolder === 'all'
-                      ? t('playlists.groups', {
-                          count: folderGroupsFiltered.length,
-                          defaultValue: '{{count}} 组'
+                    : listMode === 'artists' && selectedArtist === 'all'
+                      ? t('artists.count', {
+                          count: artistGroups.length,
+                          defaultValue: '{{count}} \u4f4d'
                         })
-                      : t('songs.count', {
-                          count: tracksForSidebarListFiltered.length,
-                          defaultValue: '{{count}} \u9996'
-                        })}
+                      : listMode === 'folders' && selectedFolder === 'all'
+                        ? t('playlists.groups', {
+                            count: folderGroupsFiltered.length,
+                            defaultValue: '{{count}} 组'
+                          })
+                        : t('songs.count', {
+                            count: tracksForSidebarListFiltered.length,
+                            defaultValue: '{{count}} \u9996'
+                          })}
                 </span>
               )}
             </span>
@@ -15333,102 +16476,111 @@ export default function App() {
                 </button>
               )}
               {listMode === 'songs' && (
-              <div className="folder-sort-wrap search-sort-wrap" ref={songSortRef}>
-                <button
-                  type="button"
-                  className="folder-sort-trigger"
-                  onClick={() => setSongSortOpen((v) => !v)}
-                  aria-expanded={songSortOpen}
-                >
-                  {songSortMode === 'dateAsc'
-                    ? t('songs.sortDateAsc', 'Oldest added')
-                    : songSortMode === 'dateDesc'
-                      ? t('songs.sortDateDesc', 'Newest added')
-                      : songSortMode === 'nameAsc'
-                        ? t('songs.sortNameAsc', 'Name (A-Z)')
-                        : songSortMode === 'nameDesc'
-                          ? t('songs.sortNameDesc', 'Name (Z-A)')
-                          : songSortMode === 'durationAsc'
-                            ? t('songs.sortDurationAsc', 'Duration (Short)')
-                            : songSortMode === 'durationDesc'
-                              ? t('songs.sortDurationDesc', 'Duration (Long)')
-                              : songSortMode === 'qualityAsc'
-                                ? t('songs.sortQualityAsc', 'Quality (Low)')
-                                : songSortMode === 'qualityDesc'
-                                  ? t('songs.sortQualityDesc', 'Quality (High)')
-                                  : t('songs.sortDefault', 'Default')}
-                  <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
-                </button>
-                {songSortOpen && (
-                  <div className="folder-sort-menu" role="menu">
-                    {[
-                      { key: 'default', label: t('songs.sortDefault', 'Default') },
-                      { key: 'dateAsc', label: t('songs.sortDateAsc', 'Oldest added') },
-                      { key: 'dateDesc', label: t('songs.sortDateDesc', 'Newest added') },
-                      { key: 'nameAsc', label: t('songs.sortNameAsc', 'Name (A-Z)') },
-                      { key: 'nameDesc', label: t('songs.sortNameDesc', 'Name (Z-A)') },
-                      { key: 'durationAsc', label: t('songs.sortDurationAsc', 'Duration (Short)') },
-                      {
-                        key: 'durationDesc',
-                        label: t('songs.sortDurationDesc', 'Duration (Long)')
-                      },
-                      { key: 'qualityAsc', label: t('songs.sortQualityAsc', 'Quality (Low)') },
-                      { key: 'qualityDesc', label: t('songs.sortQualityDesc', 'Quality (High)') }
-                    ].map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        role="menuitem"
-                        className={`folder-sort-menu-item${songSortMode === opt.key ? ' active' : ''}`}
-                        onClick={() => {
-                          setSongSortMode(opt.key)
-                          setSongSortOpen(false)
-                        }}
-                      >
-                        <div className="folder-sort-chk">
-                          {songSortMode === opt.key && <Check size={14} strokeWidth={2} />}
-                        </div>
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {listMode === 'album' && selectedAlbum === 'all' && (
-              <div className="folder-sort-wrap search-sort-wrap" ref={albumSortRef}>
-                <button
-                  type="button"
-                  className="folder-sort-trigger"
-                  onClick={() => setAlbumSortOpen((v) => !v)}
-                  aria-expanded={albumSortOpen}
-                >
-                  {activeAlbumSortLabel}
-                  <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
-                </button>
-                {albumSortOpen && (
-                  <div className="folder-sort-menu" role="menu">
-                    {albumSortOptions.map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        role="menuitem"
-                        className={`folder-sort-menu-item${albumSortMode === opt.key ? ' active' : ''}`}
-                        onClick={() => {
-                          setAlbumSortMode(opt.key)
-                          setAlbumSortOpen(false)
-                        }}
-                      >
-                        <div className="folder-sort-chk">
-                          {albumSortMode === opt.key && <Check size={14} strokeWidth={2} />}
-                        </div>
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                <div className="folder-sort-wrap search-sort-wrap" ref={songSortRef}>
+                  <button
+                    type="button"
+                    className="folder-sort-trigger"
+                    onClick={() => setSongSortOpen((v) => !v)}
+                    aria-expanded={songSortOpen}
+                  >
+                    {songSortMode === 'dateAsc'
+                      ? t('songs.sortDateAsc', 'Oldest added')
+                      : songSortMode === 'dateDesc'
+                        ? t('songs.sortDateDesc', 'Newest added')
+                        : songSortMode === 'nameAsc'
+                          ? t('songs.sortNameAsc', 'Name (A-Z)')
+                          : songSortMode === 'nameDesc'
+                            ? t('songs.sortNameDesc', 'Name (Z-A)')
+                            : songSortMode === 'durationAsc'
+                              ? t('songs.sortDurationAsc', 'Duration (Short)')
+                              : songSortMode === 'durationDesc'
+                                ? t('songs.sortDurationDesc', 'Duration (Long)')
+                                : songSortMode === 'qualityAsc'
+                                  ? t('songs.sortQualityAsc', 'Quality (Low)')
+                                  : songSortMode === 'qualityDesc'
+                                    ? t('songs.sortQualityDesc', 'Quality (High)')
+                                    : songSortMode === 'frequentDesc'
+                                      ? t('songs.sortFrequentDesc', 'Most played first')
+                                      : t('songs.sortDefault', 'Default')}
+                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                  </button>
+                  {songSortOpen && (
+                    <div className="folder-sort-menu" role="menu">
+                      {[
+                        { key: 'default', label: t('songs.sortDefault', 'Default') },
+                        { key: 'dateAsc', label: t('songs.sortDateAsc', 'Oldest added') },
+                        { key: 'dateDesc', label: t('songs.sortDateDesc', 'Newest added') },
+                        { key: 'nameAsc', label: t('songs.sortNameAsc', 'Name (A-Z)') },
+                        { key: 'nameDesc', label: t('songs.sortNameDesc', 'Name (Z-A)') },
+                        {
+                          key: 'durationAsc',
+                          label: t('songs.sortDurationAsc', 'Duration (Short)')
+                        },
+                        {
+                          key: 'durationDesc',
+                          label: t('songs.sortDurationDesc', 'Duration (Long)')
+                        },
+                        { key: 'qualityAsc', label: t('songs.sortQualityAsc', 'Quality (Low)') },
+                        { key: 'qualityDesc', label: t('songs.sortQualityDesc', 'Quality (High)') },
+                        {
+                          key: 'frequentDesc',
+                          label: t('songs.sortFrequentDesc', 'Most played first')
+                        }
+                      ].map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          role="menuitem"
+                          className={`folder-sort-menu-item${songSortMode === opt.key ? ' active' : ''}`}
+                          onClick={() => {
+                            setSongSortMode(opt.key)
+                            setSongSortOpen(false)
+                          }}
+                        >
+                          <div className="folder-sort-chk">
+                            {songSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                          </div>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {listMode === 'album' && selectedAlbum === 'all' && (
+                <div className="folder-sort-wrap search-sort-wrap" ref={albumSortRef}>
+                  <button
+                    type="button"
+                    className="folder-sort-trigger"
+                    onClick={() => setAlbumSortOpen((v) => !v)}
+                    aria-expanded={albumSortOpen}
+                  >
+                    {activeAlbumSortLabel}
+                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                  </button>
+                  {albumSortOpen && (
+                    <div className="folder-sort-menu" role="menu">
+                      {albumSortOptions.map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          role="menuitem"
+                          className={`folder-sort-menu-item${albumSortMode === opt.key ? ' active' : ''}`}
+                          onClick={() => {
+                            setAlbumSortMode(opt.key)
+                            setAlbumSortOpen(false)
+                          }}
+                        >
+                          <div className="folder-sort-chk">
+                            {albumSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                          </div>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -15557,7 +16709,9 @@ export default function App() {
             {((listMode === 'folders' && selectedFolder !== 'all') ||
               (listMode === 'artists' && selectedArtist !== 'all') ||
               (listMode === 'album' && selectedAlbum !== 'all')) && (
-              <div className="folder-browser-header library-list-header no-drag">
+              <div
+                className={`folder-browser-header library-list-header no-drag${listMode === 'artists' && selectedArtist !== 'all' ? ' library-list-header--artist-detail' : ''}${artistDetailLeaving ? ' library-list-header--leaving' : ''}`}
+              >
                 <div className="library-list-heading">
                   {listMode === 'album' && selectedAlbum !== 'all' && (
                     <button
@@ -15623,7 +16777,9 @@ export default function App() {
                                   ? t('songs.sortQualityAsc', 'Quality (Low)')
                                   : songSortMode === 'qualityDesc'
                                     ? t('songs.sortQualityDesc', 'Quality (High)')
-                                    : t('songs.sortDefault', 'Default')}
+                                    : songSortMode === 'frequentDesc'
+                                      ? t('songs.sortFrequentDesc', 'Most played first')
+                                      : t('songs.sortDefault', 'Default')}
                     <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
                   </button>
                   {songSortOpen && (
@@ -15643,7 +16799,11 @@ export default function App() {
                           label: t('songs.sortDurationDesc', 'Duration (Long)')
                         },
                         { key: 'qualityAsc', label: t('songs.sortQualityAsc', 'Quality (Low)') },
-                        { key: 'qualityDesc', label: t('songs.sortQualityDesc', 'Quality (High)') }
+                        { key: 'qualityDesc', label: t('songs.sortQualityDesc', 'Quality (High)') },
+                        {
+                          key: 'frequentDesc',
+                          label: t('songs.sortFrequentDesc', 'Most played first')
+                        }
                       ].map((opt) => (
                         <button
                           key={opt.key}
@@ -15673,361 +16833,525 @@ export default function App() {
                 ref={sidebarPlaylistRef}
                 onScroll={handleSidebarScroll}
               >
-              {listMode === 'queue' && (
-                <QueueSidebarView
-                  items={upNextSidebarItems}
-                  currentPath={currentTrack?.path || ''}
-                  rowHeight={SIDEBAR_ROW_HEIGHT}
-                  queueDragOver={queueDragOver}
-                  queuePlaybackEnabled={queuePlaybackEnabled}
-                  canUndo={queueUndoStack.length > 0}
-                  albumArtistByName={albumArtistByName}
-                  formatDuration={formatTime}
-                  onExternalDragOver={handleQueueDragOver}
-                  onExternalDragLeave={handleQueueDragLeave}
-                  onExternalDrop={handleQueueDrop}
-                  onReorder={reorderUpNextQueueByPath}
-                  onRemove={removeFromUpNextQueueWithUndo}
-                  onRemoveMany={removeManyFromUpNextQueueWithUndo}
-                  onRemoveAbove={removeUpNextAboveWithUndo}
-                  onRemoveBelow={removeUpNextBelowWithUndo}
-                  onClear={clearUpNextQueueWithUndo}
-                  onShuffle={shuffleUpNextQueue}
-                  onSaveAsPlaylist={saveUpNextQueueAsPlaylist}
-                  onToggleQueuePlayback={() => setQueuePlaybackEnabled((prev) => !prev)}
-                  onPlayNow={playUpNextQueueItemNow}
-                  onPlayNext={playUpNextPathNext}
-                  onMoveTop={moveUpNextPathToTop}
-                  onMoveBottom={moveUpNextPathToBottom}
-                  onUndo={undoQueueMutation}
-                />
-              )}
-
-              {listMode === 'history' && config.historyShowInSidebar !== false && (
-                <HistorySidebarView
-                  entries={playbackHistoryEntries}
-                  canBack={playbackHistory.length > 0}
-                  onBack={handleHistoryBack}
-                  onClear={handleHistoryClear}
-                  onPlay={playFromHistoryEntry}
-                  onJump={handleHistoryJump}
-                  onRemove={removePlaybackHistoryEntry}
-                />
-              )}
-
-              {listMode === 'remoteLibrary' && (
-                <RemoteLibraryView
-                  sources={remoteLibrarySources}
-                  activeSourceId={activeRemoteLibrarySourceId}
-                  onActiveSourceChange={setActiveRemoteLibrarySourceId}
-                  onOpenSettings={() => {
-                    setView('settings')
-                    setActiveSettingsSection('remoteLibrary')
-                  }}
-                  onPlayTrack={playRemoteLibraryTrack}
-                  onQueueTrack={queueRemoteLibraryTrack}
-                />
-              )}
-
-              {playlist.length === 0 &&
-                listMode !== 'playlists' &&
-                listMode !== 'remoteLibrary' &&
-                listMode !== 'queue' &&
-                listMode !== 'history' && (
-                  <div className="app-empty-state app-empty-state--minimal">
-                    <p className="app-empty-state__title">{t('empty.noTracks')}</p>
-                    <p className="app-empty-state__hint">{t('empty.importFolder')}</p>
-                  </div>
+                {listMode === 'queue' && (
+                  <QueueSidebarView
+                    items={upNextSidebarItems}
+                    currentPath={currentTrack?.path || ''}
+                    rowHeight={SIDEBAR_ROW_HEIGHT}
+                    queueDragOver={queueDragOver}
+                    queuePlaybackEnabled={queuePlaybackEnabled}
+                    canUndo={queueUndoStack.length > 0}
+                    albumArtistByName={albumArtistByName}
+                    formatDuration={formatTime}
+                    onExternalDragOver={handleQueueDragOver}
+                    onExternalDragLeave={handleQueueDragLeave}
+                    onExternalDrop={handleQueueDrop}
+                    onReorder={reorderUpNextQueueByPath}
+                    onRemove={removeFromUpNextQueueWithUndo}
+                    onRemoveMany={removeManyFromUpNextQueueWithUndo}
+                    onRemoveAbove={removeUpNextAboveWithUndo}
+                    onRemoveBelow={removeUpNextBelowWithUndo}
+                    onClear={clearUpNextQueueWithUndo}
+                    onShuffle={shuffleUpNextQueue}
+                    onSaveAsPlaylist={saveUpNextQueueAsPlaylist}
+                    onToggleQueuePlayback={() => setQueuePlaybackEnabled((prev) => !prev)}
+                    onPlayNow={playUpNextQueueItemNow}
+                    onPlayNext={playUpNextPathNext}
+                    onMoveTop={moveUpNextPathToTop}
+                    onMoveBottom={moveUpNextPathToBottom}
+                    onUndo={undoQueueMutation}
+                  />
                 )}
 
-              {listMode === 'playlists' &&
-                !selectedUserPlaylistId &&
-                !selectedSmartCollectionId && (
-                  <div className="user-playlist-library no-drag">
-                    <div className="user-playlist-library-chrome" style={{ marginBottom: 14 }}>
-                      <div className="user-playlist-library-header">
-                        <span className="user-playlist-library-heading">
-                          {t('playlists.smartCollections', 'Smart collections')}
-                        </span>
-                        <span className="user-playlist-library-count">
-                          {smartCollections.length}
-                        </span>
-                        <button
-                          type="button"
-                          className="user-playlist-detail-btn"
-                          style={{ marginLeft: 'auto' }}
-                          onClick={() =>
-                            smartCollectionEditorOpen && !editingSmartCollectionId
-                              ? resetSmartCollectionEditor()
-                              : openCreateSmartCollectionEditor()
-                          }
-                        >
-                          <Wand2 size={14} aria-hidden />
-                          {smartCollectionEditorOpen && !editingSmartCollectionId
-                            ? t('common.cancel', { defaultValue: 'Cancel' })
-                            : t('playlists.customSmartCollection', 'Custom rules')}
-                        </button>
-                      </div>
-                      <p className="smart-collection-hint">
-                        {t(
-                          'playlists.smartCollectionsHint',
-                          'Tap a template to create it instantly, or open custom rules if you want something more specific.'
-                        )}
-                      </p>
-                      <div className="smart-collection-template-row">
-                        {smartCollectionTemplates.map((template) => (
+                {listMode === 'history' && config.historyShowInSidebar !== false && (
+                  <HistorySidebarView
+                    entries={playbackHistoryEntries}
+                    canBack={playbackHistory.length > 0}
+                    onBack={handleHistoryBack}
+                    onClear={handleHistoryClear}
+                    onPlay={playFromHistoryEntry}
+                    onJump={handleHistoryJump}
+                    onRemove={removePlaybackHistoryEntry}
+                  />
+                )}
+
+                {listMode === 'remoteLibrary' && (
+                  <RemoteLibraryView
+                    sources={remoteLibrarySources}
+                    activeSourceId={activeRemoteLibrarySourceId}
+                    onActiveSourceChange={setActiveRemoteLibrarySourceId}
+                    onOpenSettings={() => {
+                      setView('settings')
+                      setActiveSettingsSection('remoteLibrary')
+                    }}
+                    onPlayTrack={playRemoteLibraryTrack}
+                    onQueueTrack={queueRemoteLibraryTrack}
+                  />
+                )}
+
+                {playlist.length === 0 &&
+                  listMode !== 'playlists' &&
+                  listMode !== 'remoteLibrary' &&
+                  listMode !== 'queue' &&
+                  listMode !== 'history' && (
+                    <div className="app-empty-state app-empty-state--minimal">
+                      <p className="app-empty-state__title">{t('empty.noTracks')}</p>
+                      <p className="app-empty-state__hint">{t('empty.importFolder')}</p>
+                    </div>
+                  )}
+
+                {listMode === 'playlists' &&
+                  !selectedUserPlaylistId &&
+                  !selectedSmartCollectionId && (
+                    <div className="user-playlist-library no-drag">
+                      <div className="user-playlist-library-chrome" style={{ marginBottom: 14 }}>
+                        <div className="user-playlist-library-header">
+                          <span className="user-playlist-library-heading">
+                            {t('playlists.smartCollections', 'Smart collections')}
+                          </span>
+                          <span className="user-playlist-library-count">
+                            {smartCollections.length}
+                          </span>
                           <button
-                            key={template.id}
                             type="button"
-                            className="smart-collection-template-chip"
-                            onClick={() => applySmartCollectionTemplate(template.buildDraft)}
+                            className="user-playlist-detail-btn"
+                            style={{ marginLeft: 'auto' }}
+                            onClick={() =>
+                              smartCollectionEditorOpen && !editingSmartCollectionId
+                                ? resetSmartCollectionEditor()
+                                : openCreateSmartCollectionEditor()
+                            }
                           >
-                            {template.label}
+                            <Wand2 size={14} aria-hidden />
+                            {smartCollectionEditorOpen && !editingSmartCollectionId
+                              ? t('common.cancel', { defaultValue: 'Cancel' })
+                              : t('playlists.customSmartCollection', 'Custom rules')}
                           </button>
-                        ))}
-                      </div>
-                      {smartCollectionEditorOpen && (
-                        <div className="smart-collection-editor">
-                          <div className="smart-collection-preview">
-                            {describeSmartCollectionDraft(smartCollectionDraft)}
-                          </div>
-                          <div className="smart-collection-editor-grid">
-                            <label className="smart-collection-field">
-                              <span className="smart-collection-field-label">
-                                {t('playlists.smartCollectionName', 'Name')}
-                              </span>
-                              <input
-                                type="text"
-                                className="new-playlist-input"
-                                placeholder={t(
-                                  'playlists.smartCollectionNamePlaceholder',
-                                  'Late-night favorites'
-                                )}
-                                value={smartCollectionDraft.name}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('name', e.target.value)
-                                }
-                              />
-                            </label>
-                            <label className="smart-collection-field">
-                              <span className="smart-collection-field-label">
-                                {t('playlists.smartMatchMode', 'Match')}
-                              </span>
-                              <select
-                                className="new-playlist-input smart-collection-select"
-                                value={smartCollectionDraft.matchMode}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('matchMode', e.target.value)
-                                }
+                        </div>
+                        <p className="smart-collection-hint">
+                          {t(
+                            'playlists.smartCollectionsHint',
+                            'Tap a template to create it instantly, or open custom rules if you want something more specific.'
+                          )}
+                        </p>
+                        <div className="smart-collection-template-row">
+                          {smartCollectionTemplates.map((template) => (
+                            <button
+                              key={template.id}
+                              type="button"
+                              className="smart-collection-template-chip"
+                              onClick={() => applySmartCollectionTemplate(template.buildDraft)}
+                            >
+                              {template.label}
+                            </button>
+                          ))}
+                        </div>
+                        {smartCollectionEditorOpen && (
+                          <div className="smart-collection-editor">
+                            <div className="smart-collection-preview">
+                              {describeSmartCollectionDraft(smartCollectionDraft)}
+                            </div>
+                            <div className="smart-collection-editor-grid">
+                              <label className="smart-collection-field">
+                                <span className="smart-collection-field-label">
+                                  {t('playlists.smartCollectionName', 'Name')}
+                                </span>
+                                <input
+                                  type="text"
+                                  className="new-playlist-input"
+                                  placeholder={t(
+                                    'playlists.smartCollectionNamePlaceholder',
+                                    'Late-night favorites'
+                                  )}
+                                  value={smartCollectionDraft.name}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('name', e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label className="smart-collection-field">
+                                <span className="smart-collection-field-label">
+                                  {t('playlists.smartMatchMode', 'Match')}
+                                </span>
+                                <select
+                                  className="new-playlist-input smart-collection-select"
+                                  value={smartCollectionDraft.matchMode}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('matchMode', e.target.value)
+                                  }
+                                >
+                                  <option value="all">
+                                    {t('playlists.smartMatchAll', 'All rules')}
+                                  </option>
+                                  <option value="any">
+                                    {t('playlists.smartMatchAny', 'Any rule')}
+                                  </option>
+                                </select>
+                              </label>
+                            </div>
+                            <div className="smart-collection-natural-list">
+                              <label className="smart-collection-natural-row">
+                                <input
+                                  type="checkbox"
+                                  checked={smartCollectionDraft.likedOnly}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('likedOnly', e.target.checked)
+                                  }
+                                />
+                                <span>
+                                  {t('playlists.smartNaturalLikedOnly', 'Only include liked songs')}
+                                </span>
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalMinPlayPrefix',
+                                    'Include songs played at least'
+                                  )}
+                                </span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="smart-collection-inline-input"
+                                  placeholder="5"
+                                  value={smartCollectionDraft.minPlayCount}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('minPlayCount', e.target.value)
+                                  }
+                                />
+                                <span>{t('playlists.smartNaturalMinPlaySuffix', 'times')}</span>
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalPlayedPrefix',
+                                    'Include songs played in the last'
+                                  )}
+                                </span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="smart-collection-inline-input"
+                                  placeholder="30"
+                                  value={smartCollectionDraft.playedWithinDays}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField(
+                                      'playedWithinDays',
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                                <span>{t('playlists.smartNaturalDaysSuffix', 'days')}</span>
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalAddedPrefix',
+                                    'Include songs added in the last'
+                                  )}
+                                </span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="smart-collection-inline-input"
+                                  placeholder="14"
+                                  value={smartCollectionDraft.addedWithinDays}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField(
+                                      'addedWithinDays',
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                                <span>{t('playlists.smartNaturalDaysSuffix', 'days')}</span>
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalTitlePrefix',
+                                    'Include songs whose title contains'
+                                  )}
+                                </span>
+                                <input
+                                  type="text"
+                                  className="smart-collection-inline-input smart-collection-inline-input--text"
+                                  placeholder={t(
+                                    'playlists.smartTitleContainsPlaceholder',
+                                    'night'
+                                  )}
+                                  value={smartCollectionDraft.titleIncludes}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('titleIncludes', e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalArtistPrefix',
+                                    'Include songs whose artist contains'
+                                  )}
+                                </span>
+                                <input
+                                  type="text"
+                                  className="smart-collection-inline-input smart-collection-inline-input--text"
+                                  placeholder="Aimer"
+                                  value={smartCollectionDraft.artistIncludes}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField(
+                                      'artistIncludes',
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label className="smart-collection-natural-row">
+                                <span>
+                                  {t(
+                                    'playlists.smartNaturalAlbumPrefix',
+                                    'Include songs whose album contains'
+                                  )}
+                                </span>
+                                <input
+                                  type="text"
+                                  className="smart-collection-inline-input smart-collection-inline-input--text"
+                                  placeholder={t('playlists.smartAlbumContainsPlaceholder', 'live')}
+                                  value={smartCollectionDraft.albumIncludes}
+                                  onChange={(e) =>
+                                    updateSmartCollectionDraftField('albumIncludes', e.target.value)
+                                  }
+                                />
+                              </label>
+                            </div>
+                            <div className="smart-collection-editor-actions">
+                              <button
+                                type="button"
+                                className="user-playlist-detail-btn user-playlist-detail-btn--primary"
+                                onClick={saveSmartCollectionDraft}
                               >
-                                <option value="all">
-                                  {t('playlists.smartMatchAll', 'All rules')}
-                                </option>
-                                <option value="any">
-                                  {t('playlists.smartMatchAny', 'Any rule')}
-                                </option>
-                              </select>
-                            </label>
+                                <Check size={14} aria-hidden />
+                                {editingSmartCollectionId
+                                  ? t('common.save', { defaultValue: 'Save' })
+                                  : t('playlists.createSmartCollection', 'Create smart collection')}
+                              </button>
+                              <button
+                                type="button"
+                                className="user-playlist-detail-btn"
+                                onClick={resetSmartCollectionEditor}
+                              >
+                                <X size={14} aria-hidden />
+                                {t('common.cancel', { defaultValue: 'Cancel' })}
+                              </button>
+                            </div>
                           </div>
-                          <div className="smart-collection-natural-list">
-                            <label className="smart-collection-natural-row">
-                              <input
-                                type="checkbox"
-                                checked={smartCollectionDraft.likedOnly}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('likedOnly', e.target.checked)
-                                }
-                              />
-                              <span>
-                                {t('playlists.smartNaturalLikedOnly', 'Only include liked songs')}
-                              </span>
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalMinPlayPrefix',
-                                  'Include songs played at least'
-                                )}
-                              </span>
-                              <input
-                                type="number"
-                                min="1"
-                                className="smart-collection-inline-input"
-                                placeholder="5"
-                                value={smartCollectionDraft.minPlayCount}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('minPlayCount', e.target.value)
-                                }
-                              />
-                              <span>{t('playlists.smartNaturalMinPlaySuffix', 'times')}</span>
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalPlayedPrefix',
-                                  'Include songs played in the last'
-                                )}
-                              </span>
-                              <input
-                                type="number"
-                                min="1"
-                                className="smart-collection-inline-input"
-                                placeholder="30"
-                                value={smartCollectionDraft.playedWithinDays}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField(
-                                    'playedWithinDays',
-                                    e.target.value
+                        )}
+                      </div>
+                      <div className="user-playlist-list" style={{ marginBottom: 18 }}>
+                        {smartCollections.map((collection) => {
+                          const Icon = collection.icon
+                          const isActive =
+                            listMode === 'playlists' && selectedSmartCollectionId === collection.id
+                          return (
+                            <div
+                              key={collection.id}
+                              className={`user-playlist-card${isActive ? ' user-playlist-card--active' : ''}`}
+                            >
+                              <button
+                                type="button"
+                                className="user-playlist-card-main"
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.effectAllowed = 'copy'
+                                  e.dataTransfer.setData(
+                                    'application/x-echo-smart-collection-id',
+                                    collection.id
                                   )
-                                }
-                              />
-                              <span>{t('playlists.smartNaturalDaysSuffix', 'days')}</span>
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalAddedPrefix',
-                                  'Include songs added in the last'
-                                )}
-                              </span>
-                              <input
-                                type="number"
-                                min="1"
-                                className="smart-collection-inline-input"
-                                placeholder="14"
-                                value={smartCollectionDraft.addedWithinDays}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('addedWithinDays', e.target.value)
-                                }
-                              />
-                              <span>{t('playlists.smartNaturalDaysSuffix', 'days')}</span>
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalTitlePrefix',
-                                  'Include songs whose title contains'
-                                )}
-                              </span>
-                              <input
-                                type="text"
-                                className="smart-collection-inline-input smart-collection-inline-input--text"
-                                placeholder={t('playlists.smartTitleContainsPlaceholder', 'night')}
-                                value={smartCollectionDraft.titleIncludes}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('titleIncludes', e.target.value)
-                                }
-                              />
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalArtistPrefix',
-                                  'Include songs whose artist contains'
-                                )}
-                              </span>
-                              <input
-                                type="text"
-                                className="smart-collection-inline-input smart-collection-inline-input--text"
-                                placeholder="Aimer"
-                                value={smartCollectionDraft.artistIncludes}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('artistIncludes', e.target.value)
-                                }
-                              />
-                            </label>
-                            <label className="smart-collection-natural-row">
-                              <span>
-                                {t(
-                                  'playlists.smartNaturalAlbumPrefix',
-                                  'Include songs whose album contains'
-                                )}
-                              </span>
-                              <input
-                                type="text"
-                                className="smart-collection-inline-input smart-collection-inline-input--text"
-                                placeholder={t('playlists.smartAlbumContainsPlaceholder', 'live')}
-                                value={smartCollectionDraft.albumIncludes}
-                                onChange={(e) =>
-                                  updateSmartCollectionDraftField('albumIncludes', e.target.value)
-                                }
-                              />
-                            </label>
+                                  e.dataTransfer.setData(
+                                    'text/x-echo-smart-collection-id',
+                                    collection.id
+                                  )
+                                }}
+                                onClick={() => openSmartCollection(collection.id)}
+                              >
+                                <Icon size={16} className="user-playlist-card-icon" aria-hidden />
+                                <span className="user-playlist-name">{collection.name}</span>
+                                <span className="user-playlist-count">
+                                  {t('playlists.detailTrackCount', {
+                                    count: collection.tracks.length
+                                  })}
+                                </span>
+                              </button>
+                              {collection.kind === 'custom' && (
+                                <div className="user-playlist-card-actions">
+                                  <button
+                                    type="button"
+                                    className="user-playlist-card-icon-btn"
+                                    aria-label={t(
+                                      'playlists.editSmartCollection',
+                                      'Edit smart collection'
+                                    )}
+                                    title={t(
+                                      'playlists.editSmartCollection',
+                                      'Edit smart collection'
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openEditSmartCollectionEditor(collection.id)
+                                    }}
+                                  >
+                                    <Pencil size={15} strokeWidth={1.5} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="user-playlist-card-icon-btn"
+                                    aria-label={t(
+                                      'playlists.deleteSmartCollection',
+                                      'Delete smart collection'
+                                    )}
+                                    title={t(
+                                      'playlists.deleteSmartCollection',
+                                      'Delete smart collection'
+                                    )}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      deleteSmartCollection(collection.id)
+                                    }}
+                                  >
+                                    <Trash2 size={15} strokeWidth={1.5} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="user-playlist-library-chrome">
+                        <div
+                          className="user-playlist-library-header"
+                          onDragOver={handleSmartCollectionDragOver}
+                          onDrop={handleSmartCollectionDropToLibrary}
+                        >
+                          <span className="user-playlist-library-heading">
+                            {t('playlists.yourPlaylists')}
+                          </span>
+                          <span className="user-playlist-library-count">
+                            {userPlaylists.length}
+                          </span>
+                          <div className="new-playlist-inline">
+                            <input
+                              ref={newPlaylistInputRef}
+                              type="text"
+                              className="new-playlist-input"
+                              placeholder={t('playlists.newNamePlaceholder')}
+                              value={newPlaylistName}
+                              onChange={(e) => setNewPlaylistName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') submitNewPlaylistFromToolbar()
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="new-playlist-submit"
+                              onClick={submitNewPlaylistFromToolbar}
+                            >
+                              <Plus size={16} />
+                              {t('playlists.create')}
+                            </button>
                           </div>
-                          <div className="smart-collection-editor-actions">
+                          <div className="user-playlist-more-wrap" ref={playlistLibraryMoreRef}>
                             <button
                               type="button"
-                              className="user-playlist-detail-btn user-playlist-detail-btn--primary"
-                              onClick={saveSmartCollectionDraft}
+                              className="user-playlist-more-trigger"
+                              aria-expanded={playlistLibraryMoreOpen}
+                              aria-haspopup="menu"
+                              aria-label={t('aria.playlistLibraryOptions')}
+                              title={t('playlists.more')}
+                              onClick={() => setPlaylistLibraryMoreOpen((open) => !open)}
                             >
-                              <Check size={14} aria-hidden />
-                              {editingSmartCollectionId
-                                ? t('common.save', { defaultValue: 'Save' })
-                                : t('playlists.createSmartCollection', 'Create smart collection')}
+                              <MoreHorizontal size={18} strokeWidth={1.5} />
                             </button>
-                            <button
-                              type="button"
-                              className="user-playlist-detail-btn"
-                              onClick={resetSmartCollectionEditor}
-                            >
-                              <X size={14} aria-hidden />
-                              {t('common.cancel', { defaultValue: 'Cancel' })}
-                            </button>
+                            {playlistLibraryMoreOpen && (
+                              <div className="user-playlist-more-menu" role="menu">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="user-playlist-more-item"
+                                  onClick={() => {
+                                    setPlaylistLibraryMoreOpen(false)
+                                    importUserPlaylists()
+                                  }}
+                                >
+                                  <Upload size={14} aria-hidden />
+                                  {t('playlists.importLibrary')}
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="user-playlist-more-item"
+                                  onClick={() => {
+                                    setPlaylistLibraryMoreOpen(false)
+                                    exportUserPlaylists()
+                                  }}
+                                >
+                                  <Download size={14} aria-hidden />
+                                  {t('playlists.exportAll')}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                    <div className="user-playlist-list" style={{ marginBottom: 18 }}>
-                      {smartCollections.map((collection) => {
-                        const Icon = collection.icon
-                        const isActive =
-                          listMode === 'playlists' && selectedSmartCollectionId === collection.id
-                        return (
-                          <div
-                            key={collection.id}
-                            className={`user-playlist-card${isActive ? ' user-playlist-card--active' : ''}`}
-                          >
-                            <button
-                              type="button"
-                              className="user-playlist-card-main"
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.effectAllowed = 'copy'
-                                e.dataTransfer.setData(
-                                  'application/x-echo-smart-collection-id',
-                                  collection.id
-                                )
-                                e.dataTransfer.setData(
-                                  'text/x-echo-smart-collection-id',
-                                  collection.id
-                                )
-                              }}
-                              onClick={() => openSmartCollection(collection.id)}
+                      </div>
+                      {userPlaylists.length === 0 ? (
+                        <div className="app-empty-state app-empty-state--minimal user-playlist-empty">
+                          <p className="app-empty-state__title">{t('empty.noPlaylists')}</p>
+                        </div>
+                      ) : (
+                        <div className="user-playlist-list">
+                          {userPlaylists.map((pl) => (
+                            <div
+                              key={pl.id}
+                              className={`user-playlist-card${listMode === 'playlists' && selectedUserPlaylistId === pl.id ? ' user-playlist-card--active' : ''}`}
+                              onDragOver={handleSmartCollectionDragOver}
+                              onDrop={(e) => handleSmartCollectionDropToPlaylist(e, pl.id)}
                             >
-                              <Icon size={16} className="user-playlist-card-icon" aria-hidden />
-                              <span className="user-playlist-name">{collection.name}</span>
-                              <span className="user-playlist-count">
-                                {t('playlists.detailTrackCount', {
-                                  count: collection.tracks.length
-                                })}
-                              </span>
-                            </button>
-                            {collection.kind === 'custom' && (
+                              <button
+                                type="button"
+                                className="user-playlist-card-main"
+                                onClick={() => openUserPlaylist(pl.id)}
+                              >
+                                <ListMusic
+                                  size={16}
+                                  className="user-playlist-card-icon"
+                                  aria-hidden
+                                />
+                                <span className="user-playlist-name">{pl.name}</span>
+                                <span className="user-playlist-count">
+                                  {t('playlists.detailTrackCount', {
+                                    count: pl.paths.length
+                                  })}
+                                </span>
+                              </button>
                               <div className="user-playlist-card-actions">
                                 <button
                                   type="button"
                                   className="user-playlist-card-icon-btn"
-                                  aria-label={t(
-                                    'playlists.editSmartCollection',
-                                    'Edit smart collection'
-                                  )}
-                                  title={t(
-                                    'playlists.editSmartCollection',
-                                    'Edit smart collection'
-                                  )}
+                                  aria-label={t('aria.exportPlaylist')}
+                                  title={t('playlists.exportM3U')}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    openEditSmartCollectionEditor(collection.id)
+                                    exportUserPlaylistM3U(pl.id)
+                                  }}
+                                >
+                                  <Download size={15} strokeWidth={1.5} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="user-playlist-card-icon-btn"
+                                  aria-label={t('aria.renamePlaylist')}
+                                  title={t('playlists.rename')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    renameUserPlaylist(pl.id)
                                   }}
                                 >
                                   <Pencil size={15} strokeWidth={1.5} />
@@ -16035,644 +17359,497 @@ export default function App() {
                                 <button
                                   type="button"
                                   className="user-playlist-card-icon-btn"
-                                  aria-label={t(
-                                    'playlists.deleteSmartCollection',
-                                    'Delete smart collection'
-                                  )}
-                                  title={t(
-                                    'playlists.deleteSmartCollection',
-                                    'Delete smart collection'
-                                  )}
+                                  aria-label={t('aria.deletePlaylist')}
+                                  title={t('playlists.delete')}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    deleteSmartCollection(collection.id)
+                                    deleteUserPlaylist(pl.id)
                                   }}
                                 >
                                   <Trash2 size={15} strokeWidth={1.5} />
                                 </button>
                               </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <div className="user-playlist-library-chrome">
-                      <div
-                        className="user-playlist-library-header"
-                        onDragOver={handleSmartCollectionDragOver}
-                        onDrop={handleSmartCollectionDropToLibrary}
-                      >
-                        <span className="user-playlist-library-heading">
-                          {t('playlists.yourPlaylists')}
-                        </span>
-                        <span className="user-playlist-library-count">{userPlaylists.length}</span>
-                        <div className="new-playlist-inline">
-                          <input
-                            ref={newPlaylistInputRef}
-                            type="text"
-                            className="new-playlist-input"
-                            placeholder={t('playlists.newNamePlaceholder')}
-                            value={newPlaylistName}
-                            onChange={(e) => setNewPlaylistName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') submitNewPlaylistFromToolbar()
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="new-playlist-submit"
-                            onClick={submitNewPlaylistFromToolbar}
-                          >
-                            <Plus size={16} />
-                            {t('playlists.create')}
-                          </button>
-                        </div>
-                        <div className="user-playlist-more-wrap" ref={playlistLibraryMoreRef}>
-                          <button
-                            type="button"
-                            className="user-playlist-more-trigger"
-                            aria-expanded={playlistLibraryMoreOpen}
-                            aria-haspopup="menu"
-                            aria-label={t('aria.playlistLibraryOptions')}
-                            title={t('playlists.more')}
-                            onClick={() => setPlaylistLibraryMoreOpen((open) => !open)}
-                          >
-                            <MoreHorizontal size={18} strokeWidth={1.5} />
-                          </button>
-                          {playlistLibraryMoreOpen && (
-                            <div className="user-playlist-more-menu" role="menu">
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="user-playlist-more-item"
-                                onClick={() => {
-                                  setPlaylistLibraryMoreOpen(false)
-                                  importUserPlaylists()
-                                }}
-                              >
-                                <Upload size={14} aria-hidden />
-                                {t('playlists.importLibrary')}
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="user-playlist-more-item"
-                                onClick={() => {
-                                  setPlaylistLibraryMoreOpen(false)
-                                  exportUserPlaylists()
-                                }}
-                              >
-                                <Download size={14} aria-hidden />
-                                {t('playlists.exportAll')}
-                              </button>
                             </div>
-                          )}
+                          ))}
                         </div>
-                      </div>
+                      )}
                     </div>
-                    {userPlaylists.length === 0 ? (
-                      <div className="app-empty-state app-empty-state--minimal user-playlist-empty">
-                        <p className="app-empty-state__title">{t('empty.noPlaylists')}</p>
-                      </div>
-                    ) : (
-                      <div className="user-playlist-list">
-                        {userPlaylists.map((pl) => (
-                          <div
-                            key={pl.id}
-                            className={`user-playlist-card${listMode === 'playlists' && selectedUserPlaylistId === pl.id ? ' user-playlist-card--active' : ''}`}
-                            onDragOver={handleSmartCollectionDragOver}
-                            onDrop={(e) => handleSmartCollectionDropToPlaylist(e, pl.id)}
-                          >
-                            <button
-                              type="button"
-                              className="user-playlist-card-main"
-                              onClick={() => openUserPlaylist(pl.id)}
-                            >
-                              <ListMusic
-                                size={16}
-                                className="user-playlist-card-icon"
-                                aria-hidden
-                              />
-                              <span className="user-playlist-name">{pl.name}</span>
-                              <span className="user-playlist-count">
-                                {t('playlists.detailTrackCount', {
-                                  count: pl.paths.length
-                                })}
-                              </span>
-                            </button>
-                            <div className="user-playlist-card-actions">
-                              <button
-                                type="button"
-                                className="user-playlist-card-icon-btn"
-                                aria-label={t('aria.exportPlaylist')}
-                                title={t('playlists.exportM3U')}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  exportUserPlaylistM3U(pl.id)
-                                }}
-                              >
-                                <Download size={15} strokeWidth={1.5} />
-                              </button>
-                              <button
-                                type="button"
-                                className="user-playlist-card-icon-btn"
-                                aria-label={t('aria.renamePlaylist')}
-                                title={t('playlists.rename')}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  renameUserPlaylist(pl.id)
-                                }}
-                              >
-                                <Pencil size={15} strokeWidth={1.5} />
-                              </button>
-                              <button
-                                type="button"
-                                className="user-playlist-card-icon-btn"
-                                aria-label={t('aria.deletePlaylist')}
-                                title={t('playlists.delete')}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  deleteUserPlaylist(pl.id)
-                                }}
-                              >
-                                <Trash2 size={15} strokeWidth={1.5} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  )}
+
+                {playlist.length > 0 && listMode === 'album' && selectedAlbum === 'all' && (
+                  <div className="album-browser no-drag">
+                    <div
+                      ref={setAlbumGridElement}
+                      className="album-grid album-grid-deferred"
+                      style={{
+                        paddingTop: visibleAlbumRange.topSpacer,
+                        paddingBottom: visibleAlbumRange.bottomSpacer
+                      }}
+                    >
+                      {visibleAlbumGroups.map((album) => (
+                        <AlbumSidebarCard
+                          key={album.name}
+                          album={album}
+                          isSelected={selectedAlbum === album.name}
+                          onPickAlbum={handlePickAlbumFromSidebar}
+                          onContextMenu={(e, pickedAlbum) =>
+                            openGroupContextMenu(e, 'album', pickedAlbum)
+                          }
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
 
-              {playlist.length > 0 && listMode === 'album' && selectedAlbum === 'all' && (
-                <div className="album-browser no-drag">
-                  <div
-                    ref={setAlbumGridElement}
-                    className="album-grid album-grid-deferred"
-                    style={{
-                      paddingTop: visibleAlbumRange.topSpacer,
-                      paddingBottom: visibleAlbumRange.bottomSpacer
-                    }}
-                  >
-                    {visibleAlbumGroups.map((album) => (
-                      <AlbumSidebarCard
-                        key={album.name}
-                        album={album}
-                        isSelected={selectedAlbum === album.name}
-                        onPickAlbum={handlePickAlbumFromSidebar}
-                        onContextMenu={(e, pickedAlbum) =>
-                          openGroupContextMenu(e, 'album', pickedAlbum)
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {playlist.length > 0 && listMode === 'artists' && selectedArtist === 'all' && (
-                <div className="artist-browser no-drag">
-                  <div className="folder-browser-header">
-                    <span className="folder-browser-title">{t('artists.heading', 'Artists')}</span>
-                    <span className="folder-browser-count">({artistGroups.length})</span>
-                  </div>
-                  <div className="artist-grid">
-                    {artistGroups.map((artist) => (
-                      <ArtistSidebarCard
-                        key={artist.name}
-                        artist={artist}
-                        isSelected={selectedArtist === artist.name}
-                        onPickArtist={handlePickArtistFromSidebar}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {playlist.length > 0 && listMode === 'folders' && selectedFolder === 'all' && (
-                <div className="folder-browser no-drag">
-                  <div className="folder-list">
-                    {folderGroupsFiltered.map((folder) => (
-                      <button
-                        key={folder.folderPath}
-                        type="button"
-                        className={`folder-list-item${selectedFolder === folder.folderPath ? ' active' : ''}`}
-                        onClick={() => handlePickFolderFromSidebar(folder)}
-                        onContextMenu={(e) => openGroupContextMenu(e, 'folder', folder)}
-                        title={folder.folderPath}
-                      >
-                        <FolderOpen size={15} className="folder-list-icon" />
-                        <span className="folder-list-name">{folder.name}</span>
-                        <span className="folder-list-count">{folder.tracks.length}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {listMode === 'playlists' && selectedSmartCollectionId && selectedSmartCollection && (
-                <div
-                  key={`smart-${selectedSmartCollectionId}`}
-                  className="user-playlist-detail no-drag"
-                >
-                  <div className="user-playlist-detail-head">
-                    <button
-                      type="button"
-                      className="user-playlist-detail-back"
-                      onClick={() => setSelectedSmartCollectionId(null)}
-                      aria-label={t('aria.backToPlaylists')}
-                      title={t('nav.back')}
-                    >
-                      <ChevronLeft size={20} strokeWidth={1.5} />
-                    </button>
-                    <div className="user-playlist-detail-text">
-                      <span
-                        className="user-playlist-detail-name"
-                        title={selectedSmartCollection.name}
-                      >
-                        {selectedSmartCollection.name}
+                {playlist.length > 0 && listMode === 'artists' && selectedArtist === 'all' && (
+                  <div className="artist-browser no-drag">
+                    <div className="folder-browser-header">
+                      <span className="folder-browser-title">
+                        {t('artists.heading', 'Artists')}
                       </span>
-                      <span className="user-playlist-detail-meta">
-                        {t('playlists.detailTrackCount', {
-                          count: selectedSmartCollection.tracks.length
-                        })}
-                      </span>
-                      {selectedSmartCollection.kind === 'custom' && (
-                        <div className="smart-collection-rule-list">
-                          {describeSmartCollectionRules(selectedSmartCollection.rules).map(
-                            (item) => (
-                              <span key={item} className="smart-collection-rule-chip">
-                                {item}
-                              </span>
-                            )
-                          )}
-                        </div>
-                      )}
+                      <span className="folder-browser-count">({artistGroups.length})</span>
+                    </div>
+                    <div className="artist-grid">
+                      {artistGroups.map((artist) => (
+                        <ArtistSidebarCard
+                          key={artist.name}
+                          artist={artist}
+                          isSelected={selectedArtist === artist.name}
+                          onPickArtist={handlePickArtistFromSidebar}
+                        />
+                      ))}
                     </div>
                   </div>
-                  <div className="user-playlist-detail-actions">
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn user-playlist-detail-btn--primary"
-                      onClick={() => playPlaylistContextNow()}
+                )}
+
+                {playlist.length > 0 && listMode === 'folders' && selectedFolder === 'all' && (
+                  <div className="folder-browser no-drag">
+                    <FolderTreeBrowser
+                      folders={folderTreeFiltered}
+                      selectedFolder={selectedFolder}
+                      onPickFolder={handlePickFolderFromSidebar}
+                      onOpenContextMenu={(event, folder) =>
+                        openGroupContextMenu(event, 'folder', folder)
+                      }
+                    />
+                  </div>
+                )}
+
+                {listMode === 'playlists' &&
+                  selectedSmartCollectionId &&
+                  selectedSmartCollection && (
+                    <div
+                      key={`smart-${selectedSmartCollectionId}`}
+                      className="user-playlist-detail no-drag"
                     >
-                      <Play size={14} aria-hidden />
-                      {t('playlists.playAll', { defaultValue: 'Play all' })}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={() => playPlaylistContextNow({ shuffle: true })}
-                    >
-                      <Shuffle size={14} aria-hidden />
-                      {t('playlists.shufflePlay', { defaultValue: 'Shuffle' })}
-                    </button>
-                    {selectedSmartCollection.kind === 'custom' ? (
-                      <>
+                      <div className="user-playlist-detail-head">
                         <button
                           type="button"
-                          className="user-playlist-detail-btn"
-                          onClick={() => openEditSmartCollectionEditor(selectedSmartCollection.id)}
+                          className="user-playlist-detail-back"
+                          onClick={() => setSelectedSmartCollectionId(null)}
+                          aria-label={t('aria.backToPlaylists')}
+                          title={t('nav.back')}
                         >
-                          <Pencil size={14} aria-hidden />
-                          {t('playlists.editSmartCollection', 'Edit smart collection')}
+                          <ChevronLeft size={20} strokeWidth={1.5} />
+                        </button>
+                        <div className="user-playlist-detail-text">
+                          <span
+                            className="user-playlist-detail-name"
+                            title={selectedSmartCollection.name}
+                          >
+                            {selectedSmartCollection.name}
+                          </span>
+                          <span className="user-playlist-detail-meta">
+                            {t('playlists.detailTrackCount', {
+                              count: selectedSmartCollection.tracks.length
+                            })}
+                          </span>
+                          {selectedSmartCollection.kind === 'custom' && (
+                            <div className="smart-collection-rule-list">
+                              {describeSmartCollectionRules(selectedSmartCollection.rules).map(
+                                (item) => (
+                                  <span key={item} className="smart-collection-rule-chip">
+                                    {item}
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="user-playlist-detail-actions">
+                        <button
+                          type="button"
+                          className="user-playlist-detail-btn user-playlist-detail-btn--primary"
+                          onClick={() => playPlaylistContextNow()}
+                        >
+                          <Play size={14} aria-hidden />
+                          {t('playlists.playAll', { defaultValue: 'Play all' })}
                         </button>
                         <button
                           type="button"
                           className="user-playlist-detail-btn"
-                          onClick={() => deleteSmartCollection(selectedSmartCollection.id)}
+                          onClick={() => playPlaylistContextNow({ shuffle: true })}
                         >
-                          <Trash2 size={14} aria-hidden />
-                          {t('playlists.deleteSmartCollection', 'Delete smart collection')}
+                          <Shuffle size={14} aria-hidden />
+                          {t('playlists.shufflePlay', { defaultValue: 'Shuffle' })}
                         </button>
-                      </>
-                    ) : (
+                        {selectedSmartCollection.kind === 'custom' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="user-playlist-detail-btn"
+                              onClick={() =>
+                                openEditSmartCollectionEditor(selectedSmartCollection.id)
+                              }
+                            >
+                              <Pencil size={14} aria-hidden />
+                              {t('playlists.editSmartCollection', 'Edit smart collection')}
+                            </button>
+                            <button
+                              type="button"
+                              className="user-playlist-detail-btn"
+                              onClick={() => deleteSmartCollection(selectedSmartCollection.id)}
+                            >
+                              <Trash2 size={14} aria-hidden />
+                              {t('playlists.deleteSmartCollection', 'Delete smart collection')}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="user-playlist-detail-btn"
+                            disabled
+                            style={{ opacity: 0.65 }}
+                          >
+                            <History size={14} aria-hidden />
+                            {t('playlists.readonlyCollection', 'Read only')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                {listMode === 'playlists' && selectedUserPlaylistId && selectedUserPlaylist && (
+                  <div
+                    key={`playlist-${selectedUserPlaylistId}`}
+                    className="user-playlist-detail no-drag"
+                  >
+                    <div className="user-playlist-detail-head">
+                      <button
+                        type="button"
+                        className="user-playlist-detail-back"
+                        onClick={() => setSelectedUserPlaylistId(null)}
+                        aria-label={t('aria.backToPlaylists')}
+                        title={t('nav.back')}
+                      >
+                        <ChevronLeft size={20} strokeWidth={1.5} />
+                      </button>
+                      <div className="user-playlist-detail-text">
+                        <span
+                          className="user-playlist-detail-name"
+                          title={selectedUserPlaylist.name}
+                        >
+                          {selectedUserPlaylist.name}
+                        </span>
+                        <span className="user-playlist-detail-meta">
+                          {t('playlists.detailTrackCount', {
+                            count: selectedUserPlaylist.paths.length
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="user-playlist-detail-actions">
+                      <button
+                        type="button"
+                        className="user-playlist-detail-btn user-playlist-detail-btn--primary"
+                        onClick={() => playPlaylistContextNow()}
+                      >
+                        <Play size={14} aria-hidden />
+                        {t('playlists.playAll', { defaultValue: 'Play all' })}
+                      </button>
                       <button
                         type="button"
                         className="user-playlist-detail-btn"
-                        disabled
-                        style={{ opacity: 0.65 }}
+                        onClick={() => playPlaylistContextNow({ shuffle: true })}
                       >
-                        <History size={14} aria-hidden />
-                        {t('playlists.readonlyCollection', 'Read only')}
+                        <Shuffle size={14} aria-hidden />
+                        {t('playlists.shufflePlay', { defaultValue: 'Shuffle' })}
                       </button>
+                      <button
+                        type="button"
+                        className="user-playlist-detail-btn"
+                        onClick={importAudioIntoSelectedUserPlaylist}
+                        title={t('playlists.importTitle')}
+                      >
+                        <Upload size={14} aria-hidden />
+                        {t('playlists.import')}
+                      </button>
+                      <button
+                        type="button"
+                        className="user-playlist-detail-btn"
+                        onClick={async () => {
+                          await exportNamedUserPlaylists(
+                            [selectedUserPlaylist],
+                            `${selectedUserPlaylist.name.replace(/[^\w.-]+/g, '_')}.json`
+                          )
+                        }}
+                      >
+                        <Download size={14} aria-hidden />
+                        {t('playlists.export')}
+                      </button>
+                      <button
+                        type="button"
+                        className="user-playlist-detail-btn"
+                        onClick={() => exportUserPlaylistM3U(selectedUserPlaylist.id)}
+                      >
+                        <Download size={14} aria-hidden />
+                        {t('playlists.exportM3U')}
+                      </button>
+                      <button
+                        type="button"
+                        className="user-playlist-detail-btn"
+                        onClick={() => exportUserPlaylistText(selectedUserPlaylist)}
+                      >
+                        <Download size={14} aria-hidden />
+                        {t('playlists.exportText')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {showTrackList && (
+                  <>
+                    {tracksForSidebarListFiltered.length === 0 && (
+                      <div className="app-empty-state app-empty-state--minimal sidebar-empty-hint">
+                        <p className="app-empty-state__title">
+                          {showLikedOnly
+                            ? t('empty.noLikedInView')
+                            : listMode === 'playlists'
+                              ? t(
+                                  selectedSmartCollectionId
+                                    ? 'empty.smartCollectionEmpty'
+                                    : 'empty.playlistEmpty',
+                                  selectedSmartCollectionId
+                                    ? 'No tracks in this collection yet.'
+                                    : undefined
+                                )
+                              : t('empty.noSearchMatch')}
+                        </p>
+                      </div>
                     )}
-                  </div>
-                </div>
-              )}
-
-              {listMode === 'playlists' && selectedUserPlaylistId && selectedUserPlaylist && (
-                <div
-                  key={`playlist-${selectedUserPlaylistId}`}
-                  className="user-playlist-detail no-drag"
-                >
-                  <div className="user-playlist-detail-head">
-                    <button
-                      type="button"
-                      className="user-playlist-detail-back"
-                      onClick={() => setSelectedUserPlaylistId(null)}
-                      aria-label={t('aria.backToPlaylists')}
-                      title={t('nav.back')}
-                    >
-                      <ChevronLeft size={20} strokeWidth={1.5} />
-                    </button>
-                    <div className="user-playlist-detail-text">
-                      <span className="user-playlist-detail-name" title={selectedUserPlaylist.name}>
-                        {selectedUserPlaylist.name}
-                      </span>
-                      <span className="user-playlist-detail-meta">
-                        {t('playlists.detailTrackCount', {
-                          count: selectedUserPlaylist.paths.length
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="user-playlist-detail-actions">
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn user-playlist-detail-btn--primary"
-                      onClick={() => playPlaylistContextNow()}
-                    >
-                      <Play size={14} aria-hidden />
-                      {t('playlists.playAll', { defaultValue: 'Play all' })}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={() => playPlaylistContextNow({ shuffle: true })}
-                    >
-                      <Shuffle size={14} aria-hidden />
-                      {t('playlists.shufflePlay', { defaultValue: 'Shuffle' })}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={importAudioIntoSelectedUserPlaylist}
-                      title={t('playlists.importTitle')}
-                    >
-                      <Upload size={14} aria-hidden />
-                      {t('playlists.import')}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={async () => {
-                        await exportNamedUserPlaylists(
-                          [selectedUserPlaylist],
-                          `${selectedUserPlaylist.name.replace(/[^\w.-]+/g, '_')}.json`
-                        )
-                      }}
-                    >
-                      <Download size={14} aria-hidden />
-                      {t('playlists.export')}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={() => exportUserPlaylistM3U(selectedUserPlaylist.id)}
-                    >
-                      <Download size={14} aria-hidden />
-                      {t('playlists.exportM3U')}
-                    </button>
-                    <button
-                      type="button"
-                      className="user-playlist-detail-btn"
-                      onClick={() => exportUserPlaylistText(selectedUserPlaylist)}
-                    >
-                      <Download size={14} aria-hidden />
-                      {t('playlists.exportText')}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {showTrackList && (
-                <>
-                  {tracksForSidebarListFiltered.length === 0 && (
-                    <div className="app-empty-state app-empty-state--minimal sidebar-empty-hint">
-                      <p className="app-empty-state__title">
-                        {showLikedOnly
-                          ? t('empty.noLikedInView')
-                          : listMode === 'playlists'
-                            ? t(
-                                selectedSmartCollectionId
-                                  ? 'empty.smartCollectionEmpty'
-                                  : 'empty.playlistEmpty',
-                                selectedSmartCollectionId
-                                  ? 'No tracks in this collection yet.'
-                                  : undefined
-                              )
-                            : t('empty.noSearchMatch')}
-                      </p>
-                    </div>
-                  )}
-                  {tracksForSidebarListFiltered.length > 0 && (
-                    <div
-                      key={
-                        listMode === 'album' && selectedAlbum !== 'all'
-                          ? selectedAlbum
-                          : 'sidebar-list'
-                      }
-                      className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}`}
-                    >
-                      {visibleSidebarRange.topSpacer > 0 && (
-                        <div
-                          className="playlist-spacer"
-                          style={{ height: `${visibleSidebarRange.topSpacer}px` }}
-                          aria-hidden
-                        />
-                      )}
-                      {visibleSidebarTracks.map((track) => {
-                        const displayArtist =
-                          track.info.artist === 'Unknown Artist'
-                            ? albumArtistByName[track.info.album] || track.info.artist
-                            : track.info.artist
-                        const trackExt = String(track.name || track.path || '')
-                          .split('.')
-                          .pop()
-                          ?.toUpperCase()
-                        const formatLabel =
-                          trackExt &&
-                          trackExt.length <= 5 &&
-                          trackExt !== String(track.name || track.path || '').toUpperCase()
-                            ? trackExt
-                            : ''
-                        const durationLabel =
-                          track.info.duration && track.info.duration > 0
-                            ? formatTime(track.info.duration)
-                            : ''
-                        const trackMeta = effectiveTrackMetaMap[track.path] || {}
-                        const selectedForDrag = selectedSidebarTrackPathSet.has(track.path)
-
-                        const liked = likedSet.has(track.path)
-                        const inUpNext = upNextPathSet.has(track.path)
-                        return (
+                    {tracksForSidebarListFiltered.length > 0 && (
+                      <div
+                        key={
+                          listMode === 'artists' && selectedArtist !== 'all'
+                            ? `artist-${selectedArtist}`
+                            : listMode === 'album' && selectedAlbum !== 'all'
+                            ? selectedAlbum
+                            : 'sidebar-list'
+                        }
+                        className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
+                      >
+                        {visibleSidebarRange.topSpacer > 0 && (
                           <div
-                            key={`${track.path}-${track.originalIdx}`}
-                            className={`track-item${track.originalIdx === currentIndex ? ' active' : ''}${selectedForDrag ? ' track-item--selected' : ''}${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' track-item--in-pl' : ''}`}
-                            data-track-index={track.originalIdx}
-                            data-track-path={track.path}
-                            draggable
-                            onDragStart={(e) => {
-                              const dragPaths =
-                                selectedForDrag && selectedSidebarTrackPaths.length > 1
-                                  ? selectedSidebarTrackPaths
-                                  : [track.path]
-                              e.dataTransfer.effectAllowed = 'copy'
-                              e.dataTransfer.setData('application/x-echo-track-path', track.path)
-                              e.dataTransfer.setData(
-                                'application/x-echo-track-paths',
-                                JSON.stringify(dragPaths)
-                              )
-                              e.dataTransfer.setData('text/plain', track.path)
-                            }}
-                            onClick={(event) => {
-                              if (handleSidebarTrackSelectionClick(track, event)) return
-                              setSelectedSidebarTrackPaths([])
-                              lastSelectedSidebarTrackPathRef.current = ''
-                              startPlaybackForTrack(track, sidebarPlaybackContext)
-                            }}
-                            onContextMenu={(e) => {
-                              e?.preventDefault?.()
-                              const { clientX, clientY } = resolveContextMenuPoint(e)
-                              forceCloseCoverContextMenu()
-                              forceCloseGroupContextMenu()
-                              forceCloseAddToPlaylistMenu()
-                              setTrackContextMenu({ clientX, clientY, track })
-                            }}
-                          >
+                            className="playlist-spacer"
+                            style={{ height: `${visibleSidebarRange.topSpacer}px` }}
+                            aria-hidden
+                          />
+                        )}
+                        {visibleSidebarTracks.map((track) => {
+                          const displayArtist =
+                            track.info.artist === 'Unknown Artist'
+                              ? albumArtistByName[track.info.album] || track.info.artist
+                              : track.info.artist
+                          const trackExt = String(track.name || track.path || '')
+                            .split('.')
+                            .pop()
+                            ?.toUpperCase()
+                          const formatLabel =
+                            trackExt &&
+                            trackExt.length <= 5 &&
+                            trackExt !== String(track.name || track.path || '').toUpperCase()
+                              ? trackExt
+                              : ''
+                          const durationLabel =
+                            track.info.duration && track.info.duration > 0
+                              ? formatTime(track.info.duration)
+                              : ''
+                          const trackMeta = effectiveTrackMetaMap[track.path] || {}
+                          const selectedForDrag = selectedSidebarTrackPathSet.has(track.path)
+
+                          const liked = likedSet.has(track.path)
+                          const inUpNext = upNextPathSet.has(track.path)
+                          return (
                             <div
-                              className={`track-art${track.originalIdx === currentIndex ? ' track-art--playing' : ''}`}
-                              aria-hidden
+                              key={`${track.path}-${track.originalIdx}`}
+                              className={`track-item${track.originalIdx === currentIndex ? ' active' : ''}${selectedForDrag ? ' track-item--selected' : ''}${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' track-item--in-pl' : ''}`}
+                              data-track-index={track.originalIdx}
+                              data-track-path={track.path}
+                              draggable
+                              onDragStart={(e) => {
+                                const dragPaths =
+                                  selectedForDrag && selectedSidebarTrackPaths.length > 1
+                                    ? selectedSidebarTrackPaths
+                                    : [track.path]
+                                e.dataTransfer.effectAllowed = 'copy'
+                                e.dataTransfer.setData('application/x-echo-track-path', track.path)
+                                e.dataTransfer.setData(
+                                  'application/x-echo-track-paths',
+                                  JSON.stringify(dragPaths)
+                                )
+                                e.dataTransfer.setData('text/plain', track.path)
+                              }}
+                              onClick={(event) => {
+                                if (handleSidebarTrackSelectionClick(track, event)) return
+                                setSelectedSidebarTrackPaths([])
+                                lastSelectedSidebarTrackPathRef.current = ''
+                                startPlaybackForTrack(track, sidebarPlaybackContext)
+                              }}
+                              onContextMenu={(e) => {
+                                e?.preventDefault?.()
+                                const { clientX, clientY } = resolveContextMenuPoint(e)
+                                forceCloseCoverContextMenu()
+                                forceCloseGroupContextMenu()
+                                forceCloseAddToPlaylistMenu()
+                                setTrackContextMenu({ clientX, clientY, track })
+                              }}
                             >
-                              {track.info.cover ? (
-                                <img src={track.info.cover} alt="" draggable={false} />
-                              ) : (
-                                <Music size={17} />
-                              )}
-                            </div>
-                            <div className="track-text-group">
-                              <div className="track-name" title={track.info.title}>
-                                {track.originalIdx === currentIndex && (
-                                  <span className="track-playing-dot" aria-hidden />
-                                )}
-                                {track.info.title}
-                              </div>
                               <div
-                                className="track-subtitle"
-                                title={`${displayArtist} - ${track.info.album}`}
+                                className={`track-art${track.originalIdx === currentIndex ? ' track-art--playing' : ''}`}
+                                aria-hidden
                               >
-                                <ArtistLink
-                                  artist={displayArtist}
-                                  className="artist-link-subtle"
-                                  stopPropagation
-                                  noLink
-                                />{' '}
-                                - {track.info.album}
+                                {track.info.cover ? (
+                                  <img src={track.info.cover} alt="" draggable={false} />
+                                ) : (
+                                  <Music size={17} />
+                                )}
                               </div>
-                              <div className="track-meta-pills" aria-hidden>
-                                <AudioQualityBadges
-                                  quality={{
-                                    codec: trackMeta.codec || formatLabel || null,
-                                    bitrateKbps: trackMeta.bitrateKbps || null,
-                                    sampleRateHz: trackMeta.sampleRateHz || null,
-                                    bitDepth: trackMeta.bitDepth || null,
-                                    channels: trackMeta.channels || null,
-                                    isMqa: trackMeta.isMqa === true,
-                                    bpm: trackMeta.bpm || null
-                                  }}
-                                  compact
-                                />
-                              </div>
-                            </div>
-                            <div className="track-row-meta" aria-hidden>
-                              {durationLabel && <span>{durationLabel}</span>}
-                            </div>
-                            {(listMode === 'songs' ||
-                              listMode === 'folders' ||
-                              listMode === 'artists' ||
-                              listMode === 'album' ||
-                              (listMode === 'playlists' &&
-                                (selectedUserPlaylistId || selectedSmartCollectionId))) && (
-                              <div className="track-add-pl-wrap">
-                                <button
-                                  type="button"
-                                  className={`track-like-btn ${liked ? 'active' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleLike(track.path)
-                                  }}
-                                  title={liked ? t('like.unlike') : t('like.like')}
-                                  aria-pressed={liked}
+                              <div className="track-text-group">
+                                <div className="track-name" title={track.info.title}>
+                                  {track.originalIdx === currentIndex && (
+                                    <span className="track-playing-dot" aria-hidden />
+                                  )}
+                                  {track.info.title}
+                                </div>
+                                <div
+                                  className="track-subtitle"
+                                  title={`${displayArtist} - ${track.info.album}`}
                                 >
-                                  <Heart
-                                    size={16}
-                                    fill={liked ? 'currentColor' : 'none'}
-                                    strokeWidth={liked ? 1.5 : 1.5}
+                                  <ArtistLink
+                                    artist={displayArtist}
+                                    className="artist-link-subtle"
+                                    stopPropagation
+                                    noLink
+                                  />{' '}
+                                  - {track.info.album}
+                                </div>
+                                <div className="track-meta-pills" aria-hidden>
+                                  <AudioQualityBadges
+                                    quality={{
+                                      codec: trackMeta.codec || formatLabel || null,
+                                      bitrateKbps: trackMeta.bitrateKbps || null,
+                                      sampleRateHz: trackMeta.sampleRateHz || null,
+                                      bitDepth: trackMeta.bitDepth || null,
+                                      channels: trackMeta.channels || null,
+                                      isMqa: trackMeta.isMqa === true,
+                                      bpm: trackMeta.bpm || null
+                                    }}
+                                    compact
                                   />
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`track-add-pl-btn track-queue-btn ${inUpNext ? 'active' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (inUpNext) {
-                                      removeFromUpNextQueue(track.path)
-                                    } else {
-                                      enqueueUpNextTrack(track)
-                                    }
-                                  }}
-                                  title={
-                                    inUpNext
-                                      ? t('contextMenu.removeFromUpNext')
-                                      : t('queue.contextMenu.addToQueue', 'Add to Queue')
-                                  }
-                                  aria-pressed={inUpNext}
-                                >
-                                  <ListPlus size={16} />
-                                </button>
-                                {listMode === 'playlists' && selectedUserPlaylistId && (
+                                </div>
+                              </div>
+                              <div className="track-row-meta" aria-hidden>
+                                {durationLabel && <span>{durationLabel}</span>}
+                              </div>
+                              {(listMode === 'songs' ||
+                                listMode === 'folders' ||
+                                listMode === 'artists' ||
+                                listMode === 'album' ||
+                                (listMode === 'playlists' &&
+                                  (selectedUserPlaylistId || selectedSmartCollectionId))) && (
+                                <div className="track-add-pl-wrap">
                                   <button
                                     type="button"
-                                    className="track-remove-pl-btn"
-                                    title={t('aria.removeFromPlaylist')}
+                                    className={`track-like-btn ${liked ? 'active' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      removePathFromUserPlaylist(selectedUserPlaylistId, track.path)
+                                      toggleLike(track.path)
                                     }}
+                                    title={liked ? t('like.unlike') : t('like.like')}
+                                    aria-pressed={liked}
                                   >
-                                    <Minus size={16} />
+                                    <Heart
+                                      size={16}
+                                      fill={liked ? 'currentColor' : 'none'}
+                                      strokeWidth={liked ? 1.5 : 1.5}
+                                    />
                                   </button>
-                                )}
-                                {(listMode === 'songs' ||
-                                  listMode === 'folders' ||
-                                  listMode === 'artists' ||
-                                  listMode === 'album') && (
                                   <button
                                     type="button"
-                                    className={`track-add-pl-btn track-playlist-btn ${addToPlaylistMenu?.originalIdx === track.originalIdx ? 'active' : ''}`}
-                                    onClick={(e) => openAddToPlaylistPopover(e, track)}
-                                    title={t('aria.addToPlaylist')}
+                                    className={`track-add-pl-btn track-queue-btn ${inUpNext ? 'active' : ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      if (inUpNext) {
+                                        removeFromUpNextQueue(track.path)
+                                      } else {
+                                        enqueueUpNextTrack(track)
+                                      }
+                                    }}
+                                    title={
+                                      inUpNext
+                                        ? t('contextMenu.removeFromUpNext')
+                                        : t('queue.contextMenu.addToQueue', 'Add to Queue')
+                                    }
+                                    aria-pressed={inUpNext}
                                   >
-                                    <Plus size={16} />
+                                    <ListPlus size={16} />
                                   </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {visibleSidebarRange.bottomSpacer > 0 && (
-                        <div
-                          className="playlist-spacer"
-                          style={{ height: `${visibleSidebarRange.bottomSpacer}px` }}
-                          aria-hidden
-                        />
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+                                  {listMode === 'playlists' && selectedUserPlaylistId && (
+                                    <button
+                                      type="button"
+                                      className="track-remove-pl-btn"
+                                      title={t('aria.removeFromPlaylist')}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        removePathFromUserPlaylist(
+                                          selectedUserPlaylistId,
+                                          track.path
+                                        )
+                                      }}
+                                    >
+                                      <Minus size={16} />
+                                    </button>
+                                  )}
+                                  {(listMode === 'songs' ||
+                                    listMode === 'folders' ||
+                                    listMode === 'artists' ||
+                                    listMode === 'album') && (
+                                    <button
+                                      type="button"
+                                      className={`track-add-pl-btn track-playlist-btn ${addToPlaylistMenu?.originalIdx === track.originalIdx ? 'active' : ''}`}
+                                      onClick={(e) => openAddToPlaylistPopover(e, track)}
+                                      title={t('aria.addToPlaylist')}
+                                    >
+                                      <Plus size={16} />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {visibleSidebarRange.bottomSpacer > 0 && (
+                          <div
+                            className="playlist-spacer"
+                            style={{ height: `${visibleSidebarRange.bottomSpacer}px` }}
+                            aria-hidden
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               {sidebarScrollbarMetrics.visible ? (
                 <div
@@ -16780,7 +17957,10 @@ export default function App() {
                   onDragLeave={handleLyricsDropDragLeave}
                   onDrop={handleLyricsDrop}
                 >
-                  <div className="lyrics-lrc-drop-overlay" aria-hidden={!lyricsDropActive && !lyricsDropMessage}>
+                  <div
+                    className="lyrics-lrc-drop-overlay"
+                    aria-hidden={!lyricsDropActive && !lyricsDropMessage}
+                  >
                     <div className="lyrics-lrc-drop-card">
                       <Upload size={24} strokeWidth={1.7} />
                       <span>
@@ -16826,7 +18006,7 @@ export default function App() {
                           ? t('lyrics.quickShowForTrack')
                           : t('lyrics.quickHideForTrack')}
                       </button>
-                      {mvId && (
+                      {mvId && shouldLoadActiveMvMedia && (
                         <button
                           type="button"
                           className="lyrics-quick-actions__button"
@@ -17445,1489 +18625,1601 @@ export default function App() {
                     data-settings-section="language"
                     style={{ display: settingsSectionVisibility.language ? '' : 'none' }}
                   >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <MessageSquare size={20} />
-                      <h2>{t('settings.nav.general', '\u901a\u7528')}</h2>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <p style={{ opacity: 0.85, marginTop: 0 }}>{t('settings.languageHint')}</p>
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <MessageSquare size={20} />
+                        <h2>{t('settings.nav.general')}</h2>
                       </div>
-                      <div className="settings-chip-row no-drag">
-                        {['en', 'zh', 'ja'].map((code) => (
-                          <button
-                            key={code}
-                            type="button"
-                            className={`list-filter-chip ${normalizeUiLocale(config.uiLocale) === code ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiLocale: normalizeUiLocale(code)
-                              }))
-                            }
-                          >
-                            {code === 'en'
-                              ? t('settings.langEn')
-                              : code === 'zh'
-                                ? t('settings.langZh')
-                                : t('settings.langJa')}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.closeButtonBehaviorTitle')}</h3>
-                        <p>{t('settings.closeButtonBehaviorDesc')}</p>
-                      </div>
-                      <div className="settings-chip-row no-drag">
-                        {['tray', 'quit'].map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            className={`list-filter-chip ${config.closeButtonBehavior === mode ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                closeButtonBehavior: mode
-                              }))
-                            }
-                          >
-                            {mode === 'tray'
-                              ? t('settings.closeButtonBehaviorTray')
-                              : t('settings.closeButtonBehaviorQuit')}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.configBackupTitle', '\u8bbe\u7f6e\u53c2\u6570\u5907\u4efd')}</h3>
-                        <p>
-                          {t(
-                            'settings.configBackupDesc',
-                            '\u5bfc\u51fa\u6216\u5bfc\u5165 ECHO \u8bbe\u7f6e\u53c2\u6570\uff0c\u7528\u4e8e\u8fc1\u79fb\u5230\u65b0\u8bbe\u5907\u6216\u6062\u590d\u914d\u7f6e\u3002'
-                          )}
-                        </p>
-                      </div>
-                      <div className="settings-chip-row no-drag">
-                        <UiButton variant="secondary" size="sm" onClick={handleExportSettingsConfig}>
-                          <Download size={14} />
-                          {t('settings.exportConfig', '\u5bfc\u51fa\u8bbe\u7f6e')}
-                        </UiButton>
-                        <UiButton variant="secondary" size="sm" onClick={handleImportSettingsConfig}>
-                          <Upload size={14} />
-                          {t('settings.importConfig', '\u5bfc\u5165\u8bbe\u7f6e')}
-                        </UiButton>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-engine"
-                  data-settings-section="engine"
-                  style={{ display: settingsSectionVisibility.engine ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Zap size={20} />
-                      <h2>{t('settings.playbackAndAudio', '\u64ad\u653e\u4e0e\u97f3\u9891')}</h2>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.outputBufferTitle')}</h3>
-                        <p>{t('settings.outputBufferDesc')}</p>
-                      </div>
-                      <div className="settings-chip-row no-drag">
-                        {['low', 'balanced', 'stable'].map((key) => (
-                          <button
-                            key={key}
-                            type="button"
-                            className={`list-filter-chip ${config.audioOutputBufferProfile === key ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                audioOutputBufferProfile: key
-                              }))
-                            }
-                          >
-                            {t(`settings.outputBuffer.${key}`)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.gaplessTitle')}</h3>
-                        <p>{t('settings.gaplessDesc')}</p>
-                      </div>
-                      <button
-                        className={`toggle-btn ${config.gaplessEnabled ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({ ...prev, gaplessEnabled: !prev.gaplessEnabled }))
-                        }
-                      >
-                        {config.gaplessEnabled ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>
-                          {t('settings.autoLocateCurrentTrackTitle', '定位当前播放歌曲')}
-                        </h3>
-                        <p>
-                          {t(
-                            'settings.autoLocateCurrentTrackDesc',
-                            '开启后，切歌时会自动把左侧当前列表滚动到正在播放的歌曲位置。'
-                          )}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.autoLocateCurrentTrack === true ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            autoLocateCurrentTrack: !prev.autoLocateCurrentTrack
-                          }))
-                        }
-                      >
-                        {config.autoLocateCurrentTrack === true ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.prevButtonModeTitle')}</h3>
-                        <p>{t('settings.prevButtonModeDesc')}</p>
-                      </div>
-                      <div className="settings-chip-row">
-                        {['playlist', 'history'].map((mode) => (
-                          <button
-                            key={mode}
-                            className={`list-filter-chip ${config.prevButtonMode === mode ? 'active' : ''}`}
-                            onClick={() => setConfig((prev) => ({ ...prev, prevButtonMode: mode }))}
-                          >
-                            {t(
-                              `settings.prevButtonMode${mode.charAt(0).toUpperCase() + mode.slice(1)}`
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.sleepTimerTitle')}</h3>
-                        <p>{t('settings.sleepTimerDesc')}</p>
-                        {sleepTimerActive ? (
-                          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-soft)' }}>
-                            {config.sleepTimerMode === 'time'
-                              ? t('settings.sleepTimerRemaining', {
-                                  time: formatSleepTimerRemaining(sleepTimerRemainingMs)
-                                })
-                              : t('settings.sleepTimerArmedTrack')}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div
-                        className="settings-chip-row no-drag"
-                        style={{
-                          justifyContent: 'flex-end',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: 8
-                        }}
-                      >
-                        {['time', 'track'].map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            className={`list-filter-chip ${config.sleepTimerMode === mode ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                sleepTimerMode: mode
-                              }))
-                            }
-                          >
-                            {mode === 'time'
-                              ? t('settings.sleepTimerModeTime')
-                              : t('settings.sleepTimerModeTrack')}
-                          </button>
-                        ))}
-                        {config.sleepTimerMode === 'time'
-                          ? SLEEP_TIMER_MINUTE_OPTIONS.map((minutes) => (
-                              <button
-                                key={minutes}
-                                type="button"
-                                className={`list-filter-chip ${config.sleepTimerMinutes === minutes ? 'active' : ''}`}
-                                onClick={() =>
-                                  setConfig((prev) => ({
-                                    ...prev,
-                                    sleepTimerMinutes: minutes
-                                  }))
-                                }
-                              >
-                                {t('settings.sleepTimerMinutes', { count: minutes })}
-                              </button>
-                            ))
-                          : null}
-                        <UiButton
-                          variant={sleepTimerActive ? 'ghost' : 'secondary'}
-                          size="sm"
-                          onClick={() => {
-                            if (sleepTimerActive) {
-                              cancelSleepTimer()
-                              return
-                            }
-                            startSleepTimer()
-                          }}
-                        >
-                          {sleepTimerActive
-                            ? t('settings.sleepTimerCancel')
-                            : t('settings.sleepTimerStart')}
-                        </UiButton>
-                      </div>
-                    </div>
-
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.crossfadeTitle')}</h3>
-                        <p>{t('settings.crossfadeDesc')}</p>
-                      </div>
-                      <button
-                        className={`toggle-btn ${config.crossfadeEnabled ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            crossfadeEnabled: !prev.crossfadeEnabled
-                          }))
-                        }
-                      >
-                        {config.crossfadeEnabled ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-
-                    {config.crossfadeEnabled ? (
-                      <div className="setting-row" style={{ borderTop: 'none', paddingTop: 8 }}>
+                      <div className="setting-row">
                         <div className="setting-info">
-                          <h3>{t('settings.crossfadeDurationTitle')}</h3>
-                          <p>{t('settings.crossfadeDurationDesc')}</p>
+                          <p style={{ opacity: 0.85, marginTop: 0 }}>
+                            {t('settings.languageHint')}
+                          </p>
                         </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            minWidth: 260,
-                            justifyContent: 'flex-end'
-                          }}
-                        >
-                          <span style={{ fontSize: 12, color: 'var(--text-soft)' }}>
-                            {t('settings.crossfadeSeconds', { count: config.crossfadeDuration })}
-                          </span>
-                          <input
-                            type="range"
-                            min={1}
-                            max={12}
-                            step={1}
-                            value={config.crossfadeDuration}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                crossfadeDuration: Math.max(
-                                  1,
-                                  Math.min(12, Number.parseInt(e.target.value, 10) || 1)
-                                )
-                              }))
-                            }
-                            style={{ width: 160 }}
-                          />
+                        <div className="settings-chip-row no-drag">
+                          {UI_LOCALES.map((code) => (
+                            <button
+                              key={code}
+                              type="button"
+                              className={`list-filter-chip ${normalizeUiLocale(config.uiLocale) === code ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiLocale: normalizeUiLocale(code)
+                                }))
+                              }
+                            >
+                              {code === 'en'
+                                ? t('settings.langEn')
+                                : code === 'zh'
+                                  ? t('settings.langZh')
+                                  : code === 'zh-TW'
+                                    ? t('settings.langZhTw')
+                                    : t('settings.langJa')}
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    ) : null}
-
-                    {config.mvAsBackground && (
-                      <>
-                        <div
-                          className="setting-row"
-                          style={{
-                            marginTop: '8px',
-                            borderTop: 'none',
-                            paddingTop: 0
-                          }}
-                        >
-                          <div className="setting-info">
-                            <h3>{t('settings.lyricsShadowTitle')}</h3>
-                            <p>{t('settings.lyricsShadowDesc')}</p>
-                          </div>
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '8px'
-                            }}
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.closeButtonBehaviorTitle')}</h3>
+                          <p>{t('settings.closeButtonBehaviorDesc')}</p>
+                        </div>
+                        <div className="settings-chip-row no-drag">
+                          {['tray', 'quit'].map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={`list-filter-chip ${config.closeButtonBehavior === mode ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  closeButtonBehavior: mode
+                                }))
+                              }
+                            >
+                              {mode === 'tray'
+                                ? t('settings.closeButtonBehaviorTray')
+                                : t('settings.closeButtonBehaviorQuit')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>
+                            {t(
+                              'settings.configBackupTitle',
+                              '\u8bbe\u7f6e\u53c2\u6570\u5907\u4efd'
+                            )}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.configBackupDesc',
+                              '\u5bfc\u51fa\u6216\u5bfc\u5165 ECHO \u8bbe\u7f6e\u53c2\u6570\uff0c\u7528\u4e8e\u8fc1\u79fb\u5230\u65b0\u8bbe\u5907\u6216\u6062\u590d\u914d\u7f6e\u3002'
+                            )}
+                          </p>
+                        </div>
+                        <div className="settings-chip-row no-drag">
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleExportSettingsConfig}
                           >
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-end',
-                                gap: 12
-                              }}
-                            >
-                              <button
-                                className={`toggle-btn ${config.lyricsShadow ? 'active' : ''}`}
-                                onClick={() =>
-                                  setConfig((prev) => ({
-                                    ...prev,
-                                    lyricsShadow: !prev.lyricsShadow
-                                  }))
-                                }
-                              >
-                                {config.lyricsShadow ? (
-                                  <ToggleRight size={28} />
-                                ) : (
-                                  <ToggleLeft size={28} />
-                                )}
-                              </button>
-                            </div>
-
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                width: '220px'
-                              }}
-                            >
-                              <span style={{ fontSize: 12, opacity: 0.5 }}>0%</span>
-                              <input
-                                type="range"
-                                min={0}
-                                max={1}
-                                step={0.05}
-                                value={
-                                  config.lyricsShadowOpacity !== undefined
-                                    ? config.lyricsShadowOpacity
-                                    : 0.6
-                                }
-                                onChange={(e) =>
-                                  setConfig((prev) => ({
-                                    ...prev,
-                                    lyricsShadowOpacity: parseFloat(e.target.value)
-                                  }))
-                                }
-                                style={{ flex: 1 }}
-                              />
-                              <span style={{ fontSize: 12, opacity: 0.5 }}>100%</span>
-                            </div>
-                          </div>
+                            <Download size={14} />
+                            {t('settings.exportConfig', '\u5bfc\u51fa\u8bbe\u7f6e')}
+                          </UiButton>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleImportSettingsConfig}
+                          >
+                            <Upload size={14} />
+                            {t('settings.importConfig', '\u5bfc\u5165\u8bbe\u7f6e')}
+                          </UiButton>
                         </div>
-                      </>
-                    )}
-                  </section>
-                </div>
+                      </div>
+                    </section>
+                  </div>
 
-                <div
-                  id="settings-sec-integrations"
-                  data-settings-section="integrations"
-                  style={{ display: settingsSectionVisibility.integrations ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Zap size={20} />
-                      <h2>{t('settings.nav.connections', '\u8054\u52a8')}</h2>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.discordTitle')}</h3>
-                        <p>{t('settings.discordDesc')}</p>
+                  <div
+                    id="settings-sec-engine"
+                    data-settings-section="engine"
+                    style={{ display: settingsSectionVisibility.engine ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Zap size={20} />
+                        <h2>{t('settings.playbackAndAudio', '\u64ad\u653e\u4e0e\u97f3\u9891')}</h2>
                       </div>
-                      <button
-                        className={`toggle-btn ${config.enableDiscordRPC ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            enableDiscordRPC: !prev.enableDiscordRPC
-                          }))
-                        }
-                      >
-                        {config.enableDiscordRPC ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('remote.settingsTitle', 'Phone Remote')}</h3>
-                        <p>
-                          {t(
-                            'remote.settingsDesc',
-                            'Control playback from a phone on the same Wi-Fi.'
-                          )}
-                        </p>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.outputBufferTitle')}</h3>
+                          <p>{t('settings.outputBufferDesc')}</p>
+                        </div>
+                        <div className="settings-chip-row no-drag">
+                          {['low', 'balanced', 'stable'].map((key) => (
+                            <button
+                              key={key}
+                              type="button"
+                              className={`list-filter-chip ${config.audioOutputBufferProfile === key ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  audioOutputBufferProfile: key
+                                }))
+                              }
+                            >
+                              {t(`settings.outputBuffer.${key}`)}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div
-                        className="settings-chip-row no-drag"
-                        style={{ justifyContent: 'flex-end' }}
-                      >
-                        <UiButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setPhoneRemoteDrawerOpen(true)}
-                        >
-                          <Smartphone size={14} />
-                          {t('remote.openDrawer', 'Open remote')}
-                        </UiButton>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.gaplessTitle')}</h3>
+                          <p>{t('settings.gaplessDesc')}</p>
+                        </div>
                         <button
-                          type="button"
-                          className={`toggle-btn ${config.phoneRemoteEnabled ? 'active' : ''}`}
-                          disabled={phoneRemoteBusy}
-                          onClick={() => {
-                            if (config.phoneRemoteEnabled === true) {
-                              void handlePhoneRemoteStop()
-                              return
-                            }
-                            void handlePhoneRemoteStart()
-                          }}
-                          aria-pressed={config.phoneRemoteEnabled === true}
+                          className={`toggle-btn ${config.gaplessEnabled ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({ ...prev, gaplessEnabled: !prev.gaplessEnabled }))
+                          }
                         >
-                          {config.phoneRemoteEnabled ? (
+                          {config.gaplessEnabled ? (
                             <ToggleRight size={32} />
                           ) : (
                             <ToggleLeft size={32} />
                           )}
                         </button>
                       </div>
-                    </div>
-                    <div className="setting-row" style={{ alignItems: 'flex-start' }}>
-                      <div className="setting-info">
-                        <h3>{t('settings.listeningLogTitle', '\u542c\u6b4c\u8bb0\u5f55 / Last.fm')}</h3>
-                        <p>
-                          {t(
-                            'settings.lastfmIntegratedDesc',
-                            '\u4f7f\u7528 Last.fm \u6388\u6743\u540e\u81ea\u52a8\u8bb0\u5f55\u542c\u6b4c\u5386\u53f2\uff08Scrobble\uff09\u3002'
-                          )}
-                        </p>
-                      </div>
-                    </div>
 
-                    {config.lastfmSessionKey ? (
-                      <>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.lastfmConnected', 'Connected')}</h3>
-                            <p>@{config.lastfmUsername || 'unknown'}</p>
-                          </div>
-                          <button
-                            className="ui-btn ui-btn--compact lastfm-disconnect-btn"
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.autoLocateCurrentTrackTitle')}</h3>
+                          <p>{t('settings.autoLocateCurrentTrackDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.autoLocateCurrentTrack === true ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              autoLocateCurrentTrack: !prev.autoLocateCurrentTrack
+                            }))
+                          }
+                        >
+                          {config.autoLocateCurrentTrack === true ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.miniPlayerAlwaysOnTopTitle')}</h3>
+                          <p>{t('settings.miniPlayerAlwaysOnTopDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.miniPlayerAlwaysOnTop !== false ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              miniPlayerAlwaysOnTop: prev.miniPlayerAlwaysOnTop === false
+                            }))
+                          }
+                          aria-pressed={config.miniPlayerAlwaysOnTop !== false}
+                        >
+                          {config.miniPlayerAlwaysOnTop !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.miniPlayerAutoHideMainWindowTitle')}</h3>
+                          <p>{t('settings.miniPlayerAutoHideMainWindowDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.miniPlayerAutoHideMainWindow === true ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              miniPlayerAutoHideMainWindow:
+                                prev.miniPlayerAutoHideMainWindow !== true
+                            }))
+                          }
+                          aria-pressed={config.miniPlayerAutoHideMainWindow === true}
+                        >
+                          {config.miniPlayerAutoHideMainWindow === true ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.prevButtonModeTitle')}</h3>
+                          <p>{t('settings.prevButtonModeDesc')}</p>
+                        </div>
+                        <div className="settings-chip-row">
+                          {['playlist', 'history'].map((mode) => (
+                            <button
+                              key={mode}
+                              className={`list-filter-chip ${config.prevButtonMode === mode ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({ ...prev, prevButtonMode: mode }))
+                              }
+                            >
+                              {t(
+                                `settings.prevButtonMode${mode.charAt(0).toUpperCase() + mode.slice(1)}`
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.sleepTimerTitle')}</h3>
+                          <p>{t('settings.sleepTimerDesc')}</p>
+                          {sleepTimerActive ? (
+                            <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-soft)' }}>
+                              {config.sleepTimerMode === 'time'
+                                ? t('settings.sleepTimerRemaining', {
+                                    time: formatSleepTimerRemaining(sleepTimerRemainingMs)
+                                  })
+                                : t('settings.sleepTimerArmedTrack')}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div
+                          className="settings-chip-row no-drag"
+                          style={{
+                            justifyContent: 'flex-end',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: 8
+                          }}
+                        >
+                          {['time', 'track'].map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              className={`list-filter-chip ${config.sleepTimerMode === mode ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  sleepTimerMode: mode
+                                }))
+                              }
+                            >
+                              {mode === 'time'
+                                ? t('settings.sleepTimerModeTime')
+                                : t('settings.sleepTimerModeTrack')}
+                            </button>
+                          ))}
+                          {config.sleepTimerMode === 'time'
+                            ? SLEEP_TIMER_MINUTE_OPTIONS.map((minutes) => (
+                                <button
+                                  key={minutes}
+                                  type="button"
+                                  className={`list-filter-chip ${config.sleepTimerMinutes === minutes ? 'active' : ''}`}
+                                  onClick={() =>
+                                    setConfig((prev) => ({
+                                      ...prev,
+                                      sleepTimerMinutes: minutes
+                                    }))
+                                  }
+                                >
+                                  {t('settings.sleepTimerMinutes', { count: minutes })}
+                                </button>
+                              ))
+                            : null}
+                          <UiButton
+                            variant={sleepTimerActive ? 'ghost' : 'secondary'}
+                            size="sm"
                             onClick={() => {
-                              void window.api?.lastfm?.logout?.()
-                              setConfig((prev) => ({
-                                ...prev,
-                                lastfmEnabled: false,
-                                lastfmSessionKey: null,
-                                lastfmUsername: null
-                              }))
+                              if (sleepTimerActive) {
+                                cancelSleepTimer()
+                                return
+                              }
+                              startSleepTimer()
                             }}
                           >
-                            {t('settings.lastfmLogout', 'Disconnect')}
-                          </button>
+                            {sleepTimerActive
+                              ? t('settings.sleepTimerCancel')
+                              : t('settings.sleepTimerStart')}
+                          </UiButton>
                         </div>
-                        <div className="setting-row">
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.crossfadeTitle')}</h3>
+                          <p>{t('settings.crossfadeDesc')}</p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${config.crossfadeEnabled ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              crossfadeEnabled: !prev.crossfadeEnabled
+                            }))
+                          }
+                        >
+                          {config.crossfadeEnabled ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      {config.crossfadeEnabled ? (
+                        <div className="setting-row" style={{ borderTop: 'none', paddingTop: 8 }}>
                           <div className="setting-info">
-                            <h3>{t('settings.lastfmScrobbleTitle', 'Scrobble')}</h3>
-                            <p>
-                              {t('settings.lastfmScrobbleDesc', 'Send played tracks to Last.fm.')}
-                            </p>
+                            <h3>{t('settings.crossfadeDurationTitle')}</h3>
+                            <p>{t('settings.crossfadeDurationDesc')}</p>
                           </div>
-                          <button
-                            className={`toggle-btn ${config.lastfmEnabled ? 'active' : ''}`}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                lastfmEnabled: !prev.lastfmEnabled
-                              }))
-                            }
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              minWidth: 260,
+                              justifyContent: 'flex-end'
+                            }}
                           >
-                            {config.lastfmEnabled ? (
+                            <span style={{ fontSize: 12, color: 'var(--text-soft)' }}>
+                              {t('settings.crossfadeSeconds', { count: config.crossfadeDuration })}
+                            </span>
+                            <input
+                              type="range"
+                              min={1}
+                              max={12}
+                              step={1}
+                              value={config.crossfadeDuration}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  crossfadeDuration: Math.max(
+                                    1,
+                                    Math.min(12, Number.parseInt(e.target.value, 10) || 1)
+                                  )
+                                }))
+                              }
+                              style={{ width: 160 }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {isImmersiveLyricsMvEnabled(config) && (
+                        <>
+                          <div
+                            className="setting-row"
+                            style={{
+                              marginTop: '8px',
+                              borderTop: 'none',
+                              paddingTop: 0
+                            }}
+                          >
+                            <div className="setting-info">
+                              <h3>{t('settings.lyricsShadowTitle')}</h3>
+                              <p>{t('settings.lyricsShadowDesc')}</p>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'flex-end',
+                                  gap: 12
+                                }}
+                              >
+                                <button
+                                  className={`toggle-btn ${config.lyricsShadow ? 'active' : ''}`}
+                                  onClick={() =>
+                                    setConfig((prev) => ({
+                                      ...prev,
+                                      lyricsShadow: !prev.lyricsShadow
+                                    }))
+                                  }
+                                >
+                                  {config.lyricsShadow ? (
+                                    <ToggleRight size={28} />
+                                  ) : (
+                                    <ToggleLeft size={28} />
+                                  )}
+                                </button>
+                              </div>
+
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  width: '220px'
+                                }}
+                              >
+                                <span style={{ fontSize: 12, opacity: 0.5 }}>0%</span>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={1}
+                                  step={0.05}
+                                  value={
+                                    config.lyricsShadowOpacity !== undefined
+                                      ? config.lyricsShadowOpacity
+                                      : 0.6
+                                  }
+                                  onChange={(e) =>
+                                    setConfig((prev) => ({
+                                      ...prev,
+                                      lyricsShadowOpacity: parseFloat(e.target.value)
+                                    }))
+                                  }
+                                  style={{ flex: 1 }}
+                                />
+                                <span style={{ fontSize: 12, opacity: 0.5 }}>100%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </section>
+                  </div>
+
+                  <div
+                    id="settings-sec-integrations"
+                    data-settings-section="integrations"
+                    style={{ display: settingsSectionVisibility.integrations ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Zap size={20} />
+                        <h2>{t('settings.nav.connections')}</h2>
+                      </div>
+                      <AccountLoginSettings
+                        config={config}
+                        setConfig={setConfig}
+                        signInStatus={signInStatus}
+                        onRefreshSignInStatus={refreshSignInStatus}
+                      />
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.discordTitle')}</h3>
+                          <p>{t('settings.discordDesc')}</p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${config.enableDiscordRPC ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              enableDiscordRPC: !prev.enableDiscordRPC
+                            }))
+                          }
+                        >
+                          {config.enableDiscordRPC ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('remote.settingsTitle', 'Phone Remote')}</h3>
+                          <p>
+                            {t(
+                              'remote.settingsDesc',
+                              'Control playback from a phone on the same Wi-Fi.'
+                            )}
+                          </p>
+                        </div>
+                        <div
+                          className="settings-chip-row no-drag"
+                          style={{ justifyContent: 'flex-end' }}
+                        >
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setPhoneRemoteDrawerOpen(true)}
+                          >
+                            <Smartphone size={14} />
+                            {t('remote.openDrawer', 'Open remote')}
+                          </UiButton>
+                          <button
+                            type="button"
+                            className={`toggle-btn ${config.phoneRemoteEnabled ? 'active' : ''}`}
+                            disabled={phoneRemoteBusy}
+                            onClick={() => {
+                              if (config.phoneRemoteEnabled === true) {
+                                void handlePhoneRemoteStop()
+                                return
+                              }
+                              void handlePhoneRemoteStart()
+                            }}
+                            aria-pressed={config.phoneRemoteEnabled === true}
+                          >
+                            {config.phoneRemoteEnabled ? (
                               <ToggleRight size={32} />
                             ) : (
                               <ToggleLeft size={32} />
                             )}
                           </button>
                         </div>
-                      </>
-                    ) : (
-                      <LastFmLoginForm
-                        onLogin={(sessionKey, username) => {
-                          setConfig((prev) => ({
-                            ...prev,
-                            lastfmEnabled: true,
-                            lastfmSessionKey: sessionKey,
-                            lastfmUsername: username
-                          }))
-                          void window.api?.lastfm?.setSession?.(sessionKey, username)
-                        }}
-                      />
-                    )}
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-eq"
-                  data-settings-section="eq"
-                  style={{ display: settingsSectionVisibility.eq ? '' : 'none' }}
-                >
-                  <section
-                    className={`settings-section eq-section echo-clean-eq-section ${!config.useEQ ? 'eq-bypassed-section' : ''}`}
-                  >
-                    <div className="eq-clean-header">
-                      <div className="eq-clean-heading">
-                        <div className="eq-clean-icon">
-                          <Sliders size={18} />
-                        </div>
-                        <div className="eq-clean-heading-copy">
-                          <div className="eq-clean-title-row">
-                            <h2>{t('settings.eqSection')}</h2>
-                            <span
-                              className={`eq-clean-status-pill ${config.useEQ ? 'active' : ''}`}
-                            >
-                              {config.useEQ ? t('eqPlot.enabled') : t('eqPlot.disabled')}
-                            </span>
-                          </div>
+                      </div>
+                      <div className="setting-row" style={{ alignItems: 'flex-start' }}>
+                        <div className="setting-info">
+                          <h3>
+                            {t('settings.listeningLogTitle', '\u542c\u6b4c\u8bb0\u5f55 / Last.fm')}
+                          </h3>
                           <p>
-                            {useNativeEngine
-                              ? t('settings.eqEngineHintHifi')
-                              : t('settings.eqEngineHintStandard')}
+                            {t(
+                              'settings.lastfmIntegratedDesc',
+                              '\u4f7f\u7528 Last.fm \u6388\u6743\u540e\u81ea\u52a8\u8bb0\u5f55\u542c\u6b4c\u5386\u53f2\uff08Scrobble\uff09\u3002'
+                            )}
                           </p>
                         </div>
                       </div>
-                      <div className="eq-clean-toolbar">
-                        <button
-                          type="button"
-                          className={`eq-status-toggle ${config.useEQ ? 'active' : ''}`}
-                          aria-pressed={config.useEQ}
-                          onClick={() => {
-                            const nextUseEq = config.useEQ !== true
-                            if (nextUseEq) setEqAdvancedOpen(true)
-                            setConfig((prev) => ({ ...prev, useEQ: nextUseEq }))
-                          }}
-                        >
-                          {config.useEQ ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                          <span>{config.useEQ ? t('eqPlot.enabled') : t('eqPlot.disabled')}</span>
-                        </button>
-                        <label className="eq-toolbar-control">
-                          {t('eqPlot.quality')}
-                          <select
-                            className="eq-toolbar-select"
-                            value={config.eqOversampling || '2x'}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                eqOversampling: e.target.value
-                              }))
-                            }
-                          >
-                            <option value="4x">{t('eqPlot.oversampling.high')}</option>
-                            <option value="2x">{t('eqPlot.oversampling.balanced')}</option>
-                            <option value="off">{t('eqPlot.oversampling.lowCpu')}</option>
-                          </select>
-                        </label>
-                        <label className="eq-toolbar-control">
-                          {t('eqPlot.outputSafety')}
-                          <select
-                            className="eq-toolbar-select"
-                            value={config.eqOutputSafety || 'soft'}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                eqOutputSafety: e.target.value
-                              }))
-                            }
-                          >
-                            <option value="soft">{t('eqPlot.outputSafetyModes.soft')}</option>
-                            <option value="hard">{t('eqPlot.outputSafetyModes.hard')}</option>
-                            <option value="off">{t('eqPlot.outputSafetyModes.off')}</option>
-                          </select>
-                        </label>
-                        <button
-                          className="eq-toolbar-btn"
-                          onClick={() => {
-                            const resetBands = config.eqBands.map((b) => ({
-                              ...b,
-                              gain: 0
-                            }))
-                            setEqSoloBandIdx(null)
-                            setConfig((prev) => ({
-                              ...prev,
-                              eqBands: resetBands,
-                              preamp: 0
-                            }))
-                          }}
-                        >
-                          <Repeat size={14} /> {t('settings.reset')}
-                        </button>
 
-                        <div className="custom-dropdown-container eq-preset-menu">
-                          <button
-                            type="button"
-                            className="dropdown-trigger eq-preset-trigger"
-                            onClick={() => setIsPresetOpen(!isPresetOpen)}
-                          >
-                            <span>
-                              {t(`eqPreset.${config.activePreset || 'Custom'}`, {
-                                defaultValue: config.activePreset || 'Custom'
-                              })}
-                            </span>
-                            <ChevronDown size={14} />
-                          </button>
-                          {isPresetOpen && (
-                            <div className="dropdown-menu show">
-                              {Object.keys(EQ_PRESETS).map((name) => (
-                                <div
-                                  key={name}
-                                  className="dropdown-item"
-                                  onClick={() => {
-                                    const preset = EQ_PRESETS[name]
-                                    if (preset) {
-                                      setEqSoloBandIdx(null)
-                                      const newBands = config.eqBands?.map((b, i) => ({
-                                        ...b,
-                                        gain:
-                                          preset.bands[i] !== undefined ? preset.bands[i] : b.gain
-                                      }))
-                                      setConfig((prev) => ({
-                                        ...prev,
-                                        eqBands: newBands,
-                                        preamp: preset.preamp,
-                                        activePreset: name
-                                      }))
-                                    } else {
-                                      setConfig((prev) => ({
-                                        ...prev,
-                                        activePreset: 'Custom'
-                                      }))
-                                    }
-                                    setIsPresetOpen(false)
-                                  }}
-                                >
-                                  {t(`eqPreset.${name}`, { defaultValue: name })}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <details
-                      className="eq-advanced-details"
-                      open={eqAdvancedOpen}
-                      onToggle={(event) => setEqAdvancedOpen(event.currentTarget.open)}
-                    >
-                      <summary className="eq-advanced-summary">
-                        <span>
-                          {t('eqPlot.advancedEditor', { defaultValue: '高级参数编辑' })}
-                        </span>
-                        <small>
-                          {t('eqPlot.advancedEditorHint', {
-                            defaultValue: '展开后调整曲线、频段、Q 值与前级'
-                          })}
-                        </small>
-                        <ChevronDown size={14} className="eq-advanced-chevron" />
-                      </summary>
-
-                      <EqPlot
-                        accentHex={activeAccentHex}
-                        bands={config.eqBands}
-                        enabled={config.useEQ}
-                        preamp={config.preamp || 0}
-                        analyser={analyserNode.current}
-                        soloIdx={eqSoloBandIdx}
-                        onSoloChange={setEqSoloBandIdx}
-                        onEnable={() => {
-                          setEqAdvancedOpen(true)
-                          setConfig((prev) => ({ ...prev, useEQ: true }))
-                        }}
-                        onPreampChange={(val) =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            preamp: val,
-                            activePreset: 'Custom'
-                          }))
-                        }
-                        onBandChange={(idx, updates) => {
-                          const newBands = [...config.eqBands]
-                          newBands[idx] = { ...newBands[idx], ...updates }
-                          setConfig((prev) => ({
-                            ...prev,
-                            eqBands: newBands,
-                            activePreset: 'Custom'
-                          }))
-                        }}
-                      />
-                    </details>
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-aesthetics"
-                  data-settings-section="aesthetics"
-                  style={{ display: settingsSectionVisibility.aesthetics ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div
-                      className="section-title"
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        width: '100%',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <Palette size={20} />
-                        <h2>{t('settings.aesthetics')}</h2>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '8px',
-                          alignItems: 'center',
-                          justifyContent: 'flex-end'
-                        }}
-                      >
-                        <UiButton
-                          variant="secondary"
-                          size="compact"
-                          onClick={async () => {
-                            const slice = pickThemeExportSlice(config)
-                            const json = JSON.stringify(
-                              {
-                                type: 'echoes-studio-theme',
-                                v: 1,
-                                payload: slice
-                              },
-                              null,
-                              2
-                            )
-                            const r = await window.api.saveThemeJsonHandler(
-                              json,
-                              'echoes-studio-theme.json',
-                              configRef.current.uiLocale
-                            )
-                            if (r && r.success === false && r.error) alert(r.error)
-                          }}
-                        >
-                          <Download size={14} /> {t('settings.exportTheme')}
-                        </UiButton>
-                        <UiButton
-                          variant="secondary"
-                          size="compact"
-                          onClick={async () => {
-                            const r = await window.api.openThemeJsonHandler(
-                              configRef.current.uiLocale
-                            )
-                            if (r?.error) {
-                              alert(r.error)
-                              return
-                            }
-                            if (r?.content) {
-                              try {
-                                const bundle = parseThemeBundleJson(r.content)
-                                setConfig((prev) => mergeThemeImport(prev, bundle))
-                              } catch (e) {
-                                alert(e.message || String(e))
-                              }
-                            }
-                          }}
-                        >
-                          <Upload size={14} /> {t('settings.importTheme')}
-                        </UiButton>
-                        <UiButton
-                          variant="primary"
-                          size="compact"
-                          onClick={() => {
-                            const theme = normalizeThemeColors(generateRandomPalette())
-                            setConfig((prev) => ({
-                              ...prev,
-                              theme: 'custom',
-                              customColors: theme
-                            }))
-                          }}
-                        >
-                          <Wand2 size={16} /> {t('settings.randomize')}
-                        </UiButton>
-                      </div>
-                    </div>
-
-                    <div className="setting-row" style={{ marginBottom: 20 }}>
-                      <div className="setting-info">
-                        <h3>{t('settings.sidebarLogoTitle', 'Logo显示')}</h3>
-                        <p>
-                          {t(
-                            'settings.sidebarLogoDesc',
-                            'Show the ECHO logo at the top of the left navigation. Turning it off lets the library list move up.'
-                          )}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.showSidebarLogo !== false ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            showSidebarLogo: !(prev.showSidebarLogo !== false)
-                          }))
-                        }
-                      >
-                        {config.showSidebarLogo !== false ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-
-                    <div
-                      className="themes-grid"
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                        gap: '16px',
-                        marginBottom: '24px'
-                      }}
-                    >
-                      {Object.entries(PRESET_THEMES).map(([key, theme]) => {
-                        const tc = normalizeThemeColors(theme.colors)
-                        const previewBg =
-                          tc.bgMode === 'linear'
-                            ? `linear-gradient(${tc.bgGradientAngle}deg, ${tc.bgColor}, ${tc.bgGradientEnd})`
-                            : tc.bgColor
-                        return (
-                          <div
-                            key={key}
-                            style={{
-                              position: 'relative',
-                              padding: '12px',
-                              borderRadius: '16px',
-                              border: `2px solid ${config.theme === key ? 'var(--accent-pink)' : 'transparent'}`,
-                              background: 'var(--glass-bg)',
-                              color: 'var(--text-main)',
-                              textAlign: 'center',
-                              boxShadow:
-                                config.theme === key
-                                  ? `0 8px 24px ${hexToRgbaString(tc.accent1, 0.22)}`
-                                  : '0 4px 12px rgba(0,0,0,0.05)',
-                              transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'stretch',
-                              gap: '8px',
-                              overflow: 'hidden'
-                            }}
-                            onMouseEnter={(e) =>
-                              (e.currentTarget.style.transform = 'translateY(-4px)')
-                            }
-                            onMouseLeave={(e) =>
-                              (e.currentTarget.style.transform = 'translateY(0)')
-                            }
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setConfig({ ...config, theme: key })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  setConfig({ ...config, theme: key })
-                                }
-                              }}
-                              style={{
-                                cursor: 'pointer',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: '12px'
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '100%',
-                                  height: '40px',
-                                  borderRadius: '8px',
-                                  background: previewBg,
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: '13px',
-                                  zIndex: 1,
-                                  fontWeight: 700
-                                }}
-                              >
-                                {t(`themePreset.${key}`, {
-                                  defaultValue: theme.name
-                                })}
-                              </span>
-                              {config.theme === key && (
-                                <CheckCircle2
-                                  size={18}
-                                  color="var(--accent-pink)"
-                                  style={{
-                                    position: 'absolute',
-                                    top: '8px',
-                                    right: '8px',
-                                    background: 'white',
-                                    borderRadius: '50%',
-                                    boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
-                                  }}
-                                />
-                              )}
+                      {config.lastfmSessionKey ? (
+                        <>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.lastfmConnected', 'Connected')}</h3>
+                              <p>@{config.lastfmUsername || 'unknown'}</p>
                             </div>
                             <button
-                              type="button"
-                              className="no-drag"
-                              onClick={(e) => {
-                                e.stopPropagation()
+                              className="ui-btn ui-btn--compact lastfm-disconnect-btn"
+                              onClick={() => {
+                                void window.api?.lastfm?.logout?.()
                                 setConfig((prev) => ({
                                   ...prev,
-                                  theme: 'custom',
-                                  customColors: normalizeThemeColors({
-                                    ...PRESET_THEMES[key].colors
-                                  })
+                                  lastfmEnabled: false,
+                                  lastfmSessionKey: null,
+                                  lastfmUsername: null
                                 }))
                               }}
-                              style={{
-                                width: '100%',
-                                padding: '6px 8px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'rgba(255,255,255,0.25)',
-                                color: 'var(--text-main)',
-                                cursor: 'pointer'
-                              }}
                             >
-                              {t('settings.customizeTheme')}
+                              {t('settings.lastfmLogout', 'Disconnect')}
                             </button>
                           </div>
-                        )
-                      })}
-
-                      <div
-                        onClick={() =>
-                          setConfig({
-                            ...config,
-                            theme: 'custom',
-                            customColors: normalizeThemeColors(
-                              config.customColors || PRESET_THEMES.minimal.colors
-                            )
-                          })
-                        }
-                        style={{
-                          position: 'relative',
-                          cursor: 'pointer',
-                          padding: '16px',
-                          borderRadius: '16px',
-                          border: `2px solid ${config.theme === 'custom' ? 'var(--accent-pink)' : 'var(--glass-border)'}`,
-                          background: 'var(--glass-bg)',
-                          color: 'var(--text-main)',
-                          fontWeight: '700',
-                          textAlign: 'center',
-                          boxShadow:
-                            config.theme === 'custom'
-                              ? `0 8px 24px ${hexToRgbaString(
-                                  normalizeThemeColors(
-                                    config.customColors || PRESET_THEMES.minimal.colors
-                                  ).accent1,
-                                  0.22
-                                )}`
-                              : '0 4px 12px rgba(0,0,0,0.05)',
-                          transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: '12px'
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-4px)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-                      >
-                        <div
-                          style={{
-                            width: '100%',
-                            height: '40px',
-                            borderRadius: '8px',
-                            background: customThemePreviewBg,
-                            backgroundSize: 'cover',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}
-                        >
-                          <Palette size={20} color="white" />
-                        </div>
-                        <span style={{ fontSize: '13px' }}>{t('settings.themeCustomBadge')}</span>
-                        {config.theme === 'custom' && (
-                          <CheckCircle2
-                            size={18}
-                            color="var(--accent-pink)"
-                            style={{
-                              position: 'absolute',
-                              top: '8px',
-                              right: '8px',
-                              background: 'white',
-                              borderRadius: '50%',
-                              boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        maxHeight: config.theme === 'custom' ? '1600px' : '0px',
-                        opacity: config.theme === 'custom' ? 1 : 0,
-                        overflow: 'hidden',
-                        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
-                      }}
-                    >
-                      {config.theme === 'custom' && config.customColors && (
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
-                            gap: '12px',
-                            background: 'rgba(255,255,255,0.4)',
-                            padding: '24px',
-                            borderRadius: '16px',
-                            border: '1px solid var(--glass-border)',
-                            boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.02)'
-                          }}
-                        >
-                          {customThemeColorFields.map((field) => (
-                            <div
-                              key={field.key}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                background: 'var(--glass-bg)',
-                                padding: '12px 16px',
-                                borderRadius: '12px',
-                                border: '1px solid rgba(255,255,255,0.3)',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-                                transition: 'all 0.2s ease'
-                              }}
-                              onMouseEnter={(e) =>
-                                (e.currentTarget.style.transform = 'scale(1.02)')
-                              }
-                              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: '2px'
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    color: 'var(--text-main)'
-                                  }}
-                                >
-                                  {field.label}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color: 'var(--text-soft)',
-                                    opacity: 0.8
-                                  }}
-                                >
-                                  {field.desc}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '10px'
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    opacity: 0.5,
-                                    fontFamily: 'monospace',
-                                    background: 'rgba(0,0,0,0.05)',
-                                    padding: '2px 6px',
-                                    borderRadius: '4px'
-                                  }}
-                                >
-                                  {config.customColors[field.key].toUpperCase()}
-                                </span>
-                                <div
-                                  style={{
-                                    position: 'relative',
-                                    width: '30px',
-                                    height: '30px',
-                                    borderRadius: '50%',
-                                    overflow: 'hidden',
-                                    border: '2px solid rgba(255,255,255,0.8)',
-                                    boxShadow: `0 0 10px ${config.customColors[field.key]}60`,
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  <input
-                                    type="color"
-                                    value={config.customColors[field.key]}
-                                    onChange={(e) => {
-                                      setConfig((prev) => ({
-                                        ...prev,
-                                        customColors: {
-                                          ...prev.customColors,
-                                          [field.key]: e.target.value
-                                        }
-                                      }))
-                                    }}
-                                    style={{
-                                      position: 'absolute',
-                                      top: '-10px',
-                                      left: '-10px',
-                                      width: '50px',
-                                      height: '50px',
-                                      cursor: 'pointer',
-                                      border: 'none',
-                                      padding: 0
-                                    }}
-                                  />
-                                </div>
-                              </div>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.lastfmScrobbleTitle', 'Scrobble')}</h3>
+                              <p>
+                                {t('settings.lastfmScrobbleDesc', 'Send played tracks to Last.fm.')}
+                              </p>
                             </div>
-                          ))}
-                          <div
-                            style={{
-                              gridColumn: '1 / -1',
-                              marginTop: 4,
-                              padding: 16,
-                              borderRadius: 12,
-                              background: 'rgba(255,255,255,0.35)',
-                              border: '1px solid var(--glass-border)'
+                            <button
+                              className={`toggle-btn ${config.lastfmEnabled ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  lastfmEnabled: !prev.lastfmEnabled
+                                }))
+                              }
+                            >
+                              {config.lastfmEnabled ? (
+                                <ToggleRight size={32} />
+                              ) : (
+                                <ToggleLeft size={32} />
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <LastFmLoginForm
+                          onLogin={(sessionKey, username) => {
+                            setConfig((prev) => ({
+                              ...prev,
+                              lastfmEnabled: true,
+                              lastfmSessionKey: sessionKey,
+                              lastfmUsername: username
+                            }))
+                            void window.api?.lastfm?.setSession?.(sessionKey, username)
+                          }}
+                        />
+                      )}
+                    </section>
+                  </div>
+
+                  <div
+                    id="settings-sec-eq"
+                    data-settings-section="eq"
+                    style={{ display: settingsSectionVisibility.eq ? '' : 'none' }}
+                  >
+                    <section
+                      className={`settings-section eq-section echo-clean-eq-section ${!config.useEQ ? 'eq-bypassed-section' : ''}`}
+                    >
+                      <div className="eq-clean-header">
+                        <div className="eq-clean-heading">
+                          <div className="eq-clean-icon">
+                            <Sliders size={18} />
+                          </div>
+                          <div className="eq-clean-heading-copy">
+                            <div className="eq-clean-title-row">
+                              <h2>{t('settings.eqSection')}</h2>
+                              <span
+                                className={`eq-clean-status-pill ${config.useEQ ? 'active' : ''}`}
+                              >
+                                {config.useEQ ? t('eqPlot.enabled') : t('eqPlot.disabled')}
+                              </span>
+                            </div>
+                            <p>
+                              {useNativeEngine
+                                ? t('settings.eqEngineHintHifi')
+                                : t('settings.eqEngineHintStandard')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="eq-clean-toolbar">
+                          <button
+                            type="button"
+                            className={`eq-status-toggle ${config.useEQ ? 'active' : ''}`}
+                            aria-pressed={config.useEQ}
+                            onClick={() => {
+                              const nextUseEq = config.useEQ !== true
+                              if (nextUseEq) setEqAdvancedOpen(true)
+                              setConfig((prev) => ({ ...prev, useEQ: nextUseEq }))
                             }}
                           >
-                            <h4
-                              style={{
-                                margin: '0 0 12px',
-                                fontSize: 14,
-                                fontWeight: 800,
-                                color: 'var(--text-main)'
-                              }}
+                            {config.useEQ ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                            <span>{config.useEQ ? t('eqPlot.enabled') : t('eqPlot.disabled')}</span>
+                          </button>
+                          <label className="eq-toolbar-control">
+                            {t('eqPlot.quality')}
+                            <select
+                              className="eq-toolbar-select"
+                              value={config.eqOversampling || '2x'}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  eqOversampling: e.target.value
+                                }))
+                              }
                             >
-                              Background gradient
-                            </h4>
-                            <div
-                              className="setting-row"
-                              style={{ border: 'none', padding: 0, marginBottom: 16 }}
+                              <option value="4x">{t('eqPlot.oversampling.high')}</option>
+                              <option value="2x">{t('eqPlot.oversampling.balanced')}</option>
+                              <option value="off">{t('eqPlot.oversampling.lowCpu')}</option>
+                            </select>
+                          </label>
+                          <label className="eq-toolbar-control">
+                            {t('eqPlot.outputSafety')}
+                            <select
+                              className="eq-toolbar-select"
+                              value={config.eqOutputSafety || 'soft'}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  eqOutputSafety: e.target.value
+                                }))
+                              }
                             >
-                              <div className="setting-info">
-                                <h4>{t('settings.gradientMode')}</h4>
-                                <p>{t('settings.gradientModeDesc')}</p>
-                              </div>
-                              <div style={{ display: 'flex', gap: 8 }}>
-                                <button
-                                  type="button"
-                                  className="btn"
-                                  onClick={() =>
-                                    setConfig((prev) => ({
-                                      ...prev,
-                                      customColors: normalizeThemeColors({
-                                        ...prev.customColors,
-                                        bgMode: 'solid'
-                                      })
-                                    }))
-                                  }
-                                  style={{
-                                    opacity:
-                                      normalizeThemeColors(config.customColors).bgMode === 'solid'
-                                        ? 1
-                                        : 0.55
-                                  }}
-                                >
-                                  Solid
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn"
-                                  onClick={() =>
-                                    setConfig((prev) => ({
-                                      ...prev,
-                                      customColors: normalizeThemeColors({
-                                        ...prev.customColors,
-                                        bgMode: 'linear'
-                                      })
-                                    }))
-                                  }
-                                  style={{
-                                    opacity:
-                                      normalizeThemeColors(config.customColors).bgMode === 'linear'
-                                        ? 1
-                                        : 0.55
-                                  }}
-                                >
-                                  Linear
-                                </button>
-                              </div>
-                            </div>
-                            {normalizeThemeColors(config.customColors).bgMode === 'linear' && (
-                              <>
-                                <div
-                                  className="setting-row"
-                                  style={{
-                                    border: 'none',
-                                    padding: 0,
-                                    marginBottom: 12
-                                  }}
-                                >
-                                  <div className="setting-info">
-                                    <h4>{t('settings.gradientEnd')}</h4>
-                                    <p>{t('settings.gradientEndDesc')}</p>
-                                  </div>
+                              <option value="soft">{t('eqPlot.outputSafetyModes.soft')}</option>
+                              <option value="hard">{t('eqPlot.outputSafetyModes.hard')}</option>
+                              <option value="off">{t('eqPlot.outputSafetyModes.off')}</option>
+                            </select>
+                          </label>
+                          <button
+                            className="eq-toolbar-btn"
+                            onClick={() => {
+                              const resetBands = config.eqBands.map((b) => ({
+                                ...b,
+                                gain: 0
+                              }))
+                              setEqSoloBandIdx(null)
+                              setConfig((prev) => ({
+                                ...prev,
+                                eqBands: resetBands,
+                                preamp: 0
+                              }))
+                            }}
+                          >
+                            <Repeat size={14} /> {t('settings.reset')}
+                          </button>
+
+                          <div className="custom-dropdown-container eq-preset-menu">
+                            <button
+                              type="button"
+                              className="dropdown-trigger eq-preset-trigger"
+                              onClick={() => setIsPresetOpen(!isPresetOpen)}
+                            >
+                              <span>
+                                {t(`eqPreset.${config.activePreset || 'Custom'}`, {
+                                  defaultValue: config.activePreset || 'Custom'
+                                })}
+                              </span>
+                              <ChevronDown size={14} />
+                            </button>
+                            {isPresetOpen && (
+                              <div className="dropdown-menu show">
+                                {Object.keys(EQ_PRESETS).map((name) => (
                                   <div
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 10
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        fontSize: 11,
-                                        fontFamily: 'monospace',
-                                        opacity: 0.75
-                                      }}
-                                    >
-                                      {normalizeThemeColors(
-                                        config.customColors
-                                      ).bgGradientEnd.toUpperCase()}
-                                    </span>
-                                    <input
-                                      type="color"
-                                      value={
-                                        normalizeThemeColors(config.customColors).bgGradientEnd
-                                      }
-                                      onChange={(e) =>
+                                    key={name}
+                                    className="dropdown-item"
+                                    onClick={() => {
+                                      const preset = EQ_PRESETS[name]
+                                      if (preset) {
+                                        setEqSoloBandIdx(null)
+                                        const newBands = config.eqBands?.map((b, i) => ({
+                                          ...b,
+                                          gain:
+                                            preset.bands[i] !== undefined ? preset.bands[i] : b.gain
+                                        }))
                                         setConfig((prev) => ({
                                           ...prev,
-                                          customColors: normalizeThemeColors({
-                                            ...prev.customColors,
-                                            bgGradientEnd: e.target.value
-                                          })
+                                          eqBands: newBands,
+                                          preamp: preset.preamp,
+                                          activePreset: name
                                         }))
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                                <div className="setting-row" style={{ border: 'none', padding: 0 }}>
-                                  <div className="setting-info">
-                                    <h4>{t('settings.gradientAngle')}</h4>
-                                    <p>{t('settings.gradientAngleDesc')}</p>
-                                  </div>
-                                  <div
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 12,
-                                      width: 240
-                                    }}
-                                  >
-                                    <span style={{ fontSize: 11, opacity: 0.5 }}>0</span>
-                                    <input
-                                      type="range"
-                                      min={0}
-                                      max={360}
-                                      value={
-                                        normalizeThemeColors(config.customColors).bgGradientAngle
-                                      }
-                                      onChange={(e) =>
+                                      } else {
                                         setConfig((prev) => ({
                                           ...prev,
-                                          customColors: normalizeThemeColors({
-                                            ...prev.customColors,
-                                            bgGradientAngle: parseInt(e.target.value, 10)
-                                          })
+                                          activePreset: 'Custom'
                                         }))
                                       }
-                                      className="slider-nc"
-                                    />
-                                    <span style={{ fontSize: 11, opacity: 0.5 }}>360</span>
+                                      setIsPresetOpen(false)
+                                    }}
+                                  >
+                                    {t(`eqPreset.${name}`, { defaultValue: name })}
                                   </div>
-                                </div>
-                              </>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Wallpaper Decor Section */}
-                    <div
-                      className="setting-subsection"
-                      style={{
-                        marginTop: 24,
-                        padding: 24,
-                        background: 'rgba(255,255,255,0.3)',
-                        borderRadius: 16
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          marginBottom: 20
-                        }}
-                      >
-                        <Image size={18} />
-                        <h3 style={{ fontSize: 16, fontWeight: 800 }}>
-                          {t('settings.customWallpaperDecor')}
-                        </h3>
                       </div>
 
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                      <details
+                        className="eq-advanced-details"
+                        open={eqAdvancedOpen}
+                        onToggle={(event) => setEqAdvancedOpen(event.currentTarget.open)}
                       >
-                        <div className="setting-info">
-                          <h4>{t('settings.coverSizeTitle', 'Cover size')}</h4>
-                          <p>{t('settings.coverSizeDesc', 'Adjust the main player cover size.')}</p>
+                        <summary className="eq-advanced-summary">
+                          <span>
+                            {t('eqPlot.advancedEditor', { defaultValue: '高级参数编辑' })}
+                          </span>
+                          <small>
+                            {t('eqPlot.advancedEditorHint', {
+                              defaultValue: '展开后调整曲线、频段、Q 值与前级'
+                            })}
+                          </small>
+                          <ChevronDown size={14} className="eq-advanced-chevron" />
+                        </summary>
+
+                        <EqPlot
+                          accentHex={activeAccentHex}
+                          bands={config.eqBands}
+                          enabled={config.useEQ}
+                          preamp={config.preamp || 0}
+                          analyser={analyserNode.current}
+                          soloIdx={eqSoloBandIdx}
+                          onSoloChange={setEqSoloBandIdx}
+                          onEnable={() => {
+                            setEqAdvancedOpen(true)
+                            setConfig((prev) => ({ ...prev, useEQ: true }))
+                          }}
+                          onPreampChange={(val) =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              preamp: val,
+                              activePreset: 'Custom'
+                            }))
+                          }
+                          onBandChange={(idx, updates) => {
+                            const newBands = [...config.eqBands]
+                            newBands[idx] = { ...newBands[idx], ...updates }
+                            setConfig((prev) => ({
+                              ...prev,
+                              eqBands: newBands,
+                              activePreset: 'Custom'
+                            }))
+                          }}
+                        />
+                      </details>
+                    </section>
+                  </div>
+
+                  <div
+                    id="settings-sec-aesthetics"
+                    data-settings-section="aesthetics"
+                    style={{ display: settingsSectionVisibility.aesthetics ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div
+                        className="section-title"
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          width: '100%',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <Palette size={20} />
+                          <h2>{t('settings.aesthetics')}</h2>
                         </div>
                         <div
                           style={{
                             display: 'flex',
-                            flexDirection: 'column',
-                            gap: '10px',
-                            minWidth: '240px',
-                            alignItems: 'stretch'
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end'
                           }}
+                        >
+                          <UiButton
+                            variant="secondary"
+                            size="compact"
+                            onClick={async () => {
+                              const slice = pickThemeExportSlice(config)
+                              const json = JSON.stringify(
+                                {
+                                  type: 'echoes-studio-theme',
+                                  v: 1,
+                                  payload: slice
+                                },
+                                null,
+                                2
+                              )
+                              const r = await window.api.saveThemeJsonHandler(
+                                json,
+                                'echoes-studio-theme.json',
+                                configRef.current.uiLocale
+                              )
+                              if (r && r.success === false && r.error) alert(r.error)
+                            }}
+                          >
+                            <Download size={14} /> {t('settings.exportTheme')}
+                          </UiButton>
+                          <UiButton
+                            variant="secondary"
+                            size="compact"
+                            onClick={async () => {
+                              const r = await window.api.openThemeJsonHandler(
+                                configRef.current.uiLocale
+                              )
+                              if (r?.error) {
+                                alert(r.error)
+                                return
+                              }
+                              if (r?.content) {
+                                try {
+                                  const bundle = parseThemeBundleJson(r.content)
+                                  setConfig((prev) => mergeThemeImport(prev, bundle))
+                                } catch (e) {
+                                  alert(e.message || String(e))
+                                }
+                              }
+                            }}
+                          >
+                            <Upload size={14} /> {t('settings.importTheme')}
+                          </UiButton>
+                          <UiButton
+                            variant="primary"
+                            size="compact"
+                            onClick={() => {
+                              const theme = normalizeThemeColors(generateRandomPalette())
+                              setConfig((prev) => ({
+                                ...prev,
+                                theme: 'custom',
+                                customColors: theme
+                              }))
+                            }}
+                          >
+                            <Wand2 size={16} /> {t('settings.randomize')}
+                          </UiButton>
+                        </div>
+                      </div>
+
+                      <div className="setting-row" style={{ marginBottom: 20 }}>
+                        <div className="setting-info">
+                          <h3>{t('settings.sidebarLogoTitle')}</h3>
+                          <p>{t('settings.sidebarLogoDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.showSidebarLogo !== false ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              showSidebarLogo: !(prev.showSidebarLogo !== false)
+                            }))
+                          }
+                        >
+                          {config.showSidebarLogo !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      <div
+                        className="themes-grid"
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                          gap: '16px',
+                          marginBottom: '24px'
+                        }}
+                      >
+                        {Object.entries(PRESET_THEMES).map(([key, theme]) => {
+                          const tc = normalizeThemeColors(theme.colors)
+                          const previewBg =
+                            tc.bgMode === 'linear'
+                              ? `linear-gradient(${tc.bgGradientAngle}deg, ${tc.bgColor}, ${tc.bgGradientEnd})`
+                              : tc.bgColor
+                          return (
+                            <div
+                              key={key}
+                              style={{
+                                position: 'relative',
+                                padding: '12px',
+                                borderRadius: '16px',
+                                border: `2px solid ${config.theme === key ? 'var(--accent-pink)' : 'transparent'}`,
+                                background: 'var(--glass-bg)',
+                                color: 'var(--text-main)',
+                                textAlign: 'center',
+                                boxShadow:
+                                  config.theme === key
+                                    ? `0 8px 24px ${hexToRgbaString(tc.accent1, 0.22)}`
+                                    : '0 4px 12px rgba(0,0,0,0.05)',
+                                transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'stretch',
+                                gap: '8px',
+                                overflow: 'hidden'
+                              }}
+                              onMouseEnter={(e) =>
+                                (e.currentTarget.style.transform = 'translateY(-4px)')
+                              }
+                              onMouseLeave={(e) =>
+                                (e.currentTarget.style.transform = 'translateY(0)')
+                              }
+                            >
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => setConfig({ ...config, theme: key })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setConfig({ ...config, theme: key })
+                                  }
+                                }}
+                                style={{
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: '12px'
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: '100%',
+                                    height: '40px',
+                                    borderRadius: '8px',
+                                    background: previewBg,
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: '13px',
+                                    zIndex: 1,
+                                    fontWeight: 700
+                                  }}
+                                >
+                                  {t(`themePreset.${key}`, {
+                                    defaultValue: theme.name
+                                  })}
+                                </span>
+                                {config.theme === key && (
+                                  <CheckCircle2
+                                    size={18}
+                                    color="var(--accent-pink)"
+                                    style={{
+                                      position: 'absolute',
+                                      top: '8px',
+                                      right: '8px',
+                                      background: 'white',
+                                      borderRadius: '50%',
+                                      boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+                                    }}
+                                  />
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                className="no-drag"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    theme: 'custom',
+                                    customColors: normalizeThemeColors({
+                                      ...PRESET_THEMES[key].colors
+                                    })
+                                  }))
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  borderRadius: '10px',
+                                  border: '1px solid var(--glass-border)',
+                                  background: 'rgba(255,255,255,0.25)',
+                                  color: 'var(--text-main)',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {t('settings.customizeTheme')}
+                              </button>
+                            </div>
+                          )
+                        })}
+
+                        <div
+                          onClick={() =>
+                            setConfig({
+                              ...config,
+                              theme: 'custom',
+                              customColors: normalizeThemeColors(
+                                config.customColors || PRESET_THEMES.minimal.colors
+                              )
+                            })
+                          }
+                          style={{
+                            position: 'relative',
+                            cursor: 'pointer',
+                            padding: '16px',
+                            borderRadius: '16px',
+                            border: `2px solid ${config.theme === 'custom' ? 'var(--accent-pink)' : 'var(--glass-border)'}`,
+                            background: 'var(--glass-bg)',
+                            color: 'var(--text-main)',
+                            fontWeight: '700',
+                            textAlign: 'center',
+                            boxShadow:
+                              config.theme === 'custom'
+                                ? `0 8px 24px ${hexToRgbaString(
+                                    normalizeThemeColors(
+                                      config.customColors || PRESET_THEMES.minimal.colors
+                                    ).accent1,
+                                    0.22
+                                  )}`
+                                : '0 4px 12px rgba(0,0,0,0.05)',
+                            transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '12px'
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.transform = 'translateY(-4px)')
+                          }
+                          onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
                         >
                           <div
                             style={{
+                              width: '100%',
+                              height: '40px',
+                              borderRadius: '8px',
+                              background: customThemePreviewBg,
+                              backgroundSize: 'cover',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                               display: 'flex',
-                              justifyContent: 'space-between',
                               alignItems: 'center',
-                              gap: '12px',
-                              fontSize: '12px',
-                              opacity: 0.78
+                              justifyContent: 'center'
                             }}
                           >
-                            <span>180px</span>
-                            <strong>{Math.round(config.playerCoverSize ?? 360)}px</strong>
-                            <span>360px</span>
+                            <Palette size={20} color="white" />
                           </div>
-                          <input
-                            type="range"
-                            min={180}
-                            max={360}
-                            step={4}
-                            value={config.playerCoverSize ?? 360}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                playerCoverSize: parseInt(e.target.value, 10)
-                              }))
-                            }
-                          />
+                          <span style={{ fontSize: '13px' }}>{t('settings.themeCustomBadge')}</span>
+                          {config.theme === 'custom' && (
+                            <CheckCircle2
+                              size={18}
+                              color="var(--accent-pink)"
+                              style={{
+                                position: 'absolute',
+                                top: '8px',
+                                right: '8px',
+                                background: 'white',
+                                borderRadius: '50%',
+                                boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+                              }}
+                            />
+                          )}
                         </div>
                       </div>
 
                       <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        style={{
+                          maxHeight: config.theme === 'custom' ? '1600px' : '0px',
+                          opacity: config.theme === 'custom' ? 1 : 0,
+                          overflow: 'hidden',
+                          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
                       >
-                        <div className="setting-info">
-                          <h4>{t('settings.bgImage')}</h4>
-                          <p>{t('settings.bgImageDesc')}</p>
+                        {config.theme === 'custom' && config.customColors && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                              gap: '12px',
+                              background: 'rgba(255,255,255,0.4)',
+                              padding: '24px',
+                              borderRadius: '16px',
+                              border: '1px solid var(--glass-border)',
+                              boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.02)'
+                            }}
+                          >
+                            {customThemeColorFields.map((field) => (
+                              <div
+                                key={field.key}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  background: 'var(--glass-bg)',
+                                  padding: '12px 16px',
+                                  borderRadius: '12px',
+                                  border: '1px solid rgba(255,255,255,0.3)',
+                                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.transform = 'scale(1.02)')
+                                }
+                                onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '2px'
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 700,
+                                      color: 'var(--text-main)'
+                                    }}
+                                  >
+                                    {field.label}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      color: 'var(--text-soft)',
+                                      opacity: 0.8
+                                    }}
+                                  >
+                                    {field.desc}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px'
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      opacity: 0.5,
+                                      fontFamily: 'monospace',
+                                      background: 'rgba(0,0,0,0.05)',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px'
+                                    }}
+                                  >
+                                    {config.customColors[field.key].toUpperCase()}
+                                  </span>
+                                  <div
+                                    style={{
+                                      position: 'relative',
+                                      width: '30px',
+                                      height: '30px',
+                                      borderRadius: '50%',
+                                      overflow: 'hidden',
+                                      border: '2px solid rgba(255,255,255,0.8)',
+                                      boxShadow: `0 0 10px ${config.customColors[field.key]}60`,
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    <input
+                                      type="color"
+                                      value={config.customColors[field.key]}
+                                      onChange={(e) => {
+                                        setConfig((prev) => ({
+                                          ...prev,
+                                          customColors: {
+                                            ...prev.customColors,
+                                            [field.key]: e.target.value
+                                          }
+                                        }))
+                                      }}
+                                      style={{
+                                        position: 'absolute',
+                                        top: '-10px',
+                                        left: '-10px',
+                                        width: '50px',
+                                        height: '50px',
+                                        cursor: 'pointer',
+                                        border: 'none',
+                                        padding: 0
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            <div
+                              style={{
+                                gridColumn: '1 / -1',
+                                marginTop: 4,
+                                padding: 16,
+                                borderRadius: 12,
+                                background: 'rgba(255,255,255,0.35)',
+                                border: '1px solid var(--glass-border)'
+                              }}
+                            >
+                              <h4
+                                style={{
+                                  margin: '0 0 12px',
+                                  fontSize: 14,
+                                  fontWeight: 800,
+                                  color: 'var(--text-main)'
+                                }}
+                              >
+                                Background gradient
+                              </h4>
+                              <div
+                                className="setting-row"
+                                style={{ border: 'none', padding: 0, marginBottom: 16 }}
+                              >
+                                <div className="setting-info">
+                                  <h4>{t('settings.gradientMode')}</h4>
+                                  <p>{t('settings.gradientModeDesc')}</p>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={() =>
+                                      setConfig((prev) => ({
+                                        ...prev,
+                                        customColors: normalizeThemeColors({
+                                          ...prev.customColors,
+                                          bgMode: 'solid'
+                                        })
+                                      }))
+                                    }
+                                    style={{
+                                      opacity:
+                                        normalizeThemeColors(config.customColors).bgMode === 'solid'
+                                          ? 1
+                                          : 0.55
+                                    }}
+                                  >
+                                    Solid
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={() =>
+                                      setConfig((prev) => ({
+                                        ...prev,
+                                        customColors: normalizeThemeColors({
+                                          ...prev.customColors,
+                                          bgMode: 'linear'
+                                        })
+                                      }))
+                                    }
+                                    style={{
+                                      opacity:
+                                        normalizeThemeColors(config.customColors).bgMode ===
+                                        'linear'
+                                          ? 1
+                                          : 0.55
+                                    }}
+                                  >
+                                    Linear
+                                  </button>
+                                </div>
+                              </div>
+                              {normalizeThemeColors(config.customColors).bgMode === 'linear' && (
+                                <>
+                                  <div
+                                    className="setting-row"
+                                    style={{
+                                      border: 'none',
+                                      padding: 0,
+                                      marginBottom: 12
+                                    }}
+                                  >
+                                    <div className="setting-info">
+                                      <h4>{t('settings.gradientEnd')}</h4>
+                                      <p>{t('settings.gradientEndDesc')}</p>
+                                    </div>
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 10
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          fontFamily: 'monospace',
+                                          opacity: 0.75
+                                        }}
+                                      >
+                                        {normalizeThemeColors(
+                                          config.customColors
+                                        ).bgGradientEnd.toUpperCase()}
+                                      </span>
+                                      <input
+                                        type="color"
+                                        value={
+                                          normalizeThemeColors(config.customColors).bgGradientEnd
+                                        }
+                                        onChange={(e) =>
+                                          setConfig((prev) => ({
+                                            ...prev,
+                                            customColors: normalizeThemeColors({
+                                              ...prev.customColors,
+                                              bgGradientEnd: e.target.value
+                                            })
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div
+                                    className="setting-row"
+                                    style={{ border: 'none', padding: 0 }}
+                                  >
+                                    <div className="setting-info">
+                                      <h4>{t('settings.gradientAngle')}</h4>
+                                      <p>{t('settings.gradientAngleDesc')}</p>
+                                    </div>
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 12,
+                                        width: 240
+                                      }}
+                                    >
+                                      <span style={{ fontSize: 11, opacity: 0.5 }}>0</span>
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={360}
+                                        value={
+                                          normalizeThemeColors(config.customColors).bgGradientAngle
+                                        }
+                                        onChange={(e) =>
+                                          setConfig((prev) => ({
+                                            ...prev,
+                                            customColors: normalizeThemeColors({
+                                              ...prev.customColors,
+                                              bgGradientAngle: parseInt(e.target.value, 10)
+                                            })
+                                          }))
+                                        }
+                                        className="slider-nc"
+                                      />
+                                      <span style={{ fontSize: 11, opacity: 0.5 }}>360</span>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Wallpaper Decor Section */}
+                      <div
+                        className="setting-subsection"
+                        style={{
+                          marginTop: 24,
+                          padding: 24,
+                          background: 'rgba(255,255,255,0.3)',
+                          borderRadius: 16
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            marginBottom: 20
+                          }}
+                        >
+                          <Image size={18} />
+                          <h3 style={{ fontSize: 16, fontWeight: 800 }}>
+                            {t('settings.customWallpaperDecor')}
+                          </h3>
                         </div>
-                        <div style={{ display: 'flex', gap: 10 }}>
-                          {config.customBgPath && (
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.coverSizeTitle', 'Cover size')}</h4>
+                            <p>
+                              {t('settings.coverSizeDesc', 'Adjust the main player cover size.')}
+                            </p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '10px',
+                              minWidth: '240px',
+                              alignItems: 'stretch'
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '12px',
+                                fontSize: '12px',
+                                opacity: 0.78
+                              }}
+                            >
+                              <span>180px</span>
+                              <strong>{Math.round(config.playerCoverSize ?? 360)}px</strong>
+                              <span>360px</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={180}
+                              max={360}
+                              step={4}
+                              value={config.playerCoverSize ?? 360}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  playerCoverSize: parseInt(e.target.value, 10)
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.bgImage')}</h4>
+                            <p>{t('settings.bgImageDesc')}</p>
+                          </div>
+                          <div style={{ display: 'flex', gap: 10 }}>
+                            {config.customBgPath && (
+                              <button
+                                className="btn"
+                                onClick={() =>
+                                  setConfig((prev) => ({ ...prev, customBgPath: null }))
+                                }
+                                style={{
+                                  width: 'auto',
+                                  height: '36px',
+                                  padding: '0 14px',
+                                  fontSize: 12,
+                                  borderRadius: 18
+                                }}
+                              >
+                                {t('settings.clear')}
+                              </button>
+                            )}
                             <button
                               className="btn"
-                              onClick={() => setConfig((prev) => ({ ...prev, customBgPath: null }))}
+                              onClick={async () => {
+                                const path = await window.api.openImageHandler(
+                                  configRef.current.uiLocale
+                                )
+                                if (path)
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    customBgPath: path
+                                  }))
+                              }}
                               style={{
                                 width: 'auto',
                                 height: '36px',
-                                padding: '0 14px',
+                                padding: '0 16px',
                                 fontSize: 12,
-                                borderRadius: 18
+                                fontWeight: 800,
+                                borderRadius: 18,
+                                background: 'var(--text-main)',
+                                color: 'white'
                               }}
                             >
-                              {t('settings.clear')}
+                              {config.customBgPath
+                                ? t('settings.changeImage')
+                                : t('settings.selectImage')}
                             </button>
-                          )}
-                          <button
-                            className="btn"
-                            onClick={async () => {
-                              const path = await window.api.openImageHandler(
-                                configRef.current.uiLocale
-                              )
-                              if (path)
-                                setConfig((prev) => ({
-                                  ...prev,
-                                  customBgPath: path
-                                }))
-                            }}
-                            style={{
-                              width: 'auto',
-                              height: '36px',
-                              padding: '0 16px',
-                              fontSize: 12,
-                              fontWeight: 800,
-                              borderRadius: 18,
-                              background: 'var(--text-main)',
-                              color: 'white'
-                            }}
-                          >
-                            {config.customBgPath
-                              ? t('settings.changeImage')
-                              : t('settings.selectImage')}
-                          </button>
+                          </div>
                         </div>
-                      </div>
 
-                      {(config.customBgPath || config.themeCoverAsBackground) && (
-                        <div className="setting-row" style={{ border: 'none', padding: 0 }}>
+                        {(config.customBgPath || config.themeCoverAsBackground) && (
+                          <div className="setting-row" style={{ border: 'none', padding: 0 }}>
+                            <div className="setting-info">
+                              <h4>{t('settings.wallpaperOpacity')}</h4>
+                              <p>{t('settings.wallpaperOpacityDesc')}</p>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                                width: 200
+                              }}
+                            >
+                              <span style={{ fontSize: 11, opacity: 0.5 }}>0%</span>
+                              <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={wallpaperOpacity}
+                                onChange={(e) =>
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    customBgOpacity: normalizeUnitOpacity(
+                                      e.target.value,
+                                      wallpaperOpacity
+                                    )
+                                  }))
+                                }
+                                className="slider-nc"
+                              />
+                              <span style={{ fontSize: 11, opacity: 0.5 }}>100%</span>
+                            </div>
+                          </div>
+                        )}
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: '16px 0 0 0', marginBottom: 20 }}
+                        >
                           <div className="setting-info">
-                            <h4>{t('settings.wallpaperOpacity')}</h4>
-                            <p>{t('settings.wallpaperOpacityDesc')}</p>
+                            <h4>{t('settings.panelTransparency')}</h4>
+                            <p>{t('settings.panelTransparencyDesc')}</p>
                           </div>
                           <div
                             style={{
@@ -18937,1308 +20229,1350 @@ export default function App() {
                               width: 200
                             }}
                           >
-                            <span style={{ fontSize: 11, opacity: 0.5 }}>0%</span>
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.clear')}
+                            </span>
                             <input
                               type="range"
                               min={0}
-                              max={1}
+                              max={0.95}
                               step={0.05}
-                              value={wallpaperOpacity}
+                              value={config.uiBgOpacity !== undefined ? config.uiBgOpacity : 0.6}
                               onChange={(e) =>
                                 setConfig((prev) => ({
                                   ...prev,
-                                  customBgOpacity: normalizeUnitOpacity(
-                                    e.target.value,
-                                    wallpaperOpacity
-                                  )
+                                  uiBgOpacity: parseFloat(e.target.value)
                                 }))
                               }
                               className="slider-nc"
                             />
-                            <span style={{ fontSize: 11, opacity: 0.5 }}>100%</span>
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.solid')}
+                            </span>
                           </div>
                         </div>
-                      )}
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: '16px 0 0 0', marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.panelTransparency')}</h4>
-                          <p>{t('settings.panelTransparencyDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 200
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>{t('settings.clear')}</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={0.95}
-                            step={0.05}
-                            value={config.uiBgOpacity !== undefined ? config.uiBgOpacity : 0.6}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiBgOpacity: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>{t('settings.solid')}</span>
-                        </div>
-                      </div>
 
-                      <div className="setting-row" style={{ border: 'none', padding: 0 }}>
-                        <div className="setting-info">
-                          <h4>{t('settings.blurStrength')}</h4>
-                          <p>{t('settings.blurStrengthDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 200
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.blurNone')}
-                          </span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={80}
-                            step={1}
-                            value={config.uiBlur !== undefined ? config.uiBlur : 20}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiBlur: parseInt(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.blurHeavy')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      className="setting-subsection"
-                      style={{
-                        marginTop: 16,
-                        padding: 24,
-                        background: 'rgba(255,255,255,0.3)',
-                        borderRadius: 16
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 12,
-                          marginBottom: 20
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Sliders size={18} />
-                          <h3 style={{ fontSize: 16, fontWeight: 800 }}>
-                            {t('settings.typographySection')}
-                          </h3>
-                        </div>
-                        <UiButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={handleResetTypographyConfig}
-                        >
-                          {t('settings.resetTypographyParams', '\u6062\u590d\u9ed8\u8ba4\u53c2\u6570')}
-                        </UiButton>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.uiFont')}</h4>
-                          <p>{t('settings.uiFontDesc')}</p>
-                          <p
+                        <div className="setting-row" style={{ border: 'none', padding: 0 }}>
+                          <div className="setting-info">
+                            <h4>{t('settings.blurStrength')}</h4>
+                            <p>{t('settings.blurStrengthDesc')}</p>
+                          </div>
+                          <div
                             style={{
-                              fontSize: 12,
-                              opacity: 0.65,
-                              marginTop: 6
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 200
                             }}
                           >
-                            {t('settings.fontCustomHint')}
-                          </p>
-                        </div>
-                        <div className="settings-font-custom-meta no-drag">
-                          <div className="settings-chip-row">
-                            {['outfit', 'inter', 'system'].map((key) => (
-                              <button
-                                key={key}
-                                type="button"
-                                className={`list-filter-chip ${(config.uiFontFamily || 'outfit') === key ? 'active' : ''}`}
-                                onClick={() =>
-                                  setConfig((prev) => ({
-                                    ...prev,
-                                    uiFontFamily: key,
-                                    uiCustomFontPath: null
-                                  }))
-                                }
-                              >
-                                {key === 'outfit'
-                                  ? t('settings.fontOutfit')
-                                  : key === 'inter'
-                                    ? t('settings.fontInter')
-                                    : t('settings.fontSystem')}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              className={`list-filter-chip ${config.uiFontFamily === 'custom' ? 'active' : ''}`}
-                              onClick={() => {
-                                if (config.uiFontFamily === 'custom' && config.uiCustomFontPath) {
-                                  return
-                                }
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.blurNone')}
+                            </span>
+                            <input
+                              type="range"
+                              min={0}
+                              max={80}
+                              step={1}
+                              value={config.uiBlur !== undefined ? config.uiBlur : 20}
+                              onChange={(e) =>
                                 setConfig((prev) => ({
                                   ...prev,
-                                  uiFontFamily: 'custom'
+                                  uiBlur: parseInt(e.target.value)
                                 }))
-                                void pickUiCustomFont()
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.blurHeavy')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        className="setting-subsection"
+                        style={{
+                          marginTop: 16,
+                          padding: 24,
+                          background: 'rgba(255,255,255,0.3)',
+                          borderRadius: 16
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            marginBottom: 20
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Sliders size={18} />
+                            <h3 style={{ fontSize: 16, fontWeight: 800 }}>
+                              {t('settings.typographySection')}
+                            </h3>
+                          </div>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleResetTypographyConfig}
+                          >
+                            {t(
+                              'settings.resetTypographyParams',
+                              '\u6062\u590d\u9ed8\u8ba4\u53c2\u6570'
+                            )}
+                          </UiButton>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.uiFont')}</h4>
+                            <p>{t('settings.uiFontDesc')}</p>
+                            <p
+                              style={{
+                                fontSize: 12,
+                                opacity: 0.65,
+                                marginTop: 6
                               }}
                             >
-                              {t('settings.fontCustom')}
-                            </button>
+                              {t('settings.fontCustomHint')}
+                            </p>
                           </div>
-                          {config.uiFontFamily === 'custom' && config.uiCustomFontPath && (
-                            <span
-                              className="settings-font-file-name"
-                              title={config.uiCustomFontPath}
-                            >
-                              {t('settings.fontCustomActive', {
-                                name:
-                                  config.uiCustomFontPath.split(/[/\\]/).pop() ||
-                                  config.uiCustomFontPath
-                              })}
-                            </span>
-                          )}
-                          {(config.uiFontFamily === 'custom' || config.uiCustomFontPath) && (
-                            <div className="settings-chip-row" style={{ marginTop: 4 }}>
-                              <button
-                                type="button"
-                                className="list-filter-chip"
-                                onClick={() => void pickUiCustomFont()}
-                              >
-                                {t('settings.fontAddFile')}
-                              </button>
-                              {config.uiCustomFontPath ? (
+                          <div className="settings-font-custom-meta no-drag">
+                            <div className="settings-chip-row">
+                              {['outfit', 'inter', 'system'].map((key) => (
                                 <button
+                                  key={key}
                                   type="button"
-                                  className="list-filter-chip"
+                                  className={`list-filter-chip ${(config.uiFontFamily || 'outfit') === key ? 'active' : ''}`}
                                   onClick={() =>
                                     setConfig((prev) => ({
                                       ...prev,
-                                      uiFontFamily: 'outfit',
+                                      uiFontFamily: key,
                                       uiCustomFontPath: null
                                     }))
                                   }
                                 >
-                                  {t('settings.fontClearCustom')}
+                                  {key === 'outfit'
+                                    ? t('settings.fontOutfit')
+                                    : key === 'inter'
+                                      ? t('settings.fontInter')
+                                      : t('settings.fontSystem')}
                                 </button>
-                              ) : null}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.baseFontSize')}</h4>
-                          <p>{t('settings.baseFontSizeDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>12</span>
-                          <input
-                            type="range"
-                            min={12}
-                            max={20}
-                            step={1}
-                            value={config.uiBaseFontSize ?? 15}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiBaseFontSize: parseInt(e.target.value, 10)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>20</span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.radiusScale')}</h4>
-                          <p>{t('settings.radiusScaleDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.radiusTight')}
-                          </span>
-                          <input
-                            type="range"
-                            min={0.85}
-                            max={1.15}
-                            step={0.05}
-                            value={config.uiRadiusScale ?? 1}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiRadiusScale: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.radiusSoft')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.shadowStrength')}</h4>
-                          <p>{t('settings.shadowStrengthDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.shadowFlat')}
-                          </span>
-                          <input
-                            type="range"
-                            min={0.5}
-                            max={1.5}
-                            step={0.05}
-                            value={config.uiShadowIntensity ?? 1}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiShadowIntensity: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.shadowDeep')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.saturation')}</h4>
-                          <p>{t('settings.saturationDesc')}</p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>0.8</span>
-                          <input
-                            type="range"
-                            min={0.8}
-                            max={1.2}
-                            step={0.02}
-                            value={config.uiSaturation ?? 1}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiSaturation: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>1.2</span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.lineHeightScale', 'Interface line spacing')}</h4>
-                          <p>
-                            {t(
-                              'settings.lineHeightScaleDesc',
-                              'Adjust text rhythm across settings, lists, and panels.'
-                            )}
-                          </p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.lineHeightCompact', 'Compact')}
-                          </span>
-                          <input
-                            type="range"
-                            min={0.9}
-                            max={1.25}
-                            step={0.05}
-                            value={config.uiLineHeightScale ?? 1}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiLineHeightScale: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.lineHeightLoose', 'Loose')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: 0, marginBottom: 20 }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.controlDensity', 'Control density')}</h4>
-                          <p>
-                            {t(
-                              'settings.controlDensityDesc',
-                              'Tune spacing for rows, chips, and compact controls.'
-                            )}
-                          </p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            width: 220
-                          }}
-                        >
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.densityCompact', 'Tight')}
-                          </span>
-                          <input
-                            type="range"
-                            min={0.85}
-                            max={1.15}
-                            step={0.05}
-                            value={config.uiControlDensity ?? 1}
-                            onChange={(e) =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                uiControlDensity: parseFloat(e.target.value)
-                              }))
-                            }
-                            className="slider-nc"
-                          />
-                          <span style={{ fontSize: 11, opacity: 0.5 }}>
-                            {t('settings.densityRoomy', 'Roomy')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: '16px 0 0 0' }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.themeDynamicCoverColor', 'Dynamic cover colors')}</h4>
-                          <p>
-                            {t(
-                              'settings.themeDynamicCoverColorDesc',
-                              'Use the current track cover as the theme color source.'
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className={`toggle-btn ${config.themeDynamicCoverColor ? 'active' : ''}`}
-                          onClick={() =>
-                            setConfig((prev) => ({
-                              ...prev,
-                              themeDynamicCoverColor: !prev.themeDynamicCoverColor
-                            }))
-                          }
-                        >
-                          {config.themeDynamicCoverColor ? (
-                            <ToggleRight size={32} />
-                          ) : (
-                            <ToggleLeft size={32} />
-                          )}
-                        </button>
-                      </div>
-
-                      <div
-                        className="setting-row"
-                        style={{ border: 'none', padding: '16px 0 0 0' }}
-                      >
-                        <div className="setting-info">
-                          <h4>{t('settings.themeCoverAsBackground', 'Cover background')}</h4>
-                          <p>
-                            {t(
-                              'settings.themeCoverAsBackgroundDesc',
-                              'Use the current playing cover as the background image.'
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className={`toggle-btn ${config.themeCoverAsBackground ? 'active' : ''}`}
-                          onClick={() =>
-                            setConfig((prev) => ({
-                              ...prev,
-                              themeCoverAsBackground: !prev.themeCoverAsBackground
-                            }))
-                          }
-                        >
-                          {config.themeCoverAsBackground ? (
-                            <ToggleRight size={32} />
-                          ) : (
-                            <ToggleLeft size={32} />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-downloader"
-                  data-settings-section="downloader"
-                  style={{ display: settingsSectionVisibility.media ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Download size={20} />
-                      <h2>{t('settings.libraryAndDownloads', '\u5a92\u4f53\u5e93\u4e0e\u4e0b\u8f7d')}</h2>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.downloadDirTitle')}</h3>
-                        <p>{t('settings.downloadDirDesc')}</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: 'var(--text-soft)',
-                            maxWidth: 180,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }}
-                        >
-                          {config.downloadFolder || t('settings.notSet')}
-                        </span>
-                        <UiButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={async () => {
-                            const folders = await window.api.openDirectoryHandler()
-                            if (folders && folders.length > 0) {
-                              setConfig((prev) => ({
-                                ...prev,
-                                downloadFolder: folders[0]
-                              }))
-                            }
-                          }}
-                        >
-                          {t('settings.setFolder')}
-                        </UiButton>
-                      </div>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.autoSaveLibraryTitle')}</h3>
-                        <p>{t('settings.autoSaveLibraryDesc')}</p>
-                      </div>
-                      <button
-                        className={`toggle-btn ${config.autoSaveLibrary !== false ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            autoSaveLibrary: !(prev.autoSaveLibrary !== false)
-                          }))
-                        }
-                      >
-                        {config.autoSaveLibrary !== false ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.plImportTitle')}</h3>
-                        <p>{t('settings.plImportDesc')}</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: 'var(--text-soft)',
-                            maxWidth: 180,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }}
-                          title={config.playlistImportFolder || config.downloadFolder || ''}
-                        >
-                          {config.playlistImportFolder
-                            ? config.playlistImportFolder
-                            : config.downloadFolder
-                              ? t('settings.sameAsDownload')
-                              : t('settings.notSet')}
-                        </span>
-                        <UiButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={async () => {
-                            const folders = await window.api.openDirectoryHandler()
-                            if (folders && folders.length > 0) {
-                              setConfig((prev) => ({
-                                ...prev,
-                                playlistImportFolder: folders[0]
-                              }))
-                            }
-                          }}
-                        >
-                          {t('settings.chooseFolder')}
-                        </UiButton>
-                        {config.playlistImportFolder ? (
-                          <UiButton
-                            variant="ghost"
-                            size="sm"
-                            style={{ opacity: 0.85 }}
-                            onClick={() =>
-                              setConfig((prev) => ({
-                                ...prev,
-                                playlistImportFolder: null
-                              }))
-                            }
-                          >
-                            {t('settings.useDownloadFolder')}
-                          </UiButton>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="setting-row">
-                      <div className="setting-info">
-                        <h3>{t('settings.libraryCleanupTitle', 'Library cleanup')}</h3>
-                        <p>
-                          {missingLibraryPaths.length > 0
-                            ? t(
-                                'settings.libraryCleanupFound',
-                                `${missingLibraryPaths.length} invalid path(s) found in your library references.`
-                              )
-                            : t(
-                                'settings.libraryCleanupDesc',
-                                'Remove missing files and stale folder references from the library.'
-                              )}
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <UiButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            void scanMissingLibraryPaths()
-                          }}
-                          disabled={libraryCleanupBusy}
-                        >
-                          {libraryCleanupBusy
-                            ? t('settings.libraryCleanupScanning', 'Scanning...')
-                            : t('settings.libraryCleanupScan', 'Scan library')}
-                        </UiButton>
-                        <UiButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            void cleanupMissingLibraryPaths()
-                          }}
-                          disabled={libraryCleanupBusy || missingLibraryPaths.length === 0}
-                          style={{
-                            opacity:
-                              libraryCleanupBusy || missingLibraryPaths.length === 0 ? 0.55 : 1
-                          }}
-                        >
-                          {t('settings.libraryCleanupRemove', 'Remove missing')}
-                        </UiButton>
-                      </div>
-                    </div>
-                    {missingLibraryPaths.length > 0 ? (
-                      <div
-                        style={{
-                          marginTop: 10,
-                          padding: 12,
-                          borderRadius: 12,
-                          border: '1px solid var(--color-border)',
-                          background: 'var(--color-bg-secondary)',
-                          display: 'grid',
-                          gap: 6
-                        }}
-                      >
-                        <div style={{ fontSize: 12, opacity: 0.7 }}>
-                          {t('settings.libraryCleanupPreview', 'Preview of invalid paths')}
-                        </div>
-                        {missingLibraryPaths.slice(0, 5).map((path) => (
-                          <div
-                            key={path}
-                            style={{
-                              fontSize: 12,
-                              color: 'var(--text-soft)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis'
-                            }}
-                            title={path}
-                          >
-                            {path}
-                          </div>
-                        ))}
-                        {missingLibraryPaths.length > 5 ? (
-                          <div style={{ fontSize: 12, opacity: 0.55 }}>
-                            {t(
-                              'settings.libraryCleanupMore',
-                              `and ${missingLibraryPaths.length - 5} more...`
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-remote-library"
-                  data-settings-section="remoteLibrary"
-                  style={{ display: settingsSectionVisibility.remoteLibrary ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Globe size={20} />
-                      <h2>网盘 / 远程音乐库</h2>
-                    </div>
-                    <RemoteLibrarySettings
-                      sources={remoteLibrarySources}
-                      encryptionAvailable={remoteLibraryEncryptionAvailable}
-                      onReload={reloadRemoteLibrarySources}
-                      onSelectSource={setActiveRemoteLibrarySourceId}
-                    />
-                  </section>
-                </div>
-
-                <div
-                  id="settings-sec-about"
-                  data-settings-section="about"
-                  style={{ display: settingsSectionVisibility.about ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title">
-                      <Info size={20} />
-                      <h2>{t('settings.aboutAdvancedTitle', '\u5173\u4e8e\u4e0e\u9ad8\u7ea7')}</h2>
-                    </div>
-                    <p style={{ opacity: 0.6, fontSize: '14px', lineHeight: 1.6 }}>
-                      {t('settings.aboutBody')}
-                    </p>
-                    <p style={{ opacity: 0.72, fontSize: '13px', lineHeight: 1.6, marginTop: 8 }}>
-                      {t(
-                        'settings.openSourceTrustNote',
-                        'ECHO does not save any account information, contains no dangerous code, and the whole project is fully open source.'
-                      )}
-                    </p>
-                    <div className="setting-row" style={{ marginTop: 12 }}>
-                      <div className="setting-info">
-                        <h3>{t('settings.autoUpdateTitle', '自动更新')}</h3>
-                        <p>
-                          {t('settings.autoUpdateDesc', '启动 ECHO 时自动检查并下载可用更新。')}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.autoUpdateEnabled !== false ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            autoUpdateEnabled: !(prev.autoUpdateEnabled !== false)
-                          }))
-                        }
-                        aria-pressed={config.autoUpdateEnabled !== false}
-                      >
-                        {config.autoUpdateEnabled !== false ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-                    <div
-                      className="settings-version-text"
-                      style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
-                    >
-                      {t('settings.versionText', { version: appVersion || '1.1.2' })}
-                      <button
-                        className="control-btn"
-                        disabled={isUpdating || config.networkAccessDisabled === true}
-                        onClick={() => {
-                          if (config.networkAccessDisabled === true) {
-                            alert(t('settings.networkDisabledStatus', 'Network access is disabled.'))
-                            return
-                          }
-                          setIsUpdating(true)
-                          setUpdateStatus({ event: 'checking' })
-                          window.api?.checkForUpdates?.()
-                        }}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          borderRadius: '4px',
-                          background: 'var(--color-bg-secondary)',
-                          border: '1px solid var(--color-border)',
-                          cursor:
-                            isUpdating || config.networkAccessDisabled === true
-                              ? 'not-allowed'
-                              : 'pointer'
-                        }}
-                      >
-                        {isUpdating
-                          ? t('settings.checkingForUpdates', 'Checking...')
-                          : t('settings.checkUpdates', 'Check for Updates')}
-                      </button>
-                    </div>
-                    {updateStatus && updateStatus.event !== 'checking' && (
-                      <div style={{ marginTop: '6px' }}>
-                        {updateStatus.event === 'download-progress' && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
-                              {t('settings.downloading', 'Downloading update...')}{' '}
-                              {updateStatus.percent ?? 0}%
-                            </p>
-                            <div
-                              style={{
-                                width: '260px',
-                                height: '4px',
-                                borderRadius: '2px',
-                                background: 'var(--color-border)',
-                                overflow: 'hidden'
-                              }}
-                            >
-                              <div
-                                style={{
-                                  height: '100%',
-                                  width: `${updateStatus.percent ?? 0}%`,
-                                  background: 'var(--color-accent, #3b82f6)',
-                                  borderRadius: '2px',
-                                  transition: 'width 0.3s ease'
+                              ))}
+                              <button
+                                type="button"
+                                className={`list-filter-chip ${config.uiFontFamily === 'custom' ? 'active' : ''}`}
+                                onClick={() => {
+                                  if (config.uiFontFamily === 'custom' && config.uiCustomFontPath) {
+                                    return
+                                  }
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    uiFontFamily: 'custom'
+                                  }))
+                                  void pickUiCustomFont()
                                 }}
-                              />
+                              >
+                                {t('settings.fontCustom')}
+                              </button>
                             </div>
-                          </div>
-                        )}
-                        {updateStatus.event !== 'download-progress' && (
-                          <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
-                            {updateStatus.event === 'update-available'
-                              ? t('settings.updateAvailable', 'Update available, downloading...')
-                              : updateStatus.event === 'update-not-available'
-                                ? t('settings.updateNotAvailable', 'You are on the latest version.')
-                                : updateStatus.event === 'update-downloaded'
-                                  ? t(
-                                      'settings.updateDownloaded',
-                                      {
-                                        version: updateStatus.version,
-                                        defaultValue: `v${updateStatus.version} downloaded, will install on exit.`
-                                      }
-                                    )
-                                  : updateStatus.event === 'error'
-                                    ? t('settings.updateError', 'Error checking for updates.')
-                                    : ''}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 12 }}>
-                      <button
-                        className="control-btn"
-                        onClick={() => {
-                          const nextOpen = !releaseNotesOpen
-                          setReleaseNotesOpen(nextOpen)
-                          if (nextOpen) {
-                            void loadReleaseNotes()
-                          }
-                        }}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          borderRadius: '4px',
-                          background: 'var(--color-bg-secondary)',
-                          border: '1px solid var(--color-border)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {t('settings.viewChangelog', 'View changelog')}
-                      </button>
-                      <button
-                        className="control-btn"
-                        disabled={releaseNotesLoading}
-                        onClick={() => {
-                          setReleaseNotesOpen(true)
-                          void loadReleaseNotes(true)
-                        }}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          borderRadius: '4px',
-                          background: 'var(--color-bg-secondary)',
-                          border: '1px solid var(--color-border)',
-                          cursor: releaseNotesLoading ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        {t('settings.refreshChangelog', 'Refresh changelog')}
-                      </button>
-                      <button
-                        className="control-btn"
-                        onClick={() => openExternalLink(GITHUB_RELEASES_PAGE_URL)}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          borderRadius: '4px',
-                          background: 'var(--color-bg-secondary)',
-                          border: '1px solid var(--color-border)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {t('settings.openReleasesPage', 'Open releases page')}
-                      </button>
-                      <button
-                        className="control-btn"
-                        onClick={() =>
-                          openExternalLink('https://github.com/Moekotori/ECHO/tree/moe/carnary')
-                        }
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '12px',
-                          borderRadius: '4px',
-                          background: 'var(--color-bg-secondary)',
-                          border: '1px solid var(--color-border)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {t('settings.openCanaryBranch', 'Canary')}
-                      </button>
-                    </div>
-                    {releaseNotesOpen ? (
-                      <div
-                        style={{
-                          marginTop: 12,
-                          padding: 14,
-                          borderRadius: 12,
-                          border: '1px solid var(--color-border)',
-                          background: 'var(--color-bg-secondary)'
-                        }}
-                      >
-                        <div style={{ marginBottom: 10 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                            {preferredReleaseVersion
-                              ? t('settings.releaseNotesForVersion', {
-                                  version: `v${preferredReleaseVersion}`
-                                })
-                              : t('settings.releaseNotesLatest', 'Latest release notes')}
-                          </div>
-                          <div style={{ opacity: 0.7, fontSize: '12px' }}>
-                            {t(
-                              'settings.releaseNotesHint',
-                              'Recent fixes and changes are pulled from GitHub Releases.'
+                            {config.uiFontFamily === 'custom' && config.uiCustomFontPath && (
+                              <span
+                                className="settings-font-file-name"
+                                title={config.uiCustomFontPath}
+                              >
+                                {t('settings.fontCustomActive', {
+                                  name:
+                                    config.uiCustomFontPath.split(/[/\\]/).pop() ||
+                                    config.uiCustomFontPath
+                                })}
+                              </span>
+                            )}
+                            {(config.uiFontFamily === 'custom' || config.uiCustomFontPath) && (
+                              <div className="settings-chip-row" style={{ marginTop: 4 }}>
+                                <button
+                                  type="button"
+                                  className="list-filter-chip"
+                                  onClick={() => void pickUiCustomFont()}
+                                >
+                                  {t('settings.fontAddFile')}
+                                </button>
+                                {config.uiCustomFontPath ? (
+                                  <button
+                                    type="button"
+                                    className="list-filter-chip"
+                                    onClick={() =>
+                                      setConfig((prev) => ({
+                                        ...prev,
+                                        uiFontFamily: 'outfit',
+                                        uiCustomFontPath: null
+                                      }))
+                                    }
+                                  >
+                                    {t('settings.fontClearCustom')}
+                                  </button>
+                                ) : null}
+                              </div>
                             )}
                           </div>
                         </div>
-                        {releaseNotesLoading ? (
-                          <p style={{ margin: 0, opacity: 0.8 }}>
-                            {t('settings.releaseNotesLoading', 'Loading changelog...')}
-                          </p>
-                        ) : releaseNotesError ? (
-                          <p style={{ margin: 0, opacity: 0.8 }}>
-                            {t(
-                              'settings.releaseNotesUnavailable',
-                              'Release notes are temporarily unavailable.'
-                            )}{' '}
-                            ({releaseNotesError})
-                          </p>
-                        ) : visibleReleaseNotes.length === 0 ? (
-                          <p style={{ margin: 0, opacity: 0.8 }}>
-                            {t(
-                              'settings.releaseNotesUnavailable',
-                              'Release notes are temporarily unavailable.'
-                            )}
-                          </p>
-                        ) : (
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            {visibleReleaseNotes.map((release) => {
-                              const isPreferred =
-                                preferredReleaseVersion &&
-                                normalizeReleaseVersion(release.version) === preferredReleaseVersion
-                              return (
-                                <div
-                                  key={`${release.version}-${release.url}`}
-                                  style={{
-                                    padding: 12,
-                                    borderRadius: 10,
-                                    border: `1px solid ${isPreferred ? 'var(--color-accent, #3b82f6)' : 'var(--color-border)'}`,
-                                    background: 'var(--color-bg-primary)'
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.cjkFont')}</h4>
+                            <p>{t('settings.cjkFontDesc')}</p>
+                          </div>
+                          <div className="settings-font-custom-meta no-drag">
+                            <div className="settings-chip-row settings-chip-row--cjk-font">
+                              {CJK_FONT_OPTIONS.map((option) => (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  className={`list-filter-chip ${(config.uiCjkFontFamily || 'auto') === option.key ? 'active' : ''}`}
+                                  onClick={() => {
+                                    if (option.key === 'custom') {
+                                      if (
+                                        config.uiCjkFontFamily === 'custom' ||
+                                        !config.uiCjkCustomFontPath
+                                      ) {
+                                        void pickUiCjkCustomFont()
+                                        return
+                                      }
+                                      setConfig((prev) => ({
+                                        ...prev,
+                                        uiCjkFontFamily: 'custom'
+                                      }))
+                                      return
+                                    }
+                                    setConfig((prev) => ({
+                                      ...prev,
+                                      uiCjkFontFamily: option.key,
+                                      uiCjkCustomFontPath: null
+                                    }))
                                   }}
                                 >
-                                  <div
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'flex-start',
-                                      justifyContent: 'space-between',
-                                      gap: 12
-                                    }}
-                                  >
-                                    <div>
-                                      <div style={{ fontWeight: 600 }}>
-                                        {release.title || `v${release.version || '?'}`}
-                                      </div>
-                                      <div style={{ opacity: 0.7, fontSize: '12px', marginTop: 2 }}>
-                                        {release.publishedLabel || `v${release.version || '?'}`}
-                                      </div>
-                                    </div>
-                                    <button
-                                      className="control-btn"
-                                      onClick={() => openExternalLink(release.url)}
-                                      style={{
-                                        padding: '4px 10px',
-                                        fontSize: '12px',
-                                        borderRadius: '4px',
-                                        background: 'var(--color-bg-secondary)',
-                                        border: '1px solid var(--color-border)',
-                                        cursor: 'pointer',
-                                        whiteSpace: 'nowrap'
-                                      }}
-                                    >
-                                      {t('settings.openFullRelease', 'Open release')}
-                                    </button>
-                                  </div>
-                                  {Array.isArray(release.previewLines) &&
-                                  release.previewLines.length > 0 ? (
-                                    <ul
-                                      style={{
-                                        margin: '10px 0 0 18px',
-                                        padding: 0,
-                                        lineHeight: 1.5
-                                      }}
-                                    >
-                                      {release.previewLines.slice(0, 4).map((line, index) => (
-                                        <li key={`${release.version}-preview-${index}`}>{line}</li>
-                                      ))}
-                                    </ul>
-                                  ) : null}
-                                </div>
-                              )
-                            })}
+                                  {t(`settings.${option.labelKey}`)}
+                                </button>
+                              ))}
+                            </div>
+                            {config.uiCjkFontFamily === 'custom' && config.uiCjkCustomFontPath && (
+                              <span
+                                className="settings-font-file-name"
+                                title={config.uiCjkCustomFontPath}
+                              >
+                                {t('settings.fontCustomActive', {
+                                  name:
+                                    config.uiCjkCustomFontPath.split(/[/\\]/).pop() ||
+                                    config.uiCjkCustomFontPath
+                                })}
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ) : null}
-                    <p className="settings-version-text">{t('settings.poweredBy')}</p>
-                    <div className="setting-row" style={{ marginTop: 8 }}>
-                      <div className="setting-info">
-                        <h3>{t('settings.devModeTitle')}</h3>
-                        <p>{t('settings.devModeDesc')}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.devModeEnabled ? 'active' : ''}`}
-                        onClick={() =>
-                          setConfig((prev) => {
-                            const nextDevModeEnabled = !prev.devModeEnabled
-                            return {
-                              ...prev,
-                              devModeEnabled: nextDevModeEnabled,
-                              devOpenDevToolsOnStartup: nextDevModeEnabled
-                                ? prev.devOpenDevToolsOnStartup
-                                : false
-                            }
-                          })
-                        }
-                        aria-pressed={!!config.devModeEnabled}
-                      >
-                        {config.devModeEnabled ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
-                        )}
-                      </button>
-                    </div>
-                    {config.devModeEnabled ? (
-                      <>
-                        <div className="setting-row">
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
                           <div className="setting-info">
-                            <h3>{t('settings.devStartupTitle')}</h3>
-                            <p>{t('settings.devStartupDesc')}</p>
+                            <h4>{t('settings.baseFontSize')}</h4>
+                            <p>{t('settings.baseFontSizeDesc')}</p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>12</span>
+                            <input
+                              type="range"
+                              min={12}
+                              max={20}
+                              step={1}
+                              value={config.uiBaseFontSize ?? 15}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiBaseFontSize: parseInt(e.target.value, 10)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>20</span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.radiusScale')}</h4>
+                            <p>{t('settings.radiusScaleDesc')}</p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.radiusTight')}
+                            </span>
+                            <input
+                              type="range"
+                              min={0.85}
+                              max={1.15}
+                              step={0.05}
+                              value={config.uiRadiusScale ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiRadiusScale: parseFloat(e.target.value)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.radiusSoft')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.shadowStrength')}</h4>
+                            <p>{t('settings.shadowStrengthDesc')}</p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.shadowFlat')}
+                            </span>
+                            <input
+                              type="range"
+                              min={0.5}
+                              max={1.5}
+                              step={0.05}
+                              value={config.uiShadowIntensity ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiShadowIntensity: parseFloat(e.target.value)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.shadowDeep')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.saturation')}</h4>
+                            <p>{t('settings.saturationDesc')}</p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>0.8</span>
+                            <input
+                              type="range"
+                              min={0.8}
+                              max={1.2}
+                              step={0.02}
+                              value={config.uiSaturation ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiSaturation: parseFloat(e.target.value)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>1.2</span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.lineHeightScale', 'Interface line spacing')}</h4>
+                            <p>
+                              {t(
+                                'settings.lineHeightScaleDesc',
+                                'Adjust text rhythm across settings, lists, and panels.'
+                              )}
+                            </p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.lineHeightCompact', 'Compact')}
+                            </span>
+                            <input
+                              type="range"
+                              min={0.9}
+                              max={1.25}
+                              step={0.05}
+                              value={config.uiLineHeightScale ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiLineHeightScale: parseFloat(e.target.value)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.lineHeightLoose', 'Loose')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.controlDensity', 'Control density')}</h4>
+                            <p>
+                              {t(
+                                'settings.controlDensityDesc',
+                                'Tune spacing for rows, chips, and compact controls.'
+                              )}
+                            </p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              width: 220
+                            }}
+                          >
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.densityCompact', 'Tight')}
+                            </span>
+                            <input
+                              type="range"
+                              min={0.85}
+                              max={1.15}
+                              step={0.05}
+                              value={config.uiControlDensity ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  uiControlDensity: parseFloat(e.target.value)
+                                }))
+                              }
+                              className="slider-nc"
+                            />
+                            <span style={{ fontSize: 11, opacity: 0.5 }}>
+                              {t('settings.densityRoomy', 'Roomy')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: '16px 0 0 0' }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.themeDynamicCoverColor', 'Dynamic cover colors')}</h4>
+                            <p>
+                              {t(
+                                'settings.themeDynamicCoverColorDesc',
+                                'Use the current track cover as the theme color source.'
+                              )}
+                            </p>
                           </div>
                           <button
                             type="button"
-                            className={`toggle-btn ${config.devOpenDevToolsOnStartup ? 'active' : ''}`}
+                            className={`toggle-btn ${config.themeDynamicCoverColor ? 'active' : ''}`}
                             onClick={() =>
                               setConfig((prev) => ({
                                 ...prev,
-                                devOpenDevToolsOnStartup: !prev.devOpenDevToolsOnStartup
+                                themeDynamicCoverColor: !prev.themeDynamicCoverColor
                               }))
                             }
-                            aria-pressed={!!config.devOpenDevToolsOnStartup}
                           >
-                            {config.devOpenDevToolsOnStartup ? (
+                            {config.themeDynamicCoverColor ? (
                               <ToggleRight size={32} />
                             ) : (
                               <ToggleLeft size={32} />
                             )}
                           </button>
                         </div>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.devConsoleTitle')}</h3>
-                            <p>{t('settings.devConsoleDesc')}</p>
-                          </div>
-                          <UiButton
-                            variant="secondary"
-                            onClick={async () => {
-                              try {
-                                if (!window.api?.dev?.openDevTools) {
-                                  alert(t('settings.devUnavailable'))
-                                  return
-                                }
-                                const res = await window.api.dev.openDevTools()
-                                if (!res?.ok) {
-                                  alert(
-                                    t('settings.devOpenFailed', {
-                                      message: res?.error || 'unknown'
-                                    })
-                                  )
-                                }
-                              } catch (e) {
-                                alert(e?.message || String(e))
-                              }
-                            }}
-                          >
-                            {t('settings.devOpenConsole')}
-                          </UiButton>
-                        </div>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.devReloadTitle')}</h3>
-                            <p>{t('settings.devReloadDesc')}</p>
-                          </div>
-                          <UiButton
-                            variant="secondary"
-                            onClick={async () => {
-                              try {
-                                if (!window.api?.dev?.reloadWindow) {
-                                  alert(t('settings.devUnavailable'))
-                                  return
-                                }
-                                const res = await window.api.dev.reloadWindow()
-                                if (!res?.ok) {
-                                  alert(
-                                    t('settings.devReloadFailed', {
-                                      message: res?.error || 'unknown'
-                                    })
-                                  )
-                                }
-                              } catch (e) {
-                                alert(e?.message || String(e))
-                              }
-                            }}
-                          >
-                            {t('settings.devReloadButton')}
-                          </UiButton>
-                        </div>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.devCrashDirTitle')}</h3>
-                            <p>{t('settings.devCrashDirDesc')}</p>
-                          </div>
-                          <UiButton
-                            variant="secondary"
-                            onClick={() => window.api?.openCrashDir?.()}
-                          >
-                            {t('settings.devOpenFolder')}
-                          </UiButton>
-                        </div>
-                        <div className="setting-row">
-                          <div className="setting-info">
-                            <h3>{t('settings.devUserDataTitle')}</h3>
-                            <p>{t('settings.devUserDataDesc')}</p>
-                          </div>
-                          <UiButton
-                            variant="secondary"
-                            onClick={async () => {
-                              try {
-                                if (!window.api?.dev?.openUserData) {
-                                  alert(t('settings.devUnavailable'))
-                                  return
-                                }
-                                const res = await window.api.dev.openUserData()
-                                if (!res?.ok) {
-                                  alert(
-                                    t('settings.devUserDataFailed', {
-                                      message: res?.error || 'unknown'
-                                    })
-                                  )
-                                }
-                              } catch (e) {
-                                alert(e?.message || String(e))
-                              }
-                            }}
-                          >
-                            {t('settings.devOpenFolder')}
-                          </UiButton>
-                        </div>
-                      </>
-                    ) : null}
-                  </section>
 
-                  <PluginSlot name="settingsPanel" />
-                </div>
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: '16px 0 0 0' }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.themeCoverAsBackground', 'Cover background')}</h4>
+                            <p>
+                              {t(
+                                'settings.themeCoverAsBackgroundDesc',
+                                'Use the current playing cover as the background image.'
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className={`toggle-btn ${config.themeCoverAsBackground ? 'active' : ''}`}
+                            onClick={() =>
+                              setConfig((prev) => ({
+                                ...prev,
+                                themeCoverAsBackground: !prev.themeCoverAsBackground
+                              }))
+                            }
+                          >
+                            {config.themeCoverAsBackground ? (
+                              <ToggleRight size={32} />
+                            ) : (
+                              <ToggleLeft size={32} />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
 
-                <div
-                  id="settings-sec-danger"
-                  data-settings-section="danger"
-                  style={{ display: settingsSectionVisibility.danger ? '' : 'none' }}
-                >
-                  <section className="settings-section">
-                    <div className="section-title" style={{ color: '#ff4d4f' }}>
-                      <Trash2 size={20} aria-hidden />
-                      <h2>{t('settings.resetDangerTitle', '\u91cd\u7f6e\u4e0e\u5371\u9669\u64cd\u4f5c')}</h2>
-                    </div>
-                    <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
-                      <div className="setting-info">
-                        <h3 style={{ color: '#ff4d4f' }}>
-                          {t('settings.networkDisableTitle', 'Disable all network access')}
-                        </h3>
-                        <p>
+                  <div
+                    id="settings-sec-downloader"
+                    data-settings-section="downloader"
+                    style={{ display: settingsSectionVisibility.media ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Download size={20} />
+                        <h2>
                           {t(
-                            'settings.networkDisableDesc',
-                            'When enabled, ECHO will not connect to the network for updates, lyrics, covers, downloads, sign-in, or external pages.'
+                            'settings.libraryAndDownloads',
+                            '\u5a92\u4f53\u5e93\u4e0e\u4e0b\u8f7d'
                           )}
-                        </p>
-                        {config.networkAccessDisabled === true ? (
-                          <p style={{ marginTop: 6, fontSize: 12, color: '#ff4d4f' }}>
-                            {t('settings.networkDisabledStatus', 'Network access is disabled.')}
-                          </p>
-                        ) : null}
+                        </h2>
                       </div>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${config.networkAccessDisabled === true ? 'active' : ''}`}
-                        onClick={() => {
-                          const nextDisabled = config.networkAccessDisabled !== true
-                          if (
-                            nextDisabled &&
-                            !confirm(
-                              t(
-                                'settings.networkDisableConfirm',
-                                'Disable all network access? Online lyrics, covers, downloads, updates, sign-in, and external links will stop working until you turn this off.'
-                              )
-                            )
-                          ) {
-                            return
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.downloadDirTitle')}</h3>
+                          <p>{t('settings.downloadDirDesc')}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--text-soft)',
+                              maxWidth: 180,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}
+                          >
+                            {config.downloadFolder || t('settings.notSet')}
+                          </span>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              const folders = await window.api.openDirectoryHandler()
+                              if (folders && folders.length > 0) {
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  downloadFolder: folders[0]
+                                }))
+                              }
+                            }}
+                          >
+                            {t('settings.setFolder')}
+                          </UiButton>
+                        </div>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.autoSaveLibraryTitle')}</h3>
+                          <p>{t('settings.autoSaveLibraryDesc')}</p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${config.autoSaveLibrary !== false ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              autoSaveLibrary: !(prev.autoSaveLibrary !== false)
+                            }))
                           }
-                          setConfig((prev) => ({
-                            ...prev,
-                            networkAccessDisabled: nextDisabled,
-                            autoUpdateEnabled: nextDisabled ? false : prev.autoUpdateEnabled
-                          }))
-                        }}
-                        aria-pressed={config.networkAccessDisabled === true}
-                      >
-                        {config.networkAccessDisabled === true ? (
-                          <ToggleRight size={32} />
-                        ) : (
-                          <ToggleLeft size={32} />
+                        >
+                          {config.autoSaveLibrary !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.plImportTitle')}</h3>
+                          <p>{t('settings.plImportDesc')}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--text-soft)',
+                              maxWidth: 180,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}
+                            title={config.playlistImportFolder || config.downloadFolder || ''}
+                          >
+                            {config.playlistImportFolder
+                              ? config.playlistImportFolder
+                              : config.downloadFolder
+                                ? t('settings.sameAsDownload')
+                                : t('settings.notSet')}
+                          </span>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              const folders = await window.api.openDirectoryHandler()
+                              if (folders && folders.length > 0) {
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  playlistImportFolder: folders[0]
+                                }))
+                              }
+                            }}
+                          >
+                            {t('settings.chooseFolder')}
+                          </UiButton>
+                          {config.playlistImportFolder ? (
+                            <UiButton
+                              variant="ghost"
+                              size="sm"
+                              style={{ opacity: 0.85 }}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  playlistImportFolder: null
+                                }))
+                              }
+                            >
+                              {t('settings.useDownloadFolder')}
+                            </UiButton>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.libraryCleanupTitle', 'Library cleanup')}</h3>
+                          <p>
+                            {missingLibraryPaths.length > 0
+                              ? t(
+                                  'settings.libraryCleanupFound',
+                                  `${missingLibraryPaths.length} invalid path(s) found in your library references.`
+                                )
+                              : t(
+                                  'settings.libraryCleanupDesc',
+                                  'Remove missing files and stale folder references from the library.'
+                                )}
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              void scanMissingLibraryPaths()
+                            }}
+                            disabled={libraryCleanupBusy}
+                          >
+                            {libraryCleanupBusy
+                              ? t('settings.libraryCleanupScanning', 'Scanning...')
+                              : t('settings.libraryCleanupScan', 'Scan library')}
+                          </UiButton>
+                          <UiButton
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              void cleanupMissingLibraryPaths()
+                            }}
+                            disabled={libraryCleanupBusy || missingLibraryPaths.length === 0}
+                            style={{
+                              opacity:
+                                libraryCleanupBusy || missingLibraryPaths.length === 0 ? 0.55 : 1
+                            }}
+                          >
+                            {t('settings.libraryCleanupRemove', 'Remove missing')}
+                          </UiButton>
+                        </div>
+                      </div>
+                      {missingLibraryPaths.length > 0 ? (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            padding: 12,
+                            borderRadius: 12,
+                            border: '1px solid var(--color-border)',
+                            background: 'var(--color-bg-secondary)',
+                            display: 'grid',
+                            gap: 6
+                          }}
+                        >
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>
+                            {t('settings.libraryCleanupPreview', 'Preview of invalid paths')}
+                          </div>
+                          {missingLibraryPaths.slice(0, 5).map((path) => (
+                            <div
+                              key={path}
+                              style={{
+                                fontSize: 12,
+                                color: 'var(--text-soft)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}
+                              title={path}
+                            >
+                              {path}
+                            </div>
+                          ))}
+                          {missingLibraryPaths.length > 5 ? (
+                            <div style={{ fontSize: 12, opacity: 0.55 }}>
+                              {t(
+                                'settings.libraryCleanupMore',
+                                `and ${missingLibraryPaths.length - 5} more...`
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </section>
+                  </div>
+
+                  <div
+                    id="settings-sec-remote-library"
+                    data-settings-section="remoteLibrary"
+                    style={{ display: settingsSectionVisibility.remoteLibrary ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Globe size={20} />
+                        <h2>网盘 / 远程音乐库</h2>
+                      </div>
+                      <RemoteLibrarySettings
+                        sources={remoteLibrarySources}
+                        encryptionAvailable={remoteLibraryEncryptionAvailable}
+                        onReload={reloadRemoteLibrarySources}
+                        onSelectSource={setActiveRemoteLibrarySourceId}
+                      />
+                    </section>
+                  </div>
+
+                  <div
+                    id="settings-sec-about"
+                    data-settings-section="about"
+                    style={{ display: settingsSectionVisibility.about ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Info size={20} />
+                        <h2>
+                          {t('settings.aboutAdvancedTitle', '\u5173\u4e8e\u4e0e\u9ad8\u7ea7')}
+                        </h2>
+                      </div>
+                      <p style={{ opacity: 0.6, fontSize: '14px', lineHeight: 1.6 }}>
+                        {t('settings.aboutBody')}
+                      </p>
+                      <p style={{ opacity: 0.72, fontSize: '13px', lineHeight: 1.6, marginTop: 8 }}>
+                        {t(
+                          'settings.openSourceTrustNote',
+                          'ECHO does not save any account information, contains no dangerous code, and the whole project is fully open source.'
                         )}
-                      </button>
-                    </div>
-                    <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
-                      <div className="setting-info">
-                        <h3 style={{ color: '#ff4d4f' }}>{t('settings.resetThemeTitle')}</h3>
-                        <p>{t('settings.resetThemeDesc')}</p>
+                      </p>
+                      <div className="setting-row" style={{ marginTop: 12 }}>
+                        <div className="setting-info">
+                          <h3>{t('settings.autoUpdateTitle')}</h3>
+                          <p>{t('settings.autoUpdateDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.autoUpdateEnabled !== false ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              autoUpdateEnabled: !(prev.autoUpdateEnabled !== false)
+                            }))
+                          }
+                          aria-pressed={config.autoUpdateEnabled !== false}
+                        >
+                          {config.autoUpdateEnabled !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
                       </div>
-                      <UiButton variant="danger" onClick={handleResetThemeConfig}>
-                        {t('settings.resetThemeButton')}
-                      </UiButton>
-                    </div>
-                    <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
-                      <div className="setting-info">
-                        <h3 style={{ color: '#ff4d4f' }}>{t('settings.resetAllTitle')}</h3>
-                        <p>{t('settings.resetAllDesc')}</p>
+                      <div
+                        className="settings-version-text"
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                      >
+                        {t('settings.versionText', { version: appVersion || '1.1.2' })}
+                        <button
+                          className="control-btn"
+                          disabled={isUpdating || config.networkAccessDisabled === true}
+                          onClick={() => {
+                            if (config.networkAccessDisabled === true) {
+                              alert(
+                                t('settings.networkDisabledStatus', 'Network access is disabled.')
+                              )
+                              return
+                            }
+                            setIsUpdating(true)
+                            setUpdateStatus({ event: 'checking' })
+                            window.api?.checkForUpdates?.()
+                          }}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            background: 'var(--color-bg-secondary)',
+                            border: '1px solid var(--color-border)',
+                            cursor:
+                              isUpdating || config.networkAccessDisabled === true
+                                ? 'not-allowed'
+                                : 'pointer'
+                          }}
+                        >
+                          {isUpdating
+                            ? t('settings.checkingForUpdates', 'Checking...')
+                            : t('settings.checkUpdates', 'Check for Updates')}
+                        </button>
                       </div>
-                      <UiButton variant="danger" onClick={handleResetAllConfig}>
-                        {t('settings.resetAllButton')}
-                      </UiButton>
-                    </div>
-                  </section>
-                </div>
+                      {updateStatus && updateStatus.event !== 'checking' && (
+                        <div style={{ marginTop: '6px' }}>
+                          {updateStatus.event === 'download-progress' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
+                                {t('settings.downloading', 'Downloading update...')}{' '}
+                                {updateStatus.percent ?? 0}%
+                              </p>
+                              <div
+                                style={{
+                                  width: '260px',
+                                  height: '4px',
+                                  borderRadius: '2px',
+                                  background: 'var(--color-border)',
+                                  overflow: 'hidden'
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: '100%',
+                                    width: `${updateStatus.percent ?? 0}%`,
+                                    background: 'var(--color-accent, #3b82f6)',
+                                    borderRadius: '2px',
+                                    transition: 'width 0.3s ease'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {updateStatus.event !== 'download-progress' && (
+                            <p style={{ fontSize: '12px', opacity: 0.8, margin: 0 }}>
+                              {updateStatus.event === 'update-available'
+                                ? t('settings.updateAvailable', 'Update available, downloading...')
+                                : updateStatus.event === 'update-not-available'
+                                  ? t(
+                                      'settings.updateNotAvailable',
+                                      'You are on the latest version.'
+                                    )
+                                  : updateStatus.event === 'update-downloaded'
+                                    ? t('settings.updateDownloaded', {
+                                        version: updateStatus.version,
+                                        defaultValue: `v${updateStatus.version} downloaded, will install on exit.`
+                                      })
+                                    : updateStatus.event === 'error'
+                                      ? t('settings.updateError', 'Error checking for updates.')
+                                      : ''}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 12 }}>
+                        <button
+                          className="control-btn"
+                          onClick={() => {
+                            const nextOpen = !releaseNotesOpen
+                            setReleaseNotesOpen(nextOpen)
+                            if (nextOpen) {
+                              void loadReleaseNotes()
+                            }
+                          }}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            background: 'var(--color-bg-secondary)',
+                            border: '1px solid var(--color-border)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {t('settings.viewChangelog', 'View changelog')}
+                        </button>
+                        <button
+                          className="control-btn"
+                          disabled={releaseNotesLoading}
+                          onClick={() => {
+                            setReleaseNotesOpen(true)
+                            void loadReleaseNotes(true)
+                          }}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            background: 'var(--color-bg-secondary)',
+                            border: '1px solid var(--color-border)',
+                            cursor: releaseNotesLoading ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {t('settings.refreshChangelog', 'Refresh changelog')}
+                        </button>
+                        <button
+                          className="control-btn"
+                          onClick={() => openExternalLink(GITHUB_RELEASES_PAGE_URL)}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            background: 'var(--color-bg-secondary)',
+                            border: '1px solid var(--color-border)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {t('settings.openReleasesPage', 'Open releases page')}
+                        </button>
+                        <button
+                          className="control-btn"
+                          onClick={() =>
+                            openExternalLink('https://github.com/Moekotori/ECHO/tree/moe/carnary')
+                          }
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            background: 'var(--color-bg-secondary)',
+                            border: '1px solid var(--color-border)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {t('settings.openCanaryBranch', 'Canary')}
+                        </button>
+                      </div>
+                      {releaseNotesOpen ? (
+                        <div
+                          style={{
+                            marginTop: 12,
+                            padding: 14,
+                            borderRadius: 12,
+                            border: '1px solid var(--color-border)',
+                            background: 'var(--color-bg-secondary)'
+                          }}
+                        >
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                              {preferredReleaseVersion
+                                ? t('settings.releaseNotesForVersion', {
+                                    version: `v${preferredReleaseVersion}`
+                                  })
+                                : t('settings.releaseNotesLatest', 'Latest release notes')}
+                            </div>
+                            <div style={{ opacity: 0.7, fontSize: '12px' }}>
+                              {t(
+                                'settings.releaseNotesHint',
+                                'Recent fixes and changes are pulled from GitHub Releases.'
+                              )}
+                            </div>
+                          </div>
+                          {releaseNotesLoading ? (
+                            <p style={{ margin: 0, opacity: 0.8 }}>
+                              {t('settings.releaseNotesLoading', 'Loading changelog...')}
+                            </p>
+                          ) : releaseNotesError ? (
+                            <p style={{ margin: 0, opacity: 0.8 }}>
+                              {t(
+                                'settings.releaseNotesUnavailable',
+                                'Release notes are temporarily unavailable.'
+                              )}{' '}
+                              ({releaseNotesError})
+                            </p>
+                          ) : visibleReleaseNotes.length === 0 ? (
+                            <p style={{ margin: 0, opacity: 0.8 }}>
+                              {t(
+                                'settings.releaseNotesUnavailable',
+                                'Release notes are temporarily unavailable.'
+                              )}
+                            </p>
+                          ) : (
+                            <div style={{ display: 'grid', gap: 10 }}>
+                              {visibleReleaseNotes.map((release) => {
+                                const isPreferred =
+                                  preferredReleaseVersion &&
+                                  normalizeReleaseVersion(release.version) ===
+                                    preferredReleaseVersion
+                                return (
+                                  <div
+                                    key={`${release.version}-${release.url}`}
+                                    style={{
+                                      padding: 12,
+                                      borderRadius: 10,
+                                      border: `1px solid ${isPreferred ? 'var(--color-accent, #3b82f6)' : 'var(--color-border)'}`,
+                                      background: 'var(--color-bg-primary)'
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        justifyContent: 'space-between',
+                                        gap: 12
+                                      }}
+                                    >
+                                      <div>
+                                        <div style={{ fontWeight: 600 }}>
+                                          {release.title || `v${release.version || '?'}`}
+                                        </div>
+                                        <div
+                                          style={{ opacity: 0.7, fontSize: '12px', marginTop: 2 }}
+                                        >
+                                          {release.publishedLabel || `v${release.version || '?'}`}
+                                        </div>
+                                      </div>
+                                      <button
+                                        className="control-btn"
+                                        onClick={() => openExternalLink(release.url)}
+                                        style={{
+                                          padding: '4px 10px',
+                                          fontSize: '12px',
+                                          borderRadius: '4px',
+                                          background: 'var(--color-bg-secondary)',
+                                          border: '1px solid var(--color-border)',
+                                          cursor: 'pointer',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        {t('settings.openFullRelease', 'Open release')}
+                                      </button>
+                                    </div>
+                                    {Array.isArray(release.previewLines) &&
+                                    release.previewLines.length > 0 ? (
+                                      <ul
+                                        style={{
+                                          margin: '10px 0 0 18px',
+                                          padding: 0,
+                                          lineHeight: 1.5
+                                        }}
+                                      >
+                                        {release.previewLines.slice(0, 4).map((line, index) => (
+                                          <li key={`${release.version}-preview-${index}`}>
+                                            {line}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                      <p className="settings-version-text">{t('settings.poweredBy')}</p>
+                      <div className="setting-row" style={{ marginTop: 8 }}>
+                        <div className="setting-info">
+                          <h3>{t('settings.devModeTitle')}</h3>
+                          <p>{t('settings.devModeDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.devModeEnabled ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => {
+                              const nextDevModeEnabled = !prev.devModeEnabled
+                              return {
+                                ...prev,
+                                devModeEnabled: nextDevModeEnabled,
+                                devOpenDevToolsOnStartup: nextDevModeEnabled
+                                  ? prev.devOpenDevToolsOnStartup
+                                  : false
+                              }
+                            })
+                          }
+                          aria-pressed={!!config.devModeEnabled}
+                        >
+                          {config.devModeEnabled ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      {config.devModeEnabled ? (
+                        <>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.devStartupTitle')}</h3>
+                              <p>{t('settings.devStartupDesc')}</p>
+                            </div>
+                            <button
+                              type="button"
+                              className={`toggle-btn ${config.devOpenDevToolsOnStartup ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  devOpenDevToolsOnStartup: !prev.devOpenDevToolsOnStartup
+                                }))
+                              }
+                              aria-pressed={!!config.devOpenDevToolsOnStartup}
+                            >
+                              {config.devOpenDevToolsOnStartup ? (
+                                <ToggleRight size={32} />
+                              ) : (
+                                <ToggleLeft size={32} />
+                              )}
+                            </button>
+                          </div>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.devConsoleTitle')}</h3>
+                              <p>{t('settings.devConsoleDesc')}</p>
+                            </div>
+                            <UiButton
+                              variant="secondary"
+                              onClick={async () => {
+                                try {
+                                  if (!window.api?.dev?.openDevTools) {
+                                    alert(t('settings.devUnavailable'))
+                                    return
+                                  }
+                                  const res = await window.api.dev.openDevTools()
+                                  if (!res?.ok) {
+                                    alert(
+                                      t('settings.devOpenFailed', {
+                                        message: res?.error || 'unknown'
+                                      })
+                                    )
+                                  }
+                                } catch (e) {
+                                  alert(e?.message || String(e))
+                                }
+                              }}
+                            >
+                              {t('settings.devOpenConsole')}
+                            </UiButton>
+                          </div>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.devReloadTitle')}</h3>
+                              <p>{t('settings.devReloadDesc')}</p>
+                            </div>
+                            <UiButton
+                              variant="secondary"
+                              onClick={async () => {
+                                try {
+                                  if (!window.api?.dev?.reloadWindow) {
+                                    alert(t('settings.devUnavailable'))
+                                    return
+                                  }
+                                  const res = await window.api.dev.reloadWindow()
+                                  if (!res?.ok) {
+                                    alert(
+                                      t('settings.devReloadFailed', {
+                                        message: res?.error || 'unknown'
+                                      })
+                                    )
+                                  }
+                                } catch (e) {
+                                  alert(e?.message || String(e))
+                                }
+                              }}
+                            >
+                              {t('settings.devReloadButton')}
+                            </UiButton>
+                          </div>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.devCrashDirTitle')}</h3>
+                              <p>{t('settings.devCrashDirDesc')}</p>
+                            </div>
+                            <UiButton
+                              variant="secondary"
+                              onClick={() => window.api?.openCrashDir?.()}
+                            >
+                              {t('settings.devOpenFolder')}
+                            </UiButton>
+                          </div>
+                          <div className="setting-row">
+                            <div className="setting-info">
+                              <h3>{t('settings.devUserDataTitle')}</h3>
+                              <p>{t('settings.devUserDataDesc')}</p>
+                            </div>
+                            <UiButton
+                              variant="secondary"
+                              onClick={async () => {
+                                try {
+                                  if (!window.api?.dev?.openUserData) {
+                                    alert(t('settings.devUnavailable'))
+                                    return
+                                  }
+                                  const res = await window.api.dev.openUserData()
+                                  if (!res?.ok) {
+                                    alert(
+                                      t('settings.devUserDataFailed', {
+                                        message: res?.error || 'unknown'
+                                      })
+                                    )
+                                  }
+                                } catch (e) {
+                                  alert(e?.message || String(e))
+                                }
+                              }}
+                            >
+                              {t('settings.devOpenFolder')}
+                            </UiButton>
+                          </div>
+                        </>
+                      ) : null}
+                    </section>
+
+                    <PluginSlot name="settingsPanel" />
+                  </div>
+
+                  <div
+                    id="settings-sec-danger"
+                    data-settings-section="danger"
+                    style={{ display: settingsSectionVisibility.danger ? '' : 'none' }}
+                  >
+                    <section className="settings-section">
+                      <div className="section-title" style={{ color: '#ff4d4f' }}>
+                        <Trash2 size={20} aria-hidden />
+                        <h2>
+                          {t(
+                            'settings.resetDangerTitle',
+                            '\u91cd\u7f6e\u4e0e\u5371\u9669\u64cd\u4f5c'
+                          )}
+                        </h2>
+                      </div>
+                      <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
+                        <div className="setting-info">
+                          <h3 style={{ color: '#ff4d4f' }}>
+                            {t('settings.networkDisableTitle', 'Disable all network access')}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.networkDisableDesc',
+                              'When enabled, ECHO will not connect to the network for updates, lyrics, covers, downloads, sign-in, or external pages.'
+                            )}
+                          </p>
+                          {config.networkAccessDisabled === true ? (
+                            <p style={{ marginTop: 6, fontSize: 12, color: '#ff4d4f' }}>
+                              {t('settings.networkDisabledStatus', 'Network access is disabled.')}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.networkAccessDisabled === true ? 'active' : ''}`}
+                          onClick={() => {
+                            const nextDisabled = config.networkAccessDisabled !== true
+                            if (
+                              nextDisabled &&
+                              !confirm(
+                                t(
+                                  'settings.networkDisableConfirm',
+                                  'Disable all network access? Online lyrics, covers, downloads, updates, sign-in, and external links will stop working until you turn this off.'
+                                )
+                              )
+                            ) {
+                              return
+                            }
+                            setConfig((prev) => ({
+                              ...prev,
+                              networkAccessDisabled: nextDisabled,
+                              autoUpdateEnabled: nextDisabled ? false : prev.autoUpdateEnabled
+                            }))
+                          }}
+                          aria-pressed={config.networkAccessDisabled === true}
+                        >
+                          {config.networkAccessDisabled === true ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
+                        <div className="setting-info">
+                          <h3 style={{ color: '#ff4d4f' }}>{t('settings.resetThemeTitle')}</h3>
+                          <p>{t('settings.resetThemeDesc')}</p>
+                        </div>
+                        <UiButton variant="danger" onClick={handleResetThemeConfig}>
+                          {t('settings.resetThemeButton')}
+                        </UiButton>
+                      </div>
+                      <div className="setting-row" style={{ border: 'none', padding: '16px 0' }}>
+                        <div className="setting-info">
+                          <h3 style={{ color: '#ff4d4f' }}>{t('settings.resetAllTitle')}</h3>
+                          <p>{t('settings.resetAllDesc')}</p>
+                        </div>
+                        <UiButton variant="danger" onClick={handleResetAllConfig}>
+                          {t('settings.resetAllButton')}
+                        </UiButton>
+                      </div>
+                    </section>
+                  </div>
                 </div>
                 {settingsScrollMetrics.visible ? (
                   <div
@@ -20456,15 +21790,31 @@ export default function App() {
           onClose={() => setMvDrawerOpen(false)}
           config={config}
           setConfig={setConfig}
-          signInStatus={signInStatus}
-          onYoutubeSignIn={handleOpenYoutubeSignIn}
-          onBilibiliSignIn={handleOpenBilibiliSignIn}
           mvId={mvId}
           setMvId={setMvId}
           mvPlaybackQuality={mvPlaybackQuality}
           biliDirectStream={biliDirectStream}
           currentTrackTitle={displayMainTitle}
           currentTrackArtist={displayMainArtist}
+          autoSearchResults={autoMvSearchResults}
+          onAutoSearchCurrentMv={() => {
+            const activeTrack =
+              castVirtualTrack?.metadataTrusted && castVirtualTrack?.path
+                ? castVirtualTrack
+                : currentTrack
+            if (!activeTrack?.path) return
+            searchAndApplyMvForTrack({
+              filePath: activeTrack.path,
+              title: displayMainTitle,
+              artist: displayMainArtist,
+              hints: {
+                album: displayMainAlbum || '',
+                mvOriginUrl: activeTrack.mvOriginUrl || activeTrack.sourceUrl,
+                sourceUrl: activeTrack.sourceUrl || activeTrack.mvOriginUrl
+              },
+              requestSeq: trackLoadSeqRef.current
+            })
+          }}
           onPersistMvOverride={(mv) => {
             const p =
               castVirtualTrack?.metadataTrusted && castVirtualTrack?.path
@@ -20528,7 +21878,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        {youtubeMvLoginHint && mvId?.source === 'youtube' && config.enableMV && (
+        {youtubeMvLoginHint && mvId?.source === 'youtube' && shouldLoadActiveMvMedia && (
           <div className="yt-mv-login-hint" role="status">
             <span className="yt-mv-login-hint-text">{t('youtubeHint.body')}</span>
             <div className="yt-mv-login-hint-actions">
@@ -20546,7 +21896,12 @@ export default function App() {
                 type="button"
                 className="yt-mv-login-hint-btn primary"
                 onClick={() => {
-                  handleOpenYoutubeSignIn()
+                  setView('settings')
+                  setActiveSettingsSection('integrations')
+                  window.setTimeout(
+                    () => scrollSettingsSectionIntoView('settings-sec-integrations'),
+                    0
+                  )
                   setYoutubeMvLoginHint(false)
                 }}
               >
@@ -21024,6 +22379,14 @@ export default function App() {
           <div className="bottom-bar-center">
             <div className="bottom-bar-transport">
               <button
+                className="btn btn--transport bottom-bar-mini-trigger"
+                style={{ width: 36, height: 36 }}
+                onClick={openMiniPlayer}
+                title={t('settings.miniPlayerOpen')}
+              >
+                <PictureInPicture2 size={16} />
+              </button>
+              <button
                 className={`btn btn--transport play-mode-toggle ${playMode === 'shuffle' ? 'is-active' : ''}`}
                 style={{ width: 36, height: 36 }}
                 onClick={() => setPlayMode(playMode === 'shuffle' ? 'loop' : 'shuffle')}
@@ -21149,25 +22512,23 @@ export default function App() {
             ) : (
               <div className="bottom-bar-toolset">
                 <button
+                  ref={volumeDeckToolRef}
                   className={
-                    'btn btn--transport deck-tool-trigger ' +
+                    'btn btn--transport deck-tool-trigger deck-tool-trigger--volume ' +
                     (activeDeckPopover === 'volume' ? 'active' : '')
                   }
-                  onClick={() =>
-                    setActiveDeckPopover((value) => (value === 'volume' ? null : 'volume'))
-                  }
+                  onClick={() => toggleDeckPopover('volume')}
                   title={t('player.vol')}
                 >
                   {volume <= 0.001 ? <VolumeX size={16} /> : <Volume2 size={16} />}
                 </button>
                 <button
+                  ref={speedDeckToolRef}
                   className={
                     'btn btn--transport deck-tool-trigger ' +
                     (activeDeckPopover === 'speed' ? 'active' : '')
                   }
-                  onClick={() =>
-                    setActiveDeckPopover((value) => (value === 'speed' ? null : 'speed'))
-                  }
+                  onClick={() => toggleDeckPopover('speed')}
                   title={t('player.speed')}
                 >
                   <Gauge size={16} />
@@ -21193,12 +22554,18 @@ export default function App() {
                   className={
                     'deck-popover deck-popover--bottom-tools deck-popover--' + activeDeckPopover
                   }
+                  style={deckPopoverStyle || undefined}
                 >
                   {activeDeckPopover === 'volume' ? (
                     <div className="deck-popover-row deck-popover-volume-row">
-                      <div className="deck-popover-label">
-                        <span>{t('player.vol')}</span>
-                        <span>{Math.round(volume * 100)}%</span>
+                      <div className="deck-popover-header">
+                        <span className="deck-popover-icon">
+                          {volume <= 0.001 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                        </span>
+                        <div className="deck-popover-label">
+                          <span>{t('player.vol')}</span>
+                          <span>{Math.round(volume * 100)}%</span>
+                        </div>
                       </div>
                       <input
                         type="range"
@@ -21208,13 +22575,33 @@ export default function App() {
                         step={0.01}
                         value={volume}
                         onChange={(e) => setVolume(parseFloat(e.target.value))}
+                        style={{
+                          ['--deck-slider-pct']: Math.min(100, Math.max(0, volume * 100)) + '%'
+                        }}
                       />
+                      <div className="deck-popover-scale" aria-hidden>
+                        <span>0</span>
+                        <span>100</span>
+                      </div>
                     </div>
                   ) : (
                     <div className="deck-popover-row deck-popover-speed-row">
-                      <div className="deck-popover-label">
-                        <span>{t('player.speed')}</span>
-                        <span>{playbackRate.toFixed(2)}x</span>
+                      <div className="deck-popover-header">
+                        <span className="deck-popover-icon">
+                          <Gauge size={16} />
+                        </span>
+                        <div className="deck-popover-label">
+                          <span>{t('player.speed')}</span>
+                          <span>{playbackRate.toFixed(2)}x</span>
+                        </div>
+                        <button
+                          className="deck-popover-btn deck-popover-speed-reset"
+                          onClick={() => setPlaybackRate(1.0)}
+                          title={t('player.resetSpeed') || 'Reset speed'}
+                        >
+                          <RotateCcw size={12} />
+                          1x
+                        </button>
                       </div>
                       <div className="deck-popover-control-row">
                         <input
@@ -21225,14 +22612,15 @@ export default function App() {
                           step={0.05}
                           value={playbackRate}
                           onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                          style={{
+                            ['--deck-slider-pct']:
+                              Math.min(100, Math.max(0, ((playbackRate - 0.5) / 1.5) * 100)) + '%'
+                          }}
                         />
-                        <button
-                          className="deck-popover-btn deck-popover-speed-reset"
-                          onClick={() => setPlaybackRate(1.0)}
-                          title={t('player.resetSpeed') || 'Reset speed'}
-                        >
-                          <RotateCcw size={13} />
-                        </button>
+                      </div>
+                      <div className="deck-popover-scale" aria-hidden>
+                        <span>0.5x</span>
+                        <span>2.0x</span>
                       </div>
                     </div>
                   )}

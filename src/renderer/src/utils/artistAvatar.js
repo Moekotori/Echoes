@@ -13,6 +13,92 @@ const GENERIC_ALBUM_ARTIST_NAMES = new Set([
   'ost'
 ])
 
+const NETEASE_DEFAULT_ARTIST_AVATAR_IDS = new Set([
+  '5639395138885805',
+  '109951168529049969'
+])
+
+const QQ_DEFAULT_ARTIST_AVATAR_RE = /\/music\/photo_new\/T001R\d+x\d+M0000+(?:\.(?:jpg|jpeg|png|webp))?$/i
+
+export function isNeteaseDefaultArtistAvatarUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return false
+  if (!/(^|\/\/)(p\d+|music)\.music\.126\.net\//i.test(value)) return false
+  const cleanPath = value.split('?')[0]
+  const match = cleanPath.match(/\/(\d+)\.(?:jpg|jpeg|png|webp)$/i)
+  if (match && NETEASE_DEFAULT_ARTIST_AVATAR_IDS.has(match[1])) return true
+  return /(?:default|avatar_default|artist_default|user_default)/i.test(cleanPath)
+}
+
+export function isQqMusicDefaultArtistAvatarUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return false
+  if (!/(^|\/\/)(y|qpic)\.qq\.com\//i.test(value)) return false
+  const cleanPath = value.split('?')[0]
+  return (
+    QQ_DEFAULT_ARTIST_AVATAR_RE.test(cleanPath) ||
+    /(?:default|avatar_default|singer_default)/i.test(cleanPath)
+  )
+}
+
+export function isPlatformDefaultArtistAvatarUrl(url) {
+  return isNeteaseDefaultArtistAvatarUrl(url) || isQqMusicDefaultArtistAvatarUrl(url)
+}
+
+export function isTransientArtistAvatarFailure(value) {
+  if (!value || typeof value !== 'object') return false
+  if (value.transient === true || value.rateLimited === true) return true
+
+  const status = Number(value.status || value.httpStatus || 0)
+  if (status === 403 || status === 408 || status === 425 || status === 429 || status >= 500) {
+    return true
+  }
+
+  const errorText = String(value.error || value.message || value.reason || '').toLowerCase()
+  return (
+    errorText.includes('rate') ||
+    errorText.includes('limit') ||
+    errorText.includes('timeout') ||
+    errorText.includes('abort') ||
+    errorText.includes('network') ||
+    errorText.includes('econn') ||
+    errorText.includes('etimedout') ||
+    errorText.includes('操作频繁') ||
+    errorText.includes('限速') ||
+    errorText.includes('限流')
+  )
+}
+
+export function getArtistAvatarRetryAfterMs(value, fallbackMs = 0) {
+  const retryAfterMs = Number(value?.retryAfterMs || value?.retryAfter || 0)
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) return retryAfterMs
+  return Math.max(0, Number(fallbackMs) || 0)
+}
+
+export function normalizeArtistAvatarSearchResponse(response) {
+  if (Array.isArray(response)) {
+    return { candidates: response, transient: false, retryAfterMs: 0 }
+  }
+
+  if (!response || typeof response !== 'object') {
+    return { candidates: [], transient: false, retryAfterMs: 0 }
+  }
+
+  const candidates =
+    response.artists ||
+    response.items ||
+    response.result ||
+    response.results ||
+    response.data ||
+    []
+
+  return {
+    candidates: Array.isArray(candidates) ? candidates : [],
+    transient: isTransientArtistAvatarFailure(response),
+    retryAfterMs: getArtistAvatarRetryAfterMs(response)
+  }
+}
+
 function normalizeArtistToken(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -29,11 +115,11 @@ function normalizeAlbumKey(value) {
 
 function getTrackCoverCandidate(track, trackMetaMap = {}, albumCoverMap = {}) {
   const meta = trackMetaMap[track?.path] || {}
-  const albumName = track?.info?.album || meta.album || 'Singles'
+  const albumName = meta.album || track?.info?.album || 'Singles'
   const cover =
     meta.cover ||
     track?.info?.cover ||
-    (albumName ? albumCoverMap[albumName] : null) ||
+    (albumName && typeof albumCoverMap[albumName] === 'string' ? albumCoverMap[albumName] : '') ||
     null
   if (!cover) return null
   return {
@@ -89,7 +175,12 @@ function getArtistTrackScore(track, artistName, trackMetaMap, albumArtistCountBy
 
 export function buildArtistBucketsWithAvatars(
   tracks,
-  { unknownArtist = 'Unknown Artist', trackMetaMap = {}, albumCoverMap = {}, artistAvatarMap = {} } = {}
+  {
+    unknownArtist = 'Unknown Artist',
+    trackMetaMap = {},
+    albumCoverMap = {},
+    artistAvatarMap = {}
+  } = {}
 ) {
   const groups = new Map()
   const albumArtistSets = new Map()
@@ -107,9 +198,9 @@ export function buildArtistBucketsWithAvatars(
 
     const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
     const fingerprint = coverFingerprint(coverCandidate?.cover)
-    if (fingerprint) {
+    if (fingerprint && artistToken && artistName !== unknownArtist) {
       if (!coverArtistSets.has(fingerprint)) coverArtistSets.set(fingerprint, new Set())
-      coverArtistSets.get(fingerprint).add(artistName)
+      coverArtistSets.get(fingerprint).add(artistToken)
     }
   }
 
@@ -137,17 +228,34 @@ export function buildArtistBucketsWithAvatars(
 
       const score =
         ownershipScore +
-        (coverCandidate.source === 'trackMeta' ? 12 : coverCandidate.source === 'trackInfo' ? 8 : 0)
+        (coverCandidate.source === 'trackMeta'
+          ? 12
+          : coverCandidate.source === 'trackInfo'
+            ? 8
+            : 4)
       if (!best || score > best.score) {
-        best = { cover: coverCandidate.cover, score }
+        best = { cover: coverCandidate.cover, source: coverCandidate.source, score }
       }
     }
 
+    const fallbackCover = best?.cover || null
+    const remoteAvatar = artistAvatarMap[artist.name] || ''
+    const usableRemoteAvatar = isPlatformDefaultArtistAvatarUrl(remoteAvatar) ? '' : remoteAvatar
+
     return {
       ...artist,
-      cover: best?.cover || artistAvatarMap[artist.name] || null,
-      hasLocalCover: !!best?.cover,
-      hasRemoteAvatar: !best?.cover && !!artistAvatarMap[artist.name],
+      cover: usableRemoteAvatar || fallbackCover,
+      fallbackCover,
+      coverSource: usableRemoteAvatar
+        ? 'remote'
+        : best?.cover
+          ? best.source === 'album'
+            ? 'album'
+            : 'track'
+          : 'initials',
+      hasLocalCover: !!fallbackCover,
+      hasRemoteAvatar: !!usableRemoteAvatar,
+      isUnknownArtist: artist.name === unknownArtist,
       avatarInitials: getArtistAvatarInitials(artist.name),
       avatarHue: getArtistAvatarHue(artist.name)
     }

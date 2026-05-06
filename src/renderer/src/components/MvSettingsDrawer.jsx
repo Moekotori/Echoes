@@ -1,8 +1,22 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, ToggleLeft, ToggleRight, Link, Play, Minus, Plus, Search, ChevronDown, Check } from 'lucide-react'
-import { buildBilibiliAutoMvQueries, buildYoutubeAutoMvQueries } from '../../../shared/mvSearchRank.mjs'
-import { getBestEffortMvSearchHit } from '../utils/mvAutoAccept'
+import {
+  X,
+  ToggleLeft,
+  ToggleRight,
+  Link,
+  Play,
+  Minus,
+  Plus,
+  Search,
+  ChevronDown,
+  Check
+} from 'lucide-react'
+import {
+  buildBilibiliAutoMvQueries,
+  buildYoutubeAutoMvQueries
+} from '../../../shared/mvSearchRank.mjs'
+import { orderMvSearchItems } from '../utils/mvSearchCandidates'
 import { extractVideoId } from '../utils/mvUrlParse'
 
 const QUALITY_LABELS = {
@@ -152,28 +166,19 @@ function MvDrawerSelect({ value, options, onChange }) {
   )
 }
 
-function getMvSearchItems(result, source = 'bilibili') {
-  if (Array.isArray(result?.items)) {
-    return result.items.filter((item) => item?.id && item?.source)
-  }
-  const hit = getBestEffortMvSearchHit(result, source)
-  return hit?.result && typeof hit.result === 'object' ? [hit.result] : []
-}
-
 export default function MvSettingsDrawer({
   open,
   onClose,
   config,
   setConfig,
-  signInStatus,
-  onYoutubeSignIn,
-  onBilibiliSignIn,
   mvId,
   setMvId,
   mvPlaybackQuality,
   biliDirectStream,
   onPersistMvOverride,
   onRestartPlayback,
+  onAutoSearchCurrentMv,
+  autoSearchResults,
   currentTrackTitle,
   currentTrackArtist
 }) {
@@ -213,6 +218,25 @@ export default function MvSettingsDrawer({
     setSearchNotice('')
     setSearchResults([])
   }, [open, currentTrackArtist, currentTrackTitle])
+
+  useEffect(() => {
+    if (!open || !autoSearchResults) return
+    const items = Array.isArray(autoSearchResults.items) ? autoSearchResults.items : []
+    setSearchQuery(
+      autoSearchResults.query || buildDefaultMvQuery(currentTrackTitle, currentTrackArtist)
+    )
+    setSearchResults(items)
+    setSearchError(autoSearchResults.error || '')
+    setSearchNotice(
+      autoSearchResults.error
+        ? ''
+        : items.length > 0
+          ? t('mvDrawer.autoSearchResultsReady')
+          : autoSearchResults.status === 'empty'
+            ? t('mvDrawer.searchNoCandidate')
+            : ''
+    )
+  }, [autoSearchResults, currentTrackArtist, currentTrackTitle, open, t])
 
   const handleCustomMv = useCallback(() => {
     setUrlError('')
@@ -259,16 +283,11 @@ export default function MvSettingsDrawer({
           title: currentTrackTitle,
           artist: currentTrackArtist
         })
-        const items = getMvSearchItems(result, source)
+        const items = orderMvSearchItems(result, source)
         if (items.length === 0) continue
 
-        const bestEffort = getBestEffortMvSearchHit(result, source)
-        const orderedItems =
-          bestEffort?.id && !items.some((item) => item.id === bestEffort.id)
-            ? [bestEffort.result, ...items].filter((item) => item?.id)
-            : items
         setSearchQuery(mvQuery)
-        setSearchResults(orderedItems)
+        setSearchResults(items)
         return
       }
 
@@ -343,14 +362,14 @@ export default function MvSettingsDrawer({
         </div>
 
         <div className="lyrics-drawer-body">
-          <div className="mv-drawer-shortcuts" aria-label={t('mvDrawer.shortcutsAria', 'MV shortcuts')}>
+          <div className="mv-drawer-shortcuts" aria-label={t('mvDrawer.shortcutsAria')}>
             <span className="mv-drawer-shortcut">
               <kbd>Esc</kbd>
-              {t('mvDrawer.shortcutEsc', '快速退出 MV 界面')}
+              {t('mvDrawer.shortcutEsc')}
             </span>
             <span className="mv-drawer-shortcut">
               <kbd>F11</kbd>
-              {t('mvDrawer.shortcutF11', '全屏')}
+              {t('mvDrawer.shortcutF11')}
             </span>
           </div>
 
@@ -483,7 +502,8 @@ export default function MvSettingsDrawer({
                 </p>
                 {nowPlayingTitle && (
                   <p className="mv-drawer-now-playing-title" title={nowPlayingTitle}>
-                    {t('mvDrawer.videoTitleLabel')}{nowPlayingTitle}
+                    {t('mvDrawer.videoTitleLabel')}
+                    {nowPlayingTitle}
                     {nowPlayingAuthor ? ` - ${nowPlayingAuthor}` : ''}
                   </p>
                 )}
@@ -507,14 +527,37 @@ export default function MvSettingsDrawer({
               <button
                 className={`toggle-btn ${config.enableMV ? 'active' : ''}`}
                 onClick={() => {
+                  const nextValue = !config.enableMV
                   setConfig((prev) => ({
                     ...prev,
-                    enableMV: !prev.enableMV
+                    enableMV: nextValue,
+                    mvAsBackground: nextValue ? prev.mvAsBackground : false
                   }))
-                  if (config.enableMV && !config.mvAsBackground) setMvId(null)
+                  if (!nextValue && !config.mvAsBackgroundMain) setMvId(null)
                 }}
               >
                 {config.enableMV ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+              </button>
+            </div>
+
+            <div className="mv-drawer-row">
+              <div className="mv-drawer-row-info">
+                <span className="mv-drawer-label">{t('mvDrawer.autoSearchMv')}</span>
+                <span className="mv-drawer-value">{t('mvDrawer.autoSearchMvHint')}</span>
+              </div>
+              <button
+                type="button"
+                className={`toggle-btn ${config.autoSearchMV ? 'active' : ''}`}
+                onClick={() => {
+                  const nextValue = !config.autoSearchMV
+                  setConfig((prev) => ({
+                    ...prev,
+                    autoSearchMV: nextValue
+                  }))
+                  if (nextValue) onAutoSearchCurrentMv?.()
+                }}
+              >
+                {config.autoSearchMV ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
               </button>
             </div>
 
@@ -525,11 +568,13 @@ export default function MvSettingsDrawer({
               <button
                 className={`toggle-btn ${config.mvAsBackground ? 'active' : ''}`}
                 onClick={() => {
+                  const nextValue = !config.mvAsBackground
                   setConfig((prev) => ({
                     ...prev,
-                    mvAsBackground: !prev.mvAsBackground
+                    enableMV: nextValue ? true : prev.enableMV,
+                    mvAsBackground: nextValue
                   }))
-                  if (config.mvAsBackground && !config.enableMV) setMvId(null)
+                  if (!nextValue && !config.enableMV && !config.mvAsBackgroundMain) setMvId(null)
                 }}
               >
                 {config.mvAsBackground ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
@@ -543,18 +588,15 @@ export default function MvSettingsDrawer({
               <button
                 className={`toggle-btn ${config.mvAsBackgroundMain ? 'active' : ''}`}
                 onClick={() => {
+                  const nextValue = !config.mvAsBackgroundMain
                   setConfig((prev) => ({
                     ...prev,
-                    mvAsBackgroundMain: !prev.mvAsBackgroundMain
+                    mvAsBackgroundMain: nextValue
                   }))
-                  if (config.mvAsBackgroundMain && !config.enableMV) setMvId(null)
+                  if (!nextValue && !config.enableMV) setMvId(null)
                 }}
               >
-                {config.mvAsBackgroundMain ? (
-                  <ToggleRight size={28} />
-                ) : (
-                  <ToggleLeft size={28} />
-                )}
+                {config.mvAsBackgroundMain ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
               </button>
             </div>
 
@@ -694,7 +736,9 @@ export default function MvSettingsDrawer({
                 <div className="mv-drawer-row-info">
                   <span className="mv-drawer-label">{t('mvDrawer.bgBlur')}</span>
                   <span className="mv-drawer-value">
-                    {Math.round(config.mvBackgroundBlur !== undefined ? config.mvBackgroundBlur : 0)}
+                    {Math.round(
+                      config.mvBackgroundBlur !== undefined ? config.mvBackgroundBlur : 0
+                    )}
                     px
                   </span>
                 </div>
@@ -742,42 +786,6 @@ export default function MvSettingsDrawer({
               )}
             </section>
           )}
-
-          <section className="mv-drawer-section">
-            <h3 className="mv-drawer-section-title">{t('mvDrawer.account')}</h3>
-
-            <div className="mv-drawer-row">
-              <div className="mv-drawer-row-info">
-                <span className="mv-drawer-label">
-                  YouTube
-                  {signInStatus.youtube ? (
-                    <span className="signin-badge signed-in">{t('mvDrawer.signedIn')}</span>
-                  ) : (
-                    <span className="signin-badge not-signed">{t('mvDrawer.notSignedIn')}</span>
-                  )}
-                </span>
-              </div>
-              <button type="button" className="mv-drawer-action-btn" onClick={onYoutubeSignIn}>
-                {signInStatus.youtube ? t('mvDrawer.reSignIn') : t('mvDrawer.signIn')}
-              </button>
-            </div>
-
-            <div className="mv-drawer-row">
-              <div className="mv-drawer-row-info">
-                <span className="mv-drawer-label">
-                  Bilibili
-                  {signInStatus.bilibili ? (
-                    <span className="signin-badge signed-in">{t('mvDrawer.signedIn')}</span>
-                  ) : (
-                    <span className="signin-badge not-signed">{t('mvDrawer.notSignedIn')}</span>
-                  )}
-                </span>
-              </div>
-              <button type="button" className="mv-drawer-action-btn" onClick={onBilibiliSignIn}>
-                {signInStatus.bilibili ? t('mvDrawer.reSignIn') : t('mvDrawer.signIn')}
-              </button>
-            </div>
-          </section>
         </div>
       </aside>
     </>
