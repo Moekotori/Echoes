@@ -115,7 +115,12 @@
   "import": {
     "folder": "匯入資料夾",
     "files": "匯入檔案",
-    "clearPlaylist": "清空播放清單"
+    "clearPlaylist": "清空播放清單",
+    "cleanupMissing": "清理失效歌曲",
+    "cleanupMissingScanning": "正在檢查失效歌曲...",
+    "cleanupMissingDone": "已移除 {{count}} 首失效歌曲。",
+    "cleanupMissingNone": "沒有發現失效的本機歌曲。",
+    "cleanupMissingFailed": "檢查失效歌曲失敗：{{detail}}"
   },
   "search": {
     "placeholder": "搜尋曲目／藝人／專輯…"
@@ -572,8 +577,10 @@
     "wallpaperClear": "清除桌布",
     "wallpaperOpacity": "桌布透明度",
     "wallpaperBlur": "桌布模糊度",
+    "wallpaperBrightness": "桌布亮度",
     "coverOpacity": "封面透明度",
     "coverBlur": "封面模糊度",
+    "coverBrightness": "封面亮度",
     "coverControlsHint": "跟隨封面時會使用目前封面作為歌詞背景，可在這裡調整封面的透明度與模糊度。",
     "fontColor": "歌詞顏色",
     "fontColorHint": "只影響歌詞畫面的文字顏色；清除後會使用主題預設。",

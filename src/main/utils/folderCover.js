@@ -34,6 +34,10 @@ function scoreFolderCoverName(filePath) {
   return 100
 }
 
+function isPreferredFolderCoverCandidate(filePath) {
+  return scoreFolderCoverName(filePath) < 100
+}
+
 function normalizeImageStem(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -150,10 +154,12 @@ export function findFolderCoverDataUrl(audioPath) {
   try {
     const dirPath = dirname(audioPath)
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-    const candidates = entries
+    const images = entries
       .filter((entry) => entry.isFile())
       .map((entry) => join(dirPath, entry.name))
       .filter((filePath) => FOLDER_COVER_EXTS.has(extname(filePath).toLowerCase()))
+
+    const candidates = (images.length === 1 ? images : images.filter(isPreferredFolderCoverCandidate))
       .sort((a, b) => scoreFolderCoverName(a) - scoreFolderCoverName(b))
 
     for (const candidate of candidates) {

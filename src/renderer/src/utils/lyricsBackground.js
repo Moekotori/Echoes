@@ -5,6 +5,7 @@ export const DEFAULT_LYRICS_BACKGROUND_MODE = 'theme'
 export const DEFAULT_LYRICS_BACKGROUND_COLOR = '#101722'
 export const DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY = 1
 export const DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR = 10
+export const DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BRIGHTNESS = 1
 export const LYRICS_BACKGROUND_MODES = ['theme', 'cover', 'custom', 'wallpaper']
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
@@ -125,6 +126,17 @@ export function normalizeLyricsBackgroundWallpaperBlur(
   return Math.max(0, Math.min(40, Number.isFinite(n) ? n : safeFallback))
 }
 
+export function normalizeLyricsBackgroundWallpaperBrightness(
+  value,
+  fallback = DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BRIGHTNESS
+) {
+  const n = Number(value)
+  const safeFallback = Number.isFinite(Number(fallback))
+    ? Number(fallback)
+    : DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BRIGHTNESS
+  return Math.max(0.35, Math.min(1.4, Number.isFinite(n) ? n : safeFallback))
+}
+
 function buildThemeBackground(themePalette) {
   const palette = safePalette(themePalette)
   if (!palette) {
@@ -149,7 +161,7 @@ function buildThemeBackground(themePalette) {
   }
 }
 
-function buildCoverBackground({ coverPalette, coverUrl, opacity, blur, themePalette }) {
+function buildCoverBackground({ coverPalette, coverUrl, opacity, blur, brightness, themePalette }) {
   const palette = safePalette(coverPalette)
   if (!palette) {
     const theme = buildThemeBackground(themePalette)
@@ -161,7 +173,8 @@ function buildCoverBackground({ coverPalette, coverUrl, opacity, blur, themePale
           accentColor: theme.accentColor,
           wallpaperUrl: coverUrl,
           wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
-          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
+          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur),
+          wallpaperBrightness: normalizeLyricsBackgroundWallpaperBrightness(brightness)
         }
       : {
           background: 'linear-gradient(145deg, #101722 0%, #111827 52%, #05070d 100%)',
@@ -189,7 +202,8 @@ function buildCoverBackground({ coverPalette, coverUrl, opacity, blur, themePale
           background,
           wallpaperUrl: coverUrl,
           wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
-          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
+          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur),
+          wallpaperBrightness: normalizeLyricsBackgroundWallpaperBrightness(brightness)
         }
       : {})
   }
@@ -212,7 +226,7 @@ function buildCustomBackground(customColor) {
   }
 }
 
-function buildWallpaperBackground({ wallpaperUrl, opacity, blur, themePalette }) {
+function buildWallpaperBackground({ wallpaperUrl, opacity, blur, brightness, themePalette }) {
   const theme = buildThemeBackground(themePalette)
   if (!wallpaperUrl) return theme
   return {
@@ -222,7 +236,8 @@ function buildWallpaperBackground({ wallpaperUrl, opacity, blur, themePalette })
     accentColor: theme.accentColor,
     wallpaperUrl,
     wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
-    wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
+    wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur),
+    wallpaperBrightness: normalizeLyricsBackgroundWallpaperBrightness(brightness)
   }
 }
 
@@ -269,6 +284,7 @@ export function buildLyricsBackgroundPresentation({
   wallpaperUrl,
   wallpaperOpacity,
   wallpaperBlur,
+  wallpaperBrightness,
   coverUrl,
   coverPalette,
   themePalette
@@ -282,6 +298,7 @@ export function buildLyricsBackgroundPresentation({
             wallpaperUrl,
             opacity: wallpaperOpacity,
             blur: wallpaperBlur,
+            brightness: wallpaperBrightness,
             themePalette
           })
       : normalizedMode === 'theme'
@@ -291,6 +308,7 @@ export function buildLyricsBackgroundPresentation({
             coverUrl,
             opacity: wallpaperOpacity,
             blur: wallpaperBlur,
+            brightness: wallpaperBrightness,
             themePalette
           })
 
@@ -304,7 +322,8 @@ export function buildLyricsBackgroundPresentation({
         ? {
             '--lyrics-wallpaper-image': `url("${result.wallpaperUrl}")`,
             '--lyrics-wallpaper-opacity': result.wallpaperOpacity,
-            '--lyrics-wallpaper-blur': `${result.wallpaperBlur}px`
+            '--lyrics-wallpaper-blur': `${result.wallpaperBlur}px`,
+            '--lyrics-wallpaper-brightness': result.wallpaperBrightness
           }
         : {}),
       background: result.background,

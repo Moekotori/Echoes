@@ -12,10 +12,17 @@ function looksLikeSlashSideCredit(right) {
   return false
 }
 
+function looksLikeLatinInWordHyphen(value) {
+  return /^[\p{Script=Latin}\p{Number}]+(?:-[\p{Script=Latin}\p{Number}]+)+$/u.test(
+    String(value || '').trim()
+  )
+}
+
 export const parseArtistTitleFromName = (name = '') => {
   const separators = [' - ', ' – ', ' — ', '_', '／', '/', '-', '–', '—']
   for (const separator of separators) {
     if (!name.includes(separator)) continue
+    if (separator === '-' && looksLikeLatinInWordHyphen(name)) continue
     const [left, ...rest] = name.split(separator)
     if (!left || rest.length === 0) continue
     const leftPart = left.trim()

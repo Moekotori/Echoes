@@ -218,6 +218,7 @@ import {
   normalizeLyricsBackgroundColor,
   normalizeLyricsBackgroundMode,
   normalizeLyricsBackgroundWallpaperBlur,
+  normalizeLyricsBackgroundWallpaperBrightness,
   normalizeLyricsBackgroundWallpaperOpacity
 } from './utils/lyricsBackground'
 import {
@@ -365,6 +366,14 @@ function buildPathListFingerprint(paths = []) {
   return `${paths.length}:${(hash >>> 0).toString(36)}`
 }
 
+function buildStartupImportedFolderScanSignature(folders = [], paths = []) {
+  const folderKey = [...new Set((folders || []).map(normalizeImportedFolderPath).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
+    .join('\n')
+  const pathKey = buildPathListFingerprint([...(paths || [])].sort((a, b) => a.localeCompare(b)))
+  return `${buildPathListFingerprint(folderKey ? folderKey.split('\n') : [])}|${pathKey}`
+}
+
 const MENU_ANIM_MS = 160
 const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/Moekotori/Echoes/releases?per_page=6'
 const GITHUB_RELEASES_PAGE_URL = 'https://github.com/Moekotori/Echoes/releases'
@@ -398,6 +407,7 @@ const MV_NEXT_TRACK_PRELOAD_LEAD_SEC = 20
 const PLAYBACK_SESSION_LOCAL_KEY = 'nc_playback_session'
 const USER_SMART_COLLECTIONS_LOCAL_KEY = 'nc_user_smart_collections'
 const DISPLAY_METADATA_OVERRIDES_LOCAL_KEY = 'nc_display_metadata_overrides'
+const STARTUP_IMPORTED_FOLDER_SCAN_SIGNATURE_LOCAL_KEY = 'nc_startup_imported_folder_scan_signature'
 const MAX_MV_SEARCH_CACHE_ENTRIES = 24
 const MAX_BILI_STREAM_CACHE_ENTRIES = 12
 const MAX_LRCLIB_CACHE_ENTRIES = 40
@@ -410,7 +420,6 @@ const MAX_TRACK_META_COVER_ENTRIES = 720
 const LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE = 360
 const METADATA_PREFETCH_LIMIT = 96
 const ALBUM_METADATA_PREFETCH_LIMIT = 240
-const STARTUP_IMPORTED_FOLDER_RESCAN_DELAY_MS = 15000
 const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
 const ALBUM_METADATA_PARSE_BATCH_SIZE = 20
@@ -1262,6 +1271,10 @@ function normalizeConfigState(raw) {
   merged.lyricsBackgroundWallpaperBlur = normalizeLyricsBackgroundWallpaperBlur(
     merged.lyricsBackgroundWallpaperBlur,
     DEFAULT_CONFIG.lyricsBackgroundWallpaperBlur
+  )
+  merged.lyricsBackgroundWallpaperBrightness = normalizeLyricsBackgroundWallpaperBrightness(
+    merged.lyricsBackgroundWallpaperBrightness,
+    DEFAULT_CONFIG.lyricsBackgroundWallpaperBrightness
   )
   if (typeof merged.lyricsDeepSearchEnabled !== 'boolean') {
     merged.lyricsDeepSearchEnabled = DEFAULT_CONFIG.lyricsDeepSearchEnabled
@@ -4088,10 +4101,38 @@ export default function App() {
     const missing = missingLibraryPaths.length
       ? missingLibraryPaths
       : await scanMissingLibraryPaths()
-    if (!missing.length) return
+    if (!missing.length) return 0
     applyLibraryFolderDelta({ renamed: [], removedPaths: missing, added: [] })
     setMissingLibraryPaths([])
+    return missing.length
   }, [applyLibraryFolderDelta, missingLibraryPaths, scanMissingLibraryPaths])
+
+  const handleCleanupMissingLibraryFromToolbar = useCallback(async () => {
+    try {
+      const removedCount = await cleanupMissingLibraryPaths()
+      if (removedCount > 0) {
+        alert(
+          t('import.cleanupMissingDone', {
+            count: removedCount,
+            defaultValue: `Removed ${removedCount} missing track(s).`
+          })
+        )
+        return
+      }
+      alert(
+        t('import.cleanupMissingNone', {
+          defaultValue: 'No missing local tracks found.'
+        })
+      )
+    } catch (error) {
+      alert(
+        t('import.cleanupMissingFailed', {
+          detail: error?.message || String(error),
+          defaultValue: 'Could not check missing tracks: {{detail}}'
+        })
+      )
+    }
+  }, [cleanupMissingLibraryPaths, t])
 
   useEffect(() => {
     if (playlist.length === 0) {
@@ -4940,7 +4981,9 @@ export default function App() {
     }
   }, [libraryStateReady, importedFolders])
 
-  // Auto-rescan imported folders on startup to discover new files
+  // On startup, trust the persisted library first. A folder scan is only needed
+  // when an imported root has no cached tracks yet; updates should not rescan
+  // an already-hydrated library.
   useEffect(() => {
     if (!libraryStateReady || !importedFolders.length || !window.api?.rescanFolders) return
     if (startupImportedFolderRescanDoneRef.current) return
@@ -4951,6 +4994,35 @@ export default function App() {
       .filter((track) => isTrackInsideImportedFolders(track?.path, foldersForStartupRescan))
       .map((track) => track.path)
       .filter(Boolean)
+    const startupScanSignature = buildStartupImportedFolderScanSignature(
+      foldersForStartupRescan,
+      existingPathsForStartupRescan
+    )
+    const persistStartupScanSignature = () => {
+      try {
+        localStorage.setItem(
+          STARTUP_IMPORTED_FOLDER_SCAN_SIGNATURE_LOCAL_KEY,
+          startupScanSignature
+        )
+      } catch {
+        /* best-effort */
+      }
+      if (window.api?.appStateSet) {
+        void window.api.appStateSet('startupImportedFolderScanSignature', startupScanSignature)
+      }
+    }
+
+    if (existingPathsForStartupRescan.length > 0) {
+      const savedSignature =
+        getInitialAppStateValue('startupImportedFolderScanSignature') ||
+        localStorage.getItem(STARTUP_IMPORTED_FOLDER_SCAN_SIGNATURE_LOCAL_KEY) ||
+        ''
+      if (savedSignature !== startupScanSignature) {
+        persistStartupScanSignature()
+      }
+      return undefined
+    }
+
     const doRescan = async () => {
       try {
         let scannedTracks = []
@@ -4995,12 +5067,12 @@ export default function App() {
             })
           }
         }
+        persistStartupScanSignature()
       } catch (e) {
         console.error('Folder rescan failed:', e)
       }
     }
-    const delayMs =
-      existingPathsForStartupRescan.length > 0 ? STARTUP_IMPORTED_FOLDER_RESCAN_DELAY_MS : 0
+    const delayMs = 0
     startupImportedFolderRescanTimerRef.current = window.setTimeout(() => {
       startupImportedFolderRescanTimerRef.current = null
       void doRescan()
@@ -16567,6 +16639,7 @@ export default function App() {
       wallpaperUrl: lyricsWallpaperUrl,
       wallpaperOpacity: config.lyricsBackgroundWallpaperOpacity,
       wallpaperBlur: config.lyricsBackgroundWallpaperBlur,
+      wallpaperBrightness: config.lyricsBackgroundWallpaperBrightness,
       coverUrl: displaySafeCoverUrl,
       coverPalette: dynamicCoverTheme,
       themePalette: themePaletteForLyricsBackground
@@ -16577,6 +16650,7 @@ export default function App() {
     config.lyricsBackgroundColor,
     config.lyricsBackgroundWallpaperOpacity,
     config.lyricsBackgroundWallpaperBlur,
+    config.lyricsBackgroundWallpaperBrightness,
     lyricsWallpaperUrl,
     displaySafeCoverUrl,
     dynamicCoverTheme,
@@ -17676,6 +17750,19 @@ export default function App() {
                 aria-label={t('aria.exportPlaylist')}
               >
                 <Download size={17} />
+              </button>
+              <button
+                className="browser-toolbar-btn"
+                onClick={handleCleanupMissingLibraryFromToolbar}
+                title={
+                  libraryCleanupBusy
+                    ? t('import.cleanupMissingScanning', 'Checking missing tracks...')
+                    : t('import.cleanupMissing', 'Clean missing tracks')
+                }
+                aria-label={t('import.cleanupMissing', 'Clean missing tracks')}
+                disabled={libraryCleanupBusy}
+              >
+                <RotateCcw size={17} />
               </button>
               <button
                 className="browser-toolbar-btn browser-toolbar-btn--danger"
@@ -19376,6 +19463,7 @@ export default function App() {
                             }}
                           >
                             {config.lyricsWordHighlight !== false && lyricTimelineValid ? (
+                              lyricKaraokeStateList[idx]?.mode === 'enhanced' &&
                               lyricKaraokeStateList[idx]?.tokens?.length ? (
                                 <span className="lyric-line-main lyric-line-main--karaoke">
                                   {lyricKaraokeStateList[idx].tokens.map((token, tokenIdx) => {

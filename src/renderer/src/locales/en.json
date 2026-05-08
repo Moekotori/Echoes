@@ -154,7 +154,12 @@
   "import": {
     "folder": "Import Folder",
     "files": "Import Files",
-    "clearPlaylist": "Clear Playlist"
+    "clearPlaylist": "Clear Playlist",
+    "cleanupMissing": "Clean missing tracks",
+    "cleanupMissingScanning": "Checking missing tracks...",
+    "cleanupMissingDone": "Removed {{count}} missing track(s).",
+    "cleanupMissingNone": "No missing local tracks found.",
+    "cleanupMissingFailed": "Could not check missing tracks: {{detail}}"
   },
   "search": {
     "placeholder": "Search tracks / artist / album..."
@@ -1062,8 +1067,10 @@
     "wallpaperClear": "Clear wallpaper",
     "wallpaperOpacity": "Wallpaper opacity",
     "wallpaperBlur": "Wallpaper blur",
+    "wallpaperBrightness": "Wallpaper brightness",
     "coverOpacity": "Cover opacity",
     "coverBlur": "Cover blur",
+    "coverBrightness": "Cover brightness",
     "coverControlsHint": "Cover mode uses the current cover as the lyrics background; adjust its opacity and blur here.",
     "fontColor": "Lyrics color",
     "fontColorHint": "Overrides lyric text color in the lyrics view. Clear to use theme defaults.",

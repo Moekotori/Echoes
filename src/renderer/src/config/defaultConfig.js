@@ -187,6 +187,7 @@ export const DEFAULT_CONFIG = {
   lyricsBackgroundWallpaperPath: null,
   lyricsBackgroundWallpaperOpacity: 1,
   lyricsBackgroundWallpaperBlur: 10,
+  lyricsBackgroundWallpaperBrightness: 1,
   /** 歌词非活动行景深模糊效果 */
   lyricsBlurEffect: false,
   /** Text-only lyric readability boost. Disabled by default. */

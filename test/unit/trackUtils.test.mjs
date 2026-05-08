@@ -144,3 +144,15 @@ test('keeps normal metadata when it is not a truncated filename suffix', () => {
   assert.equal(identity.artist, 'Lyn')
   assert.equal(identity.source, 'metadata')
 })
+
+test('keeps Latin hyphenated titles intact', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: '鹿乃 - Stella-rium.flac',
+    title: 'Stella-rium',
+    artist: '鹿乃'
+  })
+
+  assert.equal(identity.title, 'Stella-rium')
+  assert.equal(identity.artist, '鹿乃')
+  assert.equal(identity.source, 'metadata')
+})

@@ -119,7 +119,12 @@
   "import": {
     "folder": "导入文件夹",
     "files": "导入文件",
-    "clearPlaylist": "清空播放列表"
+    "clearPlaylist": "清空播放列表",
+    "cleanupMissing": "清理失效歌曲",
+    "cleanupMissingScanning": "正在检查失效歌曲...",
+    "cleanupMissingDone": "已移除 {{count}} 首失效歌曲。",
+    "cleanupMissingNone": "没有发现失效的本地歌曲。",
+    "cleanupMissingFailed": "检查失效歌曲失败：{{detail}}"
   },
   "search": {
     "placeholder": "搜索曲目 / 艺人 / 专辑…"
@@ -979,8 +984,10 @@
     "wallpaperClear": "清除壁纸",
     "wallpaperOpacity": "壁纸透明度",
     "wallpaperBlur": "壁纸模糊度",
+    "wallpaperBrightness": "壁纸亮度",
     "coverOpacity": "封面透明度",
     "coverBlur": "封面模糊度",
+    "coverBrightness": "封面亮度",
     "coverControlsHint": "跟随封面时使用当前封面作为歌词背景，可在这里调节封面的透明度和模糊度。",
     "fontColor": "歌词颜色",
     "fontColorHint": "仅影响歌词界面文字颜色；清空将使用主题默认。",

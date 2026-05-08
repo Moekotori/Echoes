@@ -139,6 +139,7 @@ import {
   findInfoSidecarCoverDataUrl,
   readInfoSidecarMetadata
 } from './utils/folderCover.js'
+import { readWavInfoTags } from './utils/wavInfoTags.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
 import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
 import { repairPossiblyMojibakeSearchQuery } from './utils/mojibakeRepair.js'
@@ -5018,6 +5019,65 @@ app.whenReady().then(async () => {
     return name
   }
 
+  function isReadableMetadataText(value) {
+    const text = String(value || '').trim()
+    if (!text) return false
+    if (text.includes('\ufffd')) return false
+    const controlMatches = text.match(/[\u0001-\u001f\u007f]/g) || []
+    if (controlMatches.length >= 2) return false
+    return true
+  }
+
+  function firstReadableMetadataText(...values) {
+    for (const value of values) {
+      const text = String(value || '').trim()
+      if (isReadableMetadataText(text)) return text
+    }
+    return ''
+  }
+
+  function stripTrackNumberPrefix(value) {
+    return String(value || '')
+      .replace(/^\s*\d{1,3}[.)\-\s_]+/, '')
+      .trim()
+  }
+
+  function normalizeIdentityCompareText(value) {
+    return stripTrackNumberPrefix(value)
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .trim()
+  }
+
+  function parseLocalFilenameIdentity(filePath) {
+    const stem = stripTrackNumberPrefix(basename(filePath, extname(filePath)))
+    const dashMatch = stem.match(/^(.+?)[\s_-]*[-–—]\s*(.+)$/)
+    if (dashMatch?.[1] && dashMatch?.[2]) {
+      return {
+        artist: dashMatch[1].replace(/[_/]+/g, ' / ').replace(/\s+/g, ' ').trim(),
+        title: dashMatch[2].trim()
+      }
+    }
+
+    const underscoreMatch = stem.match(/^(.+?)_(.+)$/)
+    if (underscoreMatch?.[1] && underscoreMatch?.[2]) {
+      return {
+        artist: underscoreMatch[1].trim(),
+        title: underscoreMatch[2].trim()
+      }
+    }
+
+    return { artist: '', title: stem }
+  }
+
+  function matchesLocalFilenameStem(value, filePath) {
+    return (
+      normalizeIdentityCompareText(value) ===
+      normalizeIdentityCompareText(basename(filePath, extname(filePath)))
+    )
+  }
+
   async function buildExtendedMetadataResponse(filePath) {
     const requestedPath = filePath
     const cueTrack = parseCueVirtualPath(requestedPath)
@@ -5030,6 +5090,8 @@ app.whenReady().then(async () => {
 
       const extLower = extname(filePath).toLowerCase()
       const infoSidecar = readInfoSidecarMetadata(filePath)
+      const wavInfoTags = readWavInfoTags(filePath)
+      const filenameIdentity = parseLocalFilenameIdentity(filePath)
       const isDsdFile = extLower === '.dsf' || extLower === '.dff'
       const fileSizeBytes = getLocalFileSizeBytes(filePath)
       const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
@@ -5103,6 +5165,39 @@ app.whenReady().then(async () => {
         ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
         : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
       const displayDuration = getCueDuration(requestedPath, durationSec || infoSidecar?.duration || 0)
+      const rawTitle = firstReadableMetadataText(
+        cueTrack?.title,
+        wavInfoTags.title,
+        metadata.common.title,
+        ffmpegInfo?.tags?.title,
+        getReadableInfoSidecarName(infoSidecar),
+        basename(filePath, extname(filePath))
+      )
+      const titleFromFilename = matchesLocalFilenameStem(rawTitle, filePath)
+        ? filenameIdentity.title || rawTitle
+        : rawTitle
+      const artistFromFilename = matchesLocalFilenameStem(rawTitle, filePath)
+        ? filenameIdentity.artist || ''
+        : ''
+      const rawArtist = firstReadableMetadataText(
+        cueTrack?.artist,
+        artistFromFilename,
+        wavInfoTags.artist,
+        metadata.common.artist,
+        ffmpegInfo?.tags?.artist,
+        'Unknown Artist'
+      )
+      const rawAlbum = firstReadableMetadataText(
+        cueTrack?.albumTitle,
+        wavInfoTags.album,
+        metadata.common.album,
+        ffmpegInfo?.tags?.album
+      )
+      const rawAlbumArtist = firstReadableMetadataText(
+        metadata.common.albumartist,
+        metadata.common.albumArtist,
+        ffmpegInfo?.tags?.albumArtist
+      )
 
       return {
         success: true,
@@ -5122,23 +5217,10 @@ app.whenReady().then(async () => {
             metadata.format.container?.toLowerCase() === 'wav'
         },
         common: {
-          title:
-            cueTrack?.title ||
-            metadata.common.title ||
-            ffmpegInfo?.tags?.title ||
-            getReadableInfoSidecarName(infoSidecar) ||
-            basename(filePath, extname(filePath)),
-          artist:
-            cueTrack?.artist ||
-            metadata.common.artist ||
-            ffmpegInfo?.tags?.artist ||
-            'Unknown Artist',
-          album: cueTrack?.albumTitle || metadata.common.album || ffmpegInfo?.tags?.album,
-          albumArtist:
-            metadata.common.albumartist ||
-            metadata.common.albumArtist ||
-            ffmpegInfo?.tags?.albumArtist ||
-            null,
+          title: titleFromFilename || basename(filePath, extname(filePath)),
+          artist: rawArtist || 'Unknown Artist',
+          album: rawAlbum || null,
+          albumArtist: rawAlbumArtist || null,
           trackNo: metadata.common.track?.no ?? null,
           discNo: metadata.common.disk?.no ?? null,
           bpm: extractBpmMetadataValue(metadata) || infoSidecar?.bpm || null,
@@ -5677,12 +5759,27 @@ app.whenReady().then(async () => {
       if (!fs.existsSync(resolvedPath)) throw new Error('Audio file not found')
       const { parseFile, selectCover } = await import('music-metadata')
       const metadata = await parseFile(resolvedPath)
+      const wavInfoTags = readWavInfoTags(resolvedPath)
+      const filenameIdentity = parseLocalFilenameIdentity(resolvedPath)
+      const rawTitle = firstReadableMetadataText(
+        wavInfoTags.title,
+        metadata.common.title,
+        basename(resolvedPath, extname(resolvedPath))
+      )
+      const title = matchesLocalFilenameStem(rawTitle, resolvedPath)
+        ? filenameIdentity.title || rawTitle
+        : rawTitle
+      const artist = firstReadableMetadataText(
+        matchesLocalFilenameStem(rawTitle, resolvedPath) ? filenameIdentity.artist : '',
+        wavInfoTags.artist,
+        metadata.common.artist
+      )
       const cover = selectCover(metadata.common.picture)
       return {
-        title: metadata.common.title || basename(resolvedPath, extname(resolvedPath)),
-        artist: metadata.common.artist || '',
+        title,
+        artist,
         albumArtist: metadata.common.albumartist || metadata.common.albumArtist || '',
-        album: metadata.common.album || '',
+        album: firstReadableMetadataText(wavInfoTags.album, metadata.common.album),
         trackNumber: metadata.common.track?.no ? String(metadata.common.track.no) : '',
         year: metadata.common.year ? String(metadata.common.year) : '',
         genre: Array.isArray(metadata.common.genre)

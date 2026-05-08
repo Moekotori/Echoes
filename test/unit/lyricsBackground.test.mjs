@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import {
   buildLyricsBackgroundPresentation,
   normalizeLyricsBackgroundColor,
-  normalizeLyricsBackgroundMode
+  normalizeLyricsBackgroundMode,
+  normalizeLyricsBackgroundWallpaperBrightness
 } from '../../src/renderer/src/utils/lyricsBackground.js'
 
 test('normalizes lyrics background mode and color', () => {
@@ -12,6 +13,8 @@ test('normalizes lyrics background mode and color', () => {
   assert.equal(normalizeLyricsBackgroundMode('unexpected'), 'theme')
   assert.equal(normalizeLyricsBackgroundColor('#abc123'), '#ABC123')
   assert.equal(normalizeLyricsBackgroundColor('not-a-color'), '#101722')
+  assert.equal(normalizeLyricsBackgroundWallpaperBrightness(2), 1.4)
+  assert.equal(normalizeLyricsBackgroundWallpaperBrightness(0.1), 0.35)
 })
 
 test('theme mode is the default lyrics page background', () => {
@@ -46,6 +49,16 @@ test('cover mode creates a dark readable background from cover palette', () => {
   assert.match(result.className, /main-player--lyrics-bg-cover/)
   assert.match(result.style.background, /color-mix/)
   assert.equal(result.style['--text-main'], '#f8fbff')
+})
+
+test('media lyrics backgrounds expose brightness control', () => {
+  const result = buildLyricsBackgroundPresentation({
+    mode: 'wallpaper',
+    wallpaperUrl: 'file:///cover.jpg',
+    wallpaperBrightness: 0.7
+  })
+
+  assert.equal(result.style['--lyrics-wallpaper-brightness'], 0.7)
 })
 
 test('cover mode does not borrow theme colors while waiting for cover palette', () => {
