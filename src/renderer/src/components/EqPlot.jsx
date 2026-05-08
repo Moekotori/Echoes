@@ -269,7 +269,8 @@ export function EqPlot({
     const dpr = window.devicePixelRatio || 1
     const w = Math.max(1, Math.floor(wrap.clientWidth))
     const h = Math.max(1, Math.floor(wrap.clientHeight))
-    layoutRef.current = { width: w, height: h, dpr }
+    const rect = canvas.getBoundingClientRect()
+    layoutRef.current = { width: w, height: h, dpr, left: rect.left }
     canvas.width = w * dpr
     canvas.height = h * dpr
     const ctx = canvas.getContext('2d')
@@ -741,10 +742,9 @@ export function EqPlot({
   }
 
   const handleWheel = (e) => {
-    const { width } = layoutSize()
-    const rect = canvasRef.current?.getBoundingClientRect()
-    const wx = rect ? e.clientX - rect.left : 0
-    const closestIdx = findNearestByX(wx, width || rect?.width || 1)
+    const { width, left } = layoutSize()
+    const wx = left !== undefined ? e.clientX - left : 0
+    const closestIdx = findNearestByX(wx, width || 1)
     if (closestIdx !== null) {
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.05 : 0.05

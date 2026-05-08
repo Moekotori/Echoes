@@ -169,6 +169,7 @@ export default function QueueSidebarView({
 }) {
   const { t } = useTranslation()
   const listRef = useRef(null)
+  const queueScrollRafRef = useRef(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [selectedPaths, setSelectedPaths] = useState(() => new Set())
@@ -245,7 +246,11 @@ export default function QueueSidebarView({
     if (!node) return undefined
     const sync = () => {
       setViewportHeight(node.clientHeight || 0)
-      setScrollTop(node.scrollTop || 0)
+      if (queueScrollRafRef.current) return
+      queueScrollRafRef.current = requestAnimationFrame(() => {
+        queueScrollRafRef.current = null
+        setScrollTop(node.scrollTop || 0)
+      })
     }
     sync()
     if (typeof ResizeObserver === 'undefined') {
@@ -570,7 +575,14 @@ export default function QueueSidebarView({
         <div
           ref={listRef}
           className="queue-sidebar-list"
-          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop || 0)}
+          onScroll={() => {
+            if (queueScrollRafRef.current) return
+            queueScrollRafRef.current = requestAnimationFrame(() => {
+              queueScrollRafRef.current = null
+              const node = listRef.current
+              if (node) setScrollTop(node.scrollTop || 0)
+            })
+          }}
         >
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>

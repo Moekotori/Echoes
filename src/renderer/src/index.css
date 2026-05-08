@@ -2909,6 +2909,8 @@ body {
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   scrollbar-color: color-mix(in srgb, var(--accent-pink) 38%, rgba(255, 255, 255, 0.12)) transparent;
+  contain: layout style paint;
+  will-change: scroll-position;
 }
 
 .playlist.playlist-album-mode {

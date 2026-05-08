@@ -5366,6 +5366,8 @@ export default function App() {
   const lyricsInstantScrollUntilRef = useRef(0)
   const activeLyricIndexRef = useRef(activeLyricIndex)
   const sidebarPlaylistRef = useRef(null)
+  const sidebarScrollRafRef = useRef(null)
+  const pendingScrollMetricsRef = useRef(null)
   const sidebarScrollbarDragRef = useRef(null)
   const albumGridRef = useRef(null)
   const albumOverviewScrollTopRef = useRef(0)
@@ -13223,9 +13225,21 @@ export default function App() {
   }, [libraryBrowserVisible, listMode, selectedUserPlaylistId, selectedSmartCollectionId])
 
   const handleSidebarScroll = useCallback((event) => {
-    setSidebarScrollHeight(event.currentTarget.scrollHeight || 0)
-    setSidebarViewportHeight(event.currentTarget.clientHeight || 0)
-    setSidebarScrollTop(event.currentTarget.scrollTop || 0)
+    pendingScrollMetricsRef.current = {
+      scrollHeight: event.currentTarget.scrollHeight || 0,
+      clientHeight: event.currentTarget.clientHeight || 0,
+      scrollTop: event.currentTarget.scrollTop || 0
+    }
+    if (sidebarScrollRafRef.current) return
+    sidebarScrollRafRef.current = requestAnimationFrame(() => {
+      sidebarScrollRafRef.current = null
+      const m = pendingScrollMetricsRef.current
+      if (!m) return
+      pendingScrollMetricsRef.current = null
+      setSidebarScrollHeight(m.scrollHeight)
+      setSidebarViewportHeight(m.clientHeight)
+      setSidebarScrollTop(m.scrollTop)
+    })
   }, [])
 
   const sidebarScrollbarMetrics = useMemo(() => {
@@ -17829,7 +17843,7 @@ export default function App() {
                                 aria-hidden
                               >
                                 {track.info.cover ? (
-                                  <img src={track.info.cover} alt="" draggable={false} />
+                                  <img src={track.info.cover} alt="" draggable={false} loading="lazy" decoding="async" />
                                 ) : (
                                   <Music size={17} />
                                 )}
