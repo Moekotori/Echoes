@@ -82,7 +82,7 @@ test('normalizePlaybackSession safely rejects invalid payloads', () => {
 })
 
 test('normalizePlaybackContext preserves scoped playback group kinds', () => {
-  for (const kind of ['userPlaylist', 'smartCollection', 'albumGroup', 'folderGroup']) {
+  for (const kind of ['userPlaylist', 'smartCollection', 'albumGroup', 'folderGroup', 'streaming']) {
     assert.deepEqual(
       normalizePlaybackContext(createPlaybackContext(kind, `${kind}-key`, ['A', 'B', 'A'])),
       {

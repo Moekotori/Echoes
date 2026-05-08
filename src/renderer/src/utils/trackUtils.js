@@ -31,6 +31,79 @@ export const parseArtistTitleFromName = (name = '') => {
   return null
 }
 
+function normalizeIdentityText(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[‐-―−]/g, '-')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
+function isUnknownArtistName(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return !normalized || normalized === 'unknown artist'
+}
+
+function looksLikeTrailingDashTitleFragment(metaTitle = '', fileTitle = '') {
+  const title = String(metaTitle || '').trim()
+  const parsedTitle = String(fileTitle || '').trim()
+  if (!title || !parsedTitle) return false
+
+  const normalizedTitle = normalizeIdentityText(title)
+  const normalizedParsedTitle = normalizeIdentityText(parsedTitle)
+  if (!normalizedTitle || !normalizedParsedTitle) return false
+  if (normalizedTitle.length >= normalizedParsedTitle.length) return false
+  if (!normalizedParsedTitle.endsWith(normalizedTitle)) return false
+
+  const prefix = normalizedParsedTitle.slice(0, -normalizedTitle.length)
+  if (!prefix.endsWith('-')) return false
+
+  return /-$/.test(title) || normalizedTitle.length <= 18
+}
+
+export function resolveTrackIdentityFromMetadata({
+  fileName = '',
+  title = '',
+  artist = '',
+  albumArtist = ''
+} = {}) {
+  const strippedFileName = stripExtension(fileName || '')
+  const parsedFromFile = parseArtistTitleFromName(strippedFileName)
+  const parsedFromMetaTitle = title ? parseArtistTitleFromName(title) : null
+
+  const validMetaArtist = !isUnknownArtistName(artist) ? artist : ''
+  const validAlbumArtist = !isUnknownArtistName(albumArtist) ? albumArtist : ''
+  const resolvedTitle = parsedFromMetaTitle?.title || title || parsedFromFile?.title || strippedFileName
+  const resolvedArtist =
+    validMetaArtist ||
+    validAlbumArtist ||
+    parsedFromMetaTitle?.artist ||
+    parsedFromFile?.artist ||
+    'Unknown Artist'
+
+  if (
+    parsedFromFile?.title &&
+    parsedFromFile?.artist &&
+    looksLikeTrailingDashTitleFragment(title, parsedFromFile.title)
+  ) {
+    const normalizedArtist = normalizeIdentityText(validMetaArtist || validAlbumArtist)
+    const normalizedFileArtist = normalizeIdentityText(parsedFromFile.artist)
+    const keepMetaArtist = normalizedArtist && normalizedArtist === normalizedFileArtist
+
+    return {
+      title: parsedFromFile.title,
+      artist: keepMetaArtist ? validMetaArtist || validAlbumArtist : parsedFromFile.artist,
+      source: 'filename'
+    }
+  }
+
+  return {
+    title: resolvedTitle,
+    artist: resolvedArtist,
+    source: title || validMetaArtist || validAlbumArtist ? 'metadata' : 'filename'
+  }
+}
+
 export const toOrderNumber = (value) => {
   const n = Number(value)
   return Number.isFinite(n) && n > 0 ? n : Number.MAX_SAFE_INTEGER
@@ -61,6 +134,30 @@ export const compareTrackFrequent = (a, b, trackStats = {}) => {
   return compareTrackOrder(a, b)
 }
 
+function hashTrackRandomKey(value) {
+  const text = String(value || '')
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function hashTrackRandomRank(value) {
+  const high = hashTrackRandomKey(`h:${value}`) & 0x1fffff
+  const low = hashTrackRandomKey(`l:${value}`)
+  return high * 0x100000000 + low
+}
+
+export const compareTrackRandom = (a, b, seed = 0) => {
+  const seedText = String(seed || 0)
+  const aKey = hashTrackRandomRank(`${seedText}:${a?.path || a?.info?.fileName || ''}`)
+  const bKey = hashTrackRandomRank(`${seedText}:${b?.path || b?.info?.fileName || ''}`)
+  if (aKey !== bKey) return aKey - bKey
+  return compareTrackOrder(a, b)
+}
+
 export const parseTrackInfo = (track, meta) => {
   const rawName = track?.name || ''
   const fileName = stripExtension(rawName)
@@ -70,7 +167,6 @@ export const parseTrackInfo = (track, meta) => {
   const trackNoFromName = fileName.match(/^\s*(\d{1,3})[.)\-\s_]+/)?.[1] || null
   const noTrackNo = fileName.replace(/^\s*\d+[.)\-\s_]+/, '').trim()
   const normalized = noTrackNo || fileName
-  const parsedFromFile = parseArtistTitleFromName(normalized)
   const parsedFromMeta = meta?.title ? parseArtistTitleFromName(meta.title) : null
   /** Slash+cover 启发式时只返回 title，不把左侧当歌手 */
   const metaTitleForUi =
@@ -78,15 +174,14 @@ export const parseTrackInfo = (track, meta) => {
       ? parsedFromMeta.title
       : null
 
-  const metaArtist = meta?.artist && meta.artist !== 'Unknown Artist' ? meta.artist : null
-  const artist =
-    metaArtist ||
-    meta?.albumArtist ||
-    parsedFromMeta?.artist ||
-    parsedFromFile?.artist ||
-    'Unknown Artist'
-  const title =
-    metaTitleForUi || meta?.title || parsedFromFile?.title || normalized || 'Unknown Track'
+  const resolvedIdentity = resolveTrackIdentityFromMetadata({
+    fileName: normalized,
+    title: metaTitleForUi || meta?.title || '',
+    artist: meta?.artist || '',
+    albumArtist: meta?.albumArtist || ''
+  })
+  const artist = resolvedIdentity.artist || 'Unknown Artist'
+  const title = resolvedIdentity.title || normalized || 'Unknown Track'
 
   return {
     fileName,

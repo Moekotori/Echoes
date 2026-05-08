@@ -347,7 +347,14 @@ export function rankLrcLibCandidates(payload, audioDuration, options = {}) {
 }
 
 const MIN_CONFIDENCE = 28
-const ONLINE_LYRICS_SOURCES = new Set(['lrclib', 'netease', 'qq', 'kugou', 'kuwo', 'external'])
+const ONLINE_LYRICS_SOURCES = new Set([
+  'lrclib',
+  'netease',
+  'qq',
+  'kugou',
+  'kuwo',
+  'external'
+])
 
 // Placeholders that mean "we don't actually know the artist" so we shouldn't
 // use artistSim as a discriminator (otherwise we'd reject correct lyrics for

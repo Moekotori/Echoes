@@ -31,7 +31,7 @@ test('user playlist next and previous stay inside playback context', () => {
 })
 
 test('non-library contexts filter out global library tracks', () => {
-  for (const kind of ['smartCollection', 'albumGroup', 'folderGroup']) {
+  for (const kind of ['smartCollection', 'albumGroup', 'folderGroup', 'streaming']) {
     const sequence = resolvePlaybackSequence({
       libraryPaths,
       currentPath: 'D',

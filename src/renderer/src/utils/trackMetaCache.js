@@ -99,9 +99,15 @@ export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
   if (!entry || typeof entry !== 'object') return false
   const lowerPath = String(path || '').toLowerCase()
   const codec = String(entry.codec || '').toLowerCase()
+  const sampleRate = Number(entry.sampleRateHz || entry.sampleRate || 0)
+  const bitrateKbps = Number(entry.bitrateKbps || 0)
+  const duration = Number(entry.duration || 0)
   const isAlacLike = /\.(m4a|m4b|alac)(?:#|$)/i.test(lowerPath) || codec.includes('alac')
-  if (!isAlacLike) return false
-  return !Number(entry.sampleRateHz || entry.sampleRate || 0) || !Number(entry.bitDepth || 0)
+  if (isAlacLike) return !sampleRate || !Number(entry.bitDepth || 0)
+
+  const isMp3PathWithAacMetadata = /\.mp3(?:#|$)/i.test(lowerPath) && codec.includes('aac')
+  if (!isMp3PathWithAacMetadata) return false
+  return sampleRate < 32000 || bitrateKbps > 20000 || (duration > 0 && duration < 1)
 }
 
 export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {}) {

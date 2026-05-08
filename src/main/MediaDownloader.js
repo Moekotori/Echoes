@@ -303,6 +303,12 @@ export function buildYoutubeCookieArgs(url, options = {}) {
   return ['--cookies-from-browser', browser]
 }
 
+export function buildSoundCloudCookieArgs(url, options = {}) {
+  if (!isSoundCloudUrl(url)) return []
+  const cookieFile = normalizeCookieFile(options.soundCloudCookieFile)
+  return cookieFile ? ['--cookies', cookieFile] : []
+}
+
 function resolveNodeRuntimeArg() {
   const candidates = [
     process.env.npm_node_execpath,
@@ -338,6 +344,7 @@ export function buildYtDlpMetadataArgs(url, options = {}) {
     ...buildYoutubeChallengeArgs(normalizedUrl),
     ...forceSinglePartArgs,
     ...buildYoutubeCookieArgs(normalizedUrl, options),
+    ...buildSoundCloudCookieArgs(normalizedUrl, options),
     normalizedUrl
   ]
 }
@@ -410,6 +417,7 @@ function buildYtDlpAudioArgs(url, outputPattern, options = {}) {
   }
   extraArgs.push(...buildYoutubeChallengeArgs(url))
   extraArgs.push(...buildYoutubeCookieArgs(url, options))
+  extraArgs.push(...buildSoundCloudCookieArgs(url, options))
 
   const postProcessArgs = quickMode
     ? []
@@ -456,7 +464,8 @@ export default class MediaDownloader {
   static getMetadata(url, options = {}) {
     const normalizedUrl = String(url || '').trim()
     const cookieFile = normalizeCookieFile(options.youtubeCookieFile)
-    const cacheKey = `${normalizedUrl}::yt-cookie-file=${cookieFile}::yt-browser=${normalizeCookieBrowser(options.youtubeCookieBrowser)}`
+    const soundCloudCookieFile = normalizeCookieFile(options.soundCloudCookieFile)
+    const cacheKey = `${normalizedUrl}::yt-cookie-file=${cookieFile}::yt-browser=${normalizeCookieBrowser(options.youtubeCookieBrowser)}::sc-cookie-file=${soundCloudCookieFile}`
     const cached = readTimedCache(metadataCache, cacheKey, METADATA_CACHE_TTL_MS)
     if (cached) {
       console.log(`[MediaDownloader] metadata cache hit: ${normalizedUrl}`)

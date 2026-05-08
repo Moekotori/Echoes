@@ -1,4 +1,5 @@
 import ffmpeg from 'fluent-ffmpeg'
+import fs from 'fs'
 import { Transform, Writable } from 'stream'
 import { createRequire } from 'module'
 import {
@@ -8,7 +9,11 @@ import {
 } from './NativeAudioBridge.js'
 import { createEqFloatProcessor } from './eqFloatProcessor.js'
 import { getResolvedFfmpegStaticPath } from '../utils/resolveFfmpegStaticPath.js'
-import { getFfmpegAudioInfo } from '../utils/ffmpegProbeAudioInfo.js'
+import {
+  getFfmpegAudioInfo,
+  shouldPreferFfmpegAudioInfo,
+  shouldUseFfmpegAudioInfo
+} from '../utils/ffmpegProbeAudioInfo.js'
 import { logLine } from '../utils/logLine.js'
 import { VstBridge } from './VstBridge.js'
 import { getCueAudioPath, parseCueVirtualPath, toCueAbsoluteTime } from '../../shared/cueTracks.mjs'
@@ -60,6 +65,14 @@ function trimMapCache(cache, maxEntries) {
     const firstKey = cache.keys().next().value
     if (firstKey === undefined) break
     cache.delete(firstKey)
+  }
+}
+
+function getLocalFileSizeBytes(filePath) {
+  try {
+    return fs.statSync(filePath).size || 0
+  } catch {
+    return 0
   }
 }
 
@@ -124,6 +137,23 @@ class AudioProcessor extends Transform {
     // / DSD-to-PCM) hit this dozens of times per second, and the avoided
     // allocations remove a steady source of GC pressure on the main thread.
     if (!eqActive && !automixActive && !volActive) {
+      if (engine._outputSink && engine.isPlaying) {
+        this.push(chunk)
+      }
+      this.bytesWritten += chunk.byteLength
+      if (!engine._bridge) {
+        const secondsProcessed =
+          (this.bytesWritten / (this.targetSampleRate * this.channels * 4)) * this.playbackRate
+        engine.playbackTime = Math.max(0, this.startTime + secondsProcessed)
+      }
+      return callback()
+    }
+
+    if (!eqActive && !automixActive && volActive) {
+      const samples = new Float32Array(chunk.buffer, chunk.byteOffset, chunk.byteLength / 4)
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] *= vol
+      }
       if (engine._outputSink && engine.isPlaying) {
         this.push(chunk)
       }
@@ -426,6 +456,8 @@ export class AudioEngine {
     this._automixSerial = 0
     this._onAutomixTrackChanged = null
     this._directNativePipe = false
+    this._directNativePipeVolume = 1.0
+    this._directNativeVolumeRestartTimer = null
 
     if (this._useNativeBridge) {
       // Avoid Unicode punctuation in Windows consoles (can render as mojibake).
@@ -1163,12 +1195,43 @@ export class AudioEngine {
     if (this.vstBridge?.enabled) return false
     if (this._automixState && !this._automixState.cancelled) return false
     if (this._eqProcessor && !this._eqProcessor.bypass) return false
-    if (Math.abs((Number(this.volume) || 0) - 1) > 1e-6) return false
     return true
+  }
+
+  _clearDirectNativeVolumeRestartTimer() {
+    if (!this._directNativeVolumeRestartTimer) return
+    clearTimeout(this._directNativeVolumeRestartTimer)
+    this._directNativeVolumeRestartTimer = null
+  }
+
+  _restartDirectNativePipe(reason = 'native-pipe-refresh') {
+    if (!this._directNativePipe || !this.currentFilePath || !this.isPlaying) return
+    this._clearDirectNativeVolumeRestartTimer()
+    const resumeAt =
+      this._bridge && this._bridge.isReady
+        ? Math.max(0, Number(this._bridge.getPosition()) || 0)
+        : Math.max(0, Number(this.playbackTime) || 0)
+    const filePath = this.currentFilePath
+    const rate = this.playbackRate
+    this._directNativePipe = false
+    logLine(`[AudioEngine] Direct native PCM pipe restarting: ${reason}`)
+    this.play(filePath, resumeAt, rate).catch((e) => {
+      console.warn('[AudioEngine] Failed to restart direct pipe:', e?.message || e)
+    })
+  }
+
+  _scheduleDirectNativePipeRestart(reason = 'native-pipe-refresh') {
+    if (!this._directNativePipe || !this.currentFilePath || !this.isPlaying) return
+    this._clearDirectNativeVolumeRestartTimer()
+    this._directNativeVolumeRestartTimer = setTimeout(() => {
+      this._directNativeVolumeRestartTimer = null
+      this._restartDirectNativePipe(reason)
+    }, 180)
   }
 
   _restartDirectNativePipeWithProcessor(reason = 'dsp-enabled') {
     if (!this._directNativePipe || !this.currentFilePath || !this.isPlaying) return
+    this._clearDirectNativeVolumeRestartTimer()
     const resumeAt =
       this._bridge && this._bridge.isReady
         ? Math.max(0, Number(this._bridge.getPosition()) || 0)
@@ -1396,11 +1459,13 @@ export class AudioEngine {
 
       if (this._shouldUseDirectNativePipe({ forceProcessor })) {
         this._directNativePipe = true
+        this._directNativePipeVolume = this.volume
         this.processor = null
         this.ffmpegProcess.pipe(this._outputSink)
         logLine('[AudioEngine] Direct native PCM pipe active (no JS DSP)')
       } else {
         this._directNativePipe = false
+        this._directNativePipeVolume = 1.0
         this.ffmpegProcess.pipe(this.processor)
       }
 
@@ -1701,8 +1766,12 @@ export class AudioEngine {
   setVolume(vol) {
     this._userVolume = vol
     this.volume = vol
-    if (this._directNativePipe && Math.abs((Number(vol) || 0) - 1) > 1e-6) {
-      this._restartDirectNativePipeWithProcessor('volume-non-unity')
+    if (
+      this._directNativePipe &&
+      Math.abs((Number(vol) || 0) - (Number(this._directNativePipeVolume) || 0)) > 0.005
+    ) {
+      this._directNativePipeVolume = vol
+      this._scheduleDirectNativePipeRestart('volume-changed')
     }
   }
   getVolume() {
@@ -1833,6 +1902,7 @@ export class AudioEngine {
 
   async _releaseResources() {
     if (this._automixState) this.cancelAutomix()
+    this._clearDirectNativeVolumeRestartTimer()
 
     if (this._pcmInputStream) {
       try {
@@ -1853,6 +1923,7 @@ export class AudioEngine {
       this.processor = null
     }
     this._directNativePipe = false
+    this._directNativePipeVolume = 1.0
 
     if (this.ffmpegProcess) {
       try {
@@ -1958,19 +2029,32 @@ export class AudioEngine {
       const { parseFile } = await import('music-metadata')
       const meta = await parseFile(filePath, { duration: false })
       const codecName = (meta.format.codec || meta.format.container || '').toLowerCase()
-      const needsProbe =
-        !Number(meta.format.sampleRate) ||
-        !Number(meta.format.bitsPerSample) ||
-        /alac/i.test(codecName) ||
-        /\.(m4a|m4b|alac)$/i.test(filePath)
+      const fileSizeBytes = getLocalFileSizeBytes(filePath)
+      const needsProbe = shouldUseFfmpegAudioInfo(filePath, meta, codecName, { fileSizeBytes })
       const probed = needsProbe ? await getFfmpegAudioInfo(filePath) : null
+      const preferProbed = shouldPreferFfmpegAudioInfo(filePath, meta, probed, {
+        fileSizeBytes,
+        codecLabel: codecName
+      })
       const isDSD = /dsd/.test(codecName) || /\.(dsf|dff)$/i.test(filePath)
+      const codec =
+        /alac/i.test(codecName) || /alac/i.test(probed?.codec || '')
+          ? 'ALAC'
+          : preferProbed && probed?.codec
+            ? probed.codec
+            : meta.format.container || probed?.codec || 'unknown'
       const result = {
-        sampleRate: meta.format.sampleRate || probed?.sampleRate || 44100,
-        channels: meta.format.numberOfChannels || probed?.channels || 2,
-        bitsPerSample: meta.format.bitsPerSample || probed?.bitDepth || (isDSD ? 1 : 16),
-        codec: /alac/i.test(codecName) || /alac/i.test(probed?.codec || '') ? 'ALAC' : meta.format.container || probed?.codec || 'unknown',
-        lossless: !!meta.format.lossless || isDSD,
+        sampleRate: preferProbed
+          ? probed?.sampleRate || meta.format.sampleRate || 44100
+          : meta.format.sampleRate || probed?.sampleRate || 44100,
+        channels: preferProbed
+          ? probed?.channels || meta.format.numberOfChannels || 2
+          : meta.format.numberOfChannels || probed?.channels || 2,
+        bitsPerSample: preferProbed
+          ? probed?.bitDepth || meta.format.bitsPerSample || (isDSD ? 1 : 16)
+          : meta.format.bitsPerSample || probed?.bitDepth || (isDSD ? 1 : 16),
+        codec,
+        lossless: !!meta.format.lossless || /^(alac|flac|wav|aiff|ape)$/i.test(codec) || isDSD,
         isDSD
       }
       this._fileInfoCache.set(filePath, result)

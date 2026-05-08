@@ -200,7 +200,7 @@ export class SubsonicClient {
       query,
       artistCount: 20,
       albumCount: 40,
-      songCount: 80
+      songCount: 500
     })
     const result = response.searchResult3 || {}
     return {

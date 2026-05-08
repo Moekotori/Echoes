@@ -304,7 +304,11 @@ export default function RemoteLibraryView({
                   <button type="button" className="icon-button" onClick={() => onQueueTrack?.(track)}>
                     <Plus size={17} />
                   </button>
-                  <button type="button" className="icon-button primary" onClick={() => onPlayTrack?.(track)}>
+                  <button
+                    type="button"
+                    className="icon-button primary"
+                    onClick={() => onPlayTrack?.(track, { contextTracks: songs })}
+                  >
                     <Play size={17} />
                   </button>
                 </div>

@@ -563,6 +563,47 @@ export default function MvSettingsDrawer({
 
             <div className="mv-drawer-row">
               <div className="mv-drawer-row-info">
+                <span className="mv-drawer-label">{t('mvDrawer.preloadMv')}</span>
+                <span className="mv-drawer-value">{t('mvDrawer.preloadMvHint')}</span>
+              </div>
+              <button
+                type="button"
+                className={`toggle-btn ${config.preloadMV ? 'active' : ''}`}
+                onClick={() => {
+                  const nextValue = !config.preloadMV
+                  setConfig((prev) => ({
+                    ...prev,
+                    preloadMV: nextValue
+                  }))
+                  if (nextValue) onAutoSearchCurrentMv?.()
+                }}
+              >
+                {config.preloadMV ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+              </button>
+            </div>
+
+            <div className="mv-drawer-row">
+              <div className="mv-drawer-row-info">
+                <span className="mv-drawer-label">{t('mvDrawer.restartMusicOnMvLoad')}</span>
+                <span className="mv-drawer-value">{t('mvDrawer.restartMusicOnMvLoadHint')}</span>
+              </div>
+              <button
+                type="button"
+                className={`toggle-btn ${config.restartMusicOnMvLoad ? 'active' : ''}`}
+                onClick={() => {
+                  const nextValue = !config.restartMusicOnMvLoad
+                  setConfig((prev) => ({
+                    ...prev,
+                    restartMusicOnMvLoad: nextValue
+                  }))
+                }}
+              >
+                {config.restartMusicOnMvLoad ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+              </button>
+            </div>
+
+            <div className="mv-drawer-row">
+              <div className="mv-drawer-row-info">
                 <span className="mv-drawer-label">{t('mvDrawer.mvAsBg')}</span>
               </div>
               <button

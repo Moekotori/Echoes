@@ -113,8 +113,21 @@ import {
   searchQqMusicArtists,
   searchQqMusicSongs
 } from './qqMusicProvider.js'
+import {
+  fetchStreamingNeteaseDailyRecommendations,
+  fetchStreamingLyrics,
+  isStreamingTrackPath,
+  parseStreamingTrackPath,
+  resolveStreamingPlayback,
+  searchStreamingCatalog
+} from './streamingProvider.js'
 import { getMediaDurationSeconds } from './utils/ffmpegProbeDuration.js'
-import { getFfmpegAudioInfo } from './utils/ffmpegProbeAudioInfo.js'
+import {
+  getFfmpegAudioInfo,
+  normalizeResolvedAudioCodecLabel,
+  shouldPreferFfmpegAudioInfo,
+  shouldUseFfmpegAudioInfo
+} from './utils/ffmpegProbeAudioInfo.js'
 import { detectBpm } from './utils/detectBpm.js'
 import {
   EMBEDDED_LYRICS_EXTRACTOR_VERSION,
@@ -1018,6 +1031,8 @@ let bilibiliSignInWindow = null
 let neteaseSignInWindow = null
 let qqMusicSignInWindow = null
 let youtubeSystemBrowserSession = null
+let soundCloudSystemBrowserSession = null
+let soundCloudSystemCookiePollTimer = null
 let rendererHttpServer = null
 let rendererServerUrl = null
 const RENDERER_HTTP_HOST = '127.0.0.1'
@@ -1614,6 +1629,20 @@ async function collectNetworkFolderTracks(source) {
 }
 
 async function resolveRemotePlaybackPath(filePath) {
+  if (isStreamingTrackPath(filePath)) {
+    const parsed = parseStreamingTrackPath(filePath)
+    const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
+    const playback = await resolveStreamingPlayback({
+      track: parsed,
+      neteaseCookie: (await resolveNeteaseAuthState('')).cookie || '',
+      qqMusicCookie: (await resolveQqMusicAuthState('')).cookie || '',
+      soundCloudCookieFile
+    })
+    if (!playback?.ok || !playback.url) {
+      throw new Error(playback?.message || playback?.error || 'streaming_track_unavailable')
+    }
+    return playback.url
+  }
   const networkParsed = parseNetworkFolderTrackPath(filePath)
   if (networkParsed) return networkParsed.filePath
   if (isWebDavTrackPath(filePath)) return await resolveWebDavPlaybackPath(filePath)
@@ -1622,6 +1651,17 @@ async function resolveRemotePlaybackPath(filePath) {
 }
 
 async function resolveRemotePlaybackUrl(filePath) {
+  if (isStreamingTrackPath(filePath)) {
+    const parsed = parseStreamingTrackPath(filePath)
+    const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
+    const playback = await resolveStreamingPlayback({
+      track: parsed,
+      neteaseCookie: (await resolveNeteaseAuthState('')).cookie || '',
+      qqMusicCookie: (await resolveQqMusicAuthState('')).cookie || '',
+      soundCloudCookieFile
+    })
+    return playback?.url || ''
+  }
   const networkParsed = parseNetworkFolderTrackPath(filePath)
   if (networkParsed) return pathToFileURL(networkParsed.filePath).href
   if (isWebDavTrackPath(filePath)) return await resolveWebDavPlaybackPath(filePath)
@@ -1655,9 +1695,18 @@ function getInternalYoutubeCookieFile() {
   return join(app.getPath('userData'), 'youtube-cookies.txt')
 }
 
-function getYoutubeSystemProfileRoot(browser = 'edge') {
+function getInternalSoundCloudCookieFile() {
+  return join(app.getPath('userData'), 'soundcloud-cookies.txt')
+}
+
+function getSystemLoginProfileRoot(provider = 'youtube', browser = 'edge') {
+  const safeProvider = provider === 'soundcloud' ? 'soundcloud' : 'youtube'
   const safeBrowser = browser === 'chrome' ? 'chrome' : 'edge'
-  return join(app.getPath('userData'), 'youtube-login-browser', safeBrowser)
+  return join(app.getPath('userData'), `${safeProvider}-login-browser`, safeBrowser)
+}
+
+function getYoutubeSystemProfileRoot(browser = 'edge') {
+  return getSystemLoginProfileRoot('youtube', browser)
 }
 
 function resolveYoutubeBrowserExecutable(browser = 'edge') {
@@ -1791,6 +1840,81 @@ function isYouTubeCookieSignedIn(cookies = []) {
       /(^|\.)youtube\.com$/i.test(String(cookie.domain || '').replace(/^#HttpOnly_/, '')) &&
       (cookie.name === 'SID' || cookie.name === 'SSID' || cookie.name === 'LOGIN_INFO')
   )
+}
+
+function isSoundCloudCookieSignedIn(cookies = []) {
+  return cookies.some((cookie) => {
+    const domain = String(cookie.domain || '').replace(/^#HttpOnly_/, '')
+    return /(^|\.)soundcloud\.com$/i.test(domain) && /^oauth_token$/i.test(cookie.name)
+  })
+}
+
+async function writeSoundCloudCookiesFromSession() {
+  const filePath = getInternalSoundCloudCookieFile()
+  const ses = await getMainWindowSession()
+  const cookies = await ses.cookies.get({ domain: '.soundcloud.com' })
+  if (isSoundCloudCookieSignedIn(cookies)) {
+    writeNetscapeCookiesFile(cookies, filePath)
+    return filePath
+  }
+  return existsSync(filePath) ? filePath : ''
+}
+
+async function saveSoundCloudCookiesFromSystemBrowser() {
+  if (!soundCloudSystemBrowserSession?.port) {
+    return { ok: false, error: 'browser_not_open' }
+  }
+  const targets = await fetchJsonWithRetry(
+    `http://127.0.0.1:${soundCloudSystemBrowserSession.port}/json/list`
+  )
+  const pageTarget = Array.isArray(targets)
+    ? targets.find((target) => /soundcloud\.com/i.test(String(target.url || ''))) || targets[0]
+    : null
+  const webSocketDebuggerUrl = pageTarget?.webSocketDebuggerUrl
+  if (!webSocketDebuggerUrl) {
+    return { ok: false, error: 'debug_endpoint_not_ready' }
+  }
+  const result = await sendCdpCommand(webSocketDebuggerUrl, 'Network.getAllCookies')
+  const cookies = Array.isArray(result?.cookies) ? result.cookies : []
+  const usefulCookies = cookies.filter((cookie) => {
+    const domain = String(cookie.domain || '').replace(/^#HttpOnly_/, '')
+    return /(^|\.)soundcloud\.com$/i.test(domain) || /(^|\.)sndcdn\.com$/i.test(domain)
+  })
+  if (!isSoundCloudCookieSignedIn(usefulCookies)) {
+    return { ok: false, error: 'not_signed_in' }
+  }
+  const filePath = getInternalSoundCloudCookieFile()
+  writeNetscapeCookiesFile(usefulCookies, filePath)
+  notifySignInStatusChanged()
+  return { ok: true, signedIn: true, filePath }
+}
+
+function scheduleSoundCloudSystemCookieCapture() {
+  if (soundCloudSystemCookiePollTimer) {
+    clearTimeout(soundCloudSystemCookiePollTimer)
+    soundCloudSystemCookiePollTimer = null
+  }
+  const deadline = Date.now() + 3 * 60 * 1000
+  const poll = async () => {
+    if (!soundCloudSystemBrowserSession?.port) return
+    try {
+      const result = await saveSoundCloudCookiesFromSystemBrowser()
+      if (result?.ok && result.signedIn) {
+        soundCloudSystemCookiePollTimer = null
+        return
+      }
+    } catch (error) {
+      console.warn('[SoundCloud] system browser cookie capture failed:', error?.message || error)
+    }
+    if (Date.now() >= deadline) {
+      soundCloudSystemCookiePollTimer = null
+      return
+    }
+    soundCloudSystemCookiePollTimer = setTimeout(poll, 3000)
+    soundCloudSystemCookiePollTimer.unref?.()
+  }
+  soundCloudSystemCookiePollTimer = setTimeout(poll, 2500)
+  soundCloudSystemCookiePollTimer.unref?.()
 }
 
 function withResolvedYoutubeCookieOptions(options = {}) {
@@ -3879,6 +4003,17 @@ app.whenReady().then(async () => {
         ...(payload || {}),
         cookie: auth.valid ? auth.cookie : ''
       })
+      if (result?.rateLimited) {
+        return {
+          ok: false,
+          lrc: '',
+          confidence: null,
+          error: 'rate_limited',
+          rateLimited: true,
+          phase: result.phase || 'lyric',
+          retryAfterMs: result.retryAfterMs || 0
+        }
+      }
       return {
         ok: !!result?.lrc,
         lrc: result?.lrc || '',
@@ -4092,6 +4227,59 @@ app.whenReady().then(async () => {
     return await getQqMusicSongDirectUrl(song, {
       qualityPreset,
       cookie: auth.cookie || ''
+    })
+  })
+
+  ipcMain.handle('streaming:search', async (_, payload = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
+    const neteaseAuth = await resolveNeteaseAuthState(payload?.neteaseCookie || '')
+    const qqMusicAuth = await resolveQqMusicAuthState(payload?.qqMusicCookie || '')
+    const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
+    return await searchStreamingCatalog({
+      query: payload?.query || '',
+      providers: payload?.providers || [],
+      audioQualityMode: payload?.audioQualityMode || 'lossless',
+      neteaseCookie: neteaseAuth.valid ? neteaseAuth.cookie : '',
+      qqMusicCookie: qqMusicAuth.cookie || '',
+      soundCloudCookieFile
+    })
+  })
+
+  ipcMain.handle('streaming:neteaseDailyRecommendations', async (_, payload = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
+    const neteaseAuth = await resolveNeteaseAuthState(payload?.neteaseCookie || '')
+    if (!neteaseAuth.valid) {
+      return { ok: false, provider: 'netease', error: 'auth_required', results: [] }
+    }
+    return await fetchStreamingNeteaseDailyRecommendations({
+      audioQualityMode: payload?.audioQualityMode || 'lossless',
+      neteaseCookie: neteaseAuth.cookie || ''
+    })
+  })
+
+  ipcMain.handle('streaming:resolvePlayback', async (_, track = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
+    const neteaseAuth = await resolveNeteaseAuthState(track?.neteaseCookie || '')
+    const qqMusicAuth = await resolveQqMusicAuthState(track?.qqMusicCookie || '')
+    const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
+    return await resolveStreamingPlayback({
+      track,
+      neteaseCookie: neteaseAuth.valid ? neteaseAuth.cookie : '',
+      qqMusicCookie: qqMusicAuth.cookie || '',
+      qualityPreset: track?.qualityPreset || 'auto',
+      neteaseLevel: track?.neteaseLevel || 'exhigh',
+      soundCloudCookieFile
+    })
+  })
+
+  ipcMain.handle('streaming:fetchLyrics', async (_, track = {}) => {
+    if (isNetworkAccessDisabled()) return { ok: false, lrc: '', error: 'network_disabled' }
+    const neteaseAuth = await resolveNeteaseAuthState(track?.neteaseCookie || '')
+    const qqMusicAuth = await resolveQqMusicAuthState(track?.qqMusicCookie || '')
+    return await fetchStreamingLyrics({
+      track,
+      neteaseCookie: neteaseAuth.valid ? neteaseAuth.cookie : '',
+      qqMusicCookie: qqMusicAuth.cookie || ''
     })
   })
 
@@ -4490,20 +4678,22 @@ app.whenReady().then(async () => {
   })
 
   // IPC: Download from SoundCloud. Prefer local yt-dlp; keep the proxy only as a fallback.
-  ipcMain.handle('soundcloud:download', async (_, url, downloadPath) => {
+  ipcMain.handle('soundcloud:download', async (event, url, downloadPath) => {
     const targetDir = downloadPath || join(app.getAppPath(), 'downloads')
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true })
     }
 
     try {
-      const metadata = await MediaDownloader.getMetadata(url).catch((error) => {
+      const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
+      const metadata = await MediaDownloader.getMetadata(url, { soundCloudCookieFile }).catch((error) => {
         console.warn('[SoundCloud] yt-dlp metadata failed, continuing with fallback title:', error)
         return null
       })
       const title = MediaDownloader.sanitizeFilenameStem(metadata?.title || 'SoundCloud Track')
-      const filePath = await MediaDownloader.downloadAudioWithBasename(url, targetDir, title, null, {
-        audioQualityPreset: 'auto'
+      const filePath = await MediaDownloader.downloadAudioWithBasename(url, targetDir, title, event.sender, {
+        audioQualityPreset: 'auto',
+        soundCloudCookieFile
       })
       const renamedPath = MediaDownloader.renameDownloadedMedia(filePath, title)
       return {
@@ -4540,9 +4730,20 @@ app.whenReady().then(async () => {
       const writeStream = fs.createWriteStream(filePath)
 
       return new Promise((resolve, reject) => {
+        const totalBytes = Number(response.headers?.['content-length'] || 0) || 0
+        let receivedBytes = 0
+        response.data.on('data', (chunk) => {
+          if (!totalBytes) return
+          receivedBytes += chunk.length || 0
+          event.sender?.send?.('media:download-progress', {
+            url,
+            progress: Math.max(0, Math.min(100, (receivedBytes / totalBytes) * 100))
+          })
+        })
         response.data.pipe(writeStream)
 
         writeStream.on('finish', () => {
+          event.sender?.send?.('media:download-progress', { url, progress: 100 })
           resolve({
             success: true,
             name: fileName,
@@ -4710,25 +4911,21 @@ app.whenReady().then(async () => {
     })
   }
 
-  function shouldUseFfmpegAudioInfo(filePath, metadata, codecLabel) {
-    const ext = extname(filePath).toLowerCase()
-    const sampleRate = Number(metadata?.format?.sampleRate || 0)
-    const bitDepth = Number(metadata?.format?.bitsPerSample || 0)
-    return (
-      sampleRate <= 0 ||
-      bitDepth <= 0 ||
-      /alac/i.test(codecLabel || '') ||
-      ['.m4a', '.m4b', '.mp4', '.alac'].includes(ext)
-    )
+  function getLocalFileSizeBytes(filePath) {
+    try {
+      return fs.statSync(filePath).size || 0
+    } catch {
+      return 0
+    }
   }
 
-  function normalizeResolvedAudioCodec(metadata, filePath, probedInfo = null) {
-    const codecLabel = resolveAudioCodecLabel(metadata, filePath)
-    const probedCodec = String(probedInfo?.codec || '').trim()
-    if (/alac/i.test(codecLabel) || /alac/i.test(probedCodec) || /\.(m4a|m4b|alac)$/i.test(filePath)) {
-      return 'ALAC'
-    }
-    return codecLabel
+  function normalizeResolvedAudioCodec(metadata, filePath, probedInfo = null, preferProbed = false) {
+    return normalizeResolvedAudioCodecLabel({
+      codecLabel: resolveAudioCodecLabel(metadata, filePath),
+      filePath,
+      probedCodec: probedInfo?.codec,
+      preferProbed
+    })
   }
 
   async function buildExtendedMetadataResponse(filePath) {
@@ -4742,7 +4939,21 @@ app.whenReady().then(async () => {
 
       const extLower = extname(filePath).toLowerCase()
       const isDsdFile = extLower === '.dsf' || extLower === '.dff'
+      const fileSizeBytes = getLocalFileSizeBytes(filePath)
+      const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
+      const ffmpegInfo = shouldUseFfmpegAudioInfo(filePath, metadata, firstCodecLabel, {
+        fileSizeBytes
+      })
+        ? await getFfmpegAudioInfo(filePath)
+        : null
+      const preferFfmpegInfo = shouldPreferFfmpegAudioInfo(filePath, metadata, ffmpegInfo, {
+        fileSizeBytes,
+        codecLabel: firstCodecLabel
+      })
       let durationSec = metadata.format.duration
+      if (preferFfmpegInfo && Number(ffmpegInfo?.duration) > 0) {
+        durationSec = ffmpegInfo.duration
+      }
       if (isDsdFile) {
         const probed = await getMediaDurationSeconds(filePath)
         if (probed > 0) durationSec = probed
@@ -4753,7 +4964,10 @@ app.whenReady().then(async () => {
       let coverWidth = 0
       let coverHeight = 0
       let coverExtractorVersion = 0
-      const preferFfmpegCover = /\.(opus|ogg)$/i.test(filePath) || /ogg/i.test(metadata.format?.container || '')
+      const preferFfmpegCover =
+        preferFfmpegInfo ||
+        /\.(opus|ogg)$/i.test(filePath) ||
+        /ogg/i.test(metadata.format?.container || '')
       if (preferFfmpegCover) {
         const extractedCover = await extractAttachedCoverWithFfmpeg(filePath)
         if (extractedCover?.dataUrl) {
@@ -4779,16 +4993,20 @@ app.whenReady().then(async () => {
         coverExtractorVersion = cover ? 1 : 0
       }
 
-      const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
-      const ffmpegInfo = shouldUseFfmpegAudioInfo(filePath, metadata, firstCodecLabel)
-        ? await getFfmpegAudioInfo(filePath)
-        : null
-      const codecLabel = normalizeResolvedAudioCodec(metadata, filePath, ffmpegInfo)
+      const codecLabel = normalizeResolvedAudioCodec(metadata, filePath, ffmpegInfo, preferFfmpegInfo)
       const embeddedLyrics = extractEmbeddedLyricsText(metadata)
-      const sampleRate = metadata.format.sampleRate || ffmpegInfo?.sampleRate || null
-      const bitrate = metadata.format.bitrate || ffmpegInfo?.bitrate || null
-      const channels = metadata.format.numberOfChannels || ffmpegInfo?.channels || null
-      const bitDepth = metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
+      const sampleRate = preferFfmpegInfo
+        ? ffmpegInfo?.sampleRate || metadata.format.sampleRate || null
+        : metadata.format.sampleRate || ffmpegInfo?.sampleRate || null
+      const bitrate = preferFfmpegInfo
+        ? ffmpegInfo?.bitrate || metadata.format.bitrate || null
+        : metadata.format.bitrate || ffmpegInfo?.bitrate || null
+      const channels = preferFfmpegInfo
+        ? ffmpegInfo?.channels || metadata.format.numberOfChannels || null
+        : metadata.format.numberOfChannels || ffmpegInfo?.channels || null
+      const bitDepth = preferFfmpegInfo
+        ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
+        : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
       const displayDuration = getCueDuration(requestedPath, durationSec)
 
       return {
@@ -4803,15 +5021,28 @@ app.whenReady().then(async () => {
           isMqa: hasMqaMetadata(metadata),
           lossless:
             metadata.format.lossless ||
+            /^(alac|flac|wav|aiff|ape)$/i.test(ffmpegInfo?.codec || '') ||
             /^(alac|flac|wav|aiff|ape)$/i.test(codecLabel) ||
             metadata.format.container?.toLowerCase() === 'flac' ||
             metadata.format.container?.toLowerCase() === 'wav'
         },
         common: {
-          title: cueTrack?.title || metadata.common.title || basename(filePath, extname(filePath)),
-          artist: cueTrack?.artist || metadata.common.artist || 'Unknown Artist',
-          album: cueTrack?.albumTitle || metadata.common.album,
-          albumArtist: metadata.common.albumartist || metadata.common.albumArtist || null,
+          title:
+            cueTrack?.title ||
+            metadata.common.title ||
+            ffmpegInfo?.tags?.title ||
+            basename(filePath, extname(filePath)),
+          artist:
+            cueTrack?.artist ||
+            metadata.common.artist ||
+            ffmpegInfo?.tags?.artist ||
+            'Unknown Artist',
+          album: cueTrack?.albumTitle || metadata.common.album || ffmpegInfo?.tags?.album,
+          albumArtist:
+            metadata.common.albumartist ||
+            metadata.common.albumArtist ||
+            ffmpegInfo?.tags?.albumArtist ||
+            null,
           trackNo: metadata.common.track?.no ?? null,
           discNo: metadata.common.disk?.no ?? null,
           bpm: extractBpmMetadataValue(metadata),
@@ -5571,6 +5802,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(
     'audio:play',
     async (_, filePath, startTime, playbackRate, sourceSampleRateHint) => {
+      if (isStreamingTrackPath(filePath)) {
+        audioEngine.stop()
+      }
       const resolvedPath = await resolveRemotePlaybackPath(filePath)
       return audioEngine.play(resolvedPath, startTime, playbackRate, sourceSampleRateHint)
     }
@@ -6396,6 +6630,73 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('soundcloud:openSignInWindow', async (_, browser = 'edge') => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
+    const normalizedBrowser = browser === 'chrome' ? 'chrome' : 'edge'
+    try {
+      if (soundCloudSystemBrowserSession?.port) {
+        scheduleSoundCloudSystemCookieCapture()
+        return { ok: true, reused: true, browser: soundCloudSystemBrowserSession.browser }
+      }
+      const executable = resolveYoutubeBrowserExecutable(normalizedBrowser)
+      if (!executable) {
+        return { ok: false, error: normalizedBrowser === 'chrome' ? 'chrome_not_found' : 'edge_not_found' }
+      }
+      const userDataDir = getSystemLoginProfileRoot('soundcloud', normalizedBrowser)
+      fs.mkdirSync(userDataDir, { recursive: true })
+      const port = await findFreeLocalPort()
+      const child = spawn(
+        executable,
+        [
+          `--user-data-dir=${userDataDir}`,
+          `--remote-debugging-port=${port}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--new-window',
+          'https://soundcloud.com/signin'
+        ],
+        {
+          detached: false,
+          stdio: 'ignore',
+          windowsHide: false
+        }
+      )
+      child.on('exit', () => {
+        if (soundCloudSystemBrowserSession?.pid === child.pid) {
+          soundCloudSystemBrowserSession = null
+        }
+      })
+      soundCloudSystemBrowserSession = {
+        browser: normalizedBrowser,
+        port,
+        userDataDir,
+        pid: child.pid || 0
+      }
+      scheduleSoundCloudSystemCookieCapture()
+      return { ok: true, browser: normalizedBrowser }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
+  })
+
+  ipcMain.handle('soundcloud:logout', async () => {
+    try {
+      const ses = await getMainWindowSession()
+      const cleared = await clearSessionCookiesForDomains(ses, [
+        '.soundcloud.com',
+        'soundcloud.com',
+        '.sndcdn.com',
+        'sndcdn.com'
+      ])
+      const filePath = getInternalSoundCloudCookieFile()
+      if (existsSync(filePath)) fs.rmSync(filePath, { force: true })
+      notifySignInStatusChanged()
+      return { ok: true, removed: cleared.removed, errors: cleared.errors }
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) }
+    }
+  })
+
   ipcMain.handle('netease:openSignInWindow', async () => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -6466,11 +6767,20 @@ app.whenReady().then(async () => {
     ) || existsSync(getInternalYoutubeCookieFile())
     const biliCookies = await ses.cookies.get({ domain: '.bilibili.com' })
     const biliSignedIn = biliCookies.some((c) => c.name === 'DedeUserID' || c.name === 'SESSDATA')
+    const soundCloudCookies = await ses.cookies.get({ domain: '.soundcloud.com' })
+    const soundCloudSignedIn =
+      isSoundCloudCookieSignedIn(soundCloudCookies) || existsSync(getInternalSoundCloudCookieFile())
     const neteaseAuth = await resolveNeteaseAuthState()
     const neteaseSignedIn = neteaseAuth.valid === true
     const qqMusicAuth = await resolveQqMusicAuthState()
     const qqMusicSignedIn = qqMusicAuth.valid === true
-    return { youtube: ytSignedIn, bilibili: biliSignedIn, netease: neteaseSignedIn, qqMusic: qqMusicSignedIn }
+    return {
+      youtube: ytSignedIn,
+      bilibili: biliSignedIn,
+      soundcloud: soundCloudSignedIn,
+      netease: neteaseSignedIn,
+      qqMusic: qqMusicSignedIn
+    }
   })
 
   // ─── Bilibili: 直接解析视频流地址（绕过嵌入播放器画质限制）───

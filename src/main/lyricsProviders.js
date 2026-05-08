@@ -2,11 +2,35 @@ import axios from 'axios'
 
 const REQUEST_TIMEOUT_MS = 4500
 const QQ_REQUEST_TIMEOUT_MS = 2500
+const EXTERNAL_PROVIDER_TIMEOUT_MS = 8000
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'
+const LRC_TIME_TAG_RE = /\[(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.:]\d{2,3})?\]/
 
 function cleanText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function hasLrcTimeTags(value) {
+  return LRC_TIME_TAG_RE.test(String(value || ''))
+}
+
+function withTimeout(promise, timeoutMs, fallback) {
+  let timeoutId = null
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
+}
+
+function formatLrcTime(totalSeconds) {
+  const sec = Math.max(0, Number(totalSeconds) || 0)
+  const minutes = Math.floor(sec / 60)
+  const seconds = Math.floor(sec % 60)
+  const centiseconds = Math.floor((sec - Math.floor(sec)) * 100)
+  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}]`
 }
 
 function normalizeDurationMs(value) {
@@ -46,10 +70,7 @@ function toLrcFromKuwoLines(list) {
       const sec = Number(line?.time)
       const text = cleanText(line?.lineLyric)
       if (!Number.isFinite(sec) || !text) return ''
-      const minutes = Math.floor(sec / 60)
-      const seconds = Math.floor(sec % 60)
-      const centiseconds = Math.floor((sec - Math.floor(sec)) * 100)
-      return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}]${text}`
+      return `${formatLrcTime(sec)}${text}`
     })
     .filter(Boolean)
     .join('\n')
@@ -75,8 +96,8 @@ function normalizeProviderItem(source, item, lrc, extras = {}) {
     artistName: artist,
     albumName: album,
     duration: durationSec,
-    syncedLyrics: lrc || '',
-    plainLyrics: '',
+    syncedLyrics: hasLrcTimeTags(lrc) ? lrc : '',
+    plainLyrics: hasLrcTimeTags(lrc) ? '' : lrc || '',
     providerId: cleanText(extras.providerId || item?.songmid || item?.hash || item?.rid || item?.id),
     providerLabel: extras.providerLabel || source
   }
@@ -121,6 +142,39 @@ async function searchQqLyrics({ keywords, limit = 8 } = {}) {
   })
   const settled = await Promise.allSettled(jobs)
   return settled.map((r) => (r.status === 'fulfilled' ? r.value : null)).filter(Boolean)
+}
+
+export async function getQqLyricBySongMid({
+  songmid = '',
+  trackName = '',
+  artistName = '',
+  albumName = '',
+  durationSec = 0
+} = {}) {
+  const mid = cleanText(songmid)
+  if (!mid) return null
+  const headers = {
+    'User-Agent': USER_AGENT,
+    Referer: 'https://y.qq.com/'
+  }
+  const lyric = await axios.get('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg', {
+    params: { songmid: mid, format: 'json', nobase64: 1 },
+    headers,
+    timeout: QQ_REQUEST_TIMEOUT_MS
+  })
+  const raw = normalizeLyricPayload(lyric.data?.lyric)
+  if (!raw) return null
+  return normalizeProviderItem(
+    'qq',
+    {
+      trackName,
+      artistName,
+      albumName,
+      duration: durationSec
+    },
+    raw,
+    { providerId: mid, providerLabel: 'QQ Music' }
+  )
 }
 
 async function downloadKugouLyricForSong(song, keywords) {
@@ -241,7 +295,11 @@ export async function searchExternalLyrics(payload = {}) {
   const uniqueSources = [...new Set(sources)].filter((source) => PROVIDERS[source])
   const jobs = uniqueSources.map(async (source) => {
     try {
-      return await PROVIDERS[source]({ ...payload, keywords: q })
+      return await withTimeout(
+        PROVIDERS[source]({ ...payload, keywords: q }),
+        EXTERNAL_PROVIDER_TIMEOUT_MS,
+        []
+      )
     } catch (error) {
       if (process.env.ECHO_DEBUG_LYRICS === '1') {
         console.warn(`[lyrics:${source}]`, error?.message || error)

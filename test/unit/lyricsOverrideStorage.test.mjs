@@ -2,9 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  getLyricsInstrumentalFlagForPath,
   getLyricsOverrideForPath,
   getLyricsSourcePreferenceForPath,
   normalizeLyricsSourcePreference,
+  setLyricsInstrumentalFlagForPath,
   setLyricsOverrideForPath,
   setLyricsSourcePreferenceForPath
 } from '../../src/renderer/src/utils/lyricsOverrideStorage.js'
@@ -59,6 +61,22 @@ test('changing source preference preserves the cached lyric text but changes rou
   setLyricsSourcePreferenceForPath('D:/music/a.flac', 'qq')
 
   assert.equal(getLyricsSourcePreferenceForPath('D:/music/a.flac'), 'qq')
+  assert.equal(getLyricsOverrideForPath('D:/music/a.flac')?.raw, '[00:01.00]line')
+})
+
+test('instrumental flag persists without deleting saved lyric text', () => {
+  setLyricsOverrideForPath('D:/music/a.flac', '[00:01.00]line', {
+    source: 'manual',
+    origin: 'lrclib'
+  })
+  setLyricsInstrumentalFlagForPath('D:/music/a.flac', true)
+
+  assert.equal(getLyricsInstrumentalFlagForPath('D:/music/a.flac'), true)
+  assert.equal(getLyricsOverrideForPath('D:/music/a.flac')?.raw, '[00:01.00]line')
+
+  setLyricsInstrumentalFlagForPath('D:/music/a.flac', false)
+
+  assert.equal(getLyricsInstrumentalFlagForPath('D:/music/a.flac'), false)
   assert.equal(getLyricsOverrideForPath('D:/music/a.flac')?.raw, '[00:01.00]line')
 })
 

@@ -161,7 +161,7 @@ class BridgeWritable extends Writable {
 }
 
 /**
- * NativeAudioBridge — manages a single echo-audio-host child process.
+ * NativeAudioBridge manages a single echo-audio-host child process.
  *
  * Usage:
  *   const bridge = new NativeAudioBridge()
@@ -225,9 +225,8 @@ export class NativeAudioBridge {
       else if (deviceName) args.push('-device', deviceName)
       if (asio) args.push('-asio')
       if (exclusive && !asio) args.push('-exclusive')
-      // Volume is applied only in the main-process AudioProcessor (JS) so live
-      // slider changes stay consistent. Do not pass -vol here — C++ g_volume
-      // would double-apply with already-scaled PCM and stay stale until restart.
+      const hostVolume = Math.max(0, Math.min(1, Number(_vol) || 0))
+      if (Math.abs(hostVolume - 1) > 1e-6) args.push('-vol', String(hostVolume))
 
       logLine(`[NativeAudioBridge] spawn: ${bin} ${args.join(' ')}`)
 

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {
   isImmersiveLyricsMvEnabled,
   isSideLyricsMvEnabled,
+  shouldPreloadMvForPlayback,
+  shouldSearchMvForPlayback,
   shouldLoadMvForSurface
 } from '../../src/renderer/src/utils/mvVisibility.js'
 
@@ -43,4 +45,17 @@ test('MV loading follows the active visible surface', () => {
     ),
     false
   )
+})
+
+test('MV preload can opt playback into hidden MV preparation', () => {
+  assert.equal(shouldPreloadMvForPlayback({ preloadMV: false }, { view: 'player' }), false)
+  assert.equal(shouldPreloadMvForPlayback({ preloadMV: true }, { view: 'player' }), true)
+  assert.equal(shouldPreloadMvForPlayback({ preloadMV: true }, { view: 'settings' }), false)
+})
+
+test('MV auto search can opt playback into hidden MV lookup', () => {
+  assert.equal(shouldSearchMvForPlayback({ autoSearchMV: false, preloadMV: false }, { view: 'player' }), false)
+  assert.equal(shouldSearchMvForPlayback({ autoSearchMV: true, preloadMV: false }, { view: 'player' }), true)
+  assert.equal(shouldSearchMvForPlayback({ autoSearchMV: false, preloadMV: true }, { view: 'player' }), true)
+  assert.equal(shouldSearchMvForPlayback({ autoSearchMV: true, preloadMV: false }, { view: 'settings' }), false)
 })

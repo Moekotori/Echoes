@@ -21,7 +21,15 @@ export function createPlaybackContext(kind = 'library', key = 'library', trackPa
 
 export function normalizePlaybackContext(raw) {
   if (!raw || typeof raw !== 'object') return createPlaybackContext('library', 'library', [])
-  const contextKinds = new Set(['userPlaylist', 'smartCollection', 'albumGroup', 'folderGroup'])
+  const contextKinds = new Set([
+    'userPlaylist',
+    'smartCollection',
+    'albumGroup',
+    'folderGroup',
+    'history',
+    'remoteLibrary',
+    'streaming'
+  ])
   const kind = contextKinds.has(raw.kind) ? raw.kind : 'library'
   const key = typeof raw.key === 'string' && raw.key.trim() ? raw.key.trim() : kind
   const trackPaths = Array.isArray(raw.trackPaths)

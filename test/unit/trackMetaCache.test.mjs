@@ -25,6 +25,27 @@ test('shouldRefreshTrackMetaCacheForAudioQuality refreshes stale ALAC quality da
   )
 })
 
+test('shouldRefreshTrackMetaCacheForAudioQuality refreshes suspicious AAC data on MP3 paths', () => {
+  assert.equal(
+    shouldRefreshTrackMetaCacheForAudioQuality('D:/music/renamed-flac.mp3', {
+      codec: 'AAC',
+      sampleRateHz: 24000,
+      bitrateKbps: 2213849,
+      duration: 0.085
+    }),
+    true
+  )
+  assert.equal(
+    shouldRefreshTrackMetaCacheForAudioQuality('D:/music/normal-mp3.mp3', {
+      codec: 'MP3',
+      sampleRateHz: 44100,
+      bitrateKbps: 256,
+      duration: 248
+    }),
+    false
+  )
+})
+
 test('mergeTrackMetaEntryPreservingCover keeps an existing fetched cover', () => {
   const merged = mergeTrackMetaEntryPreservingCover(
     {

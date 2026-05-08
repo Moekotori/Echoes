@@ -43,6 +43,16 @@ function normalizeSong(song) {
     cover,
     duration: Number(song?.interval || song?.duration || 0) * 1000,
     fee: 0,
+    quality: {
+      size128: Number(file?.size_128mp3 || file?.size128 || 0) || 0,
+      size320: Number(file?.size_320mp3 || file?.size320 || 0) || 0,
+      sizeFlac: Number(file?.size_flac || file?.sizeFlac || 0) || 0,
+      sizeApe: Number(file?.size_ape || file?.sizeApe || 0) || 0,
+      sizeHires: Number(file?.size_hires || file?.sizeHiRes || file?.size_hires_sample || 0) || 0,
+      sizeDolby: Number(file?.size_dolby || file?.sizeDolby || 0) || 0,
+      pay: song?.pay || null,
+      file
+    },
     source: 'qq'
   }
 }

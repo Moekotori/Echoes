@@ -18,6 +18,9 @@ export default function LyricsSettingsDrawer({
   lyricsMatchStatus,
   lyricTimelineValid,
   lyricsSourceUi,
+  isCurrentTrackInstrumental = false,
+  instrumentalMarkAvailable = false,
+  onInstrumentalToggle,
   onRefreshLyrics,
   onOpenManualSearch,
   onFetchLyricsFromLink,
@@ -254,7 +257,9 @@ export default function LyricsSettingsDrawer({
   }, [applyBackgroundColor, backgroundHexDraft])
 
   const statusLabel =
-    lyricsMatchStatus === 'loading'
+    isCurrentTrackInstrumental
+      ? t('lyricsDrawer.statusInstrumental')
+      : lyricsMatchStatus === 'loading'
       ? t('lyricsDrawer.statusLoading')
       : lyricsMatchStatus === 'matched'
         ? t('lyricsDrawer.statusMatched')
@@ -263,7 +268,15 @@ export default function LyricsSettingsDrawer({
           : t('lyricsDrawer.statusDash')
 
   const statusTone =
-    lyricsMatchStatus === 'loading' ? 'pending' : lyricsMatchStatus === 'none' ? 'bad' : lyricsMatchStatus === 'matched' ? 'ok' : ''
+    isCurrentTrackInstrumental
+      ? 'warn'
+      : lyricsMatchStatus === 'loading'
+        ? 'pending'
+        : lyricsMatchStatus === 'none'
+          ? 'bad'
+          : lyricsMatchStatus === 'matched'
+            ? 'ok'
+            : ''
 
   const handleDrop = async (e) => {
     e.preventDefault()
@@ -609,6 +622,24 @@ export default function LyricsSettingsDrawer({
 
           <section className="lyrics-drawer-section">
             <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.source')}</h3>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.markInstrumental')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!isCurrentTrackInstrumental}
+                disabled={!instrumentalMarkAvailable}
+                className={`lyrics-drawer-switch ${isCurrentTrackInstrumental ? 'on' : ''}`}
+                onClick={() => onInstrumentalToggle?.(!isCurrentTrackInstrumental)}
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <p className="lyrics-drawer-hint">
+              {isCurrentTrackInstrumental
+                ? t('lyricsDrawer.markInstrumentalOnHint')
+                : t('lyricsDrawer.markInstrumentalHint')}
+            </p>
             <div className="lyrics-drawer-status">
               <span className={`lyrics-drawer-status-dot ${statusTone}`} />
               <span>
@@ -679,6 +710,24 @@ export default function LyricsSettingsDrawer({
                 </ul>
               )}
             </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.deepSearch')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsDeepSearchEnabled === true}
+                className={`lyrics-drawer-switch ${config.lyricsDeepSearchEnabled === true ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsDeepSearchEnabled: p.lyricsDeepSearchEnabled !== true
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <p className="lyrics-drawer-hint">{t('lyricsDrawer.deepSearchHint')}</p>
             <button
               type="button"
               className="lyrics-drawer-refresh"

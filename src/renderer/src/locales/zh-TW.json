@@ -118,8 +118,87 @@
     "artists": "藝人",
     "playlists": "播放清單",
     "folders": "資料夾",
+    "streaming": "串流媒體",
     "queue": "下一首",
     "history": "歷史紀錄"
+  },
+  "streaming": {
+    "title": "串流媒體",
+    "description": "獨立網路搜尋。原生串流可走 ECHO WASAPI Exclusive / EQ，受控平台會自動旁路。注意：串流媒體仍可能被壓到 44.1kHz / 48kHz，無法輸出更高音質；想要更好音質請下載。",
+    "refreshAccounts": "重新整理帳號",
+    "providersAria": "串流平台",
+    "signedIn": "已登入",
+    "searchPlaceholder": "搜尋線上歌曲、藝人或專輯...",
+    "qualityAria": "預設音質",
+    "search": "搜尋",
+    "loading": "正在搜尋已啟用平台...",
+    "unknownTitle": "未知標題",
+    "sourceFallback": "串流來源",
+    "downloadProgress": "下載進度",
+    "daily": {
+      "title": "每日推薦",
+      "subtitle": "根據你的音樂口味生成，每天 6:00 更新",
+      "subtitleShort": "每日 6:00",
+      "playAll": "播放全部",
+      "download": "下載",
+      "refresh": "重新整理每日推薦",
+      "listTitle": "今日推薦歌曲",
+      "count": "{{count}} 首",
+      "loading": "載入中...",
+      "playTrack": "播放 {{title}}",
+      "more": "還有 {{count}} 首",
+      "loaded": "已顯示 {{count}} 首每日推薦。",
+      "signInRequired": "登入網易雲音樂後顯示你的每日推薦。",
+      "loadFailed": "無法載入每日推薦。",
+      "empty": "今天沒有返回每日推薦。",
+      "downloadQueued": "每日推薦已送到下載器。"
+    },
+    "providers": {
+      "netease": "網易雲音樂",
+      "qqMusic": "QQ 音樂",
+      "soundcloud": "SoundCloud",
+      "neteaseTrack": "網易雲曲目",
+      "qqMusicTrack": "QQ 音樂曲目",
+      "soundcloudTrack": "SoundCloud 曲目"
+    },
+    "providerHints": {
+      "native": "原生串流",
+      "signInRequired": "需要登入"
+    },
+    "quality": {
+      "lossless": "無損優先",
+      "lossy": "有損優先"
+    },
+    "mode": {
+      "native": "原生",
+      "controlled": "受控",
+      "pending": "待解析"
+    },
+    "actions": {
+      "download": "下載",
+      "downloadTitle": "下載到媒體下載目錄",
+      "play": "播放",
+      "playTitle": "用 ECHO 播放",
+      "doubleClickPlay": "雙擊播放"
+    },
+    "notices": {
+      "qualityUpdated": "預設音質已更新，下次搜尋或播放新結果時生效。",
+      "enterQuery": "輸入歌曲、藝人或專輯名後再搜尋。",
+      "searchFailed": "搜尋失敗",
+      "noResults": "已搜尋啟用平台，但沒有可顯示的歌曲結果。",
+      "downloadFolderRequired": "請先在設定裡設定預設下載目錄。",
+      "neteaseMissingId": "網易雲曲目缺少歌曲 ID，無法下載。",
+      "sentToDownloader": "已送到媒體下載：{{title}}",
+      "qqDirectFailed": "無法取得 QQ 音樂直連，可能需要會員權限、曲目不可用或 Cookie 已失效。",
+      "downloaded": "已下載：{{title}}",
+      "soundcloudMissingUrl": "SoundCloud 曲目缺少可下載連結。",
+      "soundcloudDownloadFailed": "SoundCloud 下載失敗。",
+      "downloadUnsupported": "暫不支援下載此來源。",
+      "controlledPlaybackOnly": "此平台目前只能使用官方受控播放，ECHO 會自動關閉 WASAPI Exclusive / EQ。",
+      "qqPlaybackFailed": "QQ 音源解析失敗，已停止舊音訊，避免介面假播放。請重新登入 QQ 音樂或換一個音質／曲目。",
+      "playbackFailed": "串流音源解析失敗，已停止舊音訊，避免介面假播放。",
+      "playbackPrepareFailed": "無法準備串流播放。"
+    }
   },
   "settings": {
     "pageTitle": "設定",
@@ -206,12 +285,14 @@
     "integrations": "第三方整合",
     "discordTitle": "Discord 狀態顯示",
     "discordDesc": "在 Discord 個人檔案上顯示目前曲目與播放倍速。",
+    "accountLoginShortDownloadHint": "如果下載的音樂只有 30s，請嘗試重新登入並檢查會員狀態。",
     "sleepTimerTitle": "睡眠計時器",
     "sleepTimerDesc": "自動停止播放。",
     "sleepTimerModeTime": "倒數計時",
     "sleepTimerModeTrack": "曲目結束後",
     "sleepTimerMinutes_one": "{{count}} 分鐘",
     "sleepTimerMinutes_other": "{{count}} 分鐘",
+    "sleepTimerCustomMinutes": "自訂分鐘",
     "sleepTimerStart": "啟動",
     "sleepTimerCancel": "取消",
     "sleepTimerRemaining": "剩餘時間：{{time}}",
@@ -336,6 +417,8 @@
     "autoLocateCurrentTrackDesc": "開啟後，切歌時會自動把左側目前清單捲動到正在播放的曲目位置。",
     "sidebarLogoTitle": "顯示 Logo",
     "sidebarLogoDesc": "在左側導覽頂端顯示 ECHO Logo。關閉後歌曲／專輯清單會自動上移，避免留白。",
+    "ultraSmallScreenAdaptiveTitle": "超小螢幕自適應",
+    "ultraSmallScreenAdaptiveDesc": "預設關閉。開啟後，只有在視窗非常矮或非常窄時啟用捲動與緊湊布局，正常尺寸不受影響。",
     "bgImage": "背景圖片",
     "bgImageDesc": "選擇一張本機圖片作為應用程式背景。",
     "selectImage": "選擇圖片",
@@ -421,6 +504,10 @@
     "shortcutF11": "全螢幕",
     "autoSearchMv": "自動搜尋 MV",
     "autoSearchMvHint": "開啟後播放歌曲時，會依目前歌名和藝人自動搜尋，並把候選 MV 列在上方供手動選擇。",
+    "preloadMv": "是否預載 MV",
+    "preloadMvHint": "開啟後，只要播放歌曲就會嘗試提前尋找並準備目前歌曲的 MV。",
+    "restartMusicOnMvLoad": "載入 MV 後重新播放音樂",
+    "restartMusicOnMvLoadHint": "開啟後，MV 載入完成時會把目前歌曲從頭播放，讓 MV 和音樂同步開始。",
     "autoSearchResultsReady": "已依目前歌曲更新 MV 候選列表。"
   },
   "lyricsDrawer": {
@@ -482,7 +569,7 @@
     "sourceLocal": "本機（同資料夾 .lrc / 內嵌標籤）",
     "sourceLrclib": "LRCLIB（線上）",
     "sourceNetease": "網易雲（優先中日文曲庫）",
-    "sourceQq": "QQ 音樂（失敗時自動嘗試酷狗 / 酷我）",
+    "sourceQq": "QQ 音樂（線上）",
     "sourceKugou": "酷狗音樂（線上）",
     "sourceKuwo": "酷我音樂（線上）",
     "refresh": "重新整理",
@@ -498,8 +585,15 @@
     "editPlain": "純文字編輯",
     "pastePlaceholder": "貼上 LRC 或純文字歌詞…",
     "applyLyrics": "套用歌詞",
-    "linkPlaceholder": "貼上歌曲連結（網易雲 / QQ / 酷狗 / 酷我）…",
+    "linkPlaceholder": "貼上歌曲連結（網易雲 / QQ / 酷狗 / 酷我）...",
     "fetchFromLink": "從連結取得歌詞",
-    "linkHint": "網易雲連結支援依歌曲 ID 直接取得歌詞；其他平台連結會嘗試通用匹配。"
+    "linkHint": "網易雲連結支援依歌曲 ID 直接取得歌詞；其他平台連結會嘗試通用匹配。",
+    "markInstrumental": "標記這首歌為純音樂",
+    "markInstrumentalHint": "標記後，這首歌不會顯示、搜尋或載入任何歌詞；設定會保留到下次啟動。",
+    "markInstrumentalOnHint": "已標記為純音樂。關閉開關後會繼續顯示或重新載入歌詞。",
+    "statusInstrumental": "已標記純音樂",
+    "sourceStateInstrumental": "純音樂",
+    "deepSearch": "深度優先搜尋",
+    "deepSearchHint": "開啟後會並行搜尋 LRCLIB、網易雲、QQ、酷狗、酷我，並自動採用最佳同步歌詞。預設關閉。"
   }
 }

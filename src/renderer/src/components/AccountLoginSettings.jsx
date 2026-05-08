@@ -59,6 +59,8 @@ export default function AccountLoginSettings({
   const [neteaseSigningIn, setNeteaseSigningIn] = useState(false)
   const [qqMusicSigningIn, setQqMusicSigningIn] = useState(false)
   const [bilibiliSigningIn, setBilibiliSigningIn] = useState(false)
+  const [soundCloudSigningIn, setSoundCloudSigningIn] = useState(false)
+  const [soundCloudLoginStatus, setSoundCloudLoginStatus] = useState('')
   const [youtubeLoginSaving, setYoutubeLoginSaving] = useState(false)
   const [youtubeLoginStatus, setYoutubeLoginStatus] = useState('')
   const [youtubeCookieUpdatedAt, setYoutubeCookieUpdatedAt] = useState(0)
@@ -69,8 +71,11 @@ export default function AccountLoginSettings({
     () => ({
       title: isZh ? '账号登录' : 'Account sign-ins',
       desc: isZh
-        ? '网易云、QQ 音乐、YouTube、Bilibili 的登录状态统一放在这里管理。下载器和 MV 会自动使用这些状态。'
-        : 'Manage NetEase Cloud Music, QQ Music, YouTube, and Bilibili sign-ins here. Downloader and MV features reuse these states automatically.',
+        ? '网易云、QQ 音乐、SoundCloud、YouTube、Bilibili 的登录状态统一放在这里管理。下载器、流媒体和 MV 会自动使用这些状态。'
+        : 'Manage NetEase Cloud Music, QQ Music, SoundCloud, YouTube, and Bilibili sign-ins here. Downloader, streaming, and MV features reuse these states automatically.',
+      shortDownloadHint: isZh
+        ? '如果下载的音乐仅有 30s，请尝试重新登录并检查会员状态。'
+        : 'If downloaded music is only 30s long, try signing in again and checking membership status.',
       cookiePlaceholder: isZh ? '粘贴 Cookie 后保存' : 'Paste cookie, then save',
       saveCookie: isZh ? '保存 Cookie' : 'Save cookie',
       oneClick: isZh ? '打开登录页' : 'Open sign-in',
@@ -82,6 +87,10 @@ export default function AccountLoginSettings({
       savedCookieInvalid: isZh ? '已保存的 Cookie 可能已失效，请重新登录。' : 'Saved cookie may be expired. Please sign in again.',
       neteaseHint: isZh ? '无损/高音质下载和歌词匹配会优先使用此账号。' : 'Lossless downloads and lyric matching prefer this account.',
       qqHint: isZh ? '无损/高音质下载会优先使用此账号。' : 'Lossless/high quality downloads prefer this account.',
+      soundCloudHint: isZh ? 'SoundCloud 流媒体搜索和播放需要先登录账号。' : 'SoundCloud streaming search and playback require a signed-in account.',
+      soundCloudOpenSaved: isZh
+        ? '已用系统浏览器打开 SoundCloud，登录完成后 ECHO 会自动保存状态。'
+        : 'SoundCloud opened in the system browser. ECHO will save the sign-in automatically after login.',
       youtubeHint: isZh
         ? '沿用媒体下载里的系统浏览器登录逻辑，保存后自动用于 YouTube 解析/下载。'
         : 'Uses the media downloader system-browser sign-in flow and then reuses it for YouTube parsing/downloads.',
@@ -360,6 +369,23 @@ export default function AccountLoginSettings({
     }
   }, [onRefreshSignInStatus])
 
+  const openSoundCloudSignIn = useCallback(async () => {
+    setSoundCloudSigningIn(true)
+    const browser = youtubeCookieBrowser === 'chrome' ? 'chrome' : 'edge'
+    try {
+      const result = await window.api?.openSoundCloudSignInWindow?.(browser)
+      if (!result?.ok) throw new Error(result?.error || 'open_failed')
+      setSoundCloudLoginStatus(
+        `${accountCopy.soundCloudOpenSaved} ${browser === 'chrome' ? 'Chrome' : 'Edge'}`
+      )
+      onRefreshSignInStatus?.()
+    } catch (error) {
+      setSoundCloudLoginStatus(error?.message || String(error))
+    } finally {
+      setSoundCloudSigningIn(false)
+    }
+  }, [accountCopy.soundCloudOpenSaved, onRefreshSignInStatus, youtubeCookieBrowser])
+
   const logoutNetease = useCallback(async () => {
     try {
       await window.api?.logoutNetease?.()
@@ -398,6 +424,14 @@ export default function AccountLoginSettings({
     onRefreshSignInStatus?.()
   }, [onRefreshSignInStatus])
 
+  const logoutSoundCloud = useCallback(async () => {
+    try {
+      await window.api?.logoutSoundCloud?.()
+    } catch (_) {}
+    setSoundCloudLoginStatus('')
+    onRefreshSignInStatus?.()
+  }, [onRefreshSignInStatus])
+
   const renderStatus = (auth, hasSavedCookie = false) => {
     if (auth.checking) {
       return (
@@ -430,6 +464,8 @@ export default function AccountLoginSettings({
           <h3>{t('settings.accountLoginTitle', accountCopy.title)}</h3>
           <p>
             {t('settings.accountLoginDesc', accountCopy.desc)}
+            <br />
+            {t('settings.accountLoginShortDownloadHint', accountCopy.shortDownloadHint)}
             {isZh ? (
               <>
                 <br />
@@ -550,6 +586,32 @@ export default function AccountLoginSettings({
         <section className="account-login-card">
           <div className="account-login-card__top">
             <div>
+              <h4>SoundCloud</h4>
+              <p>{accountCopy.soundCloudHint}</p>
+            </div>
+            <span className={`account-login-status ${signInStatus.soundcloud ? 'is-signed-in' : 'is-muted'}`}>
+              {signInStatus.soundcloud ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+              {signInStatus.soundcloud ? accountCopy.signedIn : accountCopy.notSignedIn}
+            </span>
+          </div>
+          <div className="account-login-actions">
+            <button type="button" className="account-login-action primary" onClick={openSoundCloudSignIn}>
+              {soundCloudSigningIn ? <Loader2 size={15} className="spin" /> : <ExternalLink size={15} />}
+              {signInStatus.soundcloud ? accountCopy.reSignIn : accountCopy.oneClick}
+            </button>
+            {signInStatus.soundcloud ? (
+              <button type="button" className="account-login-action danger" onClick={logoutSoundCloud}>
+                <LogOut size={15} />
+                {accountCopy.logout}
+              </button>
+            ) : null}
+          </div>
+          {soundCloudLoginStatus ? <p className="account-login-note">{soundCloudLoginStatus}</p> : null}
+        </section>
+
+        <section className="account-login-card">
+          <div className="account-login-card__top">
+            <div>
               <h4>YouTube</h4>
               <p>{accountCopy.youtubeHint}</p>
             </div>
@@ -646,6 +708,7 @@ export default function AccountLoginSettings({
             ) : null}
           </div>
         </section>
+
       </div>
     </div>
   )

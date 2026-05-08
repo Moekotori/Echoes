@@ -89,7 +89,7 @@ export const DEFAULT_CONFIG = {
    * 递增并在 App 加载时 run migration（`oldRev < configRevision`）。
    * 老存档无此字段时视为 0。
    */
-  configRevision: 11,
+  configRevision: 12,
   /** UI language: en | zh | zh-TW | ja */
   uiLocale: 'en',
   useEQ: true,
@@ -147,6 +147,7 @@ export const DEFAULT_CONFIG = {
   uiAccentBackgroundGlow: false,
   showSidebarLogo: true,
   autoLocateCurrentTrack: false,
+  ultraSmallScreenAdaptive: false,
   theme: 'minimal',
   customColors: { ...PRESET_THEMES.minimal.colors },
   themeDynamicCoverColor: false,
@@ -160,6 +161,8 @@ export const DEFAULT_CONFIG = {
   /** 沉浸式 MV 背景模糊强度（px），0 为不模糊 */
   mvBackgroundBlur: 0,
   mvMuted: true,
+  preloadMV: false,
+  restartMusicOnMvLoad: false,
   autoSearchMV: false,
   autoFallbackToBilibili: true,
   /** 默认 MV 搜索源 */
@@ -193,6 +196,7 @@ export const DEFAULT_CONFIG = {
    */
   lyricsColor: null,
   lyricsSource: 'netease',
+  lyricsDeepSearchEnabled: false,
   localLyricsPriority: 'embedded',
   lyricsSourceLink: '',
   lyricsOffsetMs: 0,

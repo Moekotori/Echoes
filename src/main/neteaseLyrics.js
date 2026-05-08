@@ -15,6 +15,16 @@ function getNcmApi() {
 }
 
 const TIME_TAG_REG = /\[(\d{2}):(\d{2})(\.|\:)(\d{2,3})\]/g
+const NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_MS = 30 * 1000
+const NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_BY_PHASE_MS = {
+  search: 30 * 1000,
+  lyric: 45 * 1000
+}
+const neteaseLyricsRateLimitUntilByPhase = {
+  search: 0,
+  lyric: 0
+}
+let neteaseLyricsRateLimitLastLogAt = 0
 const MOJIBAKE_HINT_REG = /[锛鍚鎿璇銆鈥€]/u
 
 export function repairPossiblyMojibakeText(value) {
@@ -51,7 +61,7 @@ function normalizeNeteaseLogValue(value) {
   return value
 }
 
-export function buildNeteaseErrorLogPayload(error) {
+export function buildNeteaseErrorLogPayload(error, options = {}) {
   const body = error?.response?.body ?? error?.body ?? null
   const status = error?.response?.status ?? error?.status ?? null
   const cookie =
@@ -64,25 +74,31 @@ export function buildNeteaseErrorLogPayload(error) {
     status,
     body,
     message: error?.message || String(error || ''),
-    ...(cookie ? { cookie } : {})
+    ...(options.includeCookie && cookie ? { cookie } : {})
   })
 }
 
 let quietNeteaseConsoleDepth = 0
 let originalConsoleError = null
+let originalConsoleWarn = null
 
 function isNeteaseUpstreamErrorLog(args) {
-  if (!Array.isArray(args) || !args.some((arg) => arg === '[ERROR]')) return false
-  const payload = args.find((arg) => arg && typeof arg === 'object' && (arg.status || arg.body))
+  if (!Array.isArray(args) || !args.some((arg) => String(arg || '').includes('[ERROR]'))) return false
+  const payload = args.find((arg) => arg && typeof arg === 'object' && (arg.status || arg.body || arg.cookie))
   return Boolean(payload && typeof payload === 'object' && (payload.status || payload.body))
 }
 
 export async function withQuietNeteaseConsole(task) {
   if (quietNeteaseConsoleDepth === 0) {
     originalConsoleError = console.error
+    originalConsoleWarn = console.warn
     console.error = (...args) => {
       if (isNeteaseUpstreamErrorLog(args)) return
       originalConsoleError(...args)
+    }
+    console.warn = (...args) => {
+      if (isNeteaseUpstreamErrorLog(args)) return
+      originalConsoleWarn(...args)
     }
   }
   quietNeteaseConsoleDepth += 1
@@ -92,8 +108,74 @@ export async function withQuietNeteaseConsole(task) {
     quietNeteaseConsoleDepth = Math.max(0, quietNeteaseConsoleDepth - 1)
     if (quietNeteaseConsoleDepth === 0 && originalConsoleError) {
       console.error = originalConsoleError
+      console.warn = originalConsoleWarn || console.warn
       originalConsoleError = null
+      originalConsoleWarn = null
     }
+  }
+}
+
+export function getNeteaseErrorText(payload) {
+  return repairPossiblyMojibakeText(
+    payload?.body?.message ||
+      payload?.body?.msg ||
+      payload?.message ||
+      payload?.body?.code ||
+      ''
+  )
+}
+
+export function isNeteaseRateLimitPayload(payload) {
+  const status = Number(payload?.status || payload?.body?.code || payload?.code || 0)
+  const text = getNeteaseErrorText(payload)
+  return status === 405 || text.includes('\u64cd\u4f5c\u9891\u7e41') || /rate|frequent/i.test(text)
+}
+
+function normalizeNeteaseLyricsRateLimitPhase(phase) {
+  return phase === 'search' || phase === 'lyric' ? phase : 'lyric'
+}
+
+export function getNeteaseLyricsRateLimitCooldownMs(phase = 'lyric') {
+  return (
+    NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_BY_PHASE_MS[
+      normalizeNeteaseLyricsRateLimitPhase(phase)
+    ] || NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_MS
+  )
+}
+
+export function getNeteaseLyricsRateLimitRetryAfterMs(phase = null) {
+  const now = Date.now()
+  if (phase) {
+    const normalizedPhase = normalizeNeteaseLyricsRateLimitPhase(phase)
+    return Math.max(0, (neteaseLyricsRateLimitUntilByPhase[normalizedPhase] || 0) - now)
+  }
+  return Math.max(
+    0,
+    ...Object.values(neteaseLyricsRateLimitUntilByPhase).map((until) => (until || 0) - now)
+  )
+}
+
+function markNeteaseLyricsRateLimited(payload, phase = 'lyrics') {
+  const normalizedPhase = normalizeNeteaseLyricsRateLimitPhase(phase)
+  const cooldownMs =
+    NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_BY_PHASE_MS[normalizedPhase] ||
+    NETEASE_LYRICS_RATE_LIMIT_COOLDOWN_MS
+  neteaseLyricsRateLimitUntilByPhase[normalizedPhase] = Math.max(
+    neteaseLyricsRateLimitUntilByPhase[normalizedPhase] || 0,
+    Date.now() + cooldownMs
+  )
+  const now = Date.now()
+  if (now - neteaseLyricsRateLimitLastLogAt > 30000) {
+    neteaseLyricsRateLimitLastLogAt = now
+    const retrySec = Math.ceil(getNeteaseLyricsRateLimitRetryAfterMs(normalizedPhase) / 1000)
+    logLine(
+      `[netease lyrics] ${normalizedPhase} rate limited: ${getNeteaseErrorText(payload) || 'request too frequent'}; cooling down ${retrySec}s`
+    )
+  }
+  return {
+    rateLimited: true,
+    phase: normalizedPhase,
+    retryAfterMs: getNeteaseLyricsRateLimitRetryAfterMs(normalizedPhase)
   }
 }
 
@@ -196,6 +278,7 @@ export function mergeTimedLyrics(mainLyrics, romajiLyrics, translatedLyrics) {
 
 export async function searchNeteaseSongs(keywords, opts = {}) {
   if (!keywords || !keywords.trim()) return []
+  if (getNeteaseLyricsRateLimitRetryAfterMs() > 0) return []
   const ncm = getNcmApi()
   const base = buildNcmRequestOptions(opts.cookie)
   try {
@@ -217,10 +300,59 @@ export async function searchNeteaseSongs(keywords, opts = {}) {
       cover: s.al?.picUrl || s.album?.picUrl || null,
       duration: s.dt || 0,
       fee: s.fee || 0,
+      quality: {
+        l: s.l || null,
+        m: s.m || null,
+        h: s.h || null,
+        sq: s.sq || null,
+        hr: s.hr || null,
+        privilege: s.privilege || null
+      },
       alia: [].concat(s.alia || []).concat(s.alias || [])
     }))
   } catch (e) {
-    logLine(`[neteaseLyrics] search error: ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
+    const payload = buildNeteaseErrorLogPayload(e)
+    if (isNeteaseRateLimitPayload(payload)) {
+      markNeteaseLyricsRateLimited(payload, 'cloudsearch')
+      return []
+    }
+    logLine(`[neteaseLyrics] search error: ${JSON.stringify(payload)}`)
+    return []
+  }
+}
+
+function normalizeNeteaseApiSong(s) {
+  if (!s) return null
+  return {
+    id: s.id,
+    name: s.name,
+    artists: (s.ar || s.artists || []).map((a) => a.name).filter(Boolean).join(' / '),
+    album: s.al?.name || s.album?.name || '',
+    cover: s.al?.picUrl || s.album?.picUrl || null,
+    duration: s.dt || s.duration || 0,
+    fee: s.fee || 0,
+    quality: {
+      l: s.l || null,
+      m: s.m || null,
+      h: s.h || null,
+      sq: s.sq || null,
+      hr: s.hr || null,
+      privilege: s.privilege || null
+    },
+    alia: [].concat(s.alia || []).concat(s.alias || [])
+  }
+}
+
+export async function fetchNeteaseDailyRecommendSongs(opts = {}) {
+  const ncm = getNcmApi()
+  const base = buildNcmRequestOptions(opts.cookie)
+  try {
+    const res = await withQuietNeteaseConsole(() => ncm.recommend_songs(base))
+    const songs = res?.body?.data?.dailySongs || res?.body?.recommend || res?.body?.data?.songs || []
+    if (!Array.isArray(songs)) return []
+    return songs.map(normalizeNeteaseApiSong).filter(Boolean)
+  } catch (e) {
+    logLine(`[neteaseLyrics] daily recommendations error: ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
     return []
   }
 }
@@ -251,6 +383,11 @@ export async function fetchNeteaseLrcText(params) {
   let confidence = songId ? 100 : 0
   let matchedSong = null
   if (!id) {
+    const searchRetryAfterMs = getNeteaseLyricsRateLimitRetryAfterMs('search')
+    if (searchRetryAfterMs > 0) {
+      return { rateLimited: true, phase: 'search', retryAfterMs: searchRetryAfterMs }
+    }
+
     let searchRes
     try {
       searchRes = await withQuietNeteaseConsole(() =>
@@ -262,7 +399,9 @@ export async function fetchNeteaseLrcText(params) {
         })
       )
     } catch (e) {
-      logLine(`[netease lyrics] search ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
+      const payload = buildNeteaseErrorLogPayload(e)
+      if (isNeteaseRateLimitPayload(payload)) return markNeteaseLyricsRateLimited(payload, 'search')
+      logLine(`[netease lyrics] search ${JSON.stringify(payload)}`)
       return null
     }
 
@@ -359,11 +498,18 @@ export async function fetchNeteaseLrcText(params) {
   }
   if (!id) return null
 
+  const lyricRetryAfterMs = getNeteaseLyricsRateLimitRetryAfterMs('lyric')
+  if (lyricRetryAfterMs > 0) {
+    return { rateLimited: true, phase: 'lyric', retryAfterMs: lyricRetryAfterMs }
+  }
+
   let lyricRes
   try {
     lyricRes = await withQuietNeteaseConsole(() => ncm.lyric({ id, ...base }))
   } catch (e) {
-    logLine(`[netease lyrics] lyric ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)
+    const payload = buildNeteaseErrorLogPayload(e)
+    if (isNeteaseRateLimitPayload(payload)) return markNeteaseLyricsRateLimited(payload, 'lyric')
+    logLine(`[netease lyrics] lyric ${JSON.stringify(payload)}`)
     return null
   }
 
@@ -405,7 +551,8 @@ export async function getNeteaseSongDirectUrl(songId, level, opts = {}) {
       url: entry.url,
       type: entry.type || 'mp3',
       size: entry.size || 0,
-      br: entry.br || 0
+      br: entry.br || 0,
+      level: entry.level || qualityLevel
     }
   } catch (e) {
     logLine(`[neteaseLyrics] getSongDirectUrl error: ${JSON.stringify(buildNeteaseErrorLogPayload(e))}`)

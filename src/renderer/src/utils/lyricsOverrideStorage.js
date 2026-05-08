@@ -40,6 +40,35 @@ export function getLyricsSourcePreferenceForPath(filePath) {
   }
 }
 
+export function getLyricsInstrumentalFlagForPath(filePath) {
+  if (!filePath || typeof filePath !== 'string') return false
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return false
+    const map = JSON.parse(raw)
+    return map?.[filePath]?.instrumental === true
+  } catch {
+    return false
+  }
+}
+
+export function setLyricsInstrumentalFlagForPath(filePath, instrumental) {
+  if (!filePath || typeof filePath !== 'string') return
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    const prev = map[filePath] && typeof map[filePath] === 'object' ? map[filePath] : {}
+    map[filePath] = {
+      ...prev,
+      instrumental: instrumental === true,
+      instrumentalSavedAt: Date.now()
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    /* ignore quota */
+  }
+}
+
 export function setLyricsSourcePreferenceForPath(filePath, source) {
   if (!filePath || typeof filePath !== 'string') return
   const preferredSource = normalizeLyricsSourcePreference(source)

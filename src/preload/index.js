@@ -158,6 +158,14 @@ contextBridge.exposeInMainWorld('api', {
     resolveStreamUrl: (trackPath) => ipcRenderer.invoke('remoteLibrary:resolveStreamUrl', trackPath)
   },
 
+  streaming: {
+    search: (payload) => ipcRenderer.invoke('streaming:search', payload),
+    neteaseDailyRecommendations: (payload) =>
+      ipcRenderer.invoke('streaming:neteaseDailyRecommendations', payload),
+    resolvePlayback: (track) => ipcRenderer.invoke('streaming:resolvePlayback', track),
+    fetchLyrics: (track) => ipcRenderer.invoke('streaming:fetchLyrics', track)
+  },
+
   media: {
     fetchNeteaseLrcText: (params) => ipcRenderer.invoke('netease:fetchLrcText', params),
     writeFile: (filePath, text) => ipcRenderer.invoke('media:writeFile', filePath, text),
@@ -360,6 +368,8 @@ contextBridge.exposeInMainWorld('api', {
   logoutYoutube: () => ipcRenderer.invoke('youtube:logout'),
   openBilibiliSignInWindow: () => ipcRenderer.invoke('bilibili:openSignInWindow'),
   logoutBilibili: () => ipcRenderer.invoke('bilibili:logout'),
+  openSoundCloudSignInWindow: (browser) => ipcRenderer.invoke('soundcloud:openSignInWindow', browser),
+  logoutSoundCloud: () => ipcRenderer.invoke('soundcloud:logout'),
   openNeteaseSignInWindow: () => ipcRenderer.invoke('netease:openSignInWindow'),
   getNeteaseCookie: (preferredCookie) => ipcRenderer.invoke('netease:getCookie', preferredCookie),
   logoutNetease: () => ipcRenderer.invoke('netease:logout'),

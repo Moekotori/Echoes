@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 
 import {
   buildParsedPlaylistWithCache,
-  compareTrackFrequent
+  compareTrackFrequent,
+  compareTrackRandom,
+  parseTrackInfo,
+  resolveTrackIdentityFromMetadata
 } from '../../src/renderer/src/utils/trackUtils.js'
 
 const makeTrack = (path, fileName) => ({
@@ -57,6 +60,25 @@ test('compareTrackFrequent falls back to album track order', () => {
   )
 })
 
+test('compareTrackRandom is stable for a seed and changes with a new seed', () => {
+  const tracks = [
+    makeTrack('D:/Music/a.flac', 'A'),
+    makeTrack('D:/Music/b.flac', 'B'),
+    makeTrack('D:/Music/c.flac', 'C'),
+    makeTrack('D:/Music/d.flac', 'D'),
+    makeTrack('D:/Music/e.flac', 'E')
+  ]
+
+  const first = [...tracks].sort((a, b) => compareTrackRandom(a, b, 'seed-a')).map((t) => t.path)
+  const second = [...tracks].sort((a, b) => compareTrackRandom(a, b, 'seed-a')).map((t) => t.path)
+  const reshuffled = [...tracks]
+    .sort((a, b) => compareTrackRandom(a, b, 'seed-b'))
+    .map((t) => t.path)
+
+  assert.deepEqual(second, first)
+  assert.notDeepEqual(reshuffled, first)
+})
+
 test('buildParsedPlaylistWithCache reuses unchanged parsed track objects', () => {
   const playlist = [
     { path: 'D:/Music/a.flac', name: '01 - Alpha.flac' },
@@ -81,4 +103,44 @@ test('buildParsedPlaylistWithCache reuses unchanged parsed track objects', () =>
   assert.notEqual(second.items[1], first.items[1])
   assert.equal(second.items[2], first.items[2])
   assert.equal(second.items[1].info.title, 'Beta updated')
+})
+
+test('repairs truncated dash-suffix title metadata from the filename', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: 'Lyn - Beneath the Mask -rain-.flac',
+    title: 'rain-',
+    artist: 'Lyn - Beneath the Mask'
+  })
+
+  assert.equal(identity.title, 'Beneath the Mask -rain-')
+  assert.equal(identity.artist, 'Lyn')
+  assert.equal(identity.source, 'filename')
+})
+
+test('parseTrackInfo uses filename identity when tag title is only a trailing version fragment', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'D:/Music/Persona 5/Lyn - Beneath the Mask -rain-.flac',
+      name: 'Lyn - Beneath the Mask -rain-.flac'
+    },
+    {
+      title: 'rain-',
+      artist: 'Lyn - Beneath the Mask'
+    }
+  )
+
+  assert.equal(info.title, 'Beneath the Mask -rain-')
+  assert.equal(info.artist, 'Lyn')
+})
+
+test('keeps normal metadata when it is not a truncated filename suffix', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: 'Lyn - Beneath the Mask -rain-.flac',
+    title: 'Beneath the Mask',
+    artist: 'Lyn'
+  })
+
+  assert.equal(identity.title, 'Beneath the Mask')
+  assert.equal(identity.artist, 'Lyn')
+  assert.equal(identity.source, 'metadata')
 })
