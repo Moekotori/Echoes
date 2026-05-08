@@ -9,6 +9,7 @@ import {
 import { createEqFloatProcessor } from './eqFloatProcessor.js'
 import { getResolvedFfmpegStaticPath } from '../utils/resolveFfmpegStaticPath.js'
 import { getFfmpegAudioInfo } from '../utils/ffmpegProbeAudioInfo.js'
+import { parseFileInWorker } from '../utils/parseMetadata.js'
 import { logLine } from '../utils/logLine.js'
 import { VstBridge } from './VstBridge.js'
 import { getCueAudioPath, parseCueVirtualPath, toCueAbsoluteTime } from '../../shared/cueTracks.mjs'
@@ -1955,8 +1956,7 @@ export class AudioEngine {
     if (cached) return cached
 
     try {
-      const { parseFile } = await import('music-metadata')
-      const meta = await parseFile(filePath, { duration: false })
+      const meta = await parseFileInWorker(filePath, { duration: false, skipCovers: true })
       const codecName = (meta.format.codec || meta.format.container || '').toLowerCase()
       const needsProbe =
         !Number(meta.format.sampleRate) ||

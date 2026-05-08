@@ -116,6 +116,7 @@ import {
 import { getMediaDurationSeconds } from './utils/ffmpegProbeDuration.js'
 import { getFfmpegAudioInfo } from './utils/ffmpegProbeAudioInfo.js'
 import { detectBpm } from './utils/detectBpm.js'
+import { parseFileInWorker } from './utils/parseMetadata.js'
 import {
   EMBEDDED_LYRICS_EXTRACTOR_VERSION,
   extractEmbeddedLyricsText
@@ -4736,8 +4737,8 @@ app.whenReady().then(async () => {
     const cueTrack = parseCueVirtualPath(requestedPath)
     filePath = getCueAudioPath(filePath)
     try {
-      const { parseFile, selectCover } = await import('music-metadata')
-      const metadata = await parseFile(filePath)
+      const { selectCover } = await import('music-metadata')
+      const metadata = await parseFileInWorker(filePath)
       let cover = null
 
       const extLower = extname(filePath).toLowerCase()
@@ -5347,8 +5348,8 @@ app.whenReady().then(async () => {
     try {
       const resolvedPath = assertEditableLocalPath(filePath)
       if (!fs.existsSync(resolvedPath)) throw new Error('Audio file not found')
-      const { parseFile, selectCover } = await import('music-metadata')
-      const metadata = await parseFile(resolvedPath)
+      const { selectCover } = await import('music-metadata')
+      const metadata = await parseFileInWorker(resolvedPath)
       const cover = selectCover(metadata.common.picture)
       return {
         title: metadata.common.title || basename(resolvedPath, extname(resolvedPath)),

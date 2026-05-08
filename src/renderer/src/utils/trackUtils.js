@@ -13,7 +13,7 @@ function looksLikeSlashSideCredit(right) {
 }
 
 export const parseArtistTitleFromName = (name = '') => {
-  const separators = [' - ', ' – ', ' — ', '_', '／', '/', '-', '–', '—']
+  const separators = [' - ', ' – ', ' — ', '_', '／', '/']
   for (const separator of separators) {
     if (!name.includes(separator)) continue
     const [left, ...rest] = name.split(separator)

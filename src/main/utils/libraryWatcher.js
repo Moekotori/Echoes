@@ -1,6 +1,7 @@
 import fs from 'fs'
 import { basename, dirname, extname, join } from 'path'
 import { createCueVirtualPath, parseCueSheet } from '../../shared/cueTracks.mjs'
+import { parseFileInWorker } from './parseMetadata.js'
 
 const SUPPORTED_AUDIO_EXTS = new Set([
   '.mp3',
@@ -56,8 +57,7 @@ function toAudioEntry(entryPath, stats) {
 async function expandAudioEntryWithEmbeddedCue(entry, stats) {
   if (!entry?.path || extname(entry.path).toLowerCase() !== '.flac') return [entry]
   try {
-    const { parseFile } = await import('music-metadata')
-    const metadata = await parseFile(entry.path, { duration: true, skipCovers: true })
+    const metadata = await parseFileInWorker(entry.path, { duration: true, skipCovers: true })
     const nativeTags = Object.values(metadata?.native || {}).flat()
     const cueText =
       nativeTags.find((tag) => String(tag?.id || '').toUpperCase() === 'CUESHEET')?.value ||
