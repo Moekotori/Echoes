@@ -626,6 +626,7 @@ int wasapi_exclusive_start(
     wasapi_format_desc format;
     uint32_t bufferFrames = 0;
     wasapi_exclusive_runtime* runtime = NULL;
+    BYTE* endpointBuffer = NULL;
     HRESULT hr;
     int result = -1;
 
@@ -719,7 +720,8 @@ int wasapi_exclusive_start(
         goto done;
     }
 
-    BYTE* endpointBuffer = NULL;
+    /* declared up front so earlier `goto done` doesn't cross initialization (g++ rejects that) */
+    endpointBuffer = NULL;
     hr = runtime->renderClient->GetBuffer(runtime->bufferFrameCount, &endpointBuffer);
     if (SUCCEEDED(hr)) {
         memset(endpointBuffer, 0, (size_t)runtime->bufferFrameCount * runtime->format.wave.Format.nBlockAlign);

@@ -114,6 +114,7 @@ import {
   searchQqMusicSongs
 } from './qqMusicProvider.js'
 import {
+  fetchStreamingPlaylist,
   fetchStreamingNeteaseDailyRecommendations,
   fetchStreamingLyrics,
   isStreamingTrackPath,
@@ -133,7 +134,11 @@ import {
   EMBEDDED_LYRICS_EXTRACTOR_VERSION,
   extractEmbeddedLyricsText
 } from './utils/embeddedLyrics.js'
-import { findFolderCoverDataUrl } from './utils/folderCover.js'
+import {
+  findFolderCoverDataUrl,
+  findInfoSidecarCoverDataUrl,
+  readInfoSidecarMetadata
+} from './utils/folderCover.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
 import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
 import { repairPossiblyMojibakeSearchQuery } from './utils/mojibakeRepair.js'
@@ -157,6 +162,34 @@ app.setName(APP_NAME)
 if (process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID)
 }
+
+// Single-instance lock: prevents a second ECHO process from racing the first one
+// on the same %APPDATA%\ECHO\ LevelDB / IndexedDB exclusive locks. Without this:
+//   * After installer overwrites the .exe while the old process is still in tray,
+//     launching the new build produces a white window (renderer can't open IndexedDB).
+//   * Opening ECHO twice leaves the second window unable to load any cached metadata.
+// Must be called AFTER app.setPath('userData', ...) above, since the lock is keyed
+// by the userData path.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  // Use exit() rather than quit() so before-quit handlers (which would try to stop
+  // the renderer HTTP server / native audio host that the *primary* instance owns)
+  // never run in this short-lived secondary process.
+  app.exit(0)
+} else {
+  app.on('second-instance', () => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        if (!mainWindow.isVisible()) mainWindow.show()
+        mainWindow.focus()
+      }
+    } catch (err) {
+      console.error('[SingleInstance] focus existing window failed:', err?.message || err)
+    }
+  })
+}
+
 import { lastFmClient } from './lastfm.js'
 import { buildUpdaterEventDedupeKey, shouldReuseUpdaterState } from '../shared/updaterState.mjs'
 
@@ -2509,6 +2542,43 @@ async function createWindow() {
     }
   })
 
+  // Defensive: if the very first navigation fails (GPU cache corruption right after
+  // install, transient localhost server hiccup, etc.), reload the renderer once or
+  // twice instead of leaving a white window. Bounded so a real persistent failure
+  // (bad URL, missing file) still surfaces in logs instead of looping forever.
+  let mainWindowReloadAttempts = 0
+  const MAIN_WINDOW_MAX_RELOADS = 2
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame) return
+      // -3 (ABORTED) fires during normal in-app navigation; ignore it.
+      if (errorCode === -3) return
+      if (mainWindow.isDestroyed()) return
+      if (mainWindowReloadAttempts >= MAIN_WINDOW_MAX_RELOADS) {
+        console.error(
+          '[Window] did-fail-load gave up after retries:',
+          errorCode,
+          errorDescription
+        )
+        return
+      }
+      mainWindowReloadAttempts += 1
+      console.warn(
+        `[Window] did-fail-load (attempt ${mainWindowReloadAttempts}/${MAIN_WINDOW_MAX_RELOADS}):`,
+        errorCode,
+        errorDescription,
+        '→ reload in 500ms'
+      )
+      setTimeout(() => {
+        if (!mainWindow.isDestroyed()) mainWindow.webContents.reload()
+      }, 500)
+    }
+  )
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindowReloadAttempts = 0
+  })
+
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault()
@@ -4245,6 +4315,19 @@ app.whenReady().then(async () => {
     })
   })
 
+  ipcMain.handle('streaming:fetchPlaylist', async (_, payload = {}) => {
+    if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
+    const neteaseAuth = await resolveNeteaseAuthState(payload?.neteaseCookie || '')
+    const qqMusicAuth = await resolveQqMusicAuthState(payload?.qqMusicCookie || '')
+    return await fetchStreamingPlaylist({
+      provider: payload?.provider || 'netease',
+      playlistInput: payload?.playlistInput || '',
+      audioQualityMode: payload?.audioQualityMode || 'lossless',
+      neteaseCookie: neteaseAuth.valid ? neteaseAuth.cookie : '',
+      qqMusicCookie: qqMusicAuth.cookie || ''
+    })
+  })
+
   ipcMain.handle('streaming:neteaseDailyRecommendations', async (_, payload = {}) => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const neteaseAuth = await resolveNeteaseAuthState(payload?.neteaseCookie || '')
@@ -4928,6 +5011,13 @@ app.whenReady().then(async () => {
     })
   }
 
+  function getReadableInfoSidecarName(sidecar) {
+    const name = String(sidecar?.name || '').trim()
+    if (!name) return ''
+    if (/[\ufffd\u9289\u511e\u5113\u5157]/.test(name)) return ''
+    return name
+  }
+
   async function buildExtendedMetadataResponse(filePath) {
     const requestedPath = filePath
     const cueTrack = parseCueVirtualPath(requestedPath)
@@ -4936,8 +5026,10 @@ app.whenReady().then(async () => {
       const { parseFile, selectCover } = await import('music-metadata')
       const metadata = await parseFile(filePath)
       let cover = null
+      let coverScope = 'album'
 
       const extLower = extname(filePath).toLowerCase()
+      const infoSidecar = readInfoSidecarMetadata(filePath)
       const isDsdFile = extLower === '.dsf' || extLower === '.dff'
       const fileSizeBytes = getLocalFileSizeBytes(filePath)
       const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
@@ -4950,7 +5042,7 @@ app.whenReady().then(async () => {
         fileSizeBytes,
         codecLabel: firstCodecLabel
       })
-      let durationSec = metadata.format.duration
+      let durationSec = metadata.format.duration || infoSidecar?.duration || null
       if (preferFfmpegInfo && Number(ffmpegInfo?.duration) > 0) {
         durationSec = ffmpegInfo.duration
       }
@@ -4982,6 +5074,7 @@ app.whenReady().then(async () => {
         const compressedCover = cover ? null : compressEmbeddedCoverData(picture)
         if (compressedCover) {
           cover = compressedCover.dataUrl
+          coverScope = 'album'
           coverBytes = compressedCover.bytes
           coverWidth = compressedCover.width
           coverHeight = compressedCover.height
@@ -4989,7 +5082,9 @@ app.whenReady().then(async () => {
         }
       }
       if (!cover) {
-        cover = findFolderCoverDataUrl(filePath)
+        cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+        coverScope = cover ? 'track' : 'album'
+        if (!cover) cover = findFolderCoverDataUrl(filePath)
         coverExtractorVersion = cover ? 1 : 0
       }
 
@@ -5007,7 +5102,7 @@ app.whenReady().then(async () => {
       const bitDepth = preferFfmpegInfo
         ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
         : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
-      const displayDuration = getCueDuration(requestedPath, durationSec)
+      const displayDuration = getCueDuration(requestedPath, durationSec || infoSidecar?.duration || 0)
 
       return {
         success: true,
@@ -5031,6 +5126,7 @@ app.whenReady().then(async () => {
             cueTrack?.title ||
             metadata.common.title ||
             ffmpegInfo?.tags?.title ||
+            getReadableInfoSidecarName(infoSidecar) ||
             basename(filePath, extname(filePath)),
           artist:
             cueTrack?.artist ||
@@ -5045,10 +5141,11 @@ app.whenReady().then(async () => {
             null,
           trackNo: metadata.common.track?.no ?? null,
           discNo: metadata.common.disk?.no ?? null,
-          bpm: extractBpmMetadataValue(metadata),
+          bpm: extractBpmMetadataValue(metadata) || infoSidecar?.bpm || null,
           lyrics: embeddedLyrics || null,
           lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
           cover,
+          coverScope,
           coverExtractorVersion,
           coverBytes,
           coverWidth,

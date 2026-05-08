@@ -1,0 +1,1273 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { X, RefreshCw, Minus, Plus, Upload, Search, Image } from 'lucide-react'
+import {
+  DEFAULT_LYRICS_BACKGROUND_COLOR,
+  DEFAULT_LYRICS_BACKGROUND_MODE,
+  DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR,
+  DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY,
+  normalizeLyricsBackgroundColor,
+  normalizeLyricsBackgroundMode,
+  normalizeLyricsBackgroundWallpaperBlur,
+  normalizeLyricsBackgroundWallpaperOpacity
+} from '../utils/lyricsBackground'
+
+export default function LyricsSettingsDrawer({
+  open,
+  onClose,
+  config,
+  setConfig,
+  selectedLyricsSource,
+  onLyricsSourceChange,
+  lyricsMatchStatus,
+  lyricTimelineValid,
+  lyricsSourceUi,
+  isCurrentTrackInstrumental = false,
+  instrumentalMarkAvailable = false,
+  onInstrumentalToggle,
+  onRefreshLyrics,
+  onOpenManualSearch,
+  onFetchLyricsFromLink,
+  onApplyLyricsText,
+  onNativeLyricsFilePick
+}) {
+  const { t } = useTranslation()
+  const sourceOptions = useMemo(
+    () => [
+      { value: 'local', label: t('lyricsDrawer.sourceLocal') },
+      { value: 'lrclib', label: t('lyricsDrawer.sourceLrclib') },
+      { value: 'netease', label: t('lyricsDrawer.sourceNetease') },
+      { value: 'qq', label: t('lyricsDrawer.sourceQq') },
+      { value: 'kugou', label: t('lyricsDrawer.sourceKugou') },
+      { value: 'kuwo', label: t('lyricsDrawer.sourceKuwo') }
+    ],
+    [t]
+  )
+  const localPriorityOptions = useMemo(
+    () => [
+      { value: 'embedded', label: t('lyricsDrawer.localPriorityEmbedded') },
+      { value: 'lrc', label: t('lyricsDrawer.localPriorityLrc') }
+    ],
+    [t]
+  )
+  const backgroundModeOptions = useMemo(
+    () => [
+      { value: 'theme', label: t('lyricsDrawer.backgroundModeTheme') },
+      { value: 'cover', label: t('lyricsDrawer.backgroundModeCover') },
+      { value: 'custom', label: t('lyricsDrawer.backgroundModeCustom') },
+      { value: 'wallpaper', label: t('lyricsDrawer.backgroundModeWallpaper') }
+    ],
+    [t]
+  )
+
+  const [showTextarea, setShowTextarea] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [isOffsetDragging, setIsOffsetDragging] = useState(false)
+  const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) {
+      setShowTextarea(false)
+      setPasteText('')
+      setDropdownOpen(false)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  const dropdownWrapRef = useRef(null)
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const onDoc = (e) => {
+      if (dropdownWrapRef.current && !dropdownWrapRef.current.contains(e.target)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [dropdownOpen])
+
+  const offsetMs = config.lyricsOffsetMs ?? 0
+  const fontSize = config.lyricsFontSize ?? 32
+  const lyricsColor = config.lyricsColor || null
+  const lyricsBackgroundMode = normalizeLyricsBackgroundMode(config.lyricsBackgroundMode)
+  const lyricsBackgroundColor = normalizeLyricsBackgroundColor(
+    config.lyricsBackgroundColor,
+    DEFAULT_LYRICS_BACKGROUND_COLOR
+  )
+  const lyricsWallpaperOpacity = normalizeLyricsBackgroundWallpaperOpacity(
+    config.lyricsBackgroundWallpaperOpacity,
+    DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY
+  )
+  const lyricsWallpaperBlur = normalizeLyricsBackgroundWallpaperBlur(
+    config.lyricsBackgroundWallpaperBlur,
+    DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+  )
+  const selectedSourceValue = sourceOptions.some((option) => option.value === selectedLyricsSource)
+    ? selectedLyricsSource
+    : config.lyricsSource
+
+  const stateDefs = useMemo(
+    () => [
+      { id: 'active', label: t('lyricsDrawer.stateActive') },
+      { id: 'normal', label: t('lyricsDrawer.stateNormal') }
+    ],
+    [t]
+  )
+
+  const getColor = useCallback(
+    (layer, state) => {
+      const v = lyricsColor?.layers?.[layer]?.[state]
+      if (!v) return null
+      const hex = typeof v.hex === 'string' ? v.hex : ''
+      const a = typeof v.a === 'number' ? v.a : 1
+      return hex ? { hex, a } : null
+    },
+    [lyricsColor]
+  )
+
+  const setMainColor = useCallback(
+    (state, next) => {
+      setConfig((p) => {
+        const prev = p.lyricsColor || { version: 1, layers: {} }
+        const prevMain = prev.layers?.main || {}
+        return {
+          ...p,
+          lyricsColor: {
+            version: 1,
+            layers: {
+              ...(prev.layers || {}),
+              main: {
+                ...prevMain,
+                [state]: next
+              }
+            }
+          }
+        }
+      })
+    },
+    [setConfig]
+  )
+
+  const parseHexWithOptionalAlpha = useCallback((raw) => {
+    const s = String(raw || '').trim()
+    if (!s) return null
+    const m = s.startsWith('#') ? s.slice(1) : s
+    if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(m)) return null
+    const hex = `#${m.slice(0, 6).toUpperCase()}`
+    const a =
+      m.length === 8 ? Math.max(0, Math.min(1, parseInt(m.slice(6, 8), 16) / 255)) : 1
+    return { hex, a }
+  }, [])
+
+  const activeInit = getColor('main', 'active')
+  const normalInit = getColor('main', 'normal')
+  const [activeHexDraft, setActiveHexDraft] = useState(activeInit?.hex || '')
+  const [normalHexDraft, setNormalHexDraft] = useState(normalInit?.hex || '')
+  const [backgroundHexDraft, setBackgroundHexDraft] = useState(lyricsBackgroundColor)
+  const [activeInvalid, setActiveInvalid] = useState(false)
+  const [normalInvalid, setNormalInvalid] = useState(false)
+  const [backgroundInvalid, setBackgroundInvalid] = useState(false)
+
+  useEffect(() => {
+    const a = getColor('main', 'active')
+    const n = getColor('main', 'normal')
+    setActiveHexDraft(a?.hex || '')
+    setNormalHexDraft(n?.hex || '')
+    setActiveInvalid(false)
+    setNormalInvalid(false)
+  }, [getColor])
+
+  useEffect(() => {
+    setBackgroundHexDraft(lyricsBackgroundColor)
+    setBackgroundInvalid(false)
+  }, [lyricsBackgroundColor])
+
+  const applyColorHex = useCallback(
+    (state, hex) => {
+      const prev = getColor('main', state)
+      const nextHex = String(hex || '').toUpperCase()
+      setMainColor(state, { hex: nextHex, a: prev?.a ?? 1 })
+      if (state === 'active') {
+        setActiveHexDraft(nextHex)
+        setActiveInvalid(false)
+      } else {
+        setNormalHexDraft(nextHex)
+        setNormalInvalid(false)
+      }
+    },
+    [getColor, setMainColor]
+  )
+
+  const applyColorAlpha = useCallback(
+    (state, alpha) => {
+      const prev = getColor('main', state)
+      const fallbackHex = state === 'active' ? '#FFFFFF' : '#DDE7F3'
+      setMainColor(state, {
+        hex: prev?.hex || fallbackHex,
+        a: Math.max(0.1, Math.min(1, Number(alpha) || 1))
+      })
+      if (!prev?.hex) {
+        if (state === 'active') setActiveHexDraft(fallbackHex)
+        else setNormalHexDraft(fallbackHex)
+      }
+    },
+    [getColor, setMainColor]
+  )
+
+  const commitHexDraft = useCallback(
+    (state, draft) => {
+      const value = String(draft || '').trim()
+      const setInvalid = state === 'active' ? setActiveInvalid : setNormalInvalid
+      const setDraft = state === 'active' ? setActiveHexDraft : setNormalHexDraft
+      if (!value) {
+        setMainColor(state, null)
+        setInvalid(false)
+        return
+      }
+      const parsed = parseHexWithOptionalAlpha(value)
+      if (!parsed) {
+        setInvalid(true)
+        return
+      }
+      setMainColor(state, parsed)
+      setDraft(parsed.hex)
+      setInvalid(false)
+    },
+    [parseHexWithOptionalAlpha, setMainColor]
+  )
+
+  const applyBackgroundColor = useCallback(
+    (value) => {
+      const nextColor = normalizeLyricsBackgroundColor(value, lyricsBackgroundColor)
+      setConfig((p) => ({
+        ...p,
+        lyricsBackgroundMode: 'custom',
+        lyricsBackgroundColor: nextColor
+      }))
+      setBackgroundHexDraft(nextColor)
+      setBackgroundInvalid(false)
+    },
+    [lyricsBackgroundColor, setConfig]
+  )
+
+  const commitBackgroundHexDraft = useCallback(() => {
+    const value = String(backgroundHexDraft || '').trim()
+    const candidate = value.startsWith('#') ? value : `#${value}`
+    if (!/^#[0-9a-fA-F]{6}$/.test(candidate)) {
+      setBackgroundInvalid(true)
+      return
+    }
+    applyBackgroundColor(candidate)
+  }, [applyBackgroundColor, backgroundHexDraft])
+
+  const pickLyricsWallpaper = useCallback(async () => {
+    const path = await window.api?.openImageHandler?.(config.uiLocale)
+    if (!path) return
+    setConfig((p) => ({
+      ...p,
+      lyricsBackgroundMode: 'wallpaper',
+      lyricsBackgroundWallpaperPath: path
+    }))
+  }, [config.uiLocale, setConfig])
+
+  const statusLabel =
+    isCurrentTrackInstrumental
+      ? t('lyricsDrawer.statusInstrumental')
+      : lyricsMatchStatus === 'loading'
+      ? t('lyricsDrawer.statusLoading')
+      : lyricsMatchStatus === 'matched'
+        ? t('lyricsDrawer.statusMatched')
+        : lyricsMatchStatus === 'none'
+          ? t('lyricsDrawer.statusNone')
+          : t('lyricsDrawer.statusDash')
+
+  const statusTone =
+    isCurrentTrackInstrumental
+      ? 'warn'
+      : lyricsMatchStatus === 'loading'
+        ? 'pending'
+        : lyricsMatchStatus === 'none'
+          ? 'bad'
+          : lyricsMatchStatus === 'matched'
+            ? 'ok'
+            : ''
+
+  const handleDrop = async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const f = e.dataTransfer?.files?.[0]
+    if (!f) return
+    const name = (f.name || '').toLowerCase()
+    if (!name.endsWith('.lrc') && !name.endsWith('.lrcx')) return
+    if (f.path && window.api?.readBufferHandler) {
+      const buf = await window.api.readBufferHandler(f.path)
+      if (buf) {
+        const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+        const text = new TextDecoder('utf-8').decode(u8)
+        onApplyLyricsText(text)
+      }
+    } else {
+      const text = await f.text()
+      onApplyLyricsText(text)
+    }
+  }
+
+  const handleApplyPaste = () => {
+    if (!pasteText.trim()) return
+    onApplyLyricsText(pasteText)
+    setPasteText('')
+    setShowTextarea(false)
+  }
+
+  return (
+    <>
+      <div
+        className={`lyrics-drawer-backdrop ${open ? 'lyrics-drawer-backdrop--open' : ''}`}
+        onClick={onClose}
+        aria-hidden={!open}
+      />
+      <aside
+        className={`lyrics-drawer-panel ${open ? 'lyrics-drawer-panel--open' : ''}`}
+        role="dialog"
+        aria-label={t('drawer.lyricsAria')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="lyrics-drawer-header">
+          <h2 className="lyrics-drawer-title">{t('drawer.lyricsTitle')}</h2>
+          <button
+            type="button"
+            className="lyrics-drawer-close"
+            onClick={onClose}
+            aria-label={t('aria.close')}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="lyrics-drawer-body">
+          <section className="lyrics-drawer-section">
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.lyricsSwitch')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!config.lyricsHidden}
+                className={`lyrics-drawer-switch ${!config.lyricsHidden ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsHidden: !p.lyricsHidden
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            {config.lyricsHidden ? (
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.lyricsSwitchOffHint')}</p>
+            ) : null}
+          </section>
+
+          <section className="lyrics-drawer-section">
+            <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.source')}</h3>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.markInstrumental')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!isCurrentTrackInstrumental}
+                disabled={!instrumentalMarkAvailable}
+                className={`lyrics-drawer-switch ${isCurrentTrackInstrumental ? 'on' : ''}`}
+                onClick={() => onInstrumentalToggle?.(!isCurrentTrackInstrumental)}
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <p className="lyrics-drawer-hint">
+              {isCurrentTrackInstrumental
+                ? t('lyricsDrawer.markInstrumentalOnHint')
+                : t('lyricsDrawer.markInstrumentalHint')}
+            </p>
+            <div className="lyrics-drawer-status">
+              <span className={`lyrics-drawer-status-dot ${statusTone}`} />
+              <span>
+                {t('lyricsDrawer.statusPrefix')} {statusLabel}
+              </span>
+            </div>
+            <div className="lyrics-drawer-status" style={{ marginTop: 8 }}>
+              <span>
+                {t('lyricsDrawer.currentSourcePrefix', 'Current source:')}{' '}
+                {lyricsSourceUi || t('lyricsDrawer.sourceStateIdle', '--')}
+              </span>
+            </div>
+            <div className="lyrics-drawer-local-priority">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.localPriority')}</span>
+              <div className="lyrics-drawer-segmented" role="radiogroup">
+                {localPriorityOptions.map((option) => {
+                  const active = (config.localLyricsPriority || 'embedded') === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? 'active' : ''}
+                      onClick={() =>
+                        setConfig((p) => ({
+                          ...p,
+                          localLyricsPriority: option.value
+                        }))
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.localPriorityHint')}</p>
+            </div>
+            <div className="lyrics-drawer-dropdown-wrap" ref={dropdownWrapRef}>
+              <button
+                type="button"
+                className="lyrics-drawer-dropdown-trigger"
+                onClick={() => setDropdownOpen((v) => !v)}
+              >
+                {sourceOptions.find((o) => o.value === selectedSourceValue)?.label ||
+                  t('lyricsDrawer.selectSource')}
+              </button>
+              {dropdownOpen && (
+                <ul className="lyrics-drawer-dropdown-menu">
+                  {sourceOptions.map((o) => (
+                    <li key={o.value}>
+                      <button
+                        type="button"
+                        className={selectedSourceValue === o.value ? 'active' : ''}
+                        onClick={() => {
+                          if (onLyricsSourceChange) {
+                            onLyricsSourceChange(o.value)
+                          } else {
+                            setConfig((p) => ({ ...p, lyricsSource: o.value }))
+                          }
+                          setDropdownOpen(false)
+                        }}
+                      >
+                        {o.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.deepSearch')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsDeepSearchEnabled === true}
+                className={`lyrics-drawer-switch ${config.lyricsDeepSearchEnabled === true ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsDeepSearchEnabled: p.lyricsDeepSearchEnabled !== true
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <p className="lyrics-drawer-hint">{t('lyricsDrawer.deepSearchHint')}</p>
+            <button
+              type="button"
+              className="lyrics-drawer-refresh"
+              onClick={() => onRefreshLyrics()}
+              title={t('lyricsDrawer.fetchAgainTitle')}
+            >
+              <RefreshCw size={16} />
+              {t('lyricsDrawer.refresh')}
+            </button>
+            <button
+              type="button"
+              className="lyrics-drawer-refresh"
+              onClick={() => onOpenManualSearch?.()}
+              title={t('lyricsDrawer.manualSearch')}
+            >
+              <Search size={16} />
+              {t('lyricsDrawer.manualSearch')}
+            </button>
+            <div className="lyrics-drawer-textarea-block">
+              <input
+                type="text"
+                className="lyrics-drawer-url-input"
+                placeholder={t('lyricsDrawer.linkPlaceholder')}
+                value={config.lyricsSourceLink || ''}
+                onChange={(e) =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsSourceLink: e.target.value
+                  }))
+                }
+              />
+              <button
+                type="button"
+                className="lyrics-drawer-primary-btn"
+                onClick={() => onFetchLyricsFromLink?.()}
+              >
+                {t('lyricsDrawer.fetchFromLink')}
+              </button>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.linkHint')}</p>
+            </div>
+          </section>
+
+          <section className="lyrics-drawer-section">
+            <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.displayStyle')}</h3>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.romaji')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.lyricsShowRomaji}
+                className={`lyrics-drawer-switch ${config.lyricsShowRomaji ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsShowRomaji: !p.lyricsShowRomaji
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.translation')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.lyricsShowTranslation}
+                className={`lyrics-drawer-switch ${config.lyricsShowTranslation ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsShowTranslation: !p.lyricsShowTranslation
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.wordHighlight')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsWordHighlight !== false}
+                className={`lyrics-drawer-switch ${config.lyricsWordHighlight !== false ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsWordHighlight: p.lyricsWordHighlight === false ? true : false
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.blurEffect')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsBlurEffect === true}
+                className={`lyrics-drawer-switch ${config.lyricsBlurEffect === true ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsBlurEffect: !p.lyricsBlurEffect
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-slider-block">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.mainLineSize')}</span>
+                <span className="lyrics-drawer-value">{fontSize}px</span>
+              </div>
+              <input
+                type="range"
+                min={18}
+                max={56}
+                step={1}
+                value={fontSize}
+                onChange={(e) =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsFontSize: parseInt(e.target.value, 10)
+                  }))
+                }
+                className="lyrics-drawer-range"
+              />
+            </div>
+
+            <div className="lyrics-drawer-background-block">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.background')}</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsBackgroundMode: DEFAULT_LYRICS_BACKGROUND_MODE,
+                      lyricsBackgroundColor: DEFAULT_LYRICS_BACKGROUND_COLOR,
+                      lyricsBackgroundWallpaperPath: null,
+                      lyricsBackgroundWallpaperOpacity: DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY,
+                      lyricsBackgroundWallpaperBlur: DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+                    }))
+                  }
+                >
+                  {t('lyricsDrawer.reset')}
+                </button>
+              </div>
+              <div className="lyrics-drawer-segmented lyrics-drawer-segmented--four" role="radiogroup">
+                {backgroundModeOptions.map((option) => {
+                  const active = lyricsBackgroundMode === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? 'active' : ''}
+                      onClick={() =>
+                        setConfig((p) => ({
+                          ...p,
+                          lyricsBackgroundMode: option.value
+                        }))
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.backgroundHint')}</p>
+              {lyricsBackgroundMode === 'custom' ? (
+                <div className="lyrics-background-color-card">
+                  <label
+                    className="lyrics-background-color-preview"
+                    style={{ background: lyricsBackgroundColor }}
+                  >
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.backgroundColor')}</span>
+                    <input
+                      type="color"
+                      value={lyricsBackgroundColor}
+                      onChange={(e) => applyBackgroundColor(e.target.value)}
+                      aria-label={t('lyricsDrawer.backgroundColor')}
+                    />
+                  </label>
+                  <div className="lyrics-background-color-controls">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${backgroundInvalid ? 'is-invalid' : ''}`}
+                        value={backgroundHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setBackgroundHexDraft(e.target.value)
+                          setBackgroundInvalid(false)
+                        }}
+                        onBlur={commitBackgroundHexDraft}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitBackgroundHexDraft()
+                        }}
+                      />
+                    </label>
+                    <span className="lyrics-background-color-value">{lyricsBackgroundColor}</span>
+                  </div>
+                </div>
+              ) : null}
+              {lyricsBackgroundMode === 'wallpaper' ? (
+                <div className="lyrics-wallpaper-card">
+                  <div className="lyrics-wallpaper-preview">
+                    <Image size={18} aria-hidden />
+                    <span>
+                      {config.lyricsBackgroundWallpaperPath
+                        ? t('lyricsDrawer.wallpaperSelected')
+                        : t('lyricsDrawer.wallpaperEmpty')}
+                    </span>
+                  </div>
+                  <div className="lyrics-wallpaper-controls">
+                    <div className="lyrics-wallpaper-actions">
+                      <button type="button" className="lyrics-drawer-btn" onClick={pickLyricsWallpaper}>
+                        {config.lyricsBackgroundWallpaperPath
+                          ? t('lyricsDrawer.wallpaperChange')
+                          : t('lyricsDrawer.wallpaperSelect')}
+                      </button>
+                      {config.lyricsBackgroundWallpaperPath ? (
+                        <button
+                          type="button"
+                          className="lyrics-drawer-btn"
+                          onClick={() =>
+                            setConfig((p) => ({
+                              ...p,
+                              lyricsBackgroundWallpaperPath: null
+                            }))
+                          }
+                        >
+                          {t('lyricsDrawer.wallpaperClear')}
+                        </button>
+                      ) : null}
+                    </div>
+                    <label className="lyrics-drawer-slider-block lyrics-wallpaper-slider">
+                      <div className="lyrics-drawer-label-row">
+                        <span className="lyrics-drawer-label">{t('lyricsDrawer.wallpaperOpacity')}</span>
+                        <span className="lyrics-drawer-value">{Math.round(lyricsWallpaperOpacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={lyricsWallpaperOpacity}
+                        onChange={(e) =>
+                          setConfig((p) => ({
+                            ...p,
+                            lyricsBackgroundWallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(
+                              e.target.value,
+                              lyricsWallpaperOpacity
+                            )
+                          }))
+                        }
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                    <label className="lyrics-drawer-slider-block lyrics-wallpaper-slider">
+                      <div className="lyrics-drawer-label-row">
+                        <span className="lyrics-drawer-label">{t('lyricsDrawer.wallpaperBlur')}</span>
+                        <span className="lyrics-drawer-value">{Math.round(lyricsWallpaperBlur)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={40}
+                        step={1}
+                        value={lyricsWallpaperBlur}
+                        onChange={(e) =>
+                          setConfig((p) => ({
+                            ...p,
+                            lyricsBackgroundWallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(
+                              e.target.value,
+                              lyricsWallpaperBlur
+                            )
+                          }))
+                        }
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="lyrics-drawer-color-grid">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.fontColor')}</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsColor: null,
+                      lyricsFontColor: null
+                    }))
+                  }
+                >
+                  {t('lyricsDrawer.reset')}
+                </button>
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.fontColorHint')}</p>
+
+              <div className="lyrics-color-inline">
+                <div className="lyrics-color-card">
+                  <label className="lyrics-color-picker-panel">
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateActive')}</span>
+                    <input
+                      type="color"
+                      value={activeInit?.hex || '#FFFFFF'}
+                      onChange={(e) => applyColorHex('active', e.target.value)}
+                      aria-label="Pick active color"
+                    />
+                  </label>
+                  <div className="lyrics-color-fields">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${activeInvalid ? 'is-invalid' : ''}`}
+                        value={activeHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setActiveHexDraft(e.target.value)
+                          setActiveInvalid(false)
+                        }}
+                        onBlur={() => commitHexDraft('active', activeHexDraft)}
+                      />
+                    </label>
+                    <label className="lyrics-color-field lyrics-color-alpha-field">
+                      <span>A {Math.round((activeInit?.a ?? 1) * 100)}%</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.01}
+                        value={activeInit?.a ?? 1}
+                        onChange={(e) => applyColorAlpha('active', e.target.value)}
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="lyrics-color-card">
+                  <label className="lyrics-color-picker-panel">
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateNormal')}</span>
+                    <input
+                      type="color"
+                      value={normalInit?.hex || '#DDE7F3'}
+                      onChange={(e) => applyColorHex('normal', e.target.value)}
+                      aria-label="Pick normal color"
+                    />
+                  </label>
+                  <div className="lyrics-color-fields">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${normalInvalid ? 'is-invalid' : ''}`}
+                        value={normalHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setNormalHexDraft(e.target.value)
+                          setNormalInvalid(false)
+                        }}
+                        onBlur={() => commitHexDraft('normal', normalHexDraft)}
+                      />
+                    </label>
+                    <label className="lyrics-color-field lyrics-color-alpha-field">
+                      <span>A {Math.round((normalInit?.a ?? 1) * 100)}%</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.01}
+                        value={normalInit?.a ?? 1}
+                        onChange={(e) => applyColorAlpha('normal', e.target.value)}
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="lyrics-drawer-section">
+            <h3 className="lyrics-drawer-section-title">{t('lyrics.desktopLyrics')}</h3>
+            <p className="lyrics-drawer-hint">{t('lyrics.desktopLyricsHint')}</p>
+            <div className="lyrics-drawer-row" style={{ marginTop: 8 }}>
+              <span className="lyrics-drawer-label">{t('lyrics.desktopLyricsEnable')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.desktopLyricsEnabled}
+                className={`lyrics-drawer-switch ${config.desktopLyricsEnabled ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({ ...p, desktopLyricsEnabled: !p.desktopLyricsEnabled }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row" style={{ marginTop: 8 }}>
+              <span className="lyrics-drawer-label">{t('lyrics.desktopLyricsAlwaysOnTop')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.desktopLyricsAlwaysOnTop !== false}
+                className={`lyrics-drawer-switch ${config.desktopLyricsAlwaysOnTop !== false ? 'on' : ''}`}
+                onClick={() => {
+                  const newVal = config.desktopLyricsAlwaysOnTop === false ? true : false
+                  setConfig((p) => ({ ...p, desktopLyricsAlwaysOnTop: newVal }))
+                  if (window.api?.setLyricsDesktopAlwaysOnTop) {
+                    window.api.setLyricsDesktopAlwaysOnTop(newVal)
+                  }
+                }}
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row" style={{ marginTop: 8 }}>
+              <span className="lyrics-drawer-label">{t('lyrics.desktopLyricsLock')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.desktopLyricsLocked === true}
+                className={`lyrics-drawer-switch ${config.desktopLyricsLocked === true ? 'on' : ''}`}
+                onClick={() => {
+                  const newVal = config.desktopLyricsLocked !== true
+                  setConfig((p) => ({ ...p, desktopLyricsLocked: newVal }))
+                  if (window.api?.setLyricsDesktopLocked) {
+                    window.api.setLyricsDesktopLocked(newVal)
+                  }
+                }}
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row" style={{ marginTop: 8 }}>
+              <span className="lyrics-drawer-label">{t('lyrics.desktopLyricsSyncTheme')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.desktopLyricsSyncTheme}
+                className={`lyrics-drawer-switch ${config.desktopLyricsSyncTheme ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({ ...p, desktopLyricsSyncTheme: !p.desktopLyricsSyncTheme }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-slider-block" style={{ marginTop: 12 }}>
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.desktopFontSize')}</span>
+                <span className="lyrics-drawer-value">{config.desktopLyricsFontPx ?? 26}px</span>
+              </div>
+              <input
+                type="range"
+                min={14}
+                max={40}
+                step={1}
+                value={config.desktopLyricsFontPx ?? 26}
+                onChange={(e) =>
+                  setConfig((p) => ({
+                    ...p,
+                    desktopLyricsFontPx: Number(e.target.value)
+                  }))
+                }
+                className="lyrics-drawer-range"
+              />
+            </div>
+
+            <div
+              className="lyrics-drawer-desktop-options"
+              style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}
+            >
+              <div className="lyrics-drawer-row">
+                <span className="lyrics-drawer-label">{t('lyrics.desktopShowPrev')}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.desktopLyricsShowPrev !== false}
+                  className={`lyrics-drawer-switch ${config.desktopLyricsShowPrev !== false ? 'on' : ''}`}
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      desktopLyricsShowPrev: p.desktopLyricsShowPrev === false ? true : false
+                    }))
+                  }
+                >
+                  <span className="lyrics-drawer-switch-thumb" />
+                </button>
+              </div>
+              <div className="lyrics-drawer-row">
+                <span className="lyrics-drawer-label">{t('lyrics.desktopShowNext')}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.desktopLyricsShowNext !== false}
+                  className={`lyrics-drawer-switch ${config.desktopLyricsShowNext !== false ? 'on' : ''}`}
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      desktopLyricsShowNext: p.desktopLyricsShowNext === false ? true : false
+                    }))
+                  }
+                >
+                  <span className="lyrics-drawer-switch-thumb" />
+                </button>
+              </div>
+              <div className="lyrics-drawer-row">
+                <span className="lyrics-drawer-label">{t('lyrics.desktopShowRomaji')}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.desktopLyricsShowRomaji === true}
+                  className={`lyrics-drawer-switch ${config.desktopLyricsShowRomaji === true ? 'on' : ''}`}
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      desktopLyricsShowRomaji: !p.desktopLyricsShowRomaji
+                    }))
+                  }
+                >
+                  <span className="lyrics-drawer-switch-thumb" />
+                </button>
+              </div>
+              <div className="lyrics-drawer-row">
+                <span className="lyrics-drawer-label">{t('lyrics.desktopShowTranslation')}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.desktopLyricsShowTranslation === true}
+                  className={`lyrics-drawer-switch ${config.desktopLyricsShowTranslation === true ? 'on' : ''}`}
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      desktopLyricsShowTranslation: !p.desktopLyricsShowTranslation
+                    }))
+                  }
+                >
+                  <span className="lyrics-drawer-switch-thumb" />
+                </button>
+              </div>
+            </div>
+
+            <div className="lyrics-drawer-color-grid" style={{ marginTop: 12 }}>
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyrics.desktopColorsSection')}</span>
+              </div>
+              <div className="lyrics-color-inline">
+                <div className="lyrics-color-inline-row">
+                  <div className="lyrics-color-inline-label">{t('lyrics.desktopColorText')}</div>
+                  <div
+                    className="lyrics-color-inline-swatch"
+                    style={{ background: config.desktopLyricsColorText || '#fff8f5' }}
+                  />
+                  <label className="lyrics-color-picker">
+                    <input
+                      type="color"
+                      aria-label={t('lyrics.desktopColorText')}
+                      value={config.desktopLyricsColorText || '#fff8f5'}
+                      onChange={(e) =>
+                        setConfig((p) => ({ ...p, desktopLyricsColorText: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="lyrics-color-inline-row">
+                  <div className="lyrics-color-inline-label">{t('lyrics.desktopColorSecondary')}</div>
+                  <div
+                    className="lyrics-color-inline-swatch"
+                    style={{ background: config.desktopLyricsColorSecondary || '#ffc8b8' }}
+                  />
+                  <label className="lyrics-color-picker">
+                    <input
+                      type="color"
+                      aria-label={t('lyrics.desktopColorSecondary')}
+                      value={config.desktopLyricsColorSecondary || '#ffc8b8'}
+                      onChange={(e) =>
+                        setConfig((p) => ({ ...p, desktopLyricsColorSecondary: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="lyrics-color-inline-row">
+                  <div className="lyrics-color-inline-label">{t('lyrics.desktopColorGlow')}</div>
+                  <div
+                    className="lyrics-color-inline-swatch"
+                    style={{ background: config.desktopLyricsColorGlow || '#ff8866' }}
+                  />
+                  <label className="lyrics-color-picker">
+                    <input
+                      type="color"
+                      aria-label={t('lyrics.desktopColorGlow')}
+                      value={config.desktopLyricsColorGlow || '#ff8866'}
+                      onChange={(e) =>
+                        setConfig((p) => ({ ...p, desktopLyricsColorGlow: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="lyrics-color-inline-row">
+                  <div className="lyrics-color-inline-label">{t('lyrics.desktopColorRomaji')}</div>
+                  <div
+                    className="lyrics-color-inline-swatch"
+                    style={{ background: config.desktopLyricsColorRomaji || '#e8d0c8' }}
+                  />
+                  <label className="lyrics-color-picker">
+                    <input
+                      type="color"
+                      aria-label={t('lyrics.desktopColorRomaji')}
+                      value={config.desktopLyricsColorRomaji || '#e8d0c8'}
+                      onChange={(e) =>
+                        setConfig((p) => ({ ...p, desktopLyricsColorRomaji: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                className="lyrics-drawer-primary-btn"
+                onClick={() => window.api?.openLyricsDesktop?.()}
+              >
+                {t('lyrics.desktopOpen')}
+              </button>
+              <button
+                type="button"
+                className="lyrics-drawer-primary-btn"
+                style={{ opacity: 0.85 }}
+                onClick={() => window.api?.closeLyricsDesktop?.()}
+              >
+                {t('lyrics.desktopClose')}
+              </button>
+            </div>
+          </section>
+
+          <section className="lyrics-drawer-section">
+            <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.localSync')}</h3>
+            <div className="lyrics-drawer-offset">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.timingOffset')}</span>
+              <div className="lyrics-drawer-offset-controls">
+                <button
+                  type="button"
+                  className="lyrics-drawer-icon-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsOffsetMs: (p.lyricsOffsetMs ?? 0) - 50
+                    }))
+                  }
+                  aria-label={t('lyricsDrawer.decrease50')}
+                >
+                  <Minus size={18} />
+                </button>
+                <span className="lyrics-drawer-offset-value">{offsetMs} ms</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-icon-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsOffsetMs: (p.lyricsOffsetMs ?? 0) + 50
+                    }))
+                  }
+                  aria-label={t('lyricsDrawer.increase50')}
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+              <div className={`lyrics-drawer-slider-block lyrics-drawer-slider-block--offset ${isOffsetDragging ? 'is-dragging' : ''}`}>
+                <div className="lyrics-drawer-range-float-wrap">
+                  <span
+                    className="lyrics-drawer-range-float"
+                    style={{ left: `${((Math.min(1500, Math.max(-1500, offsetMs)) + 1500) / 3000) * 100}%` }}
+                  >
+                    {offsetMs} ms
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-1500}
+                  max={1500}
+                  step={10}
+                  value={Math.min(1500, Math.max(-1500, offsetMs))}
+                  onChange={(e) =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsOffsetMs: parseInt(e.target.value, 10)
+                    }))
+                  }
+                  onMouseDown={() => setIsOffsetDragging(true)}
+                  onMouseUp={() => setIsOffsetDragging(false)}
+                  onMouseLeave={() => setIsOffsetDragging(false)}
+                  onTouchStart={() => setIsOffsetDragging(true)}
+                  onTouchEnd={() => setIsOffsetDragging(false)}
+                  className={`lyrics-drawer-range ${isOffsetDragging ? 'is-dragging' : ''}`}
+                />
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.offsetHint')}</p>
+            </div>
+
+            <div
+              className="lyrics-drawer-dropzone"
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onDrop={handleDrop}
+            >
+              <Upload size={22} strokeWidth={1.5} />
+              <p>{t('lyricsDrawer.dropzone')}</p>
+              <button
+                type="button"
+                className="lyrics-drawer-link-btn"
+                onClick={() => {
+                  if (window.api?.openLyricsFileHandler) {
+                    onNativeLyricsFilePick?.()
+                  } else {
+                    fileInputRef.current?.click()
+                  }
+                }}
+              >
+                {t('lyricsDrawer.chooseFile')}
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".lrc,.lrcx,text/plain"
+              className="lyrics-drawer-file-input"
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (!f) return
+                const text = await f.text()
+                onApplyLyricsText(text)
+              }}
+            />
+
+            <button
+              type="button"
+              className="lyrics-drawer-secondary-btn"
+              onClick={() => setShowTextarea((v) => !v)}
+            >
+              {t('lyricsDrawer.editPlain')}
+            </button>
+            {showTextarea && (
+              <div className="lyrics-drawer-textarea-block">
+                <textarea
+                  className="lyrics-drawer-textarea"
+                  placeholder={t('lyricsDrawer.pastePlaceholder')}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  rows={8}
+                />
+                <button
+                  type="button"
+                  className="lyrics-drawer-primary-btn"
+                  onClick={handleApplyPaste}
+                >
+                  {t('lyricsDrawer.applyLyrics')}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      </aside>
+    </>
+  )
+}

@@ -6,13 +6,14 @@ const require = createRequire(import.meta.url)
 
 const ESSENTIA_SAMPLE_RATE = 44100
 const FALLBACK_SAMPLE_RATE = 11025
-const MAX_SECONDS = 90
+const MAX_SECONDS = 45
 const FRAME_SIZE = 1024
 const HOP_SIZE = 512
 const MIN_BPM = 60
 const MAX_BPM = 200
 const ESSENTIA_MAX_PCM_BYTES = ESSENTIA_SAMPLE_RATE * MAX_SECONDS * 4
 const FALLBACK_MAX_PCM_BYTES = FALLBACK_SAMPLE_RATE * MAX_SECONDS * 2
+const FAST_FALLBACK_CONFIDENCE = 0.28
 
 let essentiaInstance = null
 let essentiaLoadFailed = false
@@ -293,9 +294,17 @@ async function detectBpmWithFallback(filePath) {
 }
 
 export async function detectBpmInProcess(filePath) {
+  const fallbackResult = await detectBpmWithFallback(filePath)
+  if (fallbackResult?.bpm && fallbackResult.confidence >= FAST_FALLBACK_CONFIDENCE) {
+    return {
+      ...fallbackResult,
+      backend: `${fallbackResult.backend}-fast`
+    }
+  }
+
   const essentiaResult = await detectBpmWithEssentia(filePath)
   if (essentiaResult?.bpm) {
     return essentiaResult
   }
-  return await detectBpmWithFallback(filePath)
+  return fallbackResult
 }

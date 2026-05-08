@@ -216,7 +216,9 @@ import { extractAverageHexFromSrc, generatePaletteFromHex } from './utils/color'
 import {
   buildLyricsBackgroundPresentation,
   normalizeLyricsBackgroundColor,
-  normalizeLyricsBackgroundMode
+  normalizeLyricsBackgroundMode,
+  normalizeLyricsBackgroundWallpaperBlur,
+  normalizeLyricsBackgroundWallpaperOpacity
 } from './utils/lyricsBackground'
 import {
   buildArtistBucketsWithAvatars,
@@ -264,6 +266,7 @@ import {
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
+  isTrackScopedCoverEntry,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
   shouldRefreshTrackMetaCacheForAudioQuality,
@@ -412,7 +415,7 @@ const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
 const ALBUM_METADATA_PARSE_BATCH_SIZE = 20
 const METADATA_PARSE_WORKERS = 2
-const PLAYING_METADATA_PARSE_BATCH_SIZE = 1
+const PLAYING_METADATA_PARSE_BATCH_SIZE = 6
 const PLAYING_METADATA_PARSE_WORKERS = 1
 const ALBUM_CLOUD_COVER_PREFETCH_LIMIT = 40
 const ALBUM_CLOUD_COVER_WORKERS = 5
@@ -439,7 +442,7 @@ const MINI_PLAYER_PROGRESS_SYNC_BUCKET_SEC = 10
 const CLOUD_COVER_RESOLUTION = '600x600bb'
 const SIDEBAR_LOGO_IMAGE_SRC = sidebarLogoImage
 const BPM_DETECTOR_VERSION = 2
-const BPM_DETECTION_START_DELAY_MS = 18000
+const BPM_DETECTION_START_DELAY_MS = 1000
 const MV_SEARCH_PLAYBACK_START_DELAY_MS = 5000
 
 function createSongRandomSortSeed() {
@@ -1069,6 +1072,14 @@ function fileNameFromPath(filePath = '') {
   )
 }
 
+function isInfoSidecarTrackPath(filePath = '') {
+  return /[/\\][^/\\]+\.info[/\\][^/\\]+$/i.test(getCueAudioPath(String(filePath || '')))
+}
+
+function shouldRefreshInfoSidecarTrackMeta(filePath, entry) {
+  return isInfoSidecarTrackPath(filePath) && entry?.coverScope !== 'track'
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -1215,6 +1226,9 @@ function normalizeConfigState(raw) {
   if (!Object.prototype.hasOwnProperty.call(source, 'lyricsWordHighlight')) {
     merged.lyricsWordHighlight = DEFAULT_CONFIG.lyricsWordHighlight
   }
+  if (typeof merged.lyricsReadabilityEnhancement !== 'boolean') {
+    merged.lyricsReadabilityEnhancement = DEFAULT_CONFIG.lyricsReadabilityEnhancement
+  }
   if (!['embedded', 'lrc'].includes(merged.localLyricsPriority)) {
     merged.localLyricsPriority = DEFAULT_CONFIG.localLyricsPriority
   }
@@ -1234,6 +1248,20 @@ function normalizeConfigState(raw) {
   merged.lyricsBackgroundColor = normalizeLyricsBackgroundColor(
     merged.lyricsBackgroundColor,
     DEFAULT_CONFIG.lyricsBackgroundColor
+  )
+  if (typeof merged.lyricsBackgroundWallpaperPath !== 'string') {
+    merged.lyricsBackgroundWallpaperPath = DEFAULT_CONFIG.lyricsBackgroundWallpaperPath
+  }
+  merged.lyricsBackgroundWallpaperOpacity = normalizeLyricsBackgroundWallpaperOpacity(
+    merged.lyricsBackgroundWallpaperOpacity,
+    DEFAULT_CONFIG.lyricsBackgroundWallpaperOpacity
+  )
+  if (Math.abs(merged.lyricsBackgroundWallpaperOpacity - 0.72) < 0.001) {
+    merged.lyricsBackgroundWallpaperOpacity = DEFAULT_CONFIG.lyricsBackgroundWallpaperOpacity
+  }
+  merged.lyricsBackgroundWallpaperBlur = normalizeLyricsBackgroundWallpaperBlur(
+    merged.lyricsBackgroundWallpaperBlur,
+    DEFAULT_CONFIG.lyricsBackgroundWallpaperBlur
   )
   if (typeof merged.lyricsDeepSearchEnabled !== 'boolean') {
     merged.lyricsDeepSearchEnabled = DEFAULT_CONFIG.lyricsDeepSearchEnabled
@@ -1281,6 +1309,15 @@ function normalizeConfigState(raw) {
   if (typeof merged.ultraSmallScreenAdaptive !== 'boolean') {
     merged.ultraSmallScreenAdaptive = DEFAULT_CONFIG.ultraSmallScreenAdaptive
   }
+  if (typeof merged.showTitlebarCastSender !== 'boolean') {
+    merged.showTitlebarCastSender = DEFAULT_CONFIG.showTitlebarCastSender
+  }
+  if (typeof merged.showTitlebarListenTogether !== 'boolean') {
+    merged.showTitlebarListenTogether = DEFAULT_CONFIG.showTitlebarListenTogether
+  }
+  if (typeof merged.showTitlebarPlugins !== 'boolean') {
+    merged.showTitlebarPlugins = DEFAULT_CONFIG.showTitlebarPlugins
+  }
   if (typeof merged.autoSearchMV !== 'boolean') {
     merged.autoSearchMV = DEFAULT_CONFIG.autoSearchMV
   }
@@ -1311,6 +1348,14 @@ function normalizeConfigState(raw) {
   merged.historyMaxEntries = normalizeHistoryMaxEntries(merged.historyMaxEntries)
   if (typeof merged.historyCollapseRepeats !== 'boolean') {
     merged.historyCollapseRepeats = DEFAULT_CONFIG.historyCollapseRepeats
+  }
+  if (typeof merged.autoDetectBpm !== 'boolean') {
+    merged.autoDetectBpm = DEFAULT_CONFIG.autoDetectBpm
+  }
+  if (!Number.isFinite(Number(merged.playerViewScale))) {
+    merged.playerViewScale = DEFAULT_CONFIG.playerViewScale
+  } else {
+    merged.playerViewScale = Math.max(0.85, Math.min(1.25, Number(merged.playerViewScale)))
   }
   if (typeof merged.historyShowInSidebar !== 'boolean') {
     merged.historyShowInSidebar = DEFAULT_CONFIG.historyShowInSidebar
@@ -1408,6 +1453,9 @@ const SETTINGS_SECTION_KEYWORDS = {
     'locate',
     'current',
     'playing',
+    'bpm',
+    'tempo',
+    'beats per minute',
     'sleep',
     'timer',
     'asio',
@@ -1419,9 +1467,13 @@ const SETTINGS_SECTION_KEYWORDS = {
     '\u884c\u4e3a',
     '\u5b9a\u4f4d',
     '\u5f53\u524d\u64ad\u653e',
+    '\u8282\u62cd',
+    '\u81ea\u52a8\u68c0\u6d4b',
     '\u7761\u7720',
     '\u5b9a\u65f6',
     '\u30a4\u30b3\u30e9\u30a4\u30b6\u30fc',
+    '\u30c6\u30f3\u30dd',
+    '\u81ea\u52d5\u691c\u51fa',
     '\u52d5\u4f5c',
     '\u30af\u30ed\u30b9\u30d5\u30a7\u30fc\u30c9'
   ],
@@ -2538,6 +2590,9 @@ export default function App() {
   const [albumSortMode, setAlbumSortMode] = useState('default')
   const [albumSortOpen, setAlbumSortOpen] = useState(false)
   const albumSortRef = useRef(null)
+  const [artistSortMode, setArtistSortMode] = useState('default')
+  const [artistSortOpen, setArtistSortOpen] = useState(false)
+  const artistSortRef = useRef(null)
   const [folderSortMode, setFolderSortMode] = useState('default') // 'default' | 'dateAsc' | 'dateDesc'
   const [folderSortOpen, setFolderSortOpen] = useState(false)
   const folderSortRef = useRef(null)
@@ -4211,7 +4266,12 @@ export default function App() {
       uiControlDensity: DEFAULT_CONFIG.uiControlDensity,
       uiAccentBackgroundGlow: DEFAULT_CONFIG.uiAccentBackgroundGlow,
       ultraSmallScreenAdaptive: DEFAULT_CONFIG.ultraSmallScreenAdaptive,
-      playerCoverSize: DEFAULT_CONFIG.playerCoverSize
+      showTitlebarCastSender: DEFAULT_CONFIG.showTitlebarCastSender,
+      showTitlebarListenTogether: DEFAULT_CONFIG.showTitlebarListenTogether,
+      showTitlebarPlugins: DEFAULT_CONFIG.showTitlebarPlugins,
+      lyricsReadabilityEnhancement: DEFAULT_CONFIG.lyricsReadabilityEnhancement,
+      playerCoverSize: DEFAULT_CONFIG.playerCoverSize,
+      playerViewScale: DEFAULT_CONFIG.playerViewScale
     }))
   }
 
@@ -4241,7 +4301,13 @@ export default function App() {
       uiControlDensity: DEFAULT_CONFIG.uiControlDensity,
       ultraSmallScreenAdaptive: DEFAULT_CONFIG.ultraSmallScreenAdaptive,
       themeDynamicCoverColor: DEFAULT_CONFIG.themeDynamicCoverColor,
-      themeCoverAsBackground: DEFAULT_CONFIG.themeCoverAsBackground
+      themeCoverAsBackground: DEFAULT_CONFIG.themeCoverAsBackground,
+      showTitlebarCastSender: DEFAULT_CONFIG.showTitlebarCastSender,
+      showTitlebarListenTogether: DEFAULT_CONFIG.showTitlebarListenTogether,
+      showTitlebarPlugins: DEFAULT_CONFIG.showTitlebarPlugins,
+      lyricsReadabilityEnhancement: DEFAULT_CONFIG.lyricsReadabilityEnhancement,
+      playerCoverSize: DEFAULT_CONFIG.playerCoverSize,
+      playerViewScale: DEFAULT_CONFIG.playerViewScale
     }))
   }
 
@@ -4390,6 +4456,8 @@ export default function App() {
     document.body.style.lineHeight = String(1.45 * uiLineHeight)
     const playerCoverSize = Math.max(180, Math.min(360, Number(config.playerCoverSize ?? 360)))
     root.style.setProperty('--player-cover-size', `${playerCoverSize}px`)
+    const playerViewScale = Math.max(0.85, Math.min(1.25, Number(config.playerViewScale ?? 1)))
+    root.style.setProperty('--player-view-scale', String(playerViewScale))
 
     const rs = config.uiRadiusScale ?? 1
     root.style.setProperty('--border-radius-lg', `${20 * rs}px`)
@@ -7733,12 +7801,13 @@ export default function App() {
     const isCompleteCachedMeta = (entry) =>
       !!(
         entry?.coverChecked &&
-        entry?.bpmChecked &&
-        entry?.bpmDetectorVersion === BPM_DETECTOR_VERSION &&
+        (configRef.current?.autoDetectBpm !== true ||
+          (entry?.bpmChecked && entry?.bpmDetectorVersion === BPM_DETECTOR_VERSION)) &&
         entry?.mqaChecked &&
         hasCurrentEmbeddedLyricsExtraction(entry) &&
         !shouldRefreshCachedOggOpusCover(entry) &&
         !shouldRefreshTrackMetaCacheForAudioQuality(filePath, entry) &&
+        !shouldRefreshInfoSidecarTrackMeta(filePath, entry) &&
         entry.coverMemoryTrimmed !== true
       )
 
@@ -7781,7 +7850,13 @@ export default function App() {
         codec: entry.codec || null,
         originalBpm: entry.bpmMeasured ? entry.bpm || null : null
       }))
-      setBpmDetectionState(entry.bpmMeasured ? 'done' : entry.bpmChecked ? 'failed' : 'idle')
+      setBpmDetectionState(
+        entry.bpmMeasured
+          ? 'done'
+          : configRef.current?.autoDetectBpm === true && entry.bpmChecked
+            ? 'failed'
+            : 'idle'
+      )
       if (typeof entry.duration === 'number' && entry.duration > 0) {
         setDuration(entry.duration)
       }
@@ -7866,6 +7941,10 @@ export default function App() {
     setBpmDetectionState('idle')
 
     const detectMeasuredBpm = async (baseMeta = {}) => {
+      if (configRef.current?.autoDetectBpm !== true) {
+        setBpmDetectionState(baseMeta?.bpmMeasured ? 'done' : 'idle')
+        return
+      }
       const hasCurrentBpmVersion = baseMeta?.bpmDetectorVersion === BPM_DETECTOR_VERSION
       if (hasCurrentBpmVersion && baseMeta?.bpmMeasured && Number(baseMeta.bpm) > 0) {
         setBpmDetectionState('done')
@@ -8027,6 +8106,7 @@ export default function App() {
             trackNo: common.trackNo ?? null,
             discNo: common.discNo ?? null,
             cover: resolvedCover,
+            coverScope: common.coverScope || cachedMeta?.coverScope || null,
             coverExtractorVersion: common.coverExtractorVersion ?? null,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
@@ -10592,46 +10672,52 @@ export default function App() {
     t
   ])
 
-  const displayMainCoverUrl = useMemo(() => {
+  const displayMainCoverCandidates = useMemo(() => {
+    const candidates = []
+    const pushCover = (value) => {
+      const url = typeof value === 'string' ? value.trim() : ''
+      if (url && !candidates.includes(url)) candidates.push(url)
+    }
     const s = lastCastStatus
     if (isCastSessionActive(s)) {
       const meta = getCastStatusMeta(s)
-      const u = (meta.albumArtUrl || '').trim()
-      const cover = (meta.cover || meta.artworkUrl || '').trim()
-      return cover || u || null
+      pushCover(meta.cover)
+      pushCover(meta.artworkUrl)
+      pushCover(meta.albumArtUrl)
+      return candidates
     }
-    if (currentDisplayOverride?.cover) return currentDisplayOverride.cover
-    if (!currentTrack?.path) return null
+    pushCover(currentDisplayOverride?.cover)
+    if (!currentTrack?.path) return candidates
     if (isStreamingTrackPath(currentTrack.path)) {
       const parsed = parseStreamingTrackPath(currentTrack.path)
       const raw = parsed?.raw || {}
-      const streamingCover =
-        currentTrack?.cover ||
-        currentTrack?.info?.cover ||
-        currentTrackInfo?.cover ||
-        effectiveTrackMetaMap[currentTrack.path]?.cover ||
-        raw.cover ||
-        null
-      if (streamingCover) return streamingCover
+      pushCover(currentTrack?.cover)
+      pushCover(currentTrack?.info?.cover)
+      pushCover(currentTrackInfo?.cover)
+      pushCover(effectiveTrackMetaMap[currentTrack.path]?.cover)
+      pushCover(raw.cover)
+      return candidates
     }
-    const knownTrackCover =
-      currentTrackInfo?.cover || effectiveTrackMetaMap[currentTrack.path]?.cover || null
     const isQqMusicTrack =
       currentTrack?.downloadProvider === 'qq' ||
       /(^|\/\/)y\.qq\.com\//i.test(currentTrack?.sourceUrl || '') ||
       /(^|\/\/)y\.qq\.com\//i.test(currentTrack?.mvOriginUrl || '')
     if (isQqMusicTrack) {
-      return (
-        [
-          currentTrack?.cover,
-          currentTrack?.info?.cover,
-          effectiveTrackMetaMap[currentTrack.path]?.cover,
-          currentTrackInfo?.cover
-        ].find((value) => /(^|\/\/)(y|qpic)\.qq\.com\//i.test(String(value || ''))) || null
-      )
+      ;[
+        currentTrack?.cover,
+        currentTrack?.info?.cover,
+        effectiveTrackMetaMap[currentTrack.path]?.cover,
+        currentTrackInfo?.cover
+      ]
+        .filter((value) => /(^|\/\/)(y|qpic)\.qq\.com\//i.test(String(value || '')))
+        .forEach(pushCover)
     }
-    if (coverUrlTrackPath === currentTrack.path && coverUrl) return coverUrl
-    return knownTrackCover
+    if (coverUrlTrackPath === currentTrack.path) pushCover(coverUrl)
+    pushCover(currentTrackInfo?.cover)
+    pushCover(effectiveTrackMetaMap[currentTrack.path]?.cover)
+    pushCover(currentTrack?.cover)
+    pushCover(currentTrack?.info?.cover)
+    return candidates
   }, [
     lastCastStatus,
     currentDisplayOverride,
@@ -10646,10 +10732,14 @@ export default function App() {
     coverUrl
   ])
 
+  const displayMainCoverUrl = useMemo(
+    () => displayMainCoverCandidates.find((url) => url !== failedDisplayCoverUrl) || null,
+    [displayMainCoverCandidates, failedDisplayCoverUrl]
+  )
+
   const displaySafeCoverUrl = useMemo(() => {
-    if (!displayMainCoverUrl) return null
-    return displayMainCoverUrl === failedDisplayCoverUrl ? null : displayMainCoverUrl
-  }, [displayMainCoverUrl, failedDisplayCoverUrl])
+    return displayMainCoverUrl || null
+  }, [displayMainCoverUrl])
 
   const castLyricsIdentity = useMemo(() => {
     if (!isCastSessionActive(lastCastStatus)) return ''
@@ -11038,6 +11128,13 @@ export default function App() {
       `file:///${String(config.customBgPath).replace(/\\/g, '/')}`
     )
   }, [config.customBgPath])
+  const lyricsWallpaperUrl = useMemo(() => {
+    if (!config.lyricsBackgroundWallpaperPath) return ''
+    return (
+      window.api?.pathToFileURL?.(config.lyricsBackgroundWallpaperPath) ||
+      `file:///${String(config.lyricsBackgroundWallpaperPath).replace(/\\/g, '/')}`
+    )
+  }, [config.lyricsBackgroundWallpaperPath])
   const wallpaperOpacity = useMemo(
     () => normalizeUnitOpacity(config.customBgOpacity, DEFAULT_CONFIG.customBgOpacity ?? 1),
     [config.customBgOpacity]
@@ -11081,6 +11178,7 @@ export default function App() {
       currentTrackInfo?.artist ||
       null
     const albumArtist = metadata.albumArtist || currentTrackInfo?.albumArtist || null
+    const existingCurrentMeta = trackMetaMap[currentTrack.path] || {}
     const coverEntry = {
       title,
       artist,
@@ -11089,21 +11187,21 @@ export default function App() {
       trackNo: metadata.trackNo ?? currentTrackInfo?.trackNo ?? null,
       discNo: metadata.discNo ?? currentTrackInfo?.discNo ?? null,
       cover: displaySafeCoverUrl,
-      coverExtractorVersion: trackMetaMap[currentTrack.path]?.coverExtractorVersion || null,
+      coverScope: existingCurrentMeta.coverScope || null,
+      coverExtractorVersion: existingCurrentMeta.coverExtractorVersion || null,
       duration: duration || currentTrackInfo?.duration || null,
       coverChecked: true,
-      codec: technicalInfo.codec || trackMetaMap[currentTrack.path]?.codec || null,
+      codec: technicalInfo.codec || existingCurrentMeta.codec || null,
       bitrateKbps: technicalInfo.bitrate
         ? Math.round(technicalInfo.bitrate / 1000)
-        : trackMetaMap[currentTrack.path]?.bitrateKbps || null,
-      sampleRateHz:
-        technicalInfo.sampleRate || trackMetaMap[currentTrack.path]?.sampleRateHz || null,
-      bitDepth: technicalInfo.bitDepth || trackMetaMap[currentTrack.path]?.bitDepth || null,
-      channels: technicalInfo.channels || trackMetaMap[currentTrack.path]?.channels || null,
-      isMqa: technicalInfo.isMqa === true || trackMetaMap[currentTrack.path]?.isMqa === true,
-      bpm: technicalInfo.originalBpm || trackMetaMap[currentTrack.path]?.bpm || null,
-      lyrics: trackMetaMap[currentTrack.path]?.lyrics || null,
-      lyricsExtractorVersion: trackMetaMap[currentTrack.path]?.lyricsExtractorVersion || null
+        : existingCurrentMeta.bitrateKbps || null,
+      sampleRateHz: technicalInfo.sampleRate || existingCurrentMeta.sampleRateHz || null,
+      bitDepth: technicalInfo.bitDepth || existingCurrentMeta.bitDepth || null,
+      channels: technicalInfo.channels || existingCurrentMeta.channels || null,
+      isMqa: technicalInfo.isMqa === true || existingCurrentMeta.isMqa === true,
+      bpm: technicalInfo.originalBpm || existingCurrentMeta.bpm || null,
+      lyrics: existingCurrentMeta.lyrics || null,
+      lyricsExtractorVersion: existingCurrentMeta.lyricsExtractorVersion || null
     }
 
     setTrackMetaMap((prev) => {
@@ -11118,7 +11216,7 @@ export default function App() {
       }
     })
 
-    if (albumName) {
+    if (albumName && !isTrackScopedCoverEntry(coverEntry)) {
       setAlbumCoverMap((prev) => {
         if (prev[albumName]) return prev
         return { ...prev, [albumName]: displaySafeCoverUrl }
@@ -12575,6 +12673,7 @@ export default function App() {
     const foundCovers = {}
     const foundCoverItems = []
     for (const track of parsedPlaylist) {
+      if (isTrackScopedCoverEntry(trackMetaMap[track.path])) continue
       const albumName = track?.info?.album || 'Singles'
       const cover = track?.info?.cover
       if (albumName && cover && !foundCovers[albumName]) {
@@ -12600,7 +12699,7 @@ export default function App() {
       }
       return changed ? next : prev
     })
-  }, [listMode, parsedPlaylist, persistAlbumCoverCacheItems])
+  }, [listMode, parsedPlaylist, persistAlbumCoverCacheItems, trackMetaMap])
 
   const shouldBuildAlbumBuckets = listMode === 'album' || selectedAlbum !== 'all'
   const shouldBuildFolderBuckets = listMode === 'folders' || selectedFolder !== 'all'
@@ -12787,14 +12886,34 @@ export default function App() {
   const artistBuckets = useMemo(() => {
     if (!shouldBuildArtistBuckets) return []
     const unknownArtist = t('artists.unknown', 'Unknown Artist')
-    return buildArtistBucketsWithAvatars(queryFilteredPlaylist, {
+    const buckets = buildArtistBucketsWithAvatars(queryFilteredPlaylist, {
       unknownArtist,
       trackMetaMap,
       albumCoverMap,
       artistAvatarMap
     })
+
+    const getArtistAddedAt = (artist) =>
+      Math.min(...artist.tracks.map((track) => track.birthtimeMs || Infinity))
+
+    if (artistSortMode === 'nameAsc') {
+      buckets.sort((a, b) => a.name.localeCompare(b.name) || b.tracks.length - a.tracks.length)
+    } else if (artistSortMode === 'nameDesc') {
+      buckets.sort((a, b) => b.name.localeCompare(a.name) || b.tracks.length - a.tracks.length)
+    } else if (artistSortMode === 'tracksAsc') {
+      buckets.sort((a, b) => a.tracks.length - b.tracks.length || a.name.localeCompare(b.name))
+    } else if (artistSortMode === 'tracksDesc') {
+      buckets.sort((a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name))
+    } else if (artistSortMode === 'dateAsc') {
+      buckets.sort((a, b) => getArtistAddedAt(a) - getArtistAddedAt(b) || a.name.localeCompare(b.name))
+    } else if (artistSortMode === 'dateDesc') {
+      buckets.sort((a, b) => getArtistAddedAt(b) - getArtistAddedAt(a) || a.name.localeCompare(b.name))
+    }
+
+    return buckets
   }, [
     albumCoverMap,
+    artistSortMode,
     artistAvatarMap,
     queryFilteredPlaylist,
     shouldBuildArtistBuckets,
@@ -14276,6 +14395,22 @@ export default function App() {
     albumSortOptions.find((option) => option.key === albumSortMode)?.label ||
     albumSortOptions[0]?.label
 
+  const artistSortOptions = useMemo(
+    () => [
+      { key: 'default', label: t('artists.sortDefault', 'Default') },
+      { key: 'nameAsc', label: t('artists.sortNameAsc', 'Artist name (A-Z)') },
+      { key: 'nameDesc', label: t('artists.sortNameDesc', 'Artist name (Z-A)') },
+      { key: 'tracksAsc', label: t('artists.sortTracksAsc', 'Track count (Low)') },
+      { key: 'tracksDesc', label: t('artists.sortTracksDesc', 'Track count (High)') },
+      { key: 'dateAsc', label: t('artists.sortDateAsc', 'Oldest added') },
+      { key: 'dateDesc', label: t('artists.sortDateDesc', 'Newest added') }
+    ],
+    [t]
+  )
+  const activeArtistSortLabel =
+    artistSortOptions.find((option) => option.key === artistSortMode)?.label ||
+    artistSortOptions[0]?.label
+
   useEffect(() => {
     if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
       setAlbumGridScrollTop(0)
@@ -14704,6 +14839,7 @@ export default function App() {
       for (const track of pending) {
         const cachedEntry = cached[track.path]
         if (!cachedEntry?.cover) continue
+        if (isTrackScopedCoverEntry(cachedEntry)) continue
         const albumName = cachedEntry.album || track?.info?.album || 'Singles'
         if (albumName && !cachedAlbumCovers[albumName]) {
           cachedAlbumCovers[albumName] = {
@@ -14744,6 +14880,7 @@ export default function App() {
         const cachedMeta = cached[track.path]
         if (!cachedMeta) return true
         if (shouldRefreshTrackMetaCacheForAudioQuality(track.path, cachedMeta)) return true
+        if (shouldRefreshInfoSidecarTrackMeta(track.path, cachedMeta)) return true
         if (!cachedMeta.bpmChecked) return true
         if (!cachedMeta.mqaChecked) return true
         return !cachedMeta.cover && !albumCoverProbePathsRef.current.has(track.path)
@@ -14753,7 +14890,10 @@ export default function App() {
       const playbackActive = isPlaying === true
       const parseCandidates =
         playbackActive && activePlaybackPath
-          ? uncachedPending.filter((track) => track?.path === activePlaybackPath)
+          ? [
+              ...uncachedPending.filter((track) => track?.path === activePlaybackPath),
+              ...uncachedPending.filter((track) => track?.path !== activePlaybackPath)
+            ]
           : uncachedPending
       const parseBatchSize =
         playbackActive && activePlaybackPath
@@ -14788,6 +14928,7 @@ export default function App() {
         const flushAlbumCovers = {}
         for (const [path, entry] of Object.entries(flush)) {
           if (!entry?.cover) continue
+          if (isTrackScopedCoverEntry(entry)) continue
           const track = parseQueue.find((t) => t?.path === path)
           const albumName = entry.album || track?.info?.album || 'Singles'
           if (albumName && !flushAlbumCovers[albumName]) {
@@ -14835,6 +14976,7 @@ export default function App() {
                 trackNo: common.trackNo ?? null,
                 discNo: common.discNo ?? null,
                 cover: common.cover || cachedMeta.cover || null,
+                coverScope: common.coverScope || cachedMeta.coverScope || null,
                 duration: technical.duration || cachedMeta.duration || null,
                 coverChecked: true,
                 bpmChecked: true,
@@ -14877,6 +15019,7 @@ export default function App() {
         for (const track of parseQueue) {
           const loadedEntry = loaded[track.path]
           if (!loadedEntry?.cover) continue
+          if (isTrackScopedCoverEntry(loadedEntry)) continue
           const albumName = loadedEntry.album || track?.info?.album || 'Singles'
           if (albumName && !parsedAlbumCovers[albumName]) {
             parsedAlbumCovers[albumName] = {
@@ -15334,6 +15477,7 @@ export default function App() {
       playlistLibraryMoreOpen ||
       folderSortOpen ||
       songSortOpen ||
+      artistSortOpen ||
       activeDeckPopover
 
     if (showLyrics || view === 'settings' || hasOpenFloatingUi) return undefined
@@ -15371,6 +15515,7 @@ export default function App() {
     selectedFolder,
     showLyrics,
     songSortOpen,
+    artistSortOpen,
     trackContextMenu,
     view
   ])
@@ -15557,11 +15702,10 @@ export default function App() {
       e?.preventDefault?.()
       e?.stopPropagation?.()
       const { clientX, clientY } = resolveContextMenuPoint(e)
-      forceCloseCoverContextMenu()
       forceCloseAddToPlaylistMenu()
       forceCloseTrackContextMenu()
       forceCloseGroupContextMenu()
-      setCoverContextMenu({
+      setTrackContextMenu({
         clientX,
         clientY,
         track: currentTrack
@@ -15569,7 +15713,6 @@ export default function App() {
     },
     [
       currentTrack,
-      forceCloseCoverContextMenu,
       forceCloseAddToPlaylistMenu,
       forceCloseTrackContextMenu,
       forceCloseGroupContextMenu
@@ -16074,6 +16217,24 @@ export default function App() {
     }
   }, [songSortOpen])
 
+  useEffect(() => {
+    if (!artistSortOpen) return
+    const onDocMouseDown = (e) => {
+      if (artistSortRef.current && !artistSortRef.current.contains(e.target)) {
+        setArtistSortOpen(false)
+      }
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setArtistSortOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [artistSortOpen])
+
   const deleteUserPlaylist = useCallback(
     (id) => {
       if (!confirm(t('playlists.confirmDelete'))) return
@@ -16398,22 +16559,33 @@ export default function App() {
           : PRESET_THEMES[config.theme]?.colors || PRESET_THEMES.minimal.colors
     return normalizeThemeColors(raw)
   }, [config.theme, config.customColors, config.themeDynamicCoverColor, dynamicCoverTheme])
-  const lyricsBackgroundPresentation = useMemo(() => {
-    if (!showLyrics || brightLyricsBackdrop) return null
+  const lyricsDockPresentation = useMemo(() => {
+    if (!showLyrics) return null
     return buildLyricsBackgroundPresentation({
       mode: config.lyricsBackgroundMode,
       customColor: config.lyricsBackgroundColor,
+      wallpaperUrl: lyricsWallpaperUrl,
+      wallpaperOpacity: config.lyricsBackgroundWallpaperOpacity,
+      wallpaperBlur: config.lyricsBackgroundWallpaperBlur,
+      coverUrl: displaySafeCoverUrl,
       coverPalette: dynamicCoverTheme,
       themePalette: themePaletteForLyricsBackground
     })
   }, [
     showLyrics,
-    brightLyricsBackdrop,
     config.lyricsBackgroundMode,
     config.lyricsBackgroundColor,
+    config.lyricsBackgroundWallpaperOpacity,
+    config.lyricsBackgroundWallpaperBlur,
+    lyricsWallpaperUrl,
+    displaySafeCoverUrl,
     dynamicCoverTheme,
     themePaletteForLyricsBackground
   ])
+  const lyricsBackgroundPresentation = useMemo(() => {
+    if (brightLyricsBackdrop) return null
+    return lyricsDockPresentation
+  }, [brightLyricsBackdrop, lyricsDockPresentation])
   const showLyricsFluidBackground =
     config.lyricsFluidBackground !== false &&
     showLyrics &&
@@ -17023,31 +17195,33 @@ export default function App() {
             >
               <Film size={18} />
             </button>
-            <button
-              className="no-drag"
-              type="button"
-              onClick={() => setCastSendDrawerOpen((o) => !o)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit',
-                cursor: 'pointer',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = 'var(--accent-pink)'
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.color = castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit'
-              }}
-              title={t('titlebar.castSender')}
-            >
-              <Cast size={18} />
-            </button>
+            {config.showTitlebarCastSender === true && (
+              <button
+                className="no-drag"
+                type="button"
+                onClick={() => setCastSendDrawerOpen((o) => !o)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-pink)'
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.color = castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit'
+                }}
+                title={t('titlebar.castSender')}
+              >
+                <Cast size={18} />
+              </button>
+            )}
             <button
               className="no-drag"
               type="button"
@@ -17074,61 +17248,65 @@ export default function App() {
             >
               <Radio size={18} />
             </button>
-            <button
-              className="no-drag"
-              type="button"
-              onClick={() => setListenTogetherDrawerOpen((o) => !o)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color:
-                  listenTogetherDrawerOpen || listenTogetherRoomState?.roomId
-                    ? 'var(--accent-pink)'
-                    : 'inherit',
-                cursor: 'pointer',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = 'var(--accent-pink)'
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.color =
-                  listenTogetherDrawerOpen || listenTogetherRoomState?.roomId
-                    ? 'var(--accent-pink)'
-                    : 'inherit'
-              }}
-              title={t('titlebar.listenTogether')}
-            >
-              <Users size={18} />
-            </button>
-            <button
-              className="no-drag"
-              onClick={() => setPluginDrawerOpen((v) => !v)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: pluginDrawerOpen ? 'var(--accent-pink)' : 'inherit',
-                cursor: 'pointer',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = 'var(--accent-pink)'
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.color = pluginDrawerOpen ? 'var(--accent-pink)' : 'inherit'
-              }}
-              title={t('titlebar.plugins')}
-            >
-              <Blocks size={18} />
-            </button>
+            {config.showTitlebarListenTogether === true && (
+              <button
+                className="no-drag"
+                type="button"
+                onClick={() => setListenTogetherDrawerOpen((o) => !o)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color:
+                    listenTogetherDrawerOpen || listenTogetherRoomState?.roomId
+                      ? 'var(--accent-pink)'
+                      : 'inherit',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-pink)'
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.color =
+                    listenTogetherDrawerOpen || listenTogetherRoomState?.roomId
+                      ? 'var(--accent-pink)'
+                      : 'inherit'
+                }}
+                title={t('titlebar.listenTogether')}
+              >
+                <Users size={18} />
+              </button>
+            )}
+            {config.showTitlebarPlugins === true && (
+              <button
+                className="no-drag"
+                onClick={() => setPluginDrawerOpen((v) => !v)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: pluginDrawerOpen ? 'var(--accent-pink)' : 'inherit',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-pink)'
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.color = pluginDrawerOpen ? 'var(--accent-pink)' : 'inherit'
+                }}
+                title={t('titlebar.plugins')}
+              >
+                <Blocks size={18} />
+              </button>
+            )}
             <button
               className="no-drag"
               onClick={() => setView(view === 'settings' ? 'player' : 'settings')}
@@ -17648,6 +17826,40 @@ export default function App() {
                         >
                           <div className="folder-sort-chk">
                             {albumSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                          </div>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {listMode === 'artists' && selectedArtist === 'all' && (
+                <div className="folder-sort-wrap search-sort-wrap" ref={artistSortRef}>
+                  <button
+                    type="button"
+                    className="folder-sort-trigger"
+                    onClick={() => setArtistSortOpen((v) => !v)}
+                    aria-expanded={artistSortOpen}
+                  >
+                    {activeArtistSortLabel}
+                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                  </button>
+                  {artistSortOpen && (
+                    <div className="folder-sort-menu" role="menu">
+                      {artistSortOptions.map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          role="menuitem"
+                          className={`folder-sort-menu-item${artistSortMode === opt.key ? ' active' : ''}`}
+                          onClick={() => {
+                            setArtistSortMode(opt.key)
+                            setArtistSortOpen(false)
+                          }}
+                        >
+                          <div className="folder-sort-chk">
+                            {artistSortMode === opt.key && <Check size={14} strokeWidth={2} />}
                           </div>
                           {opt.label}
                         </button>
@@ -18971,7 +19183,7 @@ export default function App() {
         </div>
 
         <div
-          className={`main-player glass-panel ${showLyrics ? 'lyrics-mode' : 'no-drag'} ${brightLyricsBackdrop ? 'immersive-mode' : ''} ${showLyrics && !brightLyricsBackdrop ? 'main-player--lyrics-fallback-bg' : ''} ${lyricsBackgroundPresentation?.className || ''} ${brightLyricsBackdrop ? 'main-player--bright-lyrics-bg' : ''} ${view === 'settings' || (!showLyrics && !showLegacyMainPlayerChrome) ? 'hidden' : ''} ${config.lyricsBlurEffect ? 'lyrics-blur-on' : ''}`}
+          className={`main-player glass-panel ${showLyrics ? 'lyrics-mode' : 'no-drag'} ${brightLyricsBackdrop ? 'immersive-mode' : ''} ${showLyrics && !brightLyricsBackdrop ? 'main-player--lyrics-fallback-bg' : ''} ${lyricsBackgroundPresentation?.className || ''} ${brightLyricsBackdrop ? 'main-player--bright-lyrics-bg' : ''} ${view === 'settings' || (!showLyrics && !showLegacyMainPlayerChrome) ? 'hidden' : ''} ${config.lyricsBlurEffect ? 'lyrics-blur-on' : ''} ${config.lyricsReadabilityEnhancement === true ? 'lyrics-readable-text' : ''}`}
           style={lyricsBackgroundPresentation?.style}
         >
           {showLyrics ? (
@@ -19873,6 +20085,48 @@ export default function App() {
 
                       <div className="setting-row">
                         <div className="setting-info">
+                          <h3>{t('settings.autoDetectBpmTitle')}</h3>
+                          <p>{t('settings.autoDetectBpmDesc')}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.autoDetectBpm === true ? 'active' : ''}`}
+                          onClick={() => {
+                            const nextAutoDetectBpm = config.autoDetectBpm !== true
+                            setConfig((prev) => ({
+                              ...prev,
+                              autoDetectBpm: nextAutoDetectBpm
+                            }))
+                            if (nextAutoDetectBpm && currentTrack?.path) {
+                              window.setTimeout(() => {
+                                void loadTrackData(currentTrack.path, {
+                                  title:
+                                    currentTrack.info?.title ||
+                                    currentTrack.title ||
+                                    stripExtension(currentTrack.name || ''),
+                                  artist: currentTrack.info?.artist || currentTrack.artist || '',
+                                  album: currentTrack.info?.album || '',
+                                  embeddedLyrics:
+                                    currentTrack.info?.lyrics || currentTrack.lyrics || '',
+                                  mvOriginUrl: currentTrack.mvOriginUrl || currentTrack.sourceUrl,
+                                  sourceUrl: currentTrack.sourceUrl || currentTrack.mvOriginUrl,
+                                  hasLyrics: currentTrack.hasLyrics === true
+                                })
+                              }, 0)
+                            }
+                          }}
+                          aria-pressed={config.autoDetectBpm === true}
+                        >
+                          {config.autoDetectBpm === true ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
                           <h3>{t('settings.miniPlayerAlwaysOnTopTitle')}</h3>
                           <p>{t('settings.miniPlayerAlwaysOnTopDesc')}</p>
                         </div>
@@ -20663,6 +20917,49 @@ export default function App() {
                         </button>
                       </div>
 
+                      <div className="setting-row" style={{ marginBottom: 20 }}>
+                        <div className="setting-info">
+                          <h3>{t('settings.titlebarToolsTitle', 'Titlebar tool buttons')}</h3>
+                          <p>
+                            {t(
+                              'settings.titlebarToolsDesc',
+                              'Keep less-used tools hidden by default; turn them on here when you want quick access.'
+                            )}
+                          </p>
+                        </div>
+                        <div className="settings-chip-row no-drag" style={{ justifyContent: 'flex-end' }}>
+                          {[
+                            {
+                              key: 'showTitlebarCastSender',
+                              label: t('settings.titlebarCastSender', 'Cast sender')
+                            },
+                            {
+                              key: 'showTitlebarListenTogether',
+                              label: t('settings.titlebarListenTogether', 'Listen Together')
+                            },
+                            {
+                              key: 'showTitlebarPlugins',
+                              label: t('settings.titlebarPlugins', 'Plugins')
+                            }
+                          ].map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              className={`list-filter-chip ${config[item.key] === true ? 'active' : ''}`}
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  [item.key]: prev[item.key] !== true
+                                }))
+                              }
+                              aria-pressed={config[item.key] === true}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div
                         className="themes-grid"
                         style={{
@@ -21223,6 +21520,58 @@ export default function App() {
                                 setConfig((prev) => ({
                                   ...prev,
                                   playerCoverSize: parseInt(e.target.value, 10)
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div
+                          className="setting-row"
+                          style={{ border: 'none', padding: 0, marginBottom: 20 }}
+                        >
+                          <div className="setting-info">
+                            <h4>{t('settings.playerViewScaleTitle', 'Playback screen zoom')}</h4>
+                            <p>
+                              {t(
+                                'settings.playerViewScaleDesc',
+                                'Scales the main playback screen without changing the global interface size.'
+                              )}
+                            </p>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '10px',
+                              minWidth: '240px',
+                              alignItems: 'stretch'
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '12px',
+                                fontSize: '12px',
+                                opacity: 0.78
+                              }}
+                            >
+                              <span>85%</span>
+                              <strong>{Math.round((config.playerViewScale ?? 1) * 100)}%</strong>
+                              <span>125%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.85}
+                              max={1.25}
+                              step={0.01}
+                              value={config.playerViewScale ?? 1}
+                              onChange={(e) =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  playerViewScale: parseFloat(e.target.value)
                                 }))
                               }
                             />
@@ -23431,13 +23780,13 @@ export default function App() {
           className={
             'bottom-player-bar no-drag' +
             (showLyrics ? ' bottom-player-bar--lyrics' : '') +
-            (showLyrics && lyricsBackgroundPresentation?.tone
-              ? ` bottom-player-bar--lyrics-bg-${lyricsBackgroundPresentation.tone}`
+            (showLyrics && lyricsDockPresentation?.tone
+              ? ` bottom-player-bar--lyrics-bg-${lyricsDockPresentation.tone}`
               : '')
           }
           style={
-            showLyrics && lyricsBackgroundPresentation?.dockStyle
-              ? lyricsBackgroundPresentation.dockStyle
+            showLyrics && lyricsDockPresentation?.dockStyle
+              ? lyricsDockPresentation.dockStyle
               : undefined
           }
         >
@@ -23533,9 +23882,12 @@ export default function App() {
                 <SkipForward size={20} color="var(--text-soft)" />
               </button>
               <button
-                className="btn btn--transport"
+                className={`btn btn--transport play-mode-toggle ${
+                  playMode === 'single' ? 'is-active' : ''
+                }`}
                 style={{ width: 36, height: 36 }}
                 onClick={() => setPlayMode(playMode === 'single' ? 'loop' : 'single')}
+                aria-pressed={playMode === 'single'}
               >
                 {playMode === 'single' ? (
                   <Repeat1 size={16} color="var(--accent-pink)" />
@@ -23553,6 +23905,26 @@ export default function App() {
                 title={t('lyrics.toggle')}
               >
                 <Mic2 size={17} color={showLyrics ? 'var(--accent-pink)' : 'currentColor'} />
+              </button>
+              <button
+                className={`btn btn--transport bottom-bar-like-toggle ${
+                  currentTrack?.path && likedSet.has(currentTrack.path) ? 'is-active' : ''
+                }`}
+                style={{ width: 36, height: 36 }}
+                onClick={() => currentTrack?.path && toggleLike(currentTrack.path)}
+                disabled={!currentTrack?.path}
+                title={
+                  currentTrack?.path && likedSet.has(currentTrack.path)
+                    ? t('like.unlike')
+                    : t('like.like')
+                }
+                aria-pressed={Boolean(currentTrack?.path && likedSet.has(currentTrack.path))}
+              >
+                <Heart
+                  size={17}
+                  fill={currentTrack?.path && likedSet.has(currentTrack.path) ? 'currentColor' : 'none'}
+                  strokeWidth={1.7}
+                />
               </button>
             </div>
 

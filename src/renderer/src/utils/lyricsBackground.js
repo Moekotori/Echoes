@@ -3,7 +3,9 @@ import { getAppThemeBackgroundStyle } from './themeColors.js'
 
 export const DEFAULT_LYRICS_BACKGROUND_MODE = 'theme'
 export const DEFAULT_LYRICS_BACKGROUND_COLOR = '#101722'
-export const LYRICS_BACKGROUND_MODES = ['theme', 'cover', 'custom']
+export const DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY = 1
+export const DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR = 10
+export const LYRICS_BACKGROUND_MODES = ['theme', 'cover', 'custom', 'wallpaper']
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 
@@ -101,6 +103,28 @@ export function normalizeLyricsBackgroundColor(value, fallback = DEFAULT_LYRICS_
   return HEX_COLOR_RE.test(fallback) ? fallback.toUpperCase() : DEFAULT_LYRICS_BACKGROUND_COLOR
 }
 
+export function normalizeLyricsBackgroundWallpaperOpacity(
+  value,
+  fallback = DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY
+) {
+  const n = Number(value)
+  const safeFallback = Number.isFinite(Number(fallback))
+    ? Number(fallback)
+    : DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY
+  return Math.max(0, Math.min(1, Number.isFinite(n) ? n : safeFallback))
+}
+
+export function normalizeLyricsBackgroundWallpaperBlur(
+  value,
+  fallback = DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+) {
+  const n = Number(value)
+  const safeFallback = Number.isFinite(Number(fallback))
+    ? Number(fallback)
+    : DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+  return Math.max(0, Math.min(40, Number.isFinite(n) ? n : safeFallback))
+}
+
 function buildThemeBackground(themePalette) {
   const palette = safePalette(themePalette)
   if (!palette) {
@@ -125,29 +149,49 @@ function buildThemeBackground(themePalette) {
   }
 }
 
-function buildCoverBackground(coverPalette) {
+function buildCoverBackground({ coverPalette, coverUrl, opacity, blur, themePalette }) {
   const palette = safePalette(coverPalette)
   if (!palette) {
-    return {
-      background: 'linear-gradient(145deg, #101722 0%, #111827 52%, #05070d 100%)',
-      tone: 'dark',
-      baseColor: '#101722',
-      accentColor: '#8EA7FF'
-    }
+    const theme = buildThemeBackground(themePalette)
+    return coverUrl
+      ? {
+          background: theme.background,
+          tone: 'dark',
+          baseColor: mixHex(theme.baseColor, '#05070d', 0.42),
+          accentColor: theme.accentColor,
+          wallpaperUrl: coverUrl,
+          wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
+          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
+        }
+      : {
+          background: 'linear-gradient(145deg, #101722 0%, #111827 52%, #05070d 100%)',
+          tone: 'dark',
+          baseColor: '#101722',
+          accentColor: '#8EA7FF'
+        }
   }
   const coverStart = mixHex(palette.bgColor, '#05070d', 0.34)
   const coverMid = mixHex(palette.accent1, '#0a1020', 0.28)
   const coverEnd = mixHex(palette.bgGradientEnd, '#02040a', 0.22)
+  const background = `linear-gradient(
+    145deg,
+    color-mix(in srgb, ${palette.bgColor} 34%, #05070d 66%) 0%,
+    color-mix(in srgb, ${palette.accent1} 28%, #0a1020 72%) 52%,
+    color-mix(in srgb, ${palette.bgGradientEnd} 22%, #02040a 78%) 100%
+  )`
   return {
-    background: `linear-gradient(
-      145deg,
-      color-mix(in srgb, ${palette.bgColor} 34%, #05070d 66%) 0%,
-      color-mix(in srgb, ${palette.accent1} 28%, #0a1020 72%) 52%,
-      color-mix(in srgb, ${palette.bgGradientEnd} 22%, #02040a 78%) 100%
-    )`,
+    background,
     tone: 'dark',
     baseColor: mixHex(coverStart, mixHex(coverMid, coverEnd, 0.58), 0.48),
-    accentColor: palette.accent1
+    accentColor: palette.accent1,
+    ...(coverUrl
+      ? {
+          background,
+          wallpaperUrl: coverUrl,
+          wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
+          wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
+        }
+      : {})
   }
 }
 
@@ -165,6 +209,20 @@ function buildCustomBackground(customColor) {
     tone,
     baseColor: mixHex(startColor, endColor, 0.62),
     accentColor: color
+  }
+}
+
+function buildWallpaperBackground({ wallpaperUrl, opacity, blur, themePalette }) {
+  const theme = buildThemeBackground(themePalette)
+  if (!wallpaperUrl) return theme
+  return {
+    background: theme.background,
+    tone: 'dark',
+    baseColor: mixHex(theme.baseColor, '#05070d', 0.42),
+    accentColor: theme.accentColor,
+    wallpaperUrl,
+    wallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(opacity),
+    wallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(blur)
   }
 }
 
@@ -208,6 +266,10 @@ function buildDockStyle({ baseColor, accentColor, tone }) {
 export function buildLyricsBackgroundPresentation({
   mode,
   customColor,
+  wallpaperUrl,
+  wallpaperOpacity,
+  wallpaperBlur,
+  coverUrl,
   coverPalette,
   themePalette
 } = {}) {
@@ -215,9 +277,22 @@ export function buildLyricsBackgroundPresentation({
   const result =
     normalizedMode === 'custom'
       ? buildCustomBackground(customColor)
+      : normalizedMode === 'wallpaper'
+        ? buildWallpaperBackground({
+            wallpaperUrl,
+            opacity: wallpaperOpacity,
+            blur: wallpaperBlur,
+            themePalette
+          })
       : normalizedMode === 'theme'
         ? buildThemeBackground(themePalette)
-        : buildCoverBackground(coverPalette, themePalette)
+        : buildCoverBackground({
+            coverPalette,
+            coverUrl,
+            opacity: wallpaperOpacity,
+            blur: wallpaperBlur,
+            themePalette
+          })
 
   return {
     mode: normalizedMode,
@@ -225,6 +300,13 @@ export function buildLyricsBackgroundPresentation({
     className: `main-player--lyrics-bg-${normalizedMode} main-player--lyrics-bg-${result.tone}`,
     style: {
       '--lyrics-bg-fallback': result.background,
+      ...(result.wallpaperUrl
+        ? {
+            '--lyrics-wallpaper-image': `url("${result.wallpaperUrl}")`,
+            '--lyrics-wallpaper-opacity': result.wallpaperOpacity,
+            '--lyrics-wallpaper-blur': `${result.wallpaperBlur}px`
+          }
+        : {}),
       background: result.background,
       ...buildDockStyle(result),
       ...textVarsForTone(result.tone)

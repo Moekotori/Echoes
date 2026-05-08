@@ -16,8 +16,8 @@
     "dev": "electron-vite dev",
     "rebuild:native": "cross-env PYTHONUTF8=1 electron-builder install-app-deps",
     "build": "electron-vite build",
-    "build:win": "electron-vite build && node scripts/build-win.mjs",
-    "build:win:release": "electron-vite build && electron-builder --win -c.directories.output=release",
+    "build:win": "npm run build:airplay-raop && electron-vite build && node scripts/build-win.mjs",
+    "build:win:release": "npm run build:airplay-raop && electron-vite build && electron-builder --win -c.directories.output=release",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "theme:audit": "node scripts/theme-audit.mjs --write",
@@ -89,7 +89,8 @@
       "uninstallerIcon": "electron-app/build/software.ico",
       "createDesktopShortcut": "always",
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "electron-app/build/installer.nsh"
     },
     "npmRebuild": false,
     "asarUnpack": [

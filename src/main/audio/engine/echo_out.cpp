@@ -737,18 +737,33 @@ static void write_asio_sample(void* buffer, ASIOSampleType type, long frameIndex
 static void render_asio_output(long bufferIndex) {
     long frames = g_asio.bufferSize;
     ma_uint32 streamChannels = g_asio.streamChannels;
-    ma_uint32 framesToRead = (ma_uint32)frames;
-    void* pBuffer = NULL;
     ma_uint32 framesRead = 0;
 
     memset(g_asio.scratch, 0, (size_t)frames * streamChannels * sizeof(float));
 
-    if (ma_pcm_rb_acquire_read(&g_rb, &framesToRead, &pBuffer) == MA_SUCCESS && framesToRead > 0) {
-        memcpy(g_asio.scratch, pBuffer, (size_t)framesToRead * streamChannels * sizeof(float));
+    /* ── Drain the ring buffer with a wrap-aware loop ──
+     *
+     * ma_pcm_rb_acquire_read() returns at most the contiguous bytes available
+     * from the current read offset to the end of the underlying buffer. When
+     * the read pointer is near the wrap point, a single call can return far
+     * fewer frames than requested, and the remainder of this ASIO buffer
+     * would otherwise be left as silence — producing a periodic stutter
+     * every time the ring wraps (audible as "卡卡卡" with large ASIO buffers).
+     *
+     * Loop until we either fill the ASIO buffer or the ring is empty. */
+    while (framesRead < (ma_uint32)frames) {
+        void* pBuffer = NULL;
+        ma_uint32 framesToRead = (ma_uint32)frames - framesRead;
+        ma_result rr = ma_pcm_rb_acquire_read(&g_rb, &framesToRead, &pBuffer);
+        if (rr != MA_SUCCESS || framesToRead == 0) break;
+        memcpy(
+            g_asio.scratch + (size_t)framesRead * streamChannels,
+            pBuffer,
+            (size_t)framesToRead * streamChannels * sizeof(float));
         ma_pcm_rb_commit_read(&g_rb, framesToRead);
-        framesRead = framesToRead;
-        g_framesConsumed += framesRead;
+        framesRead += framesToRead;
     }
+    g_framesConsumed += framesRead;
 
     for (long ch = 0; ch < g_asio.outputChannelCount; ++ch) {
         long asioIndex = g_asio.outputChannelOffset + ch;

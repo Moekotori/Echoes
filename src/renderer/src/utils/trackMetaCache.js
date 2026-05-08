@@ -136,6 +136,10 @@ export function mergeTrackMetaMapPreservingCovers(existingMap = {}, incomingMap 
   return next
 }
 
+export function isTrackScopedCoverEntry(entry) {
+  return entry?.coverScope === 'track'
+}
+
 function normalizeAlbumCoverCacheEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const cover = typeof entry.cover === 'string' && entry.cover ? entry.cover : null
@@ -183,6 +187,8 @@ function normalizeTrackMetaEntry(entry) {
     if (typeof entry[key] === 'string') next[key] = entry[key]
     else if (entry[key] == null) next[key] = null
   }
+  if (entry.coverScope === 'track') next.coverScope = 'track'
+  else if (entry.coverScope === 'album') next.coverScope = 'album'
   for (const key of ['trackNo', 'discNo', 'duration', 'bitrateKbps', 'sampleRateHz', 'bitDepth', 'channels', 'bpm']) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null

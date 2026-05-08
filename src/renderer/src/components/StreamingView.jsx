@@ -4,6 +4,8 @@ import {
   AlertCircle,
   CalendarDays,
   Download,
+  History,
+  ListMusic,
   Loader2,
   Music,
   Play,
@@ -17,11 +19,25 @@ import StreamingSourceBadge from './StreamingSourceBadge'
 
 const STREAMING_QUALITY_STORAGE_KEY = 'echo.streaming.audioQualityMode'
 const STREAMING_SESSION_STORAGE_KEY = 'echo.streaming.searchSession'
+const STREAMING_PLAYLIST_HISTORY_STORAGE_KEY = 'echo.streaming.playlistHistory'
+const STREAMING_PLAYLIST_HISTORY_LIMIT = 8
 
 const PROVIDERS = [
   { id: 'netease', labelKey: 'streaming.providers.netease', hintKey: 'streaming.providerHints.native' },
   { id: 'qqMusic', labelKey: 'streaming.providers.qqMusic', hintKey: 'streaming.providerHints.native' },
   { id: 'soundcloud', labelKey: 'streaming.providers.soundcloud', hintKey: 'streaming.providerHints.signInRequired' }
+]
+const PLAYLIST_PROVIDERS = [
+  {
+    id: 'netease',
+    labelKey: 'streaming.playlists.netease',
+    promptKey: 'streaming.playlists.neteasePrompt'
+  },
+  {
+    id: 'qqMusic',
+    labelKey: 'streaming.playlists.qqMusic',
+    promptKey: 'streaming.playlists.qqMusicPrompt'
+  }
 ]
 const CATALOG_PROVIDER_IDS = new Set(['netease', 'qqMusic', 'soundcloud'])
 
@@ -79,6 +95,43 @@ function playbackModeLabel(track, t) {
   if (track?.playbackMode === 'nativeStream') return 'ECHO'
   if (track?.playbackMode === 'controlledPlayback') return t('streaming.mode.controlled', 'Controlled')
   return t('streaming.mode.pending', 'Pending')
+}
+
+function normalizePlaylistHistoryItem(item) {
+  if (!item || typeof item !== 'object') return null
+  const provider = item.provider === 'qqMusic' ? 'qqMusic' : item.provider === 'netease' ? 'netease' : ''
+  const input = String(item.input || '').trim()
+  if (!provider || !input) return null
+  return {
+    provider,
+    input,
+    name: String(item.name || input).trim() || input,
+    count: Number.isFinite(Number(item.count)) ? Math.max(0, Math.round(Number(item.count))) : 0,
+    updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : Date.now()
+  }
+}
+
+function getInitialPlaylistHistory() {
+  try {
+    const raw = window.localStorage?.getItem(STREAMING_PLAYLIST_HISTORY_STORAGE_KEY)
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed)
+      ? parsed.map(normalizePlaylistHistoryItem).filter(Boolean).slice(0, STREAMING_PLAYLIST_HISTORY_LIMIT)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function rememberPlaylistHistory(items) {
+  try {
+    window.localStorage?.setItem(
+      STREAMING_PLAYLIST_HISTORY_STORAGE_KEY,
+      JSON.stringify((items || []).slice(0, STREAMING_PLAYLIST_HISTORY_LIMIT))
+    )
+  } catch {
+    /* ignore storage failures */
+  }
 }
 
 function statusMessage(status, t) {
@@ -170,6 +223,10 @@ export default function StreamingView({ onPlayTrack }) {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyMode, setDailyMode] = useState(false)
+  const [playlistLoadingProvider, setPlaylistLoadingProvider] = useState('')
+  const [playlistLinkProvider, setPlaylistLinkProvider] = useState('')
+  const [playlistLinkInput, setPlaylistLinkInput] = useState('')
+  const [playlistHistory, setPlaylistHistory] = useState(getInitialPlaylistHistory)
 
   useEffect(() => {
     let cancelled = false
@@ -199,6 +256,10 @@ export default function StreamingView({ onPlayTrack }) {
       statuses
     })
   }, [query, selectedProviders, results, statuses])
+
+  useEffect(() => {
+    rememberPlaylistHistory(playlistHistory)
+  }, [playlistHistory])
 
   useEffect(() => {
     const unsubscribe = window.api?.media?.onProgress?.((data) => {
@@ -280,6 +341,86 @@ export default function StreamingView({ onPlayTrack }) {
       setDailyLoading(false)
     }
   }, [qualityMode, signInStatus.netease, t])
+
+  const openProviderPlaylistInput = useCallback((providerId) => {
+    setPlaylistLinkProvider((prev) => (prev === providerId ? '' : providerId))
+    setPlaylistLinkInput('')
+    setNotice('')
+  }, [])
+
+  const loadProviderPlaylist = useCallback(async (providerId, playlistInput = playlistLinkInput) => {
+    const raw = String(playlistInput || '').trim()
+    if (!raw) return
+    setDailyMode(false)
+    setPlaylistLoadingProvider(providerId)
+    setNotice('')
+    try {
+      const payload = await window.api?.streaming?.fetchPlaylist?.({
+        provider: providerId,
+        playlistInput: raw,
+        audioQualityMode: qualityMode
+      })
+      if (!payload?.ok) {
+        throw new Error(
+          payload?.error === 'invalid_playlist_link'
+            ? t('streaming.playlists.invalidLink', 'Invalid playlist link or ID.')
+            : payload?.error || t('streaming.playlists.loadFailed', 'Could not open this playlist.')
+        )
+      }
+      const tracks = Array.isArray(payload.results) ? payload.results : []
+      setSelectedProviders((prev) => (prev.includes(providerId) ? prev : [providerId, ...prev]))
+      setResults(tracks)
+      setStatuses([])
+      setPlaylistLinkProvider('')
+      setPlaylistLinkInput('')
+      setPlaylistHistory((prev) => {
+        const nextItem = normalizePlaylistHistoryItem({
+          provider: providerId,
+          input: raw,
+          name: payload.playlistName || t('streaming.playlists.fallbackName', 'Playlist'),
+          count: tracks.length,
+          updatedAt: Date.now()
+        })
+        if (!nextItem) return prev
+        return [
+          nextItem,
+          ...prev.filter((item) => !(item.provider === nextItem.provider && item.input === nextItem.input))
+        ].slice(0, STREAMING_PLAYLIST_HISTORY_LIMIT)
+      })
+      setNotice(
+        tracks.length > 0
+          ? t('streaming.playlists.loaded', {
+              name: payload.playlistName || t('streaming.playlists.fallbackName', 'Playlist'),
+              count: tracks.length,
+              defaultValue: 'Loaded {{count}} tracks from {{name}}.'
+            })
+          : t('streaming.playlists.empty', 'This playlist returned no playable tracks.')
+      )
+    } catch (error) {
+      setResults([])
+      setStatuses([])
+      setNotice(error?.message || String(error))
+    } finally {
+      setPlaylistLoadingProvider('')
+    }
+  }, [playlistLinkInput, qualityMode, t])
+
+  const openPlaylistHistoryItem = useCallback(
+    (item) => {
+      const normalized = normalizePlaylistHistoryItem(item)
+      if (!normalized || playlistLoadingProvider) return
+      setPlaylistLinkProvider('')
+      setPlaylistLinkInput('')
+      loadProviderPlaylist(normalized.provider, normalized.input)
+    },
+    [loadProviderPlaylist, playlistLoadingProvider]
+  )
+
+  const submitProviderPlaylist = useCallback((event) => {
+    event?.preventDefault?.()
+    if (!playlistLinkProvider || playlistLoadingProvider) return
+    loadProviderPlaylist(playlistLinkProvider, playlistLinkInput)
+  }, [loadProviderPlaylist, playlistLinkInput, playlistLinkProvider, playlistLoadingProvider])
 
   const runSearch = async (event) => {
     event?.preventDefault?.()
@@ -496,7 +637,92 @@ export default function StreamingView({ onPlayTrack }) {
             </button>
           )
         })}
+        {PLAYLIST_PROVIDERS.map((provider) => {
+          const loadingPlaylist = playlistLoadingProvider === provider.id
+          const inputActive = playlistLinkProvider === provider.id
+          return (
+            <button
+              key={`${provider.id}-playlist`}
+              type="button"
+              className={`streaming-provider-chip streaming-provider-chip--playlist${
+                loadingPlaylist || inputActive ? ' active' : ''
+              }`}
+              onClick={() => openProviderPlaylistInput(provider.id)}
+              disabled={loadingPlaylist}
+            >
+              <span className="streaming-source-badge">
+                {loadingPlaylist ? <Loader2 size={12} className="spin" /> : <ListMusic size={13} />}
+              </span>
+              <span>{t(provider.labelKey)}</span>
+              <small>{t('streaming.playlists.hint', 'Paste link to open')}</small>
+            </button>
+          )
+        })}
       </div>
+
+      {playlistLinkProvider && (
+        <form className="streaming-playlist-link" onSubmit={submitProviderPlaylist}>
+          <ListMusic size={16} />
+          <input
+            value={playlistLinkInput}
+            onChange={(event) => setPlaylistLinkInput(event.target.value)}
+            autoFocus
+            placeholder={t(
+              PLAYLIST_PROVIDERS.find((provider) => provider.id === playlistLinkProvider)?.promptKey ||
+                'streaming.playlists.prompt',
+              'Paste a playlist link or ID'
+            )}
+            disabled={Boolean(playlistLoadingProvider)}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setPlaylistLinkProvider('')
+              setPlaylistLinkInput('')
+            }}
+            disabled={Boolean(playlistLoadingProvider)}
+          >
+            {t('common.cancel', 'Cancel')}
+          </button>
+          <button type="submit" disabled={Boolean(playlistLoadingProvider) || !playlistLinkInput.trim()}>
+            {playlistLoadingProvider ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <Search size={14} />
+            )}
+            {t('streaming.playlists.open', 'Open')}
+          </button>
+        </form>
+      )}
+
+      {playlistHistory.length > 0 && (
+        <div className="streaming-playlist-history" aria-label={t('streaming.playlists.historyTitle', 'Playlist history')}>
+          <div className="streaming-playlist-history__title">
+            <History size={14} />
+            <span>{t('streaming.playlists.historyTitle', 'Playlist history')}</span>
+            <small>{t('streaming.playlists.historyHint', 'NetEase and QQ Music together')}</small>
+          </div>
+          <div className="streaming-playlist-history__items">
+            {playlistHistory.map((item) => (
+              <button
+                key={`${item.provider}-${item.input}`}
+                type="button"
+                className="streaming-playlist-history__item"
+                onClick={() => openPlaylistHistoryItem(item)}
+                disabled={Boolean(playlistLoadingProvider)}
+                title={item.input}
+              >
+                <StreamingSourceBadge provider={item.provider} title={t(`streaming.providers.${item.provider}`)} />
+                <span>{item.name}</span>
+                <small>
+                  {t(`streaming.providers.${item.provider}`)}
+                  {item.count ? ` · ${t('streaming.playlists.historyCount', { count: item.count, defaultValue: '{{count}} tracks' })}` : ''}
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <form className="streaming-search" onSubmit={runSearch}>
         <Search size={17} />

@@ -82,14 +82,29 @@ export async function fetchNeteasePlaylistMeta(playlistId, opts = {}) {
     }
   }
 
-  const tracks = songs.map((track) => ({
-    id: track.id,
-    name: (track.name && String(track.name).trim()) || 'Unknown',
-    artists: (track.ar || [])
-      .map((artist) => artist.name)
-      .filter(Boolean)
-      .join(', ')
-  }))
+  const tracks = songs.map((track) => {
+    const album = track.al || track.album || {}
+    return {
+      id: track.id,
+      name: (track.name && String(track.name).trim()) || 'Unknown',
+      artists: (track.ar || track.artists || [])
+        .map((artist) => artist.name)
+        .filter(Boolean)
+        .join(', '),
+      album: album.name || '',
+      cover: album.picUrl || album.cover || album.coverUrl || track.picUrl || track.cover || null,
+      duration: track.dt || track.duration || 0,
+      fee: track.fee || 0,
+      quality: {
+        l: track.l || null,
+        m: track.m || null,
+        h: track.h || null,
+        sq: track.sq || null,
+        hr: track.hr || null,
+        privilege: track.privilege || null
+      }
+    }
+  })
 
   return { name, tracks }
 }

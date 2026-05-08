@@ -108,6 +108,7 @@ export const DEFAULT_CONFIG = {
   historyMaxEntries: 1000,
   historyCollapseRepeats: true,
   historyShowInSidebar: true,
+  autoDetectBpm: false,
   /** Gapless playback — 无缝播放，默认关闭。开启后与交叉淡入淡出互斥 */
   gaplessEnabled: false,
   crossfadeEnabled: true,
@@ -139,13 +140,15 @@ export const DEFAULT_CONFIG = {
   uiBaseFontSize: 15,
   /** Main player album cover size in px */
   playerCoverSize: 360,
+  /** Visual zoom for the main playback screen. */
+  playerViewScale: 1,
   uiRadiusScale: 1,
   uiShadowIntensity: 1,
   uiSaturation: 1,
   uiLineHeightScale: 1,
   uiControlDensity: 1,
   uiAccentBackgroundGlow: false,
-  showSidebarLogo: true,
+  showSidebarLogo: false,
   autoLocateCurrentTrack: false,
   ultraSmallScreenAdaptive: false,
   theme: 'minimal',
@@ -181,8 +184,13 @@ export const DEFAULT_CONFIG = {
   lyricsBackgroundMode: 'theme',
   /** Custom lyrics page background color. */
   lyricsBackgroundColor: '#101722',
+  lyricsBackgroundWallpaperPath: null,
+  lyricsBackgroundWallpaperOpacity: 1,
+  lyricsBackgroundWallpaperBlur: 10,
   /** 歌词非活动行景深模糊效果 */
   lyricsBlurEffect: false,
+  /** Text-only lyric readability boost. Disabled by default. */
+  lyricsReadabilityEnhancement: false,
   /** 逐字高亮前置补偿（毫秒，正值更早） */
   lyricsWordLeadMs: 100,
   /** 单行逐字填充完成比例（相对到下一句起点），建议 0.8~0.95 */
@@ -220,6 +228,9 @@ export const DEFAULT_CONFIG = {
   desktopLyricsColorSecondary: '#ffc8b8',
   desktopLyricsColorGlow: '#ff8866',
   desktopLyricsColorRomaji: '#e8d0c8',
+  showTitlebarCastSender: false,
+  showTitlebarListenTogether: false,
+  showTitlebarPlugins: false,
   preamp: 0,
   activePreset: 'Custom',
   enableDiscordRPC: true,

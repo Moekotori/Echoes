@@ -24,13 +24,35 @@ function joinArtists(value) {
     .join(' / ')
 }
 
+function pickQqCover(song, albumMid) {
+  const direct = pickString(
+    song?.cover,
+    song?.coverUrl,
+    song?.picUrl,
+    song?.album?.picUrl,
+    song?.album?.cover,
+    song?.album?.coverUrl
+  )
+  if (direct) return direct
+  return albumMid ? `https://y.qq.com/music/photo_new/T002R300x300M000${albumMid}.jpg` : ''
+}
+
 function normalizeSong(song) {
   const mid = pickString(song?.mid, song?.songmid, song?.songMid)
   const file = song?.file || {}
   const mediaMid = pickString(file?.media_mid, file?.mediaMid, song?.media_mid, song?.mediaMid, mid)
   const album = song?.album || {}
-  const albumMid = pickString(album?.mid, album?.pmid, song?.albummid, song?.albumMid)
-  const cover = albumMid ? `https://y.qq.com/music/photo_new/T002R300x300M000${albumMid}.jpg` : ''
+  const albumMid = pickString(
+    album?.mid,
+    album?.pmid,
+    album?.albumMid,
+    album?.albumMID,
+    album?.albummid,
+    song?.albummid,
+    song?.albumMid,
+    song?.albumMID
+  )
+  const cover = pickQqCover(song, albumMid)
   return {
     id: mid || String(song?.id || song?.songid || ''),
     mid,

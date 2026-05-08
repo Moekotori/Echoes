@@ -160,6 +160,7 @@ contextBridge.exposeInMainWorld('api', {
 
   streaming: {
     search: (payload) => ipcRenderer.invoke('streaming:search', payload),
+    fetchPlaylist: (payload) => ipcRenderer.invoke('streaming:fetchPlaylist', payload),
     neteaseDailyRecommendations: (payload) =>
       ipcRenderer.invoke('streaming:neteaseDailyRecommendations', payload),
     resolvePlayback: (track) => ipcRenderer.invoke('streaming:resolvePlayback', track),

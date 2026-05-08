@@ -4,7 +4,12 @@ import {
   getNeteaseSongDirectUrl,
   searchNeteaseSongs
 } from './neteaseLyrics.js'
-import { getQqMusicSongDirectUrl, searchQqMusicSongs } from './qqMusicProvider.js'
+import { fetchNeteasePlaylistMeta, parseNeteasePlaylistId } from './neteasePlaylist.js'
+import {
+  getQqMusicPlaylistTracks,
+  getQqMusicSongDirectUrl,
+  searchQqMusicSongs
+} from './qqMusicProvider.js'
 import { getQqLyricBySongMid } from './lyricsProviders.js'
 import youtubedl from 'youtube-dl-exec'
 import { spawn } from 'child_process'
@@ -242,6 +247,26 @@ function readTimedMapEntry(cache, key, ttlMs) {
   return entry.value
 }
 
+function parseQqMusicPlaylistId(input) {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  if (/^\d+$/.test(raw)) return raw
+  const direct = /(?:[?&](?:id|disstid)=|\/playlist\/)(\d+)/i.exec(raw)
+  if (direct) return direct[1]
+  try {
+    const normalized = raw.includes('://') ? raw : `https://${raw}`
+    const url = new URL(normalized)
+    const queryId = url.searchParams.get('id') || url.searchParams.get('disstid')
+    if (queryId && /^\d+$/.test(queryId)) return queryId
+    const pathMatch = url.pathname.match(/(?:playlist|taoge)[/-](\d+)/i)
+    if (pathMatch) return pathMatch[1]
+  } catch {
+    // fall through
+  }
+  const loose = /\b(\d{5,})\b/.exec(raw)
+  return loose ? loose[1] : ''
+}
+
 function pickQqTrackMid(track) {
   return String(
     track?.sourceId ||
@@ -464,6 +489,47 @@ export async function fetchStreamingNeteaseDailyRecommendations({
     provider: 'netease',
     audioQualityMode: playbackOptions.audioQualityMode,
     results: songs.slice(0, 60).map((song) => normalizeNeteaseTrack(song, playbackOptions))
+  }
+}
+
+export async function fetchStreamingPlaylist({
+  provider,
+  playlistInput,
+  audioQualityMode = 'lossless',
+  neteaseCookie = '',
+  qqMusicCookie = ''
+} = {}) {
+  const normalizedProvider = provider === 'qqMusic' ? 'qqMusic' : 'netease'
+  const playbackOptions = getPlaybackQualityOptions(audioQualityMode)
+  const rawInput = String(playlistInput || '').trim()
+  if (!rawInput) return { ok: false, provider: normalizedProvider, error: 'missing_playlist_link', results: [] }
+
+  if (normalizedProvider === 'qqMusic') {
+    const playlistId = parseQqMusicPlaylistId(rawInput)
+    if (!playlistId) return { ok: false, provider: normalizedProvider, error: 'invalid_playlist_link', results: [] }
+    const meta = await getQqMusicPlaylistTracks({
+      playlistId,
+      cookie: qqMusicCookie,
+      limit: 1000
+    })
+    return {
+      ok: true,
+      provider: normalizedProvider,
+      playlistName: meta.name || 'QQ Music Playlist',
+      audioQualityMode: playbackOptions.audioQualityMode,
+      results: (meta.tracks || []).map((song) => normalizeQqTrack(song, playbackOptions))
+    }
+  }
+
+  const playlistId = parseNeteasePlaylistId(rawInput)
+  if (!playlistId) return { ok: false, provider: normalizedProvider, error: 'invalid_playlist_link', results: [] }
+  const meta = await fetchNeteasePlaylistMeta(playlistId, { cookie: neteaseCookie })
+  return {
+    ok: true,
+    provider: normalizedProvider,
+    playlistName: meta.name || 'NetEase Playlist',
+    audioQualityMode: playbackOptions.audioQualityMode,
+    results: (meta.tracks || []).map((song) => normalizeNeteaseTrack(song, playbackOptions))
   }
 }
 

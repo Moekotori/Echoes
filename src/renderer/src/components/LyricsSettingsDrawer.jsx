@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, RefreshCw, Minus, Plus, Upload, Search } from 'lucide-react'
+import { X, RefreshCw, Minus, Plus, Upload, Search, Image } from 'lucide-react'
 import {
   DEFAULT_LYRICS_BACKGROUND_COLOR,
   DEFAULT_LYRICS_BACKGROUND_MODE,
+  DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR,
+  DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY,
   normalizeLyricsBackgroundColor,
-  normalizeLyricsBackgroundMode
+  normalizeLyricsBackgroundMode,
+  normalizeLyricsBackgroundWallpaperBlur,
+  normalizeLyricsBackgroundWallpaperOpacity
 } from '../utils/lyricsBackground'
 
 export default function LyricsSettingsDrawer({
@@ -50,7 +54,8 @@ export default function LyricsSettingsDrawer({
     () => [
       { value: 'theme', label: t('lyricsDrawer.backgroundModeTheme') },
       { value: 'cover', label: t('lyricsDrawer.backgroundModeCover') },
-      { value: 'custom', label: t('lyricsDrawer.backgroundModeCustom') }
+      { value: 'custom', label: t('lyricsDrawer.backgroundModeCustom') },
+      { value: 'wallpaper', label: t('lyricsDrawer.backgroundModeWallpaper') }
     ],
     [t]
   )
@@ -98,6 +103,24 @@ export default function LyricsSettingsDrawer({
     config.lyricsBackgroundColor,
     DEFAULT_LYRICS_BACKGROUND_COLOR
   )
+  const lyricsWallpaperOpacity = normalizeLyricsBackgroundWallpaperOpacity(
+    config.lyricsBackgroundWallpaperOpacity,
+    DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY
+  )
+  const lyricsWallpaperBlur = normalizeLyricsBackgroundWallpaperBlur(
+    config.lyricsBackgroundWallpaperBlur,
+    DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+  )
+  const lyricsBackgroundMediaMode =
+    lyricsBackgroundMode === 'cover' || lyricsBackgroundMode === 'wallpaper'
+  const lyricsBackgroundMediaOpacityLabel =
+    lyricsBackgroundMode === 'cover'
+      ? t('lyricsDrawer.coverOpacity', 'Cover opacity')
+      : t('lyricsDrawer.wallpaperOpacity')
+  const lyricsBackgroundMediaBlurLabel =
+    lyricsBackgroundMode === 'cover'
+      ? t('lyricsDrawer.coverBlur', 'Cover blur')
+      : t('lyricsDrawer.wallpaperBlur')
   const selectedSourceValue = sourceOptions.some((option) => option.value === selectedLyricsSource)
     ? selectedLyricsSource
     : config.lyricsSource
@@ -256,6 +279,16 @@ export default function LyricsSettingsDrawer({
     applyBackgroundColor(candidate)
   }, [applyBackgroundColor, backgroundHexDraft])
 
+  const pickLyricsWallpaper = useCallback(async () => {
+    const path = await window.api?.openImageHandler?.(config.uiLocale)
+    if (!path) return
+    setConfig((p) => ({
+      ...p,
+      lyricsBackgroundMode: 'wallpaper',
+      lyricsBackgroundWallpaperPath: path
+    }))
+  }, [config.uiLocale, setConfig])
+
   const statusLabel =
     isCurrentTrackInstrumental
       ? t('lyricsDrawer.statusInstrumental')
@@ -332,279 +365,13 @@ export default function LyricsSettingsDrawer({
 
         <div className="lyrics-drawer-body">
           <section className="lyrics-drawer-section">
-            <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.displayStyle')}</h3>
             <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.romaji')}</span>
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.lyricsSwitch')}</span>
               <button
                 type="button"
                 role="switch"
-                aria-checked={!!config.lyricsShowRomaji}
-                className={`lyrics-drawer-switch ${config.lyricsShowRomaji ? 'on' : ''}`}
-                onClick={() =>
-                  setConfig((p) => ({
-                    ...p,
-                    lyricsShowRomaji: !p.lyricsShowRomaji
-                  }))
-                }
-              >
-                <span className="lyrics-drawer-switch-thumb" />
-              </button>
-            </div>
-            <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.translation')}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={!!config.lyricsShowTranslation}
-                className={`lyrics-drawer-switch ${config.lyricsShowTranslation ? 'on' : ''}`}
-                onClick={() =>
-                  setConfig((p) => ({
-                    ...p,
-                    lyricsShowTranslation: !p.lyricsShowTranslation
-                  }))
-                }
-              >
-                <span className="lyrics-drawer-switch-thumb" />
-              </button>
-            </div>
-            <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.wordHighlight')}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={config.lyricsWordHighlight !== false}
-                className={`lyrics-drawer-switch ${config.lyricsWordHighlight !== false ? 'on' : ''}`}
-                onClick={() =>
-                  setConfig((p) => ({
-                    ...p,
-                    lyricsWordHighlight: p.lyricsWordHighlight === false ? true : false
-                  }))
-                }
-              >
-                <span className="lyrics-drawer-switch-thumb" />
-              </button>
-            </div>
-            <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.blurEffect')}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={config.lyricsBlurEffect === true}
-                className={`lyrics-drawer-switch ${config.lyricsBlurEffect === true ? 'on' : ''}`}
-                onClick={() =>
-                  setConfig((p) => ({
-                    ...p,
-                    lyricsBlurEffect: !p.lyricsBlurEffect
-                  }))
-                }
-              >
-                <span className="lyrics-drawer-switch-thumb" />
-              </button>
-            </div>
-            <div className="lyrics-drawer-slider-block">
-              <div className="lyrics-drawer-label-row">
-                <span className="lyrics-drawer-label">{t('lyricsDrawer.mainLineSize')}</span>
-                <span className="lyrics-drawer-value">{fontSize}px</span>
-              </div>
-              <input
-                type="range"
-                min={18}
-                max={56}
-                step={1}
-                value={fontSize}
-                onChange={(e) =>
-                  setConfig((p) => ({
-                    ...p,
-                    lyricsFontSize: parseInt(e.target.value, 10)
-                  }))
-                }
-                className="lyrics-drawer-range"
-              />
-            </div>
-
-            <div className="lyrics-drawer-background-block">
-              <div className="lyrics-drawer-label-row">
-                <span className="lyrics-drawer-label">{t('lyricsDrawer.background')}</span>
-                <button
-                  type="button"
-                  className="lyrics-drawer-btn"
-                  onClick={() =>
-                    setConfig((p) => ({
-                      ...p,
-                      lyricsBackgroundMode: DEFAULT_LYRICS_BACKGROUND_MODE,
-                      lyricsBackgroundColor: DEFAULT_LYRICS_BACKGROUND_COLOR
-                    }))
-                  }
-                >
-                  {t('lyricsDrawer.reset')}
-                </button>
-              </div>
-              <div className="lyrics-drawer-segmented lyrics-drawer-segmented--three" role="radiogroup">
-                {backgroundModeOptions.map((option) => {
-                  const active = lyricsBackgroundMode === option.value
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      className={active ? 'active' : ''}
-                      onClick={() =>
-                        setConfig((p) => ({
-                          ...p,
-                          lyricsBackgroundMode: option.value
-                        }))
-                      }
-                    >
-                      {option.label}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="lyrics-drawer-hint">{t('lyricsDrawer.backgroundHint')}</p>
-              {lyricsBackgroundMode === 'custom' ? (
-                <div className="lyrics-background-color-card">
-                  <label
-                    className="lyrics-background-color-preview"
-                    style={{ background: lyricsBackgroundColor }}
-                  >
-                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.backgroundColor')}</span>
-                    <input
-                      type="color"
-                      value={lyricsBackgroundColor}
-                      onChange={(e) => applyBackgroundColor(e.target.value)}
-                      aria-label={t('lyricsDrawer.backgroundColor')}
-                    />
-                  </label>
-                  <div className="lyrics-background-color-controls">
-                    <label className="lyrics-color-field">
-                      <span>HEX</span>
-                      <input
-                        className={`lyrics-drawer-text-input ${backgroundInvalid ? 'is-invalid' : ''}`}
-                        value={backgroundHexDraft}
-                        placeholder="#RRGGBB"
-                        onChange={(e) => {
-                          setBackgroundHexDraft(e.target.value)
-                          setBackgroundInvalid(false)
-                        }}
-                        onBlur={commitBackgroundHexDraft}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitBackgroundHexDraft()
-                        }}
-                      />
-                    </label>
-                    <span className="lyrics-background-color-value">{lyricsBackgroundColor}</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="lyrics-drawer-color-grid">
-              <div className="lyrics-drawer-label-row">
-                <span className="lyrics-drawer-label">{t('lyricsDrawer.fontColor')}</span>
-                <button
-                  type="button"
-                  className="lyrics-drawer-btn"
-                  onClick={() =>
-                    setConfig((p) => ({
-                      ...p,
-                      lyricsColor: null,
-                      lyricsFontColor: null
-                    }))
-                  }
-                >
-                  {t('lyricsDrawer.reset')}
-                </button>
-              </div>
-              <p className="lyrics-drawer-hint">{t('lyricsDrawer.fontColorHint')}</p>
-
-              <div className="lyrics-color-inline">
-                <div className="lyrics-color-card">
-                  <label className="lyrics-color-picker-panel">
-                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateActive')}</span>
-                    <input
-                      type="color"
-                      value={activeInit?.hex || '#FFFFFF'}
-                      onChange={(e) => applyColorHex('active', e.target.value)}
-                      aria-label="Pick active color"
-                    />
-                  </label>
-                  <div className="lyrics-color-fields">
-                    <label className="lyrics-color-field">
-                      <span>HEX</span>
-                      <input
-                        className={`lyrics-drawer-text-input ${activeInvalid ? 'is-invalid' : ''}`}
-                        value={activeHexDraft}
-                        placeholder="#RRGGBB"
-                        onChange={(e) => {
-                          setActiveHexDraft(e.target.value)
-                          setActiveInvalid(false)
-                        }}
-                        onBlur={() => commitHexDraft('active', activeHexDraft)}
-                      />
-                    </label>
-                    <label className="lyrics-color-field lyrics-color-alpha-field">
-                      <span>A {Math.round((activeInit?.a ?? 1) * 100)}%</span>
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={1}
-                        step={0.01}
-                        value={activeInit?.a ?? 1}
-                        onChange={(e) => applyColorAlpha('active', e.target.value)}
-                        className="lyrics-drawer-range"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="lyrics-color-card">
-                  <label className="lyrics-color-picker-panel">
-                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateNormal')}</span>
-                    <input
-                      type="color"
-                      value={normalInit?.hex || '#DDE7F3'}
-                      onChange={(e) => applyColorHex('normal', e.target.value)}
-                      aria-label="Pick normal color"
-                    />
-                  </label>
-                  <div className="lyrics-color-fields">
-                    <label className="lyrics-color-field">
-                      <span>HEX</span>
-                      <input
-                        className={`lyrics-drawer-text-input ${normalInvalid ? 'is-invalid' : ''}`}
-                        value={normalHexDraft}
-                        placeholder="#RRGGBB"
-                        onChange={(e) => {
-                          setNormalHexDraft(e.target.value)
-                          setNormalInvalid(false)
-                        }}
-                        onBlur={() => commitHexDraft('normal', normalHexDraft)}
-                      />
-                    </label>
-                    <label className="lyrics-color-field lyrics-color-alpha-field">
-                      <span>A {Math.round((normalInit?.a ?? 1) * 100)}%</span>
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={1}
-                        step={0.01}
-                        value={normalInit?.a ?? 1}
-                        onChange={(e) => applyColorAlpha('normal', e.target.value)}
-                        className="lyrics-drawer-range"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="lyrics-drawer-row">
-              <span className="lyrics-drawer-label">{t('lyricsDrawer.hideLyrics')}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={!!config.lyricsHidden}
-                className={`lyrics-drawer-switch ${config.lyricsHidden ? 'on' : ''}`}
+                aria-checked={!config.lyricsHidden}
+                className={`lyrics-drawer-switch ${!config.lyricsHidden ? 'on' : ''}`}
                 onClick={() =>
                   setConfig((p) => ({
                     ...p,
@@ -616,7 +383,7 @@ export default function LyricsSettingsDrawer({
               </button>
             </div>
             {config.lyricsHidden ? (
-              <p className="lyrics-drawer-hint">{t('lyricsDrawer.hideLyricsHint')}</p>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.lyricsSwitchOffHint')}</p>
             ) : null}
           </section>
 
@@ -767,6 +534,383 @@ export default function LyricsSettingsDrawer({
                 {t('lyricsDrawer.fetchFromLink')}
               </button>
               <p className="lyrics-drawer-hint">{t('lyricsDrawer.linkHint')}</p>
+            </div>
+          </section>
+
+          <section className="lyrics-drawer-section">
+            <h3 className="lyrics-drawer-section-title">{t('lyricsDrawer.displayStyle')}</h3>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.romaji')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.lyricsShowRomaji}
+                className={`lyrics-drawer-switch ${config.lyricsShowRomaji ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsShowRomaji: !p.lyricsShowRomaji
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.translation')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!!config.lyricsShowTranslation}
+                className={`lyrics-drawer-switch ${config.lyricsShowTranslation ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsShowTranslation: !p.lyricsShowTranslation
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.wordHighlight')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsWordHighlight !== false}
+                className={`lyrics-drawer-switch ${config.lyricsWordHighlight !== false ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsWordHighlight: p.lyricsWordHighlight === false ? true : false
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.blurEffect')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsBlurEffect === true}
+                className={`lyrics-drawer-switch ${config.lyricsBlurEffect === true ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsBlurEffect: !p.lyricsBlurEffect
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <div className="lyrics-drawer-row">
+              <span className="lyrics-drawer-label">{t('lyricsDrawer.readabilityEnhancement')}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.lyricsReadabilityEnhancement === true}
+                className={`lyrics-drawer-switch ${config.lyricsReadabilityEnhancement === true ? 'on' : ''}`}
+                onClick={() =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsReadabilityEnhancement: p.lyricsReadabilityEnhancement !== true
+                  }))
+                }
+              >
+                <span className="lyrics-drawer-switch-thumb" />
+              </button>
+            </div>
+            <p className="lyrics-drawer-hint">{t('lyricsDrawer.readabilityEnhancementHint')}</p>
+            <div className="lyrics-drawer-slider-block">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.mainLineSize')}</span>
+                <span className="lyrics-drawer-value">{fontSize}px</span>
+              </div>
+              <input
+                type="range"
+                min={18}
+                max={56}
+                step={1}
+                value={fontSize}
+                onChange={(e) =>
+                  setConfig((p) => ({
+                    ...p,
+                    lyricsFontSize: parseInt(e.target.value, 10)
+                  }))
+                }
+                className="lyrics-drawer-range"
+              />
+            </div>
+
+            <div className="lyrics-drawer-background-block">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.background')}</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsBackgroundMode: DEFAULT_LYRICS_BACKGROUND_MODE,
+                      lyricsBackgroundColor: DEFAULT_LYRICS_BACKGROUND_COLOR,
+                      lyricsBackgroundWallpaperPath: null,
+                      lyricsBackgroundWallpaperOpacity: DEFAULT_LYRICS_BACKGROUND_WALLPAPER_OPACITY,
+                      lyricsBackgroundWallpaperBlur: DEFAULT_LYRICS_BACKGROUND_WALLPAPER_BLUR
+                    }))
+                  }
+                >
+                  {t('lyricsDrawer.reset')}
+                </button>
+              </div>
+              <div className="lyrics-drawer-segmented lyrics-drawer-segmented--four" role="radiogroup">
+                {backgroundModeOptions.map((option) => {
+                  const active = lyricsBackgroundMode === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? 'active' : ''}
+                      onClick={() =>
+                        setConfig((p) => ({
+                          ...p,
+                          lyricsBackgroundMode: option.value
+                        }))
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.backgroundHint')}</p>
+              {lyricsBackgroundMode === 'custom' ? (
+                <div className="lyrics-background-color-card">
+                  <label
+                    className="lyrics-background-color-preview"
+                    style={{ background: lyricsBackgroundColor }}
+                  >
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.backgroundColor')}</span>
+                    <input
+                      type="color"
+                      value={lyricsBackgroundColor}
+                      onChange={(e) => applyBackgroundColor(e.target.value)}
+                      aria-label={t('lyricsDrawer.backgroundColor')}
+                    />
+                  </label>
+                  <div className="lyrics-background-color-controls">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${backgroundInvalid ? 'is-invalid' : ''}`}
+                        value={backgroundHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setBackgroundHexDraft(e.target.value)
+                          setBackgroundInvalid(false)
+                        }}
+                        onBlur={commitBackgroundHexDraft}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitBackgroundHexDraft()
+                        }}
+                      />
+                    </label>
+                    <span className="lyrics-background-color-value">{lyricsBackgroundColor}</span>
+                  </div>
+                </div>
+              ) : null}
+              {lyricsBackgroundMediaMode ? (
+                <div className="lyrics-wallpaper-card">
+                  {lyricsBackgroundMode === 'wallpaper' ? (
+                    <div className="lyrics-wallpaper-preview">
+                      <Image size={18} aria-hidden />
+                      <span>
+                        {config.lyricsBackgroundWallpaperPath
+                          ? t('lyricsDrawer.wallpaperSelected')
+                          : t('lyricsDrawer.wallpaperEmpty')}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="lyrics-drawer-hint">{t('lyricsDrawer.coverControlsHint')}</p>
+                  )}
+                  <div className="lyrics-wallpaper-controls">
+                    {lyricsBackgroundMode === 'wallpaper' ? (
+                      <div className="lyrics-wallpaper-actions">
+                        <button type="button" className="lyrics-drawer-btn" onClick={pickLyricsWallpaper}>
+                          {config.lyricsBackgroundWallpaperPath
+                            ? t('lyricsDrawer.wallpaperChange')
+                            : t('lyricsDrawer.wallpaperSelect')}
+                        </button>
+                        {config.lyricsBackgroundWallpaperPath ? (
+                          <button
+                            type="button"
+                            className="lyrics-drawer-btn"
+                            onClick={() =>
+                              setConfig((p) => ({
+                                ...p,
+                                lyricsBackgroundWallpaperPath: null
+                              }))
+                            }
+                          >
+                            {t('lyricsDrawer.wallpaperClear')}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <label className="lyrics-drawer-slider-block lyrics-wallpaper-slider">
+                      <div className="lyrics-drawer-label-row">
+                        <span className="lyrics-drawer-label">{lyricsBackgroundMediaOpacityLabel}</span>
+                        <span className="lyrics-drawer-value">{Math.round(lyricsWallpaperOpacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={lyricsWallpaperOpacity}
+                        onChange={(e) =>
+                          setConfig((p) => ({
+                            ...p,
+                            lyricsBackgroundWallpaperOpacity: normalizeLyricsBackgroundWallpaperOpacity(
+                              e.target.value,
+                              lyricsWallpaperOpacity
+                            )
+                          }))
+                        }
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                    <label className="lyrics-drawer-slider-block lyrics-wallpaper-slider">
+                      <div className="lyrics-drawer-label-row">
+                        <span className="lyrics-drawer-label">{lyricsBackgroundMediaBlurLabel}</span>
+                        <span className="lyrics-drawer-value">{Math.round(lyricsWallpaperBlur)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={40}
+                        step={1}
+                        value={lyricsWallpaperBlur}
+                        onChange={(e) =>
+                          setConfig((p) => ({
+                            ...p,
+                            lyricsBackgroundWallpaperBlur: normalizeLyricsBackgroundWallpaperBlur(
+                              e.target.value,
+                              lyricsWallpaperBlur
+                            )
+                          }))
+                        }
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="lyrics-drawer-color-grid">
+              <div className="lyrics-drawer-label-row">
+                <span className="lyrics-drawer-label">{t('lyricsDrawer.fontColor')}</span>
+                <button
+                  type="button"
+                  className="lyrics-drawer-btn"
+                  onClick={() =>
+                    setConfig((p) => ({
+                      ...p,
+                      lyricsColor: null,
+                      lyricsFontColor: null
+                    }))
+                  }
+                >
+                  {t('lyricsDrawer.reset')}
+                </button>
+              </div>
+              <p className="lyrics-drawer-hint">{t('lyricsDrawer.fontColorHint')}</p>
+
+              <div className="lyrics-color-inline">
+                <div className="lyrics-color-card">
+                  <label className="lyrics-color-picker-panel">
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateActive')}</span>
+                    <input
+                      type="color"
+                      value={activeInit?.hex || '#FFFFFF'}
+                      onChange={(e) => applyColorHex('active', e.target.value)}
+                      aria-label="Pick active color"
+                    />
+                  </label>
+                  <div className="lyrics-color-fields">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${activeInvalid ? 'is-invalid' : ''}`}
+                        value={activeHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setActiveHexDraft(e.target.value)
+                          setActiveInvalid(false)
+                        }}
+                        onBlur={() => commitHexDraft('active', activeHexDraft)}
+                      />
+                    </label>
+                    <label className="lyrics-color-field lyrics-color-alpha-field">
+                      <span>A {Math.round((activeInit?.a ?? 1) * 100)}%</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.01}
+                        value={activeInit?.a ?? 1}
+                        onChange={(e) => applyColorAlpha('active', e.target.value)}
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="lyrics-color-card">
+                  <label className="lyrics-color-picker-panel">
+                    <span className="lyrics-color-inline-label">{t('lyricsDrawer.stateNormal')}</span>
+                    <input
+                      type="color"
+                      value={normalInit?.hex || '#DDE7F3'}
+                      onChange={(e) => applyColorHex('normal', e.target.value)}
+                      aria-label="Pick normal color"
+                    />
+                  </label>
+                  <div className="lyrics-color-fields">
+                    <label className="lyrics-color-field">
+                      <span>HEX</span>
+                      <input
+                        className={`lyrics-drawer-text-input ${normalInvalid ? 'is-invalid' : ''}`}
+                        value={normalHexDraft}
+                        placeholder="#RRGGBB"
+                        onChange={(e) => {
+                          setNormalHexDraft(e.target.value)
+                          setNormalInvalid(false)
+                        }}
+                        onBlur={() => commitHexDraft('normal', normalHexDraft)}
+                      />
+                    </label>
+                    <label className="lyrics-color-field lyrics-color-alpha-field">
+                      <span>A {Math.round((normalInit?.a ?? 1) * 100)}%</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.01}
+                        value={normalInit?.a ?? 1}
+                        onChange={(e) => applyColorAlpha('normal', e.target.value)}
+                        className="lyrics-drawer-range"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
