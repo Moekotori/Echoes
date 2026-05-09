@@ -174,7 +174,7 @@ export function buildAlbumCoverCacheEntries(items = []) {
     const exactKey = createAlbumCoverCacheKey(entry.album, entry.artist)
     const fallbackKey = createAlbumCoverFallbackKey(entry.album)
     if (exactKey) entries[exactKey] = entry
-    if (fallbackKey) entries[fallbackKey] = entry
+    if (!entry.artist && fallbackKey) entries[fallbackKey] = entry
   }
 
   return entries

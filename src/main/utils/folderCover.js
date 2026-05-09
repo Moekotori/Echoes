@@ -45,6 +45,22 @@ function normalizeImageStem(value) {
     .toLowerCase()
 }
 
+function normalizeCoverDirectoryText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function looksLikeDiscSubdirectoryName(value) {
+  const normalized = String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+  return /^(?:cd|disc|disk|dvd|bd|vol|volume)?\s*\d{1,3}$/.test(normalized)
+}
+
 function isInfoSidecarDir(dirPath) {
   return /\.info$/i.test(basename(dirPath || ''))
 }
@@ -148,11 +164,10 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
   return null
 }
 
-export function findFolderCoverDataUrl(audioPath) {
-  if (typeof audioPath !== 'string' || !audioPath) return null
+function findFolderCoverDataUrlInDirectory(dirPath) {
+  if (!dirPath) return null
 
   try {
-    const dirPath = dirname(audioPath)
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
     const images = entries
       .filter((entry) => entry.isFile())
@@ -171,4 +186,23 @@ export function findFolderCoverDataUrl(audioPath) {
   }
 
   return null
+}
+
+export function findFolderCoverDataUrl(audioPath, { albumName = '' } = {}) {
+  if (typeof audioPath !== 'string' || !audioPath) return null
+
+  const dirPath = dirname(audioPath)
+  const directCover = findFolderCoverDataUrlInDirectory(dirPath)
+  if (directCover) return directCover
+
+  const parentDir = dirname(dirPath)
+  if (!parentDir || parentDir === dirPath) return null
+
+  const albumKey = normalizeCoverDirectoryText(albumName)
+  const parentLooksLikeAlbum =
+    albumKey && normalizeCoverDirectoryText(basename(parentDir)) === albumKey
+  const currentLooksLikeDiscFolder = looksLikeDiscSubdirectoryName(basename(dirPath))
+  if (!parentLooksLikeAlbum && !currentLooksLikeDiscFolder) return null
+
+  return findFolderCoverDataUrlInDirectory(parentDir)
 }

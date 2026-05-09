@@ -50,6 +50,23 @@ Input #0, flac, from 'renamed_as_mp3.mp3':
   assert.equal(info.tags.album, 'Cover Album')
 })
 
+test('parseFfmpegAudioInfoText keeps alternate artist-like tags', () => {
+  const info = parseFfmpegAudioInfoText(`
+Input #0, flac, from 'track.flac':
+  Metadata:
+    TITLE           : Song
+    AUTHOR          : Visible In Explorer
+    PERFORMER       : Live Singer
+    ALBUMARTIST     : Album Unit
+  Duration: 00:03:00.00, start: 0.000000, bitrate: 900 kb/s
+  Stream #0:0: Audio: flac, 44100 Hz, stereo, s16
+`)
+
+  assert.equal(info.tags.author, 'Visible In Explorer')
+  assert.equal(info.tags.performer, 'Live Singer')
+  assert.equal(info.tags.albumArtist, 'Album Unit')
+})
+
 test('suspicious AAC metadata from a large renamed file prefers ffmpeg audio info', () => {
   const metadata = {
     format: {

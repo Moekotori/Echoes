@@ -94,7 +94,7 @@ function normalizeIdentityText(value = '') {
     .trim()
 }
 
-function isUnknownArtistName(value = '') {
+export function isUnknownArtistName(value = '') {
   const normalized = String(value || '').trim().toLowerCase()
   return !normalized || normalized === 'unknown artist' || looksLikeTrackIndexArtistName(normalized)
 }
@@ -138,6 +138,71 @@ export function normalizeArtistNameKey(value = '') {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, '')
     .trim()
+}
+
+function getTrackParentDirectory(track) {
+  const value = String(track?.path || '')
+  const index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'))
+  return index > 0 ? value.slice(0, index) : ''
+}
+
+function getPathBasename(value = '') {
+  const text = String(value || '').replace(/[\\/]+$/, '')
+  const index = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'))
+  return index >= 0 ? text.slice(index + 1) : text
+}
+
+function getPathParentDirectory(value = '') {
+  const text = String(value || '').replace(/[\\/]+$/, '')
+  const index = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'))
+  return index > 0 ? text.slice(0, index) : ''
+}
+
+function looksLikeDiscSubdirectoryName(value) {
+  return /^(?:cd|disc|disk|dvd|bd|vol|volume)?\s*\d{1,3}$/i.test(
+    String(value || '').normalize('NFKC').trim()
+  )
+}
+
+function normalizeAlbumFolderKey(value = '') {
+  return cleanMetadataText(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\\/]+/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function getTrackAlbumArtist(track) {
+  const albumArtist =
+    cleanArtistCandidate(track?.info?.albumArtist) || cleanArtistCandidate(track?.albumArtist)
+  if (albumArtist) return albumArtist
+  return (
+    cleanArtistCandidate(track?.info?.artist) ||
+    cleanArtistCandidate(track?.artist) ||
+    'Unknown Artist'
+  )
+}
+
+export function getTrackExplicitAlbumArtist(track) {
+  return cleanArtistCandidate(track?.info?.albumArtist) || cleanArtistCandidate(track?.albumArtist)
+}
+
+export function getTrackAlbumGroupKey(track) {
+  const albumKey = normalizeAlbumNameKey(getTrackAlbumName(track))
+  if (!albumKey) return ''
+
+  const parentDirectory = getTrackParentDirectory(track)
+  const albumDirectory = looksLikeDiscSubdirectoryName(getPathBasename(parentDirectory))
+    ? getPathParentDirectory(parentDirectory)
+    : parentDirectory
+  const folderKey = normalizeAlbumFolderKey(albumDirectory)
+  if (folderKey) return `${albumKey}\u0001folder:${folderKey}`
+
+  const artistKey = normalizeArtistNameKey(getTrackExplicitAlbumArtist(track))
+  if (artistKey) return `${albumKey}\u0001artist:${artistKey}`
+
+  return `${albumKey}\u0001folder:unknown`
 }
 
 function looksLikeTrailingDashTitleFragment(metaTitle = '', fileTitle = '') {
@@ -272,15 +337,17 @@ function pushUniqueCover(covers, seen, cover) {
 
 export function getAlbumCoverCandidates(
   tracks = [],
-  { albumName = '', albumCoverMap = {}, trackMetaMap = {} } = {}
+  { albumName = '', albumKey = '', albumCoverMap = {}, trackMetaMap = {} } = {}
 ) {
   const normalizedAlbumName =
     String(albumName || getTrackAlbumName(tracks.find((track) => getTrackAlbumName(track))) || '').trim() ||
     getTrackAlbumName(tracks[0])
   const covers = []
   const seen = new Set()
+  const normalizedAlbumKey = String(albumKey || '').trim()
 
-  pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
+  pushUniqueCover(covers, seen, normalizedAlbumKey ? albumCoverMap?.[normalizedAlbumKey] : null)
+  if (!normalizedAlbumKey) pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
 
   const trackScopedMetaCovers = []
   for (const track of tracks) {
@@ -344,6 +411,7 @@ export const parseTrackInfo = (track, meta) => {
     fileName,
     title,
     artist,
+    albumArtist: cleanMetadataText(meta?.albumArtist || track?.albumArtist || ''),
     album:
       normalizeAlbumDisplayName(meta?.album || track?.album || folderAlbum) || 'Unknown Album',
     cover: meta?.cover || null,

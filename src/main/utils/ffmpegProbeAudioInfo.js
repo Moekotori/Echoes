@@ -42,6 +42,10 @@ function parseGlobalMetadataTags(source) {
   return {
     title: tags.title || '',
     artist: tags.artist || '',
+    artists: tags.artists || '',
+    author: tags.author || tags.authors || '',
+    performer: tags.performer || '',
+    composer: tags.composer || '',
     album: tags.album || '',
     albumArtist: tags.albumartist || tags.album_artist || ''
   }

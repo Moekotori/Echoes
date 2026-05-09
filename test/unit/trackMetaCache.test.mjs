@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  buildAlbumCoverCacheEntries,
+  createAlbumCoverCacheKey,
+  createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
@@ -127,4 +130,17 @@ test('hasCachedTrackCoverRecord accepts numeric and legacy boolean cover markers
   assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 1 }), true)
   assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: true }), true)
   assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 0 }), false)
+})
+
+test('album cover cache entries avoid album-only fallback for known artists', () => {
+  const entries = buildAlbumCoverCacheEntries([
+    {
+      album: 'Same Album',
+      artist: 'Artist A',
+      cover: 'data:image/artist-a'
+    }
+  ])
+
+  assert.equal(entries[createAlbumCoverCacheKey('Same Album', 'Artist A')]?.cover, 'data:image/artist-a')
+  assert.equal(entries[createAlbumCoverFallbackKey('Same Album')], undefined)
 })

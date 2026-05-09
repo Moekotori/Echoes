@@ -5079,33 +5079,61 @@ app.whenReady().then(async () => {
     })
   })
 
-  function getExtendedMetadataFallback(filePath) {
+  async function getExtendedMetadataFallback(filePath) {
     const ext = extname(filePath)
     const baseTitle = basename(filePath, ext)
     const extShort = ext.replace(/^\./, '').toUpperCase() || null
+    const infoSidecar = readInfoSidecarMetadata(filePath)
+    const filenameIdentity = parseLocalFilenameIdentitySafe(filePath)
+    const ffmpegInfo = await getFfmpegAudioInfo(filePath).catch(() => null)
+    const rawAlbum = firstReadableMetadataText(ffmpegInfo?.tags?.album)
+    const rawAlbumArtist = firstReadableMetadataText(ffmpegInfo?.tags?.albumArtist)
+    const rawArtist = firstReadableMetadataText(
+      filenameIdentity.artist,
+      ffmpegInfo?.tags?.artist,
+      ffmpegInfo?.tags?.artists,
+      ffmpegInfo?.tags?.author,
+      ffmpegInfo?.tags?.performer,
+      rawAlbumArtist,
+      'Unknown Artist'
+    )
+    const rawTitle = firstReadableMetadataText(
+      ffmpegInfo?.tags?.title,
+      getReadableInfoSidecarName(infoSidecar),
+      filenameIdentity.title,
+      baseTitle
+    )
+    let cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+    let coverScope = cover ? 'track' : 'album'
+    if (!cover) {
+      cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbum })
+      coverScope = 'album'
+    }
     return {
       success: true,
       technical: {
-        sampleRate: null,
-        bitrate: null,
-        channels: null,
-        bitDepth: null,
-        codec: extShort,
-        duration: null,
+        sampleRate: ffmpegInfo?.sampleRate || null,
+        bitrate: ffmpegInfo?.bitrate || null,
+        channels: ffmpegInfo?.channels || null,
+        bitDepth: ffmpegInfo?.bitDepth || null,
+        codec: ffmpegInfo?.codec || extShort,
+        duration: ffmpegInfo?.duration || null,
         isMqa: false,
         lossless: ['FLAC', 'WAV', 'APE', 'ALAC'].includes(extShort || '')
       },
       common: {
-        title: baseTitle,
-        artist: 'Unknown Artist',
-        album: null,
-        albumArtist: null,
+        title: rawTitle || baseTitle,
+        artist: rawArtist || 'Unknown Artist',
+        album: rawAlbum || null,
+        albumArtist: rawAlbumArtist || null,
         trackNo: null,
         discNo: null,
         bpm: null,
         lyrics: null,
         lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
-        cover: null
+        cover,
+        coverScope,
+        coverExtractorVersion: cover ? 1 : 0
       }
     }
   }
@@ -5218,6 +5246,30 @@ app.whenReady().then(async () => {
     for (const value of values) {
       const text = sanitizeMetadataText(value)
       if (isReadableMetadataText(text)) return text
+    }
+    return ''
+  }
+
+  function normalizeMetadataTextList(value) {
+    if (!Array.isArray(value)) return sanitizeMetadataText(value)
+    return value.map((item) => sanitizeMetadataText(item)).filter(Boolean).join(' / ')
+  }
+
+  function normalizeNativeMetadataKey(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+  }
+
+  function firstNativeMetadataText(metadata, keys = []) {
+    const wantedKeys = new Set(keys.map((key) => normalizeNativeMetadataKey(key)).filter(Boolean))
+    if (!wantedKeys.size || !metadata?.native || typeof metadata.native !== 'object') return ''
+    for (const tags of Object.values(metadata.native)) {
+      if (!Array.isArray(tags)) continue
+      for (const tag of tags) {
+        const id = normalizeNativeMetadataKey(tag?.id)
+        if (!wantedKeys.has(id)) continue
+        const text = normalizeMetadataTextList(tag?.value)
+        if (isReadableMetadataText(text)) return text
+      }
     }
     return ''
   }
@@ -5343,6 +5395,12 @@ app.whenReady().then(async () => {
         const probed = await getMediaDurationSeconds(filePath)
         if (probed > 0) durationSec = probed
       }
+      const rawAlbumForCover = firstReadableMetadataText(
+        cueTrack?.albumTitle,
+        wavInfoTags.album,
+        metadata.common.album,
+        ffmpegInfo?.tags?.album
+      )
 
       const picture = selectCover(metadata.common.picture)
       let coverBytes = 0
@@ -5377,7 +5435,7 @@ app.whenReady().then(async () => {
       if (!cover) {
         cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
         coverScope = cover ? 'track' : 'album'
-        if (!cover) cover = findFolderCoverDataUrl(filePath)
+        if (!cover) cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
         coverExtractorVersion = cover ? 1 : 0
       }
 
@@ -5415,18 +5473,33 @@ app.whenReady().then(async () => {
         artistFromFilename,
         wavInfoTags.artist,
         metadata.common.artist,
+        normalizeMetadataTextList(metadata.common.artists),
+        firstNativeMetadataText(metadata, [
+          'artist',
+          'artists',
+          'author',
+          'authors',
+          'performer',
+          'WM/Artist',
+          'TPE1'
+        ]),
         ffmpegInfo?.tags?.artist,
+        ffmpegInfo?.tags?.artists,
+        ffmpegInfo?.tags?.author,
+        ffmpegInfo?.tags?.performer,
+        metadata.common.albumartist,
+        metadata.common.albumArtist,
+        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2']),
+        ffmpegInfo?.tags?.albumArtist,
         'Unknown Artist'
       )
       const rawAlbum = firstReadableMetadataText(
-        cueTrack?.albumTitle,
-        wavInfoTags.album,
-        metadata.common.album,
-        ffmpegInfo?.tags?.album
+        rawAlbumForCover
       )
       const rawAlbumArtist = firstReadableMetadataText(
         metadata.common.albumartist,
         metadata.common.albumArtist,
+        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2']),
         ffmpegInfo?.tags?.albumArtist
       )
 
@@ -6011,13 +6084,30 @@ app.whenReady().then(async () => {
       const artist = firstReadableMetadataText(
         matchesLocalFilenameStem(rawTitle, resolvedPath) ? filenameIdentity.artist : '',
         wavInfoTags.artist,
-        metadata.common.artist
+        metadata.common.artist,
+        normalizeMetadataTextList(metadata.common.artists),
+        firstNativeMetadataText(metadata, [
+          'artist',
+          'artists',
+          'author',
+          'authors',
+          'performer',
+          'WM/Artist',
+          'TPE1'
+        ]),
+        metadata.common.albumartist,
+        metadata.common.albumArtist,
+        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2'])
       )
       const cover = selectCover(metadata.common.picture)
       return {
         title,
         artist,
-        albumArtist: firstReadableMetadataText(metadata.common.albumartist, metadata.common.albumArtist),
+        albumArtist: firstReadableMetadataText(
+          metadata.common.albumartist,
+          metadata.common.albumArtist,
+          firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2'])
+        ),
         album: firstReadableMetadataText(wavInfoTags.album, metadata.common.album),
         trackNumber: metadata.common.track?.no ? String(metadata.common.track.no) : '',
         year: metadata.common.year ? String(metadata.common.year) : '',
