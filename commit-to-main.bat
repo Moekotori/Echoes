@@ -1,26 +1,25 @@
 @echo off
-chcp 65001 >nul
 cd /d E:\ECHO
 
-echo [1/4] 删除残留锁文件...
-del /f /q ".git\index.lock" 2>nul
-del /f /q ".git\index.stash.*.lock" 2>nul
+echo [1/2] Removing lock files...
+if exist ".git\index.lock" del /f /q ".git\index.lock"
+if exist ".git\HEAD.lock" del /f /q ".git\HEAD.lock"
+if exist ".git\packed-refs.lock" del /f /q ".git\packed-refs.lock"
+if exist ".git\refs\heads\main.lock" del /f /q ".git\refs\heads\main.lock"
+if exist ".git\refs\heads\backup-my-code.lock" del /f /q ".git\refs\heads\backup-my-code.lock"
+if exist ".git\refs\heads\ECHORe.lock" del /f /q ".git\refs\heads\ECHORe.lock"
+if exist ".git\refs\stash.lock" del /f /q ".git\refs\stash.lock"
+if exist ".git\refs\tags\1.3.5.lock" del /f /q ".git\refs\tags\1.3.5.lock"
+if exist ".git\refs\tags\1.3.6.lock" del /f /q ".git\refs\tags\1.3.6.lock"
+echo Done.
 
-echo [2/4] 暂存所有改动...
-git add -A
-if errorlevel 1 ( echo ERROR: git add 失败 & pause & exit /b 1 )
-
-echo [3/4] 提交到当前分支 backup-my-code...
-git commit -m "chore: update project files and normalize line endings"
-if errorlevel 1 ( echo ERROR: git commit 失败 & pause & exit /b 1 )
-
-echo [4/4] 切到 main 并 fast-forward merge...
-git checkout main
-if errorlevel 1 ( echo ERROR: 切换到 main 失败 & pause & exit /b 1 )
-git merge backup-my-code --ff-only
-if errorlevel 1 ( echo ERROR: merge 失败 & pause & exit /b 1 )
+echo [2/2] Moving main pointer to backup-my-code (no checkout needed)...
+git branch -f main backup-my-code
+if errorlevel 1 ( echo ERROR: branch move failed & pause & exit /b 1 )
 
 echo.
-echo ✅ 完成！已成功 commit 并 merge 到 main。
-git log --oneline -3
+echo SUCCESS! Current state:
+git log --oneline -4 main
+echo.
+echo backup-my-code and main are now at the same commit.
 pause
