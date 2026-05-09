@@ -155,6 +155,8 @@ import {
   readInfoSidecarMetadata
 } from './utils/folderCover.js'
 import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
+import { createLimiter, getCoverConcurrency } from './utils/concurrency.js'
+import { closeMetadataWorkerPool } from './utils/metadataWorkerPool.js'
 import { readWavInfoTags } from './utils/wavInfoTags.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
 import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
@@ -360,6 +362,11 @@ const ARTIST_AVATAR_IMAGE_FETCH_TIMEOUT_MS = 12000
 const ARTIST_AVATAR_IMAGE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000
 const artistAvatarImageInFlight = new Map()
 const artistAvatarImageHostCooldowns = new Map()
+const coverLimiter = createLimiter(getCoverConcurrency())
+
+function runCoverTask(fn) {
+  return coverLimiter(fn)
+}
 
 function stopLyricsDesktopMainSyncTimer() {
   if (lyricsDesktopMainSyncTimer) {
@@ -5166,9 +5173,14 @@ app.whenReady().then(async () => {
     const extShort = ext.replace(/^\./, '').toUpperCase() || null
     const infoSidecar = readInfoSidecarMetadata(filePath)
     const filenameIdentity = parseLocalFilenameIdentitySafe(filePath)
-    const musicMetadataResult = requestOptions.includeCover
-      ? await readMusicMetadataForLocalFile(filePath)
-      : null
+    const useMetadataWorker =
+      requestOptions.includeCover === false &&
+      requestOptions.includeLyrics === false &&
+      requestOptions.includeMqa === false
+    const musicMetadataResult = await readMusicMetadataForLocalFile(filePath, {
+      skipCovers: requestOptions.includeCover !== true,
+      useWorker: useMetadataWorker
+    })
     const musicMetadata = musicMetadataResult?.metadata || {}
     const ffmpegInfo = requestOptions.includeTechnicalProbe
       ? await getFfmpegAudioInfo(filePath).catch(() => null)
@@ -5201,7 +5213,7 @@ app.whenReady().then(async () => {
     let coverBytes = 0
     if (requestOptions.includeCover) {
       const compressedMusicMetadataCover = musicMetadataResult?.picture
-        ? compressEmbeddedCoverData(musicMetadataResult.picture)
+        ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataResult.picture))
         : null
       logEmbeddedCoverDebug('local artwork extraction attempt', {
         ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
@@ -5216,13 +5228,15 @@ app.whenReady().then(async () => {
         coverSource = 'embedded'
         coverBytes = compressedMusicMetadataCover.bytes
       } else {
-        const jsmediatagsCover = await readJsmediatagsPicture(filePath)
+        const jsmediatagsCover = await runCoverTask(() => readJsmediatagsPicture(filePath))
         const jsmediatagsPicture = jsmediatagsCover?.picture || null
         const compressedJsmediatagsCover = jsmediatagsPicture
-          ? compressEmbeddedCoverData({
-              data: jsmediatagsPicture.data,
-              format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
-            })
+          ? await runCoverTask(() =>
+              compressEmbeddedCoverData({
+                data: jsmediatagsPicture.data,
+                format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
+              })
+            )
           : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
@@ -5255,7 +5269,7 @@ app.whenReady().then(async () => {
         }
       }
       if (!cover) {
-        cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+        cover = await runCoverTask(() => findInfoSidecarCoverDataUrl(filePath, infoSidecar))
         coverScope = cover ? 'track' : 'album'
         coverSource = cover ? 'sidecar' : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5268,7 +5282,7 @@ app.whenReady().then(async () => {
       }
     }
     if (requestOptions.includeCover && !cover) {
-      cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbum })
+      cover = await runCoverTask(() => findFolderCoverDataUrl(filePath, { albumName: rawAlbum }))
       coverScope = 'album'
       coverSource = cover ? 'folder' : null
       logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5558,7 +5572,14 @@ app.whenReady().then(async () => {
     const cueTrack = parseCueVirtualPath(requestedPath)
     filePath = getCueAudioPath(filePath)
     try {
-      const musicMetadataResult = await readMusicMetadataForLocalFile(filePath)
+      const useMetadataWorker =
+        requestOptions.includeCover === false &&
+        requestOptions.includeLyrics === false &&
+        requestOptions.includeMqa === false
+      const musicMetadataResult = await readMusicMetadataForLocalFile(filePath, {
+        skipCovers: requestOptions.includeCover !== true,
+        useWorker: useMetadataWorker
+      })
       if (!musicMetadataResult?.rawMetadata) {
         throw new Error(musicMetadataResult?.error || 'music-metadata parse failed')
       }
@@ -5624,7 +5645,7 @@ app.whenReady().then(async () => {
           /ogg/i.test(metadata.format?.container || ''))
       if (requestOptions.includeCover) {
         const compressedCover = musicMetadataPicture
-          ? compressEmbeddedCoverData(musicMetadataPicture)
+          ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataPicture))
           : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
@@ -5653,14 +5674,16 @@ app.whenReady().then(async () => {
         }
       }
       if (requestOptions.includeCover && !cover) {
-        const jsmediatagsCover = await readJsmediatagsPicture(filePath)
+        const jsmediatagsCover = await runCoverTask(() => readJsmediatagsPicture(filePath))
         const jsmediatagsPicture = jsmediatagsCover?.picture || null
         jsmediatagsPictureFound = Boolean(jsmediatagsPicture?.data)
         if (jsmediatagsPicture) {
-          const compressedCover = compressEmbeddedCoverData({
-            data: jsmediatagsPicture.data,
-            format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
-          })
+          const compressedCover = await runCoverTask(() =>
+            compressEmbeddedCoverData({
+              data: jsmediatagsPicture.data,
+              format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
+            })
+          )
           logEmbeddedCoverDebug('local artwork extraction attempt', {
             ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
             embeddedPictureFound: true,
@@ -5716,7 +5739,7 @@ app.whenReady().then(async () => {
         }
       }
       if (requestOptions.includeCover && !cover && preferFfmpegCover) {
-        const extractedCover = await extractAttachedCoverWithFfmpeg(filePath)
+        const extractedCover = await runCoverTask(() => extractAttachedCoverWithFfmpeg(filePath))
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'ffmpeg-attached-cover'),
           embeddedPictureFound: Boolean(extractedCover?.dataUrl),
@@ -5735,7 +5758,7 @@ app.whenReady().then(async () => {
         }
       }
       if (requestOptions.includeCover && !cover) {
-        cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+        cover = await runCoverTask(() => findInfoSidecarCoverDataUrl(filePath, infoSidecar))
         coverScope = cover ? 'track' : 'album'
         coverSource = cover ? 'sidecar' : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5746,7 +5769,9 @@ app.whenReady().then(async () => {
           error: ''
         })
         if (!cover) {
-          cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
+          cover = await runCoverTask(() =>
+            findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
+          )
           coverScope = 'album'
           coverSource = cover ? 'folder' : null
           logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -7893,6 +7918,7 @@ app.on('before-quit', (event) => {
   upnpSender.shutdown().catch(() => {})
   phoneRemoteServer.stop().catch(() => {})
   libraryWatchManager?.stop()
+  closeMetadataWorkerPool()
   if (shouldWaitForRpcClear) {
     event.preventDefault()
     Promise.resolve(rpcCleanup).finally(() => {
@@ -7905,6 +7931,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   flushAppStateCacheSync()
+  closeMetadataWorkerPool()
 })
 
 app.on('window-all-closed', () => {

@@ -1,6 +1,11 @@
 import fs from 'fs'
 import { basename, dirname, extname, join } from 'path'
 import { createCueVirtualPath, parseCueSheet } from '../../shared/cueTracks.mjs'
+import {
+  createLimiter,
+  getLibraryScanConcurrency,
+  getMetadataWorkerCount
+} from './concurrency.js'
 
 const SUPPORTED_AUDIO_EXTS = new Set([
   '.mp3',
@@ -85,7 +90,13 @@ async function expandAudioEntryWithEmbeddedCue(entry, stats, options = {}) {
       typeof options.metadataParser === 'function'
         ? options.metadataParser
         : (await import('music-metadata')).parseFile
-    const metadata = await parseFile(entry.path, { duration: true, skipCovers: true })
+    const metadataLimiter =
+      typeof options.metadataLimiter === 'function'
+        ? options.metadataLimiter
+        : createLimiter(getMetadataWorkerCount())
+    const metadata = await metadataLimiter(() =>
+      parseFile(entry.path, { duration: true, skipCovers: true })
+    )
     const nativeTags = Object.values(metadata?.native || {}).flat()
     const cueText =
       nativeTags.find((tag) => String(tag?.id || '').toUpperCase() === 'CUESHEET')?.value ||
@@ -123,6 +134,85 @@ async function expandAudioEntryWithEmbeddedCue(entry, stats, options = {}) {
   }
 }
 
+async function collectAudioFilesFromRoots(rootPaths, out, options = {}, metrics) {
+  const pending = Array.isArray(rootPaths) ? rootPaths.filter(Boolean) : []
+  const maxConcurrency = Math.max(1, Number(options.scanConcurrency) || getLibraryScanConcurrency())
+  const metadataLimiter =
+    typeof options.metadataLimiter === 'function'
+      ? options.metadataLimiter
+      : createLimiter(Math.max(1, Number(options.metadataConcurrency) || getMetadataWorkerCount()))
+  let cursor = 0
+  let active = 0
+
+  await new Promise((resolve) => {
+    const maybeDone = () => {
+      if (active === 0 && cursor >= pending.length) resolve()
+    }
+
+    const processPath = async (entryPath) => {
+      try {
+        const stats = await fs.promises.stat(entryPath)
+        if (!stats.isDirectory()) {
+          const ext = extname(entryPath).toLowerCase()
+          if (SUPPORTED_AUDIO_EXTS.has(ext)) {
+            const entry = toAudioEntry(entryPath, stats)
+            const entries =
+              options.expandEmbeddedCue === true
+                ? await expandAudioEntryWithEmbeddedCue(entry, stats, {
+                    ...options,
+                    metadataLimiter
+                  })
+                : [entry]
+            out.push(...entries)
+            metrics.discoveredAudioCount += entries.length
+          }
+          return
+        }
+
+        metrics.scannedDirectoryCount += 1
+        const entries = await fs.promises.readdir(entryPath, { withFileTypes: true })
+        for (const entry of entries) {
+          const nextPath = join(entryPath, entry.name)
+          if (entry.isDirectory()) {
+            pending.push(nextPath)
+            continue
+          }
+
+          if (entry.isFile() && SUPPORTED_AUDIO_EXTS.has(extname(nextPath).toLowerCase())) {
+            pending.push(nextPath)
+          }
+        }
+      } catch (e) {
+        console.error(`[collectAudioFilesRecursive] ${entryPath}:`, e?.message || e)
+      }
+    }
+
+    const schedule = () => {
+      while (active < maxConcurrency && cursor < pending.length) {
+        const currentPath = pending[cursor]
+        cursor += 1
+        active += 1
+        processPath(currentPath)
+          .catch(() => {
+            /* processPath handles per-path logging */
+          })
+          .finally(() => {
+            active -= 1
+            if (cursor > 1024 && cursor * 2 > pending.length) {
+              pending.splice(0, cursor)
+              cursor = 0
+            }
+            schedule()
+            maybeDone()
+          })
+      }
+      maybeDone()
+    }
+
+    schedule()
+  })
+}
+
 export async function collectAudioFilesRecursive(entryPath, out, options = {}) {
   const ownsMetrics = !options.metrics
   const metrics =
@@ -134,47 +224,7 @@ export async function collectAudioFilesRecursive(entryPath, out, options = {}) {
     })
   if (options.log === false && ownsMetrics) metrics.log = false
   try {
-    const stats = await fs.promises.stat(entryPath)
-    if (!stats.isDirectory()) {
-      const ext = extname(entryPath).toLowerCase()
-      if (SUPPORTED_AUDIO_EXTS.has(ext)) {
-        const entry = toAudioEntry(entryPath, stats)
-        const entries =
-          options.expandEmbeddedCue === true
-            ? await expandAudioEntryWithEmbeddedCue(entry, stats, options)
-            : [entry]
-        out.push(...entries)
-        metrics.discoveredAudioCount += entries.length
-      }
-      return
-    }
-
-    metrics.scannedDirectoryCount += 1
-    const entries = await fs.promises.readdir(entryPath, { withFileTypes: true })
-    for (const entry of entries) {
-      const nextPath = join(entryPath, entry.name)
-      try {
-        if (entry.isDirectory()) {
-          await collectAudioFilesRecursive(nextPath, out, { ...options, metrics })
-          continue
-        }
-
-        if (!entry.isFile()) continue
-        const ext = extname(nextPath).toLowerCase()
-        if (!SUPPORTED_AUDIO_EXTS.has(ext)) continue
-
-        const fileStats = await fs.promises.stat(nextPath)
-        const audioEntry = toAudioEntry(nextPath, fileStats)
-        const audioEntries =
-          options.expandEmbeddedCue === true
-            ? await expandAudioEntryWithEmbeddedCue(audioEntry, fileStats, options)
-            : [audioEntry]
-        out.push(...audioEntries)
-        metrics.discoveredAudioCount += audioEntries.length
-      } catch (e) {
-        console.error(`[collectAudioFilesRecursive] ${nextPath}:`, e?.message || e)
-      }
-    }
+    await collectAudioFilesFromRoots([entryPath], out, options, metrics)
   } catch (e) {
     console.error(`[collectAudioFilesRecursive] ${entryPath}:`, e?.message || e)
   } finally {
@@ -400,9 +450,7 @@ async function scanFolders(folders, options = {}) {
   if (options.log === false && !options.metrics) metrics.log = false
   const files = []
   try {
-    for (const folder of normalizedFolders) {
-      await collectAudioFilesRecursive(folder, files, { ...options, metrics })
-    }
+    await collectAudioFilesFromRoots(normalizedFolders, files, options, metrics)
     return uniqueByPath(files)
   } finally {
     if (!options.metrics && options.log !== false) logScanSummary(metrics)

@@ -53,20 +53,71 @@ export function buildMusicMetadataReaderPayload(metadata = {}, picture = null, e
   }
 }
 
+function buildRawMetadataFromLightweight(metadata = {}) {
+  return {
+    common: {
+      title: metadata.title || '',
+      artist: metadata.artist || '',
+      album: metadata.album || '',
+      albumartist: metadata.albumArtist || '',
+      albumArtist: metadata.albumArtist || '',
+      year: metadata.year || null,
+      genre: metadata.genre ? [metadata.genre] : [],
+      track: {
+        no: metadata.trackNo || null,
+        of: null
+      },
+      disk: {
+        no: metadata.discNo || null,
+        of: null
+      },
+      picture: []
+    },
+    format: {
+      duration: metadata.duration || null,
+      codec: metadata.codec || '',
+      container: metadata.container || '',
+      lossless: metadata.lossless === true,
+      bitrate: metadata.bitrate || null,
+      sampleRate: metadata.sampleRate || null,
+      bitsPerSample: metadata.bitDepth || null,
+      numberOfChannels: metadata.channels || null
+    },
+    native: {}
+  }
+}
+
 export async function readMusicMetadataForLocalFile(filePath, options = {}) {
   try {
+    if (options.useWorker === true && typeof options.parseFile !== 'function') {
+      const { getMetadataWorkerPool } = await import('./metadataWorkerPool.js')
+      const result = await getMetadataWorkerPool().read(filePath)
+      if (!result?.success) {
+        return buildMusicMetadataReaderPayload(null, null, result?.error || 'metadata worker failed')
+      }
+      return buildMusicMetadataReaderPayload(
+        buildRawMetadataFromLightweight(result.metadata),
+        null,
+        ''
+      )
+    }
     const parse =
       typeof options.parseFile === 'function'
         ? options.parseFile
         : (await import('music-metadata')).parseFile
+    const skipCovers = options.skipCovers === true
     const metadata = await parse(filePath, {
       duration: true,
-      skipCovers: false
+      skipCovers
     })
     const rawPicture = Array.isArray(metadata?.common?.picture)
       ? metadata.common.picture.find((item) => item?.data) || null
       : null
-    return buildMusicMetadataReaderPayload(metadata, normalizeMusicMetadataPicture(rawPicture), '')
+    return buildMusicMetadataReaderPayload(
+      metadata,
+      skipCovers ? null : normalizeMusicMetadataPicture(rawPicture),
+      ''
+    )
   } catch (error) {
     return buildMusicMetadataReaderPayload(null, null, error?.message || String(error || ''))
   }

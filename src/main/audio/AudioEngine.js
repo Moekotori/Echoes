@@ -89,6 +89,28 @@ const NETEASE_HEADERS = 'Referer: https://music.163.com/\r\nOrigin: https://musi
 
 const AUTOMIX_MIN_DURATION_SEC = 1.2
 const AUTOMIX_MAX_DURATION_SEC = 12
+let ffmpegThreadSettingLogged = false
+
+function getFfmpegThreadArgs() {
+  if (process.env.ECHO_DISABLE_FFMPEG_THREADS === '1') return []
+  const raw = Number(process.env.ECHO_FFMPEG_THREADS)
+  const threads = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0
+  return ['-threads', String(threads)]
+}
+
+function applyFfmpegInputOptions(command, options = []) {
+  const threadArgs = getFfmpegThreadArgs()
+  const args = [...threadArgs, ...options]
+  if (args.length > 0) command.inputOptions(args)
+  const shouldLog =
+    process.env.ECHO_DEBUG_FFMPEG_THREADS === '1' || ffmpegThreadSettingLogged === false
+  if (shouldLog) {
+    ffmpegThreadSettingLogged = true
+    const threadLabel = threadArgs.length > 0 ? threadArgs[1] : 'disabled'
+    logLine(`[AudioEngine] FFmpeg decoder threads: ${threadLabel}`)
+  }
+  return command
+}
 
 function isNeteaseStreamUrl(uri) {
   return /music\.163\.com|126\.net|netease|interface\.music\.163/i.test(uri)
@@ -530,7 +552,7 @@ export class AudioEngine {
           filters.push(`aresample=${pb.targetSampleRate}`)
         }
 
-        const cmd = ffmpeg(sourcePath)
+        const cmd = applyFfmpegInputOptions(ffmpeg(sourcePath))
           .seekInput(cueStart)
           .format('f32le')
           .audioChannels(channels)
@@ -1738,20 +1760,18 @@ export class AudioEngine {
       filters.push(`aresample=${targetSampleRate}`)
     }
 
-    const command = ffmpeg(filePath)
+    const inputOptions = /^https?:\/\//i.test(filePath)
+      ? isNeteaseStreamUrl(filePath)
+        ? ['-user_agent', NETEASE_UA, '-headers', NETEASE_HEADERS]
+        : ['-user_agent', 'EchoesStudio/1.0']
+      : []
+    const command = applyFfmpegInputOptions(ffmpeg(filePath), inputOptions)
       .seekInput(startTime)
       .format('f32le')
       .audioChannels(channels)
       .audioFrequency(targetSampleRate)
     if (Number(duration) > 0) {
       command.duration(Number(duration))
-    }
-
-    if (/^https?:\/\//i.test(filePath)) {
-      const opts = isNeteaseStreamUrl(filePath)
-        ? ['-user_agent', NETEASE_UA, '-headers', NETEASE_HEADERS]
-        : ['-user_agent', 'EchoesStudio/1.0']
-      command.inputOptions(opts)
     }
 
     if (filters.length > 0) command.audioFilters(filters)

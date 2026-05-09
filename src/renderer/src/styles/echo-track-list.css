@@ -2317,6 +2317,11 @@
     ) !important;
 }
 
+:root[data-echo-theme-tone='dark']
+  .app-root:has(.app-wallpaper-backdrop):not(:has(.main-player.lyrics-mode)) {
+  background: transparent !important;
+}
+
 :root[data-echo-theme-tone='dark'] .titlebar,
 :root[data-echo-theme-tone='dark'] .titlebar-version,
 :root[data-echo-theme-tone='dark'] .bottom-bar-artist,

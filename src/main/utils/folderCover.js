@@ -6,6 +6,7 @@ const FOLDER_COVER_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const INFO_SIDECAR_METADATA_FILE = 'metadata.json'
 const MAX_FOLDER_COVER_DIMENSION = 520
 const FOLDER_COVER_JPEG_QUALITY = 78
+const MAX_FOLDER_COVER_CACHE_ENTRIES = 512
 const PREFERRED_COVER_NAMES = [
   'cover',
   'folder',
@@ -15,6 +16,40 @@ const PREFERRED_COVER_NAMES = [
   'coverart',
   'albumart'
 ]
+
+const folderCoverCache = new Map()
+const infoSidecarCoverCache = new Map()
+
+function trimCache(cache, maxEntries = MAX_FOLDER_COVER_CACHE_ENTRIES) {
+  while (cache.size > maxEntries) {
+    const firstKey = cache.keys().next().value
+    if (firstKey === undefined) break
+    cache.delete(firstKey)
+  }
+}
+
+function getDirectoryMtimeMs(dirPath) {
+  try {
+    return fs.statSync(dirPath).mtimeMs || 0
+  } catch {
+    return 0
+  }
+}
+
+function readCoverCache(cache, key) {
+  if (!key || !cache.has(key)) return undefined
+  const value = cache.get(key)
+  cache.delete(key)
+  cache.set(key, value)
+  return value
+}
+
+function writeCoverCache(cache, key, value) {
+  if (!key) return value
+  cache.set(key, value || null)
+  trimCache(cache)
+  return value
+}
 
 function imageMimeFromPath(filePath) {
   const ext = extname(filePath).toLowerCase()
@@ -121,6 +156,9 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
   try {
     const dirPath = dirname(audioPath)
     if (!isInfoSidecarDir(dirPath)) return null
+    const cacheKey = `${dirPath}\u0001${basename(audioPath)}\u0001${getDirectoryMtimeMs(dirPath)}`
+    const cached = readCoverCache(infoSidecarCoverCache, cacheKey)
+    if (cached !== undefined) return cached
 
     const audioStem = normalizeImageStem(basename(audioPath, extname(audioPath)))
     const packageId = normalizeImageStem(sidecar.id || basename(dirPath).replace(/\.info$/i, ''))
@@ -155,8 +193,9 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
 
     for (const candidate of scored) {
       const dataUrl = compressImageFileToDataUrl(candidate.filePath)
-      if (dataUrl) return dataUrl
+      if (dataUrl) return writeCoverCache(infoSidecarCoverCache, cacheKey, dataUrl)
     }
+    writeCoverCache(infoSidecarCoverCache, cacheKey, null)
   } catch {
     return null
   }
@@ -192,17 +231,32 @@ export function findFolderCoverDataUrl(audioPath, { albumName = '' } = {}) {
   if (typeof audioPath !== 'string' || !audioPath) return null
 
   const dirPath = dirname(audioPath)
-  const directCover = findFolderCoverDataUrlInDirectory(dirPath)
-  if (directCover) return directCover
-
   const parentDir = dirname(dirPath)
-  if (!parentDir || parentDir === dirPath) return null
+  const cacheKey = [
+    dirPath,
+    normalizeCoverDirectoryText(albumName),
+    getDirectoryMtimeMs(dirPath),
+    parentDir && parentDir !== dirPath ? getDirectoryMtimeMs(parentDir) : 0
+  ].join('\u0001')
+  const cached = readCoverCache(folderCoverCache, cacheKey)
+  if (cached !== undefined) return cached
+
+  const directCover = findFolderCoverDataUrlInDirectory(dirPath)
+  if (directCover) return writeCoverCache(folderCoverCache, cacheKey, directCover)
+
+  if (!parentDir || parentDir === dirPath) {
+    writeCoverCache(folderCoverCache, cacheKey, null)
+    return null
+  }
 
   const albumKey = normalizeCoverDirectoryText(albumName)
   const parentLooksLikeAlbum =
     albumKey && normalizeCoverDirectoryText(basename(parentDir)) === albumKey
   const currentLooksLikeDiscFolder = looksLikeDiscSubdirectoryName(basename(dirPath))
-  if (!parentLooksLikeAlbum && !currentLooksLikeDiscFolder) return null
+  if (!parentLooksLikeAlbum && !currentLooksLikeDiscFolder) {
+    writeCoverCache(folderCoverCache, cacheKey, null)
+    return null
+  }
 
-  return findFolderCoverDataUrlInDirectory(parentDir)
+  return writeCoverCache(folderCoverCache, cacheKey, findFolderCoverDataUrlInDirectory(parentDir))
 }

@@ -9,7 +9,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.js'),
-          detectBpmWorker: resolve('src/main/utils/detectBpmWorker.js')
+          detectBpmWorker: resolve('src/main/utils/detectBpmWorker.js'),
+          metadataWorker: resolve('src/main/utils/metadataWorker.js')
         }
       }
     }
