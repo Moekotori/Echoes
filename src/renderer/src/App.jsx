@@ -440,15 +440,17 @@ const METADATA_PREFETCH_LIMIT = 96
 const ALBUM_METADATA_PREFETCH_LIMIT = 240
 const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
-const ALBUM_METADATA_PARSE_BATCH_SIZE = 48
+const ALBUM_METADATA_PARSE_BATCH_SIZE = 16
 const ALBUM_COVER_MANUAL_LOAD_LIMIT = 10000
-const ALBUM_COVER_MANUAL_LOAD_WORKERS = 6
+const ALBUM_COVER_MANUAL_LOAD_WORKERS = 2
 const ALBUM_COVER_BACKFILL_BATCH_SIZE = 48
 const ALBUM_COVER_BACKFILL_BATCH_DELAY_MS = 40
-const ALBUM_COVER_BACKFILL_WORKERS = 6
-const METADATA_PARSE_WORKERS = 2
+const ALBUM_COVER_BACKFILL_WORKERS = 1
+const METADATA_PARSE_WORKERS = 1
 const PLAYING_METADATA_PARSE_BATCH_SIZE = 6
 const PLAYING_METADATA_PARSE_WORKERS = 1
+const METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
+const STARTUP_IMPORTED_FOLDER_IDLE_RESCAN_DELAY_MS = 8000
 const ALBUM_CLOUD_COVER_PREFETCH_LIMIT = 40
 const ALBUM_CLOUD_COVER_WORKERS = 5
 const ARTIST_AVATAR_LOOKUP_VERSION = 6
@@ -2718,6 +2720,7 @@ export default function App() {
   const startupImportedFolderRescanDoneRef = useRef(false)
   const startupImportedFolderRescanTimerRef = useRef(null)
   const [libraryStateReady, setLibraryStateReady] = useState(false)
+  const [metadataPrefetchParseReady, setMetadataPrefetchParseReady] = useState(false)
   const [playbackSessionRestoreReady, setPlaybackSessionRestoreReady] = useState(false)
   const [libraryCleanupBusy, setLibraryCleanupBusy] = useState(false)
   const [missingLibraryPaths, setMissingLibraryPaths] = useState([])
@@ -4268,6 +4271,17 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!libraryStateReady) {
+      setMetadataPrefetchParseReady(false)
+      return undefined
+    }
+    const timer = window.setTimeout(() => {
+      setMetadataPrefetchParseReady(true)
+    }, METADATA_PREFETCH_STARTUP_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [libraryStateReady])
+
+  useEffect(() => {
     if (!libraryStateReady || startupExclusiveResetRef.current) return
     startupExclusiveResetRef.current = true
     if (config.audioExclusiveResetOnStartup === false) return
@@ -5110,6 +5124,36 @@ export default function App() {
       }
     }
 
+    const applyStartupScannedTracks = (scannedTracks) => {
+      const previousImportedTracks = playlistRef.current.filter((track) =>
+        isTrackInsideImportedFolders(track?.path, foldersForStartupRescan)
+      )
+      const delta = diffImportedFolderSnapshot(
+        previousImportedTracks,
+        scannedTracks.map(normalizeWatchedTrack).filter(Boolean)
+      )
+
+      const safeStartupDelta = {
+        renamed: [],
+        removedPaths: [],
+        added: delta.added
+      }
+
+      if (safeStartupDelta.added.length) {
+        applyLibraryFolderDelta(safeStartupDelta)
+        if (window.api?.watchLibraryFolders) {
+          const seededTracks = playlistRef.current
+            .filter((track) => isTrackInsideImportedFolders(track?.path, foldersForStartupRescan))
+            .map(buildImportedFolderTrackSeed)
+            .filter(Boolean)
+          void window.api.watchLibraryFolders({
+            folders: foldersForStartupRescan,
+            existingTracks: seededTracks
+          })
+        }
+      }
+    }
+
     if (existingPathsForStartupRescan.length > 0) {
       const savedSignature =
         getInitialAppStateValue('startupImportedFolderScanSignature') ||
@@ -5118,7 +5162,56 @@ export default function App() {
       if (savedSignature !== startupScanSignature) {
         persistStartupScanSignature()
       }
-      return undefined
+
+      let idleCallbackId = null
+      let fallbackIdleTimer = null
+      const runIdleRescan = async () => {
+        try {
+          const rescanResult = await window.api.rescanFolders({
+            folders: foldersForStartupRescan,
+            existingPaths: existingPathsForStartupRescan,
+            reason: 'idle'
+          })
+          if (cancelled || !Array.isArray(rescanResult)) return
+          if (rescanResult.length) applyStartupScannedTracks(rescanResult)
+          persistStartupScanSignature()
+        } catch (e) {
+          console.error('Idle folder rescan failed:', e)
+        }
+      }
+      const scheduleIdleRescan = () => {
+        if (typeof window.requestIdleCallback === 'function') {
+          idleCallbackId = window.requestIdleCallback(
+            () => {
+              idleCallbackId = null
+              void runIdleRescan()
+            },
+            { timeout: 15000 }
+          )
+          return
+        }
+        fallbackIdleTimer = window.setTimeout(() => {
+          fallbackIdleTimer = null
+          void runIdleRescan()
+        }, 0)
+      }
+      startupImportedFolderRescanTimerRef.current = window.setTimeout(() => {
+        startupImportedFolderRescanTimerRef.current = null
+        scheduleIdleRescan()
+      }, STARTUP_IMPORTED_FOLDER_IDLE_RESCAN_DELAY_MS)
+      return () => {
+        cancelled = true
+        if (startupImportedFolderRescanTimerRef.current) {
+          window.clearTimeout(startupImportedFolderRescanTimerRef.current)
+          startupImportedFolderRescanTimerRef.current = null
+        }
+        if (idleCallbackId !== null && typeof window.cancelIdleCallback === 'function') {
+          window.cancelIdleCallback(idleCallbackId)
+        }
+        if (fallbackIdleTimer !== null) {
+          window.clearTimeout(fallbackIdleTimer)
+        }
+      }
     }
 
     const doRescan = async () => {
@@ -5127,7 +5220,8 @@ export default function App() {
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const rescanResult = await window.api.rescanFolders({
             folders: foldersForStartupRescan,
-            existingPaths: existingPathsForStartupRescan
+            existingPaths: existingPathsForStartupRescan,
+            reason: 'startup'
           })
           if (cancelled || !Array.isArray(rescanResult)) return
           scannedTracks = rescanResult
@@ -5138,33 +5232,7 @@ export default function App() {
           await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)))
         }
 
-        const previousImportedTracks = playlistRef.current.filter((track) =>
-          isTrackInsideImportedFolders(track?.path, foldersForStartupRescan)
-        )
-        const delta = diffImportedFolderSnapshot(
-          previousImportedTracks,
-          scannedTracks.map(normalizeWatchedTrack).filter(Boolean)
-        )
-
-        const safeStartupDelta = {
-          renamed: [],
-          removedPaths: [],
-          added: delta.added
-        }
-
-        if (safeStartupDelta.added.length) {
-          applyLibraryFolderDelta(safeStartupDelta)
-          if (window.api?.watchLibraryFolders) {
-            const seededTracks = playlistRef.current
-              .filter((track) => isTrackInsideImportedFolders(track?.path, foldersForStartupRescan))
-              .map(buildImportedFolderTrackSeed)
-              .filter(Boolean)
-            void window.api.watchLibraryFolders({
-              folders: foldersForStartupRescan,
-              existingTracks: seededTracks
-            })
-          }
-        }
+        applyStartupScannedTracks(scannedTracks)
         persistStartupScanSignature()
       } catch (e) {
         console.error('Folder rescan failed:', e)
@@ -8911,7 +8979,10 @@ export default function App() {
     const folders = await window.api.openDirectoryHandler()
     if (folders && folders.length > 0) {
       const folderPath = folders[0]
-      const audioFiles = await window.api.readDirectoryHandler(folderPath)
+      const audioFiles = await window.api.readDirectoryHandler({
+        path: folderPath,
+        reason: 'import-folder-change'
+      })
       if (audioFiles.length > 0) {
         await processFiles(audioFiles)
       }
@@ -15453,6 +15524,7 @@ export default function App() {
           return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
         })
       }
+      if (!metadataPrefetchParseReady) return
 
       const uncachedPending = pending.filter((track) => {
         const cachedMeta = cached[track.path]
@@ -15645,6 +15717,7 @@ export default function App() {
     isPlaying,
     listMode,
     metadataCoverKeepPathSet,
+    metadataPrefetchParseReady,
     metadataPrefetchTracks,
     persistAlbumCoverCacheItems,
     selectedAlbum,
@@ -15652,6 +15725,9 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (!metadataPrefetchParseReady) {
+      return undefined
+    }
     if (!albumCoverBackfillPlan.key || albumCoverBackfillPlan.targets.length === 0) {
       return undefined
     }
@@ -15819,7 +15895,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [albumCoverBackfillPlan.key, persistAlbumCoverCacheItems])
+  }, [albumCoverBackfillPlan.key, metadataPrefetchParseReady, persistAlbumCoverCacheItems])
 
   useEffect(() => {
     if (listMode !== 'album' || selectedAlbum !== 'all') return undefined

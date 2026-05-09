@@ -22,6 +22,8 @@ const SUPPORTED_AUDIO_EXTS = new Set([
 ])
 const RECURSIVE_WATCH_SUPPORTED =
   typeof process !== 'undefined' && (process.platform === 'win32' || process.platform === 'darwin')
+const WATCHER_STARTUP_EVENT_WARMUP_MS = 10000
+const WATCHER_RESCAN_COOLDOWN_MS = 10000
 
 function normalizeFolderPath(folderPath) {
   if (typeof folderPath !== 'string') return ''
@@ -53,10 +55,36 @@ function toAudioEntry(entryPath, stats) {
   }
 }
 
-async function expandAudioEntryWithEmbeddedCue(entry, stats) {
+function createScanMetrics({
+  reason = 'manual',
+  folderCount = 0,
+  existingPathsCount = 0
+} = {}) {
+  return {
+    reason,
+    folderCount,
+    existingPathsCount,
+    scannedDirectoryCount: 0,
+    discoveredAudioCount: 0,
+    startedAt: Date.now()
+  }
+}
+
+function logScanSummary(metrics) {
+  if (!metrics || metrics.log === false) return
+  const elapsedMs = Math.max(0, Date.now() - metrics.startedAt)
+  console.info(
+    `[libraryWatcher] scan reason=${metrics.reason || 'manual'} folders=${Number(metrics.folderCount) || 0} existingPaths=${Number(metrics.existingPathsCount) || 0} scannedDirs=${Number(metrics.scannedDirectoryCount) || 0} discoveredAudio=${Number(metrics.discoveredAudioCount) || 0} elapsedMs=${elapsedMs}`
+  )
+}
+
+async function expandAudioEntryWithEmbeddedCue(entry, stats, options = {}) {
   if (!entry?.path || extname(entry.path).toLowerCase() !== '.flac') return [entry]
   try {
-    const { parseFile } = await import('music-metadata')
+    const parseFile =
+      typeof options.metadataParser === 'function'
+        ? options.metadataParser
+        : (await import('music-metadata')).parseFile
     const metadata = await parseFile(entry.path, { duration: true, skipCovers: true })
     const nativeTags = Object.values(metadata?.native || {}).flat()
     const cueText =
@@ -95,23 +123,39 @@ async function expandAudioEntryWithEmbeddedCue(entry, stats) {
   }
 }
 
-export async function collectAudioFilesRecursive(entryPath, out) {
+export async function collectAudioFilesRecursive(entryPath, out, options = {}) {
+  const ownsMetrics = !options.metrics
+  const metrics =
+    options.metrics ||
+    createScanMetrics({
+      reason: options.reason || 'manual',
+      folderCount: 1,
+      existingPathsCount: Number(options.existingPathsCount) || 0
+    })
+  if (options.log === false && ownsMetrics) metrics.log = false
   try {
     const stats = await fs.promises.stat(entryPath)
     if (!stats.isDirectory()) {
       const ext = extname(entryPath).toLowerCase()
       if (SUPPORTED_AUDIO_EXTS.has(ext)) {
-        out.push(...(await expandAudioEntryWithEmbeddedCue(toAudioEntry(entryPath, stats), stats)))
+        const entry = toAudioEntry(entryPath, stats)
+        const entries =
+          options.expandEmbeddedCue === true
+            ? await expandAudioEntryWithEmbeddedCue(entry, stats, options)
+            : [entry]
+        out.push(...entries)
+        metrics.discoveredAudioCount += entries.length
       }
       return
     }
 
+    metrics.scannedDirectoryCount += 1
     const entries = await fs.promises.readdir(entryPath, { withFileTypes: true })
     for (const entry of entries) {
       const nextPath = join(entryPath, entry.name)
       try {
         if (entry.isDirectory()) {
-          await collectAudioFilesRecursive(nextPath, out)
+          await collectAudioFilesRecursive(nextPath, out, { ...options, metrics })
           continue
         }
 
@@ -120,13 +164,21 @@ export async function collectAudioFilesRecursive(entryPath, out) {
         if (!SUPPORTED_AUDIO_EXTS.has(ext)) continue
 
         const fileStats = await fs.promises.stat(nextPath)
-        out.push(...(await expandAudioEntryWithEmbeddedCue(toAudioEntry(nextPath, fileStats), fileStats)))
+        const audioEntry = toAudioEntry(nextPath, fileStats)
+        const audioEntries =
+          options.expandEmbeddedCue === true
+            ? await expandAudioEntryWithEmbeddedCue(audioEntry, fileStats, options)
+            : [audioEntry]
+        out.push(...audioEntries)
+        metrics.discoveredAudioCount += audioEntries.length
       } catch (e) {
         console.error(`[collectAudioFilesRecursive] ${nextPath}:`, e?.message || e)
       }
     }
   } catch (e) {
     console.error(`[collectAudioFilesRecursive] ${entryPath}:`, e?.message || e)
+  } finally {
+    if (ownsMetrics && options.log !== false) logScanSummary(metrics)
   }
 }
 
@@ -186,13 +238,14 @@ function resolveRecursiveWatchScanRoot(rootPath, filename) {
   return SUPPORTED_AUDIO_EXTS.has(ext) ? dirname(changedPath) : changedPath
 }
 
-function collectUnknownDirectoriesForRescan(entryPath, knownDirectories, out, seen) {
+function collectUnknownDirectoriesForRescan(entryPath, knownDirectories, out, seen, metrics = null) {
   const normalized = normalizeFolderPath(entryPath)
   if (!normalized || seen.has(normalized)) return
 
   try {
     const stats = fs.statSync(normalized)
     if (!stats.isDirectory()) return
+    if (metrics) metrics.scannedDirectoryCount += 1
     seen.add(normalized)
 
     const isKnown = knownDirectories.has(normalized)
@@ -203,7 +256,7 @@ function collectUnknownDirectoriesForRescan(entryPath, knownDirectories, out, se
       try {
         if (!fs.statSync(nextPath).isDirectory()) continue
         if (isKnown && knownDirectories.has(nextPath)) continue
-        collectUnknownDirectoriesForRescan(nextPath, knownDirectories, out, seen)
+        collectUnknownDirectoriesForRescan(nextPath, knownDirectories, out, seen, metrics)
       } catch (e) {
         console.warn(`[libraryWatcher] skip rescan dir ${nextPath}:`, e?.message || e)
       }
@@ -213,11 +266,17 @@ function collectUnknownDirectoriesForRescan(entryPath, knownDirectories, out, se
   }
 }
 
-function collectUnknownDirectoriesForFolders(folders, knownDirectories) {
+function collectUnknownDirectoriesForFolders(folders, knownDirectories, metrics = null) {
   const allDirectories = []
   const seenDirectories = new Set()
   for (const folder of folders) {
-    collectUnknownDirectoriesForRescan(folder, knownDirectories, allDirectories, seenDirectories)
+    collectUnknownDirectoriesForRescan(
+      folder,
+      knownDirectories,
+      allDirectories,
+      seenDirectories,
+      metrics
+    )
   }
   return allDirectories
 }
@@ -327,30 +386,63 @@ function diffSnapshots(previousSnapshot, nextSnapshot) {
   }
 }
 
-async function scanFolders(folders) {
+async function scanFolders(folders, options = {}) {
+  const normalizedFolders = Array.isArray(folders)
+    ? [...new Set(folders.map(normalizeFolderPath).filter(Boolean))]
+    : []
+  const metrics =
+    options.metrics ||
+    createScanMetrics({
+      reason: options.reason || 'manual',
+      folderCount: normalizedFolders.length,
+      existingPathsCount: Number(options.existingPathsCount) || 0
+    })
+  if (options.log === false && !options.metrics) metrics.log = false
   const files = []
-  for (const folder of folders) {
-    await collectAudioFilesRecursive(folder, files)
+  try {
+    for (const folder of normalizedFolders) {
+      await collectAudioFilesRecursive(folder, files, { ...options, metrics })
+    }
+    return uniqueByPath(files)
+  } finally {
+    if (!options.metrics && options.log !== false) logScanSummary(metrics)
   }
-  return uniqueByPath(files)
 }
 
-export async function rescanImportedFolders(folders, existingPaths = []) {
+export async function rescanImportedFolders(folders, existingPaths = [], options = {}) {
   const normalizedFolders = Array.isArray(folders)
     ? [...new Set(folders.map(normalizeFolderPath).filter(Boolean))]
     : []
   const existingPathSet = new Set(
     Array.isArray(existingPaths) ? existingPaths.filter((item) => typeof item === 'string') : []
   )
-  if (existingPathSet.size > 0) {
-    const knownDirectories = collectKnownDirectoriesFromPaths(existingPaths)
-    const candidateDirectories = collectUnknownDirectoriesForFolders(normalizedFolders, knownDirectories)
-    return (await scanFolders(candidateDirectories)).filter((entry) => !existingPathSet.has(entry.path))
+  const metrics = createScanMetrics({
+    reason: options.reason || 'manual',
+    folderCount: normalizedFolders.length,
+    existingPathsCount: existingPathSet.size
+  })
+  if (options.log === false) metrics.log = false
+  try {
+    if (existingPathSet.size > 0) {
+      const knownDirectories = collectKnownDirectoriesFromPaths(existingPaths)
+      const candidateDirectories = collectUnknownDirectoriesForFolders(
+        normalizedFolders,
+        knownDirectories,
+        metrics
+      )
+      return (await scanFolders(candidateDirectories, { ...options, metrics, log: false })).filter(
+        (entry) => !existingPathSet.has(entry.path)
+      )
+    }
+    return (await scanFolders(normalizedFolders, { ...options, metrics, log: false })).filter(
+      (entry) => !existingPathSet.has(entry.path)
+    )
+  } finally {
+    if (options.log !== false) logScanSummary(metrics)
   }
-  return (await scanFolders(normalizedFolders)).filter((entry) => !existingPathSet.has(entry.path))
 }
 
-export function createLibraryWatchManager({ onChange }) {
+export function createLibraryWatchManager({ onChange, scanFoldersImpl = scanFolders } = {}) {
   let watchedFolders = []
   let snapshot = new Map()
   let watchers = new Map()
@@ -359,6 +451,8 @@ export function createLibraryWatchManager({ onChange }) {
   let rescanQueued = false
   let dirtyScanRoots = new Set()
   const lastErrorRescanAtByDir = new Map()
+  const lastWatcherRescanAtByDir = new Map()
+  let watcherWarmupUntil = 0
 
   const closeAllWatchers = () => {
     for (const watcher of watchers.values()) {
@@ -433,7 +527,15 @@ export function createLibraryWatchManager({ onChange }) {
       dirtyScanRoots = new Set()
       if (!scanRoots.length) return
 
-      const nextSnapshot = buildSnapshot(await scanFolders(scanRoots))
+      const metrics = createScanMetrics({
+        reason: 'watcher',
+        folderCount: scanRoots.length,
+        existingPathsCount: snapshot.size
+      })
+      const nextSnapshot = buildSnapshot(
+        await scanFoldersImpl(scanRoots, { reason: 'watcher', metrics, log: false })
+      )
+      logScanSummary(metrics)
       const previousSnapshot = new Map(
         [...snapshot].filter(([path]) =>
           scanRoots.some((rootPath) => isPathInsideFolder(path, rootPath))
@@ -442,6 +544,10 @@ export function createLibraryWatchManager({ onChange }) {
       const diff = diffSnapshots(previousSnapshot, nextSnapshot)
       for (const path of previousSnapshot.keys()) snapshot.delete(path)
       for (const [path, entry] of nextSnapshot) snapshot.set(path, entry)
+      const scanCompletedAt = Date.now()
+      for (const rootPath of scanRoots) {
+        lastWatcherRescanAtByDir.set(rootPath, scanCompletedAt)
+      }
       rebuildWatchers(scanRoots)
       if (diff.renamed.length || diff.removedPaths.length || diff.added.length) {
         onChange?.(diff)
@@ -456,12 +562,23 @@ export function createLibraryWatchManager({ onChange }) {
   }
 
   const scheduleRescan = (dirPath) => {
-    if (dirPath) dirtyScanRoots.add(normalizeFolderPath(dirPath))
+    const normalizedDirPath = dirPath ? normalizeFolderPath(dirPath) : ''
+    const now = Date.now()
+    // Recursive watchers can emit an initial burst for already-known files as they attach.
+    // The startup seed snapshot is authoritative for that window, so do not queue scans for it.
+    if (normalizedDirPath && now < watcherWarmupUntil) return
+    if (normalizedDirPath) dirtyScanRoots.add(normalizedDirPath)
+    const lastScannedAt = normalizedDirPath ? lastWatcherRescanAtByDir.get(normalizedDirPath) || 0 : 0
+    const cooldownDelay =
+      normalizedDirPath && lastScannedAt > 0
+        ? Math.max(0, WATCHER_RESCAN_COOLDOWN_MS - (now - lastScannedAt))
+        : 0
+    const delayMs = Math.max(350, cooldownDelay + 350)
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       debounceTimer = null
       void runRescan()
-    }, 350)
+    }, delayMs)
   }
 
   return {
@@ -480,6 +597,7 @@ export function createLibraryWatchManager({ onChange }) {
         (folder) => !watchedFolders.some((existing) => isPathInsideFolder(folder, existing))
       )
       watchedFolders = nextFolders
+      watcherWarmupUntil = Date.now() + WATCHER_STARTUP_EVENT_WARMUP_MS
       snapshot = seededSnapshot
       for (const path of [...snapshot.keys()]) {
         if (!watchedFolders.some((folder) => isPathInsideFolder(path, folder))) {
@@ -489,7 +607,8 @@ export function createLibraryWatchManager({ onChange }) {
       rebuildWatchers(addedFolders)
       return {
         ok: true,
-        trackedFolders: watchedFolders.slice()
+        trackedFolders: watchedFolders.slice(),
+        seededTracks: snapshot.size
       }
     },
     stop() {

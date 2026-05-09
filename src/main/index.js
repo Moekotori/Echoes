@@ -4116,8 +4116,12 @@ app.whenReady().then(async () => {
   // IPC: Read directory ?? 递归包含所有子文件夹中的受支持音频
   ipcMain.handle('file:readDirectory', async (_, dirPath) => {
     try {
+      const payload = dirPath && typeof dirPath === 'object' ? dirPath : { path: dirPath }
       const audioFiles = []
-      await collectAudioFilesRecursive(dirPath, audioFiles)
+      await collectAudioFilesRecursive(payload.path, audioFiles, {
+        reason: payload.reason || 'manual',
+        expandEmbeddedCue: payload.expandEmbeddedCue === true
+      })
       return audioFiles
     } catch (e) {
       console.error(e)
@@ -4129,14 +4133,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('file:getFilesFromPaths', async (_, paths) => {
     const result = []
     for (const p of paths) {
-      await collectAudioFilesRecursive(p, result)
+      await collectAudioFilesRecursive(p, result, { reason: 'manual' })
     }
     return result
   })
 
   ipcMain.handle('file:rescanFolders', async (_, payload) => {
     try {
-      return await rescanImportedFolders(payload?.folders, payload?.existingPaths)
+      return await rescanImportedFolders(payload?.folders, payload?.existingPaths, {
+        reason: payload?.reason || 'manual',
+        expandEmbeddedCue: payload?.expandEmbeddedCue === true
+      })
     } catch (e) {
       console.error('[file:rescanFolders]', e)
       return []
