@@ -88,7 +88,12 @@ export function buildAlbumCoverBackfillPlan({
   }
 
   return {
-    key: targets.map((target) => `${target.albumKey}\u0001${target.track.path}`).join('\n'),
+    key: targets
+      .map(
+        (target) =>
+          `${target.albumKey}\u0001${target.track.path}\u0001${target.needsCover ? 'cover' : ''}:${target.needsArtist ? 'artist' : ''}`
+      )
+      .join('\n'),
     targets
   }
 }

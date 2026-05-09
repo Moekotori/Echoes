@@ -95,6 +95,7 @@ dist
 # vuepress build output (dist / .nuxt already listed above)
 
 # Local / runtime
+.codex-logs/
 crash-reports/
 downloads/
 
@@ -118,7 +119,7 @@ out/
 release/
 .vite/
 
-# ´ò°üÓë±¸·İºöÂÔÎÄ¼ş
+# æ‰“åŒ…ä¸å¤‡ä»½å¿½ç•¥æ–‡ä»¶
 release*/
 crash-reports/
 *.zip

@@ -167,15 +167,15 @@ import {
   compareTrackFrequent,
   compareTrackRandom,
   getEffectiveTrackMeta,
-  getAlbumCoverCandidates,
-  getBestAlbumCover,
   getTrackAlbumName,
   getTrackAlbumArtist,
   getTrackExplicitAlbumArtist,
   getTrackAlbumGroupKey,
+  buildAlbumWallHydrateTargets,
   isUnknownArtistName,
   normalizeAlbumNameKey,
   normalizeArtistNameKey,
+  resolveAlbumWallDisplayInfo,
   stripExtension,
   parseArtistTitleFromName,
   resolveTrackIdentityFromMetadata
@@ -407,8 +407,8 @@ const ALBUM_META_PREFETCH_BEHIND_ROWS = 4
 const ALBUM_META_PREFETCH_AHEAD_ROWS = 24
 const SIDEBAR_ROW_HEIGHT = 75
 const SIDEBAR_DETAIL_ROW_HEIGHT = 75
-const ALBUM_GRID_DEFAULT_ROW_HEIGHT = 68
-const ALBUM_GRID_DEFAULT_GAP = 10
+const ALBUM_GRID_DEFAULT_ROW_HEIGHT = 244
+const ALBUM_GRID_DEFAULT_GAP = 18
 const RENDERER_PERSIST_DEBOUNCE_MS = 600
 const MV_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
 const BILI_STREAM_CACHE_TTL_MS = 8 * 60 * 1000
@@ -13088,13 +13088,11 @@ export default function App() {
     }, new Map())
     const next = {}
     for (const [key, tracks] of groups.entries()) {
-      const name = getTrackAlbumName(tracks[0])
-      next[key] = getAlbumCoverCandidates(tracks, {
-        albumName: name,
+      next[key] = resolveAlbumWallDisplayInfo(tracks, {
         albumKey: key,
         albumCoverMap,
         trackMetaMap: effectiveTrackMetaMap
-      })
+      }).coverCandidates
     }
     return next
   }, [albumCoverMap, effectiveTrackMetaMap, queryFilteredPlaylist, shouldBuildAlbumBuckets])
@@ -13111,36 +13109,20 @@ export default function App() {
     }, new Map())
 
     const buckets = Array.from(groups.values()).map(({ key, name, tracks }) => {
-      const coverCandidates =
-        albumCoverCandidatesByName[key] ||
-        getAlbumCoverCandidates(tracks, {
-          albumName: name,
-          albumKey: key,
-          albumCoverMap,
-          trackMetaMap: effectiveTrackMetaMap
-        })
-      const explicitAlbumArtist =
-        tracks
-          .map((track) => getTrackExplicitAlbumArtist(track))
-          .find((value) => value && !isUnknownArtistName(value)) || ''
-      const artist =
-        explicitAlbumArtist ||
-        tracks.map((track) => getTrackAlbumArtist(track)).find((value) => !isUnknownArtistName(value)) ||
-        'Unknown Artist'
+      const display = resolveAlbumWallDisplayInfo(tracks, {
+        albumName: name,
+        albumKey: key,
+        albumCoverMap,
+        trackMetaMap: effectiveTrackMetaMap
+      })
+      const coverCandidates = albumCoverCandidatesByName[key] || display.coverCandidates
       return {
         key,
-        name,
+        name: display.name,
         tracks,
-        artist,
-        cacheArtist: explicitAlbumArtist,
-        cover:
-          coverCandidates[0] ||
-          getBestAlbumCover(tracks, {
-            albumName: name,
-            albumKey: key,
-            albumCoverMap,
-            trackMetaMap: effectiveTrackMetaMap
-          }),
+        artist: display.artist,
+        cacheArtist: display.cacheArtist,
+        cover: coverCandidates[0] || display.cover,
         coverCandidates
       }
     })
@@ -14775,19 +14757,21 @@ export default function App() {
       const firstCard = gridElement.querySelector('.album-card')
       const firstCardRect = firstCard?.getBoundingClientRect?.()
       const nextWidth = Math.round(gridElement.clientWidth || gridRect.width || 0)
-      const nextRowHeight = Math.round(firstCardRect?.height || 0) || ALBUM_GRID_DEFAULT_ROW_HEIGHT
+      const nextColumnCount = firstCardRect?.width
+        ? Math.max(1, Math.floor((nextWidth + rowGap) / (firstCardRect.width + rowGap)))
+        : Math.max(1, Math.floor((nextWidth + rowGap) / (160 + rowGap)))
+      const estimatedCardWidth =
+        nextColumnCount > 0
+          ? Math.max(160, Math.floor((nextWidth - rowGap * (nextColumnCount - 1)) / nextColumnCount))
+          : firstCardRect?.width || 160
+      const nextRowHeight = Math.max(
+        ALBUM_GRID_DEFAULT_ROW_HEIGHT,
+        Math.round(estimatedCardWidth + 64)
+      )
       const nextOffsetTop = Math.max(
         0,
         Math.round(gridRect.top - playlistRect.top + (playlistElement.scrollTop || 0))
       )
-
-      let nextColumnCount = 1
-      if (firstCardRect?.width) {
-        nextColumnCount = Math.max(
-          1,
-          Math.floor((nextWidth + rowGap) / (firstCardRect.width + rowGap))
-        )
-      }
 
       setAlbumGridRowGap((prev) => (prev === rowGap ? prev : rowGap))
       setAlbumGridRowHeight((prev) => (prev === nextRowHeight ? prev : nextRowHeight))
@@ -15043,47 +15027,20 @@ export default function App() {
     }
 
     if (listMode === 'album' && selectedAlbum === 'all') {
-      const albumsNeedingCover = metadataPrefetchAlbumGroups.filter((album) => {
-        const coverFailed = failedAlbumCoverKeys.has(getAlbumCoverFailureKey(album))
-        const hasAlbumCover = Boolean(album.cover && !coverFailed)
-        const hasAlbumArtist =
-          (album.cacheArtist && !isUnknownArtistName(album.cacheArtist)) ||
-          (album.artist && !isUnknownArtistName(album.artist))
-        if (hasAlbumCover && hasAlbumArtist) return false
-        return album.tracks.some((track) => {
-          const entry = trackMetaMap[track.path]
-          const hasTrackArtist = !isUnknownArtistName(
-            entry?.albumArtist ||
-              entry?.artist ||
-              track?.info?.albumArtist ||
-              track?.info?.artist ||
-              ''
-          )
-          return !entry?.cover || !hasTrackArtist
-        })
-      })
-      const longestAlbumTrackCount = Math.max(
-        0,
-        ...albumsNeedingCover.map((album) => album.tracks.length)
-      )
-
-      for (
-        let trackOffset = 0;
-        trackOffset < longestAlbumTrackCount && byPath.size < ALBUM_METADATA_PREFETCH_LIMIT;
-        trackOffset += 1
-      ) {
-        for (const album of albumsNeedingCover) {
-          const track = album.tracks[trackOffset]
-          if (!track?.path) continue
-          const entry = trackMetaMap[track.path]
-          if (entry?.cover) continue
-          if (entry?.coverChecked === true && albumCoverProbePathsRef.current.has(track.path)) {
-            continue
-          }
-          pushTrack(track)
-          if (byPath.size >= ALBUM_METADATA_PREFETCH_LIMIT) break
+      const hydrateTargets = buildAlbumWallHydrateTargets(
+        metadataPrefetchAlbumGroups.flatMap((album) => album.tracks || []),
+        trackMetaMap,
+        albumCoverMap,
+        {
+          maxTracksPerAlbum: 3,
+          maxAlbums: ALBUM_METADATA_PREFETCH_LIMIT,
+          maxTargets: Math.max(0, ALBUM_METADATA_PREFETCH_LIMIT - byPath.size),
+          isLocalTrack: (track) => !isRemoteTrackPath(track?.path),
+          albumCoverProbePaths: albumCoverProbePathsRef.current,
+          albumArtistProbePaths: albumArtistProbePathsRef.current
         }
-      }
+      )
+      for (const target of hydrateTargets) pushTrack(target.track)
     }
 
     const limit =
@@ -15093,7 +15050,7 @@ export default function App() {
     return Array.from(byPath.values()).slice(0, limit)
   }, [
     currentTrack,
-    failedAlbumCoverKeys,
+    albumCoverMap,
     listMode,
     metadataPrefetchAlbumGroups,
     metadataPrefetchSidebarTracks,
@@ -15223,7 +15180,7 @@ export default function App() {
 
     const loadMetadata = async () => {
       const loaded = {}
-      const cached = await readTrackMetaCache(pending.map((track) => track.path))
+      const cached = await readTrackMetaCache(pending)
       for (const [path, entry] of Object.entries(cached)) {
         loaded[path] = entry
       }
@@ -15450,7 +15407,11 @@ export default function App() {
         if (loaded[track.path]) {
           freshLoaded[track.path] = mergeTrackMetaEntryPreservingCover(
             trackMetaMapRef.current?.[track.path] || {},
-            loaded[track.path]
+            {
+              ...loaded[track.path],
+              sizeBytes: track.sizeBytes,
+              mtimeMs: track.mtimeMs
+            }
           )
         }
       }

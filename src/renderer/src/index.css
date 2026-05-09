@@ -3857,8 +3857,7 @@ body {
 }
 
 .album-grid-deferred {
-  content-visibility: auto;
-  contain-intrinsic-size: 240px;
+  contain: layout style paint;
 }
 
 .user-playlist-library {
@@ -4602,6 +4601,7 @@ body {
   border-radius: 12px;
   overflow: hidden;
   padding: 8px;
+  min-height: 244px;
   text-align: left;
   color: var(--text-main);
   cursor: pointer;

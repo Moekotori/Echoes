@@ -373,6 +373,167 @@ export function getBestAlbumCover(tracks = [], options = {}) {
   return getAlbumCoverCandidates(tracks, options)[0] || null
 }
 
+export function isUnknownArtistDisplay(value = '') {
+  return isUnknownArtistName(value)
+}
+
+function isLocalAlbumWallTrack(track, isLocalTrack) {
+  if (!track?.path || typeof track.path !== 'string') return false
+  if (typeof isLocalTrack === 'function') return isLocalTrack(track)
+  return !/^[a-z][a-z0-9+.-]*:\/\//i.test(track.path)
+}
+
+export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
+  const entry = track?.path ? trackMetaMap?.[track.path] || null : null
+  const info = parseTrackInfo(track, entry)
+  return {
+    ...(entry || {}),
+    title: entry?.title || info.title || null,
+    artist: entry?.artist || info.artist || null,
+    albumArtist: entry?.albumArtist || info.albumArtist || null,
+    album: entry?.album || info.album || null,
+    cover: entry?.cover || track?.info?.cover || track?.cover || null,
+    duration: entry?.duration || info.duration || null,
+    trackNo: entry?.trackNo ?? info.trackNo ?? null,
+    discNo: entry?.discNo ?? info.discNo ?? null
+  }
+}
+
+export function resolveAlbumWallDisplayInfo(
+  albumTracks = [],
+  { trackMetaMap = {}, albumCoverMap = {}, albumName = '', albumKey = '' } = {}
+) {
+  const tracks = Array.isArray(albumTracks) ? albumTracks.filter(Boolean) : []
+  const resolved = tracks.map((track) => ({
+    track,
+    meta: resolveAlbumWallTrackMeta(track, trackMetaMap)
+  }))
+  const displayMeta =
+    resolved.find((item) => typeof item.meta.album === 'string' && item.meta.album.trim())?.meta ||
+    resolved[0]?.meta ||
+    {}
+  const displayName =
+    normalizeAlbumDisplayName(displayMeta.album || albumName || getTrackAlbumName(tracks[0])) ||
+    'Singles'
+  const albumArtist =
+    resolved
+      .map((item) => item.meta.albumArtist)
+      .find((value) => value && !isUnknownArtistDisplay(value)) || ''
+  const artist =
+    albumArtist ||
+    resolved.map((item) => item.meta.artist).find((value) => value && !isUnknownArtistDisplay(value)) ||
+    'Unknown Artist'
+  const coverCandidates = getAlbumCoverCandidates(tracks, {
+    albumName: displayName,
+    albumKey,
+    albumCoverMap,
+    trackMetaMap
+  })
+
+  return {
+    name: displayName,
+    artist,
+    cacheArtist: albumArtist,
+    cover: coverCandidates[0] || null,
+    coverCandidates
+  }
+}
+
+export function hasUsefulAlbumWallMeta(track, trackMetaMap = {}, options = {}) {
+  if (!track?.path) return false
+  const meta = resolveAlbumWallTrackMeta(track, trackMetaMap)
+  const album = String(meta.album || '').trim()
+  const artist = meta.albumArtist || meta.artist || ''
+  const cover =
+    meta.cover ||
+    (options.albumKey ? options.albumCoverMap?.[options.albumKey] : null) ||
+    (album ? options.albumCoverMap?.[album] : null)
+  return Boolean(album && artist && !isUnknownArtistDisplay(artist) && cover)
+}
+
+function scoreAlbumWallHydrateTrack(track, trackMetaMap = {}) {
+  const meta = resolveAlbumWallTrackMeta(track, trackMetaMap)
+  let score = 0
+  if (meta.cover) score += 8
+  if (meta.albumArtist && !isUnknownArtistDisplay(meta.albumArtist)) score += 4
+  if (meta.artist && !isUnknownArtistDisplay(meta.artist)) score += 3
+  if (meta.album) score += 2
+  if (Number(meta.trackNo) > 0) score += 1
+  return score
+}
+
+export function buildAlbumWallHydrateTargets(
+  tracks = [],
+  trackMetaMap = {},
+  albumCoverMap = {},
+  {
+    maxTracksPerAlbum = 2,
+    maxAlbums = 80,
+    maxTargets = 160,
+    isLocalTrack = null,
+    albumCoverProbePaths = new Set(),
+    albumArtistProbePaths = new Set()
+  } = {}
+) {
+  const groups = new Map()
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    if (!isLocalAlbumWallTrack(track, isLocalTrack)) continue
+    const name = getTrackAlbumName(track)
+    const key = getTrackAlbumGroupKey(track) || normalizeAlbumNameKey(name)
+    if (!key) continue
+    if (!groups.has(key)) groups.set(key, { key, name, tracks: [] })
+    groups.get(key).tracks.push(track)
+  }
+
+  const targets = []
+  let albumCount = 0
+  for (const group of groups.values()) {
+    if (albumCount >= maxAlbums || targets.length >= maxTargets) break
+    const display = resolveAlbumWallDisplayInfo(group.tracks, {
+      trackMetaMap,
+      albumCoverMap,
+      albumName: group.name,
+      albumKey: group.key
+    })
+    if (display.cover && display.artist && !isUnknownArtistDisplay(display.artist)) continue
+
+    const rankedTracks = group.tracks
+      .map((track, index) => ({ track, index, score: scoreAlbumWallHydrateTrack(track, trackMetaMap) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+
+    let picked = 0
+    for (const item of rankedTracks) {
+      if (picked >= maxTracksPerAlbum || targets.length >= maxTargets) break
+      const track = item.track
+      if (hasUsefulAlbumWallMeta(track, trackMetaMap, { albumCoverMap, albumKey: group.key })) {
+        continue
+      }
+      const meta = resolveAlbumWallTrackMeta(track, trackMetaMap)
+      const artist = meta.albumArtist || meta.artist || ''
+      const needsCover = !display.cover && !meta.cover
+      const needsArtist = !artist || isUnknownArtistDisplay(artist)
+      const coverProbeDone =
+        needsCover && meta.coverChecked === true && albumCoverProbePaths.has(track.path)
+      const artistProbeDone = needsArtist && albumArtistProbePaths.has(track.path)
+      if ((needsCover ? coverProbeDone : true) && (needsArtist ? artistProbeDone : true)) {
+        continue
+      }
+      targets.push({
+        albumKey: group.key,
+        albumName: display.name || group.name,
+        track,
+        needsCover,
+        needsArtist,
+        needsAlbum: !meta.album
+      })
+      picked += 1
+    }
+    if (picked > 0) albumCount += 1
+  }
+
+  return targets
+}
+
 export const parseTrackInfo = (track, meta) => {
   const rawName = track?.name || ''
   const fileName = stripExtension(rawName)

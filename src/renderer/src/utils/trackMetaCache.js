@@ -3,7 +3,8 @@ const DB_VERSION = 4
 const STORE_NAME = 'trackMeta'
 const ALBUM_COVER_STORE_NAME = 'albumCover'
 const ARTIST_AVATAR_STORE_NAME = 'artistAvatar'
-const MAX_CACHE_ENTRIES = 4000
+const TRACK_META_CACHE_FINGERPRINT_VERSION = 1
+const MAX_CACHE_ENTRIES = 50000
 const MAX_CACHE_COVER_ENTRIES = 1200
 const MAX_ALBUM_COVER_CACHE_ENTRIES = 1200
 const MAX_ARTIST_AVATAR_CACHE_ENTRIES = 2000
@@ -108,6 +109,64 @@ export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
   const isMp3PathWithAacMetadata = /\.mp3(?:#|$)/i.test(lowerPath) && codec.includes('aac')
   if (!isMp3PathWithAacMetadata) return false
   return sampleRate < 32000 || bitrateKbps > 20000 || (duration > 0 && duration < 1)
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+export function normalizeTrackMetaCacheSeed(trackOrSeed) {
+  if (typeof trackOrSeed === 'string') {
+    return trackOrSeed ? { path: trackOrSeed } : null
+  }
+  if (!trackOrSeed || typeof trackOrSeed !== 'object') return null
+
+  const path = typeof trackOrSeed.path === 'string' ? trackOrSeed.path : ''
+  if (!path) return null
+
+  const info = trackOrSeed.info && typeof trackOrSeed.info === 'object' ? trackOrSeed.info : {}
+  return {
+    path,
+    sizeBytes: toFiniteNumber(trackOrSeed.sizeBytes ?? info.sizeBytes),
+    mtimeMs: toFiniteNumber(trackOrSeed.mtimeMs ?? info.mtimeMs)
+  }
+}
+
+export function buildTrackMetaCacheFingerprint(trackOrSeed) {
+  const seed = normalizeTrackMetaCacheSeed(trackOrSeed)
+  if (!seed) return null
+  if (seed.sizeBytes == null || seed.mtimeMs == null) return null
+  return {
+    schemaVersion: TRACK_META_CACHE_FINGERPRINT_VERSION,
+    sizeBytes: seed.sizeBytes,
+    mtimeMs: seed.mtimeMs
+  }
+}
+
+export function isTrackMetaCacheRecordFresh(record, trackOrSeed) {
+  const expected = buildTrackMetaCacheFingerprint(trackOrSeed)
+  if (!expected) return true
+  const actual = record?.fingerprint
+  if (!actual || typeof actual !== 'object') return true
+  return (
+    Number(actual.schemaVersion) === expected.schemaVersion &&
+    Number(actual.sizeBytes) === expected.sizeBytes &&
+    Number(actual.mtimeMs) === expected.mtimeMs
+  )
+}
+
+export function stripCoverFieldsFromTrackMeta(meta) {
+  if (!meta || typeof meta !== 'object') return meta
+  const {
+    cover,
+    coverChecked,
+    coverScope,
+    coverExtractorVersion,
+    coverMemoryTrimmed,
+    ...rest
+  } = meta
+  return rest
 }
 
 export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {}) {
@@ -308,27 +367,34 @@ function runCachePrune(task) {
     })
 }
 
-export async function readTrackMetaCache(paths = []) {
+export async function readTrackMetaCache(trackSeeds = []) {
   const db = await openTrackMetaDb()
-  if (!db || !Array.isArray(paths) || paths.length === 0) return {}
+  if (!db || !Array.isArray(trackSeeds) || trackSeeds.length === 0) return {}
+
+  const seeds = trackSeeds.map(normalizeTrackMetaCacheSeed).filter((seed) => seed?.path)
+  if (seeds.length === 0) return {}
 
   return new Promise((resolve) => {
     const tx = db.transaction(STORE_NAME, 'readonly')
     const store = tx.objectStore(STORE_NAME)
     const result = {}
-    let pending = paths.length
+    let pending = seeds.length
 
     const finish = () => {
       pending -= 1
       if (pending <= 0) resolve(result)
     }
 
-    for (const path of paths) {
-      const request = store.get(path)
+    for (const seed of seeds) {
+      const request = store.get(seed.path)
       request.onsuccess = () => {
-        const cached = request.result?.meta
-        const normalized = normalizeTrackMetaEntry(cached)
-        if (normalized) result[path] = normalized
+        const record = request.result
+        if (!isTrackMetaCacheRecordFresh(record, seed)) {
+          finish()
+          return
+        }
+        const normalized = normalizeTrackMetaEntry(record?.meta)
+        if (normalized) result[seed.path] = normalized
         finish()
       }
       request.onerror = finish
@@ -349,7 +415,19 @@ export async function writeTrackMetaCache(entries = {}) {
       if (!path) continue
       const meta = normalizeTrackMetaEntry(entry)
       if (!meta) continue
-      store.put({ path, meta, updatedAt, hasCover: hasCachedTrackCoverRecord({ meta }) ? 1 : 0 })
+      const fingerprint = buildTrackMetaCacheFingerprint({ path, ...(entry || {}) })
+      const putRecord = (existingRecord = null) => {
+        store.put({
+          path,
+          meta,
+          fingerprint: fingerprint || existingRecord?.fingerprint || null,
+          updatedAt,
+          hasCover: hasCachedTrackCoverRecord({ meta }) ? 1 : 0
+        })
+      }
+      const getRequest = store.get(path)
+      getRequest.onsuccess = () => putRecord(getRequest.result)
+      getRequest.onerror = () => putRecord()
     }
 
     tx.oncomplete = resolve
@@ -523,6 +601,54 @@ export async function pruneAlbumCoverCache() {
   return albumCoverPrunePromise
 }
 
+function stripOldestTrackMetaCoverRecords(db, overflow) {
+  if (!(overflow > 0)) return Promise.resolve(0)
+
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    const source = store.indexNames.contains('updatedAt') ? store.index('updatedAt') : store
+    let stripped = 0
+    let cursorDone = false
+
+    const finish = () => {
+      if (cursorDone) resolve(stripped)
+    }
+
+    const request = source.openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor || stripped >= overflow) {
+        cursorDone = true
+        return
+      }
+
+      const record = cursor.value
+      if (!hasCachedTrackCoverRecord(record) || !record?.path) {
+        cursor.continue()
+        return
+      }
+
+      const updateRequest = cursor.update({
+        ...record,
+        meta: stripCoverFieldsFromTrackMeta(record.meta),
+        hasCover: 0
+      })
+      updateRequest.onsuccess = () => {
+        stripped += 1
+        cursor.continue()
+      }
+      updateRequest.onerror = () => cursor.continue()
+    }
+    request.onerror = () => {
+      cursorDone = true
+    }
+    tx.oncomplete = finish
+    tx.onerror = () => resolve(stripped)
+    tx.onabort = () => resolve(stripped)
+  })
+}
+
 export async function pruneTrackMetaCache() {
   if (prunePromise) return prunePromise
 
@@ -543,12 +669,7 @@ export async function pruneTrackMetaCache() {
     const coverTotal = await countMatchingRecords(coverStore, hasCachedTrackCoverRecord)
     const coverOverflow = coverTotal - MAX_CACHE_COVER_ENTRIES
     if (coverOverflow > 0) {
-      await deleteOldestRecords(
-        db,
-        STORE_NAME,
-        coverOverflow,
-        (record) => hasCachedTrackCoverRecord(record) && !!record?.path
-      )
+      await stripOldestTrackMetaCoverRecords(db, coverOverflow)
     }
   })().finally(() => {
     prunePromise = null

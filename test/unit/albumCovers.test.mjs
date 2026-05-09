@@ -2,11 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildAlbumWallHydrateTargets,
   getAlbumCoverCandidates,
   getBestAlbumCover,
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
-  getTrackAlbumName
+  getTrackAlbumName,
+  resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
 import {
   buildAlbumCoverBackfillPlan,
@@ -46,6 +48,124 @@ test('album cover candidates include cached, metadata, and track covers without 
     'data:image/track-a',
     'data:image/track-b'
   ])
+})
+
+test('album wall display info prefers hydrated metadata over scanned Unknown Artist', () => {
+  const tracks = [makeTrack('D:/Music/Album A/01.flac', 'Folder Album', '', 'Unknown Artist')]
+  const display = resolveAlbumWallDisplayInfo(tracks, {
+    trackMetaMap: {
+      [tracks[0].path]: {
+        album: 'Embedded Album',
+        artist: 'Embedded Artist',
+        cover: 'data:image/embedded'
+      }
+    }
+  })
+
+  assert.equal(display.name, 'Embedded Album')
+  assert.equal(display.artist, 'Embedded Artist')
+  assert.equal(display.cover, 'data:image/embedded')
+})
+
+test('album wall cover falls back to another track in the same album', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
+  ]
+  const display = resolveAlbumWallDisplayInfo(tracks, {
+    trackMetaMap: {
+      [tracks[0].path]: { album: 'Album A', artist: 'Known Artist', cover: null },
+      [tracks[1].path]: { album: 'Album A', artist: 'Known Artist', cover: 'data:image/second' }
+    }
+  })
+
+  assert.equal(display.cover, 'data:image/second')
+})
+
+test('album wall display artist prefers albumArtist over track artist', () => {
+  const tracks = [makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Track Artist')]
+  const display = resolveAlbumWallDisplayInfo(tracks, {
+    trackMetaMap: {
+      [tracks[0].path]: {
+        album: 'Album A',
+        artist: 'Track Artist',
+        albumArtist: 'Album Artist'
+      }
+    }
+  })
+
+  assert.equal(display.artist, 'Album Artist')
+  assert.equal(display.cacheArtist, 'Album Artist')
+})
+
+test('album wall empty track covers do not replace album cover cache', () => {
+  const tracks = [makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')]
+  const albumKey = getTrackAlbumGroupKey(tracks[0])
+  const display = resolveAlbumWallDisplayInfo(tracks, {
+    albumKey,
+    albumCoverMap: {
+      [albumKey]: 'data:image/cached-album'
+    },
+    trackMetaMap: {
+      [tracks[0].path]: { album: 'Album A', artist: 'Known Artist', cover: null }
+    }
+  })
+
+  assert.equal(display.cover, 'data:image/cached-album')
+})
+
+test('album wall replaces scanned Unknown Artist with hydrated artist', () => {
+  const tracks = [makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Unknown Artist')]
+  const display = resolveAlbumWallDisplayInfo(tracks, {
+    trackMetaMap: {
+      [tracks[0].path]: { album: 'Album A', artist: 'Real Artist' }
+    }
+  })
+
+  assert.equal(display.artist, 'Real Artist')
+})
+
+test('album wall hydrate targets cap representative tracks per album', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Unknown Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Unknown Artist'),
+    makeTrack('D:/Music/Album A/03.flac', 'Album A', '', 'Unknown Artist'),
+    makeTrack('D:/Music/Album A/04.flac', 'Album A', '', 'Unknown Artist')
+  ]
+  const targets = buildAlbumWallHydrateTargets(tracks, {}, {}, { maxTracksPerAlbum: 2 })
+
+  assert.equal(targets.length, 2)
+  assert.deepEqual(
+    targets.map((target) => target.track.path),
+    ['D:/Music/Album A/01.flac', 'D:/Music/Album A/02.flac']
+  )
+})
+
+test('album wall hydrate skips albums that already have metadata and cover', () => {
+  const tracks = [makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Unknown Artist')]
+  const albumKey = getTrackAlbumGroupKey(tracks[0])
+  const targets = buildAlbumWallHydrateTargets(
+    tracks,
+    {
+      [tracks[0].path]: {
+        album: 'Album A',
+        albumArtist: 'Known Artist',
+        cover: 'data:image/cover'
+      }
+    },
+    { [albumKey]: 'data:image/cover' }
+  )
+
+  assert.equal(targets.length, 0)
+})
+
+test('album wall hydrate skips remote tracks', () => {
+  const tracks = [
+    makeTrack('streaming://netease/track/1', 'Album A', '', 'Unknown Artist'),
+    makeTrack('webdav://server/file/song.flac', 'Album B', '', 'Unknown Artist')
+  ]
+
+  assert.equal(buildAlbumWallHydrateTargets(tracks).length, 0)
 })
 
 test('album cover candidates skip track-scoped metadata covers', () => {

@@ -2,13 +2,114 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildAlbumCoverCacheEntries,
+  buildTrackMetaCacheFingerprint,
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
+  isTrackMetaCacheRecordFresh,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
-  shouldRefreshTrackMetaCacheForAudioQuality
+  shouldRefreshTrackMetaCacheForAudioQuality,
+  stripCoverFieldsFromTrackMeta
 } from '../../src/renderer/src/utils/trackMetaCache.js'
+
+test('track meta cache fingerprint accepts unchanged file seeds', () => {
+  const seed = { path: 'D:/music/song.flac', sizeBytes: 1024, mtimeMs: 12345.5 }
+  const fingerprint = buildTrackMetaCacheFingerprint(seed)
+
+  assert.deepEqual(fingerprint, {
+    schemaVersion: 1,
+    sizeBytes: 1024,
+    mtimeMs: 12345.5
+  })
+  assert.equal(isTrackMetaCacheRecordFresh({ fingerprint }, seed), true)
+})
+
+test('track meta cache fingerprint rejects changed size', () => {
+  const fingerprint = buildTrackMetaCacheFingerprint({
+    path: 'D:/music/song.flac',
+    sizeBytes: 1024,
+    mtimeMs: 12345
+  })
+
+  assert.equal(
+    isTrackMetaCacheRecordFresh(
+      { fingerprint },
+      { path: 'D:/music/song.flac', sizeBytes: 2048, mtimeMs: 12345 }
+    ),
+    false
+  )
+})
+
+test('track meta cache fingerprint rejects changed mtime', () => {
+  const fingerprint = buildTrackMetaCacheFingerprint({
+    path: 'D:/music/song.flac',
+    sizeBytes: 1024,
+    mtimeMs: 12345
+  })
+
+  assert.equal(
+    isTrackMetaCacheRecordFresh(
+      { fingerprint },
+      { path: 'D:/music/song.flac', sizeBytes: 1024, mtimeMs: 12346 }
+    ),
+    false
+  )
+})
+
+test('legacy track meta cache records without fingerprint remain readable', () => {
+  assert.equal(
+    isTrackMetaCacheRecordFresh(
+      { meta: { title: 'Legacy title' } },
+      { path: 'D:/music/song.flac', sizeBytes: 1024, mtimeMs: 12345 }
+    ),
+    true
+  )
+  assert.equal(isTrackMetaCacheRecordFresh({ meta: { title: 'Path only' } }, 'D:/music/song.flac'), true)
+})
+
+test('cover trim strips only cover fields from track metadata', () => {
+  const trimmed = stripCoverFieldsFromTrackMeta({
+    title: 'Song',
+    artist: 'Artist',
+    album: 'Album',
+    albumArtist: 'Album Artist',
+    duration: 245,
+    codec: 'FLAC',
+    bitrateKbps: 920,
+    sampleRateHz: 96000,
+    bitDepth: 24,
+    channels: 2,
+    trackNo: 3,
+    discNo: 1,
+    lyrics: '[00:00.00]Line',
+    bpm: 128,
+    genre: 'Pop',
+    cover: 'data:image/cover',
+    coverChecked: true,
+    coverScope: 'track',
+    coverExtractorVersion: 2,
+    coverMemoryTrimmed: true
+  })
+
+  assert.deepEqual(trimmed, {
+    title: 'Song',
+    artist: 'Artist',
+    album: 'Album',
+    albumArtist: 'Album Artist',
+    duration: 245,
+    codec: 'FLAC',
+    bitrateKbps: 920,
+    sampleRateHz: 96000,
+    bitDepth: 24,
+    channels: 2,
+    trackNo: 3,
+    discNo: 1,
+    lyrics: '[00:00.00]Line',
+    bpm: 128,
+    genre: 'Pop'
+  })
+})
 
 test('shouldRefreshTrackMetaCacheForAudioQuality refreshes stale ALAC quality data', () => {
   assert.equal(
