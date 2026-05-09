@@ -281,13 +281,14 @@ import {
   buildAlbumCoverCacheEntries,
   createAlbumCoverCacheKey,
   createArtistAvatarCacheKey,
+  buildVisibleTrackMetaHydrateRequirement,
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
   isTrackScopedCoverEntry,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
-  satisfiesAlbumWallHydrateRequirement,
+  satisfiesMetadataHydrateRequirement,
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
@@ -14880,7 +14881,7 @@ export default function App() {
             const coverEntry = collectAlbumCoverFromMeta(target, cachedEntries[path])
             if (coverEntry) cachedCovers[target.albumKey] = coverEntry
           }
-          if (!satisfiesAlbumWallHydrateRequirement(cachedMeta, target)) {
+          if (!satisfiesMetadataHydrateRequirement(cachedMeta, target)) {
             pendingTargets.push(target)
           }
         }
@@ -15288,7 +15289,8 @@ export default function App() {
           albumName: requirement.albumName || previous.albumName || '',
           needsCover: previous.needsCover === true || requirement.needsCover === true,
           needsArtist: previous.needsArtist === true || requirement.needsArtist === true,
-          needsAlbum: previous.needsAlbum === true || requirement.needsAlbum === true
+          needsAlbum: previous.needsAlbum === true || requirement.needsAlbum === true,
+          source: requirement.source || previous.source || ''
         })
       }
     }
@@ -15296,6 +15298,21 @@ export default function App() {
     pushTrack(currentTrack)
 
     if (showTrackList) {
+      for (const track of visibleSidebarTracks) {
+        const requirement = buildVisibleTrackMetaHydrateRequirement(
+          track,
+          effectiveTrackMetaMap[track.path] || trackMetaMap[track.path] || null,
+          {
+            isLocalTrack: (candidate) =>
+              isLocalAudioFilePath(candidate?.path) &&
+              !isRemoteTrackPath(candidate?.path) &&
+              !isStreamingTrackPath(candidate?.path),
+            coverProbePaths: albumCoverProbePathsRef.current,
+            artistProbePaths: albumArtistProbePathsRef.current
+          }
+        )
+        pushTrack(track, requirement)
+      }
       for (const track of metadataPrefetchSidebarTracks) pushTrack(track)
     }
 
@@ -15327,20 +15344,22 @@ export default function App() {
     }
     return {
       tracks,
-      albumWallHydrateRequirementByPath: requirementByPath
+      metadataHydrateRequirementByPath: requirementByPath
     }
   }, [
     currentTrack,
     albumCoverMap,
+    effectiveTrackMetaMap,
     listMode,
     metadataPrefetchAlbumGroups,
     metadataPrefetchSidebarTracks,
     selectedAlbum,
     showTrackList,
-    trackMetaMap
+    trackMetaMap,
+    visibleSidebarTracks
   ])
   const metadataPrefetchTracks = metadataPrefetchPlan.tracks
-  const albumWallHydrateRequirementByPath = metadataPrefetchPlan.albumWallHydrateRequirementByPath
+  const metadataHydrateRequirementByPath = metadataPrefetchPlan.metadataHydrateRequirementByPath
 
   const albumCoverBackfillPlan = useMemo(() => {
     return buildAlbumCoverBackfillPlan({
@@ -15406,10 +15425,10 @@ export default function App() {
   useEffect(() => {
     const pending = metadataPrefetchTracks.filter((track) => {
       const entry = trackMetaMap[track.path]
-      const albumWallRequirement = albumWallHydrateRequirementByPath.get(track.path)
+      const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
       if (
-        albumWallRequirement &&
-        !satisfiesAlbumWallHydrateRequirement(entry, albumWallRequirement)
+        hydrateRequirement &&
+        !satisfiesMetadataHydrateRequirement(entry, hydrateRequirement)
       ) {
         return true
       }
@@ -15475,7 +15494,7 @@ export default function App() {
         loaded[path] = entry
       }
       const collectAlbumCover = (target, track, entry) => {
-        const requirement = albumWallHydrateRequirementByPath.get(track?.path) || null
+        const requirement = metadataHydrateRequirementByPath.get(track?.path) || null
         const coverEntry = collectAlbumCoverFromMeta(
           requirement ? { ...requirement, track: requirement.track || track } : { track },
           entry
@@ -15528,11 +15547,11 @@ export default function App() {
 
       const uncachedPending = pending.filter((track) => {
         const cachedMeta = cached[track.path]
-        const albumWallRequirement = albumWallHydrateRequirementByPath.get(track.path)
+        const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
         if (!cachedMeta) return true
         if (
-          albumWallRequirement &&
-          !satisfiesAlbumWallHydrateRequirement(cachedMeta, albumWallRequirement)
+          hydrateRequirement &&
+          !satisfiesMetadataHydrateRequirement(cachedMeta, hydrateRequirement)
         ) {
           return true
         }
@@ -15712,10 +15731,10 @@ export default function App() {
       cancelled = true
     }
   }, [
-    albumWallHydrateRequirementByPath,
     currentTrack?.path,
     isPlaying,
     listMode,
+    metadataHydrateRequirementByPath,
     metadataCoverKeepPathSet,
     metadataPrefetchParseReady,
     metadataPrefetchTracks,

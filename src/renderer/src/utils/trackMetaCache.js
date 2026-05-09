@@ -103,12 +103,12 @@ export function createArtistAvatarCacheKey(artist) {
   return normalizeAlbumCoverCacheKeyPart(artist)
 }
 
-function isUnknownAlbumWallArtistName(value = '') {
+function isUnknownMetadataArtistName(value = '') {
   const normalized = String(value || '').trim().toLowerCase()
   return !normalized || normalized === 'unknown artist' || /^(?:cd|disc|disk)?\s*\d{1,3}(?:\s*[-./_]\s*\d{1,3})?$/.test(normalized)
 }
 
-export function satisfiesAlbumWallHydrateRequirement(entry, requirement = null) {
+export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   const needsCover = requirement?.needsCover === true
   const needsArtist = requirement?.needsArtist === true
   const needsAlbum = requirement?.needsAlbum === true
@@ -117,13 +117,50 @@ export function satisfiesAlbumWallHydrateRequirement(entry, requirement = null) 
   if (needsCover && !entry.cover) return false
   if (
     needsArtist &&
-    isUnknownAlbumWallArtistName(entry.albumArtist) &&
-    isUnknownAlbumWallArtistName(entry.artist)
+    isUnknownMetadataArtistName(entry.albumArtist) &&
+    isUnknownMetadataArtistName(entry.artist)
   ) {
     return false
   }
   if (needsAlbum && !String(entry.album || '').trim()) return false
   return true
+}
+
+export const satisfiesAlbumWallHydrateRequirement = satisfiesMetadataHydrateRequirement
+
+function hasVisibleRowCover(track, entry = null) {
+  return Boolean(entry?.cover || track?.info?.cover || track?.cover)
+}
+
+function hasVisibleRowArtist(track, entry = null) {
+  return !(
+    isUnknownMetadataArtistName(entry?.albumArtist) &&
+    isUnknownMetadataArtistName(entry?.artist) &&
+    isUnknownMetadataArtistName(track?.info?.albumArtist) &&
+    isUnknownMetadataArtistName(track?.info?.artist) &&
+    isUnknownMetadataArtistName(track?.albumArtist) &&
+    isUnknownMetadataArtistName(track?.artist)
+  )
+}
+
+export function buildVisibleTrackMetaHydrateRequirement(
+  track,
+  entry = null,
+  { isLocalTrack = null, coverProbePaths = null, artistProbePaths = null } = {}
+) {
+  if (!track?.path) return null
+  if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) return null
+
+  const needsCover = !hasVisibleRowCover(track, entry) && !coverProbePaths?.has?.(track.path)
+  const needsArtist = !hasVisibleRowArtist(track, entry) && !artistProbePaths?.has?.(track.path)
+  if (!needsCover && !needsArtist) return null
+
+  return {
+    needsCover,
+    needsArtist,
+    needsAlbum: false,
+    source: 'visible-row'
+  }
 }
 
 export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {

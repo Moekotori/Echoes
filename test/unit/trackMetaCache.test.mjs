@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import {
   buildAlbumCoverCacheEntries,
   buildTrackMetaCacheFingerprint,
+  buildVisibleTrackMetaHydrateRequirement,
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
   isTrackMetaCacheRecordFresh,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
-  satisfiesAlbumWallHydrateRequirement,
+  satisfiesMetadataHydrateRequirement,
   shouldRefreshTrackMetaCacheForAudioQuality,
   stripCoverFieldsFromTrackMeta,
   TRACK_META_CACHE_LIMITS
@@ -241,7 +242,7 @@ test('hasCachedTrackCoverRecord accepts numeric and legacy boolean cover markers
   assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 0 }), false)
 })
 
-test('album wall hydrate requirement rejects incomplete cached metadata', () => {
+test('metadata hydrate requirement rejects incomplete cached metadata', () => {
   const requirement = {
     needsCover: true,
     needsArtist: true,
@@ -249,7 +250,7 @@ test('album wall hydrate requirement rejects incomplete cached metadata', () => 
   }
 
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: 'Album A',
         artist: 'Known Artist',
@@ -260,7 +261,7 @@ test('album wall hydrate requirement rejects incomplete cached metadata', () => 
     true
   )
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: 'Album A',
         artist: 'Known Artist',
@@ -271,7 +272,7 @@ test('album wall hydrate requirement rejects incomplete cached metadata', () => 
     false
   )
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: 'Album A',
         artist: 'Unknown Artist',
@@ -282,7 +283,7 @@ test('album wall hydrate requirement rejects incomplete cached metadata', () => 
     false
   )
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: '',
         albumArtist: 'Known Artist',
@@ -294,9 +295,9 @@ test('album wall hydrate requirement rejects incomplete cached metadata', () => 
   )
 })
 
-test('album wall hydrate requirement only checks requested fields', () => {
+test('metadata hydrate requirement only checks requested fields', () => {
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: '',
         artist: 'Unknown Artist',
@@ -307,7 +308,7 @@ test('album wall hydrate requirement only checks requested fields', () => {
     true
   )
   assert.equal(
-    satisfiesAlbumWallHydrateRequirement(
+    satisfiesMetadataHydrateRequirement(
       {
         album: '',
         albumArtist: 'Unknown Artist',
@@ -317,6 +318,108 @@ test('album wall hydrate requirement only checks requested fields', () => {
       { needsArtist: true }
     ),
     true
+  )
+})
+
+test('visible-row hydrate requirement rejects cached metadata missing requested cover', () => {
+  assert.equal(
+    satisfiesMetadataHydrateRequirement(
+      {
+        artist: 'Known Artist',
+        cover: null
+      },
+      { needsCover: true, needsArtist: false, needsAlbum: false, source: 'visible-row' }
+    ),
+    false
+  )
+})
+
+test('visible-row hydrate requirement rejects cached Unknown Artist metadata', () => {
+  assert.equal(
+    satisfiesMetadataHydrateRequirement(
+      {
+        artist: 'Unknown Artist',
+        albumArtist: '',
+        cover: 'data:image/cover'
+      },
+      { needsCover: false, needsArtist: true, needsAlbum: false, source: 'visible-row' }
+    ),
+    false
+  )
+})
+
+test('visible-row hydrate requirement accepts cached cover and useful artist', () => {
+  assert.equal(
+    satisfiesMetadataHydrateRequirement(
+      {
+        artist: 'Known Artist',
+        cover: 'data:image/cover'
+      },
+      { needsCover: true, needsArtist: true, needsAlbum: false, source: 'visible-row' }
+    ),
+    true
+  )
+})
+
+test('visible-row hydrate requirement is only created for missing displayed fields', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      artist: 'Unknown Artist',
+      cover: ''
+    }
+  }
+  const requirement = buildVisibleTrackMetaHydrateRequirement(track, {}, {
+    isLocalTrack: () => true
+  })
+
+  assert.deepEqual(requirement, {
+    needsCover: true,
+    needsArtist: true,
+    needsAlbum: false,
+    source: 'visible-row'
+  })
+
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      { artist: 'Known Artist', cover: 'data:image/cover' },
+      { isLocalTrack: () => true }
+    ),
+    null
+  )
+})
+
+test('visible-row hydrate requirement respects local-track and probe guards', () => {
+  const track = {
+    path: 'streaming://netease/track/1',
+    info: {
+      artist: 'Unknown Artist',
+      cover: ''
+    }
+  }
+
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(track, {}, { isLocalTrack: () => false }),
+    null
+  )
+
+  const coverProbePaths = new Set(['D:/Music/Album/01.flac'])
+  const artistProbePaths = new Set(['D:/Music/Album/01.flac'])
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(
+      {
+        ...track,
+        path: 'D:/Music/Album/01.flac'
+      },
+      {},
+      {
+        isLocalTrack: () => true,
+        coverProbePaths,
+        artistProbePaths
+      }
+    ),
+    null
   )
 })
 
