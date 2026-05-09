@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { buildTrackMetadataPrefetchPlan } from '../../src/renderer/src/utils/trackMetaCache.js'
 
 const appSource = fs.readFileSync(new URL('../../src/renderer/src/App.jsx', import.meta.url), 'utf8')
 
@@ -12,23 +13,63 @@ function getMetadataPrefetchPlanSource() {
   return appSource.slice(start, end)
 }
 
-test('metadata prefetch plan pushes visible rows with a hydrate requirement', () => {
-  const planSource = getMetadataPrefetchPlanSource()
-  const visibleStart = planSource.indexOf('for (const track of visibleSidebarTracks)')
-  const sidebarStart = planSource.indexOf(
-    'for (const track of metadataPrefetchSidebarTracks) pushTrack(track)'
-  )
-  const albumWallStart = planSource.indexOf(
-    'for (const target of hydrateTargets) pushTrack(target.track, target)'
-  )
+function missingVisibleMetaTrack(path) {
+  return {
+    path,
+    info: {
+      artist: 'Unknown Artist',
+      cover: ''
+    }
+  }
+}
 
-  assert.ok(visibleStart > 0, 'visible sidebar rows should be considered first')
-  assert.ok(sidebarStart > visibleStart, 'ordinary sidebar prefetch should follow visible rows')
-  assert.ok(albumWallStart > sidebarStart, 'album wall hydrate targets should follow sidebar rows')
-  assert.match(
-    planSource,
-    /buildVisibleTrackMetaHydrateRequirement\([\s\S]*?pushTrack\(track, requirement\)/
+const isLocalTrack = (track) => String(track?.path || '').startsWith('D:/')
+
+test('metadata prefetch plan keeps visible requirements ahead of ordinary prefetch', () => {
+  const planSource = getMetadataPrefetchPlanSource()
+  assert.match(planSource, /buildTrackMetadataPrefetchPlan\(/)
+
+  const currentTrack = missingVisibleMetaTrack('D:/Music/current.flac')
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/visible.flac')
+  const prefetchTracks = [
+    missingVisibleMetaTrack('D:/Music/prefetch-1.flac'),
+    missingVisibleMetaTrack('D:/Music/prefetch-2.flac'),
+    missingVisibleMetaTrack('D:/Music/prefetch-3.flac')
+  ]
+  const albumTrack = missingVisibleMetaTrack('D:/Music/album-wall.flac')
+  const plan = buildTrackMetadataPrefetchPlan({
+    currentTrack,
+    visibleSidebarTracks: [visibleTrack],
+    metadataPrefetchSidebarTracks: prefetchTracks,
+    albumWallHydrateTargets: [
+      {
+        track: albumTrack,
+        needsCover: true,
+        needsArtist: true,
+        needsAlbum: true,
+        source: 'album-wall'
+      }
+    ],
+    visibleAheadLimit: 2,
+    maxTracks: 10,
+    isLocalTrack
+  })
+
+  assert.deepEqual(
+    plan.tracks.map((track) => track.path),
+    [
+      currentTrack.path,
+      visibleTrack.path,
+      prefetchTracks[0].path,
+      prefetchTracks[1].path,
+      prefetchTracks[2].path,
+      albumTrack.path
+    ]
   )
+  assert.equal(plan.metadataHydrateRequirementByPath.get(visibleTrack.path)?.source, 'visible-row')
+  assert.equal(plan.metadataHydrateRequirementByPath.get(prefetchTracks[0].path)?.source, 'visible-row')
+  assert.equal(plan.metadataHydrateRequirementByPath.get(prefetchTracks[1].path)?.source, 'visible-row')
+  assert.equal(plan.metadataHydrateRequirementByPath.has(prefetchTracks[2].path), false)
 })
 
 test('visible-row hydrate requirements are guarded to local non-remote tracks', () => {

@@ -163,6 +163,100 @@ export function buildVisibleTrackMetaHydrateRequirement(
   }
 }
 
+function mergeMetadataHydrateRequirement(previous = {}, requirement = {}, track = null) {
+  return {
+    track,
+    albumKey: requirement.albumKey || previous.albumKey || '',
+    albumName: requirement.albumName || previous.albumName || '',
+    needsCover: previous.needsCover === true || requirement.needsCover === true,
+    needsArtist: previous.needsArtist === true || requirement.needsArtist === true,
+    needsAlbum: previous.needsAlbum === true || requirement.needsAlbum === true,
+    source: requirement.source || previous.source || ''
+  }
+}
+
+export function buildTrackMetadataPrefetchPlan({
+  currentTrack = null,
+  visibleSidebarTracks = [],
+  metadataPrefetchSidebarTracks = [],
+  albumWallHydrateTargets = [],
+  trackMetaMap = {},
+  effectiveTrackMetaMap = {},
+  maxTracks = 96,
+  visibleAheadLimit = 24,
+  isLocalTrack = null,
+  coverProbePaths = null,
+  artistProbePaths = null
+} = {}) {
+  const byPath = new Map()
+  const requirementByPath = new Map()
+
+  const pushTrack = (track, requirement = null) => {
+    if (!track?.path) return
+    if (!byPath.has(track.path)) byPath.set(track.path, track)
+    if (requirement) {
+      const previous = requirementByPath.get(track.path) || {}
+      requirementByPath.set(
+        track.path,
+        mergeMetadataHydrateRequirement(previous, requirement, track)
+      )
+    }
+  }
+
+  const getTrackEntry = (track) => {
+    const path = track?.path
+    if (!path) return null
+    return effectiveTrackMetaMap[path] || trackMetaMap[path] || null
+  }
+
+  const buildRequirement = (track) =>
+    buildVisibleTrackMetaHydrateRequirement(track, getTrackEntry(track), {
+      isLocalTrack,
+      coverProbePaths,
+      artistProbePaths
+    })
+
+  pushTrack(currentTrack)
+
+  const visiblePaths = new Set()
+  for (const track of visibleSidebarTracks || []) {
+    if (track?.path) visiblePaths.add(track.path)
+    const requirement = buildRequirement(track)
+    if (requirement) pushTrack(track, requirement)
+  }
+
+  let checkedPrefetchWindow = 0
+  const maxVisibleAhead = Math.max(0, Number(visibleAheadLimit) || 0)
+  for (const track of metadataPrefetchSidebarTracks || []) {
+    if (!track?.path || visiblePaths.has(track.path)) continue
+    if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) continue
+    if (checkedPrefetchWindow >= maxVisibleAhead) break
+    checkedPrefetchWindow += 1
+    const requirement = buildRequirement(track)
+    if (requirement) pushTrack(track, requirement)
+  }
+
+  for (const track of metadataPrefetchSidebarTracks || []) {
+    pushTrack(track)
+  }
+
+  for (const target of albumWallHydrateTargets || []) {
+    pushTrack(target?.track, target)
+  }
+
+  const limit = Math.max(0, Number(maxTracks) || 0)
+  const tracks = Array.from(byPath.values()).slice(0, limit)
+  const limitedPaths = new Set(tracks.map((track) => track?.path).filter(Boolean))
+  for (const path of Array.from(requirementByPath.keys())) {
+    if (!limitedPaths.has(path)) requirementByPath.delete(path)
+  }
+
+  return {
+    tracks,
+    metadataHydrateRequirementByPath: requirementByPath
+  }
+}
+
 export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
   if (!entry || typeof entry !== 'object') return false
   const lowerPath = String(path || '').toLowerCase()
@@ -304,6 +398,25 @@ export function buildAlbumCoverCacheEntries(items = []) {
   }
 
   return entries
+}
+
+export function buildPersistableAlbumCoverCacheItems(items = []) {
+  const list = Array.isArray(items) ? items : [items]
+  const cacheItems = []
+
+  for (const item of list) {
+    const rawAlbum = String(item?.album || item?.albumName || '').trim()
+    if (!rawAlbum) continue
+    const entry = normalizeAlbumCoverCacheEntry(item)
+    if (!entry?.cover || !entry.album) continue
+    cacheItems.push({
+      album: entry.album,
+      artist: isUnknownMetadataArtistName(entry.artist) ? '' : entry.artist,
+      cover: entry.cover
+    })
+  }
+
+  return cacheItems
 }
 
 function normalizeTrackMetaEntry(entry) {

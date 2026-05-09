@@ -181,9 +181,11 @@ import {
 } from './utils/trackUtils'
 import {
   buildAlbumCoverBackfillPlan,
+  buildAlbumCoverMapEntryFromCacheTarget,
   buildParsedAlbumCoverMetaEntry,
   collectAlbumCoverFromMeta,
-  getAlbumCoverFailureKey
+  getAlbumCoverFailureKey,
+  mergeAlbumCoverMapEntries
 } from './utils/albumCoverBackfill'
 import { filterAndRankTracksBySearch, getTrackSearchScore } from './utils/librarySearch'
 import {
@@ -279,9 +281,11 @@ import {
 } from './utils/mvVisibility'
 import {
   buildAlbumCoverCacheEntries,
+  buildPersistableAlbumCoverCacheItems,
   createAlbumCoverCacheKey,
+  createAlbumCoverFallbackKey,
   createArtistAvatarCacheKey,
-  buildVisibleTrackMetaHydrateRequirement,
+  buildTrackMetadataPrefetchPlan,
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
@@ -448,9 +452,12 @@ const ALBUM_COVER_BACKFILL_BATCH_SIZE = 48
 const ALBUM_COVER_BACKFILL_BATCH_DELAY_MS = 40
 const ALBUM_COVER_BACKFILL_WORKERS = 1
 const METADATA_PARSE_WORKERS = 1
+const VISIBLE_ROW_METADATA_PARSE_WORKERS = 2
 const PLAYING_METADATA_PARSE_BATCH_SIZE = 6
 const PLAYING_METADATA_PARSE_WORKERS = 1
-const METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
+const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 24
+const VISIBLE_ROW_METADATA_STARTUP_DELAY_MS = 800
+const BULK_METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
 const STARTUP_IMPORTED_FOLDER_IDLE_RESCAN_DELAY_MS = 8000
 const ALBUM_CLOUD_COVER_PREFETCH_LIMIT = 40
 const ALBUM_CLOUD_COVER_WORKERS = 5
@@ -2721,6 +2728,7 @@ export default function App() {
   const startupImportedFolderRescanDoneRef = useRef(false)
   const startupImportedFolderRescanTimerRef = useRef(null)
   const [libraryStateReady, setLibraryStateReady] = useState(false)
+  const [visibleRowMetadataParseReady, setVisibleRowMetadataParseReady] = useState(false)
   const [metadataPrefetchParseReady, setMetadataPrefetchParseReady] = useState(false)
   const [playbackSessionRestoreReady, setPlaybackSessionRestoreReady] = useState(false)
   const [libraryCleanupBusy, setLibraryCleanupBusy] = useState(false)
@@ -3709,7 +3717,8 @@ export default function App() {
   }, [trackMetaMap])
 
   const persistAlbumCoverCacheItems = useCallback((items) => {
-    const entries = buildAlbumCoverCacheEntries(Array.isArray(items) ? items : [items])
+    const cacheItems = buildPersistableAlbumCoverCacheItems(items)
+    const entries = buildAlbumCoverCacheEntries(cacheItems)
     const freshEntries = {}
     for (const [key, entry] of Object.entries(entries)) {
       const cover = entry?.cover || ''
@@ -3722,6 +3731,10 @@ export default function App() {
       albumCoverCachePersistedEntriesRef.current.clear()
     }
     if (Object.keys(freshEntries).length > 0) {
+      const withArtist = cacheItems.filter((entry) => entry.artist).length
+      console.info(
+        `[album-cover-cache] persist album cover cache: total=${cacheItems.length} withArtist=${withArtist} albumOnly=${cacheItems.length - withArtist}`
+      )
       writeAlbumCoverCache(freshEntries).catch(() => {})
     }
   }, [])
@@ -4273,13 +4286,20 @@ export default function App() {
 
   useEffect(() => {
     if (!libraryStateReady) {
+      setVisibleRowMetadataParseReady(false)
       setMetadataPrefetchParseReady(false)
       return undefined
     }
-    const timer = window.setTimeout(() => {
+    const visibleTimer = window.setTimeout(() => {
+      setVisibleRowMetadataParseReady(true)
+    }, VISIBLE_ROW_METADATA_STARTUP_DELAY_MS)
+    const bulkTimer = window.setTimeout(() => {
       setMetadataPrefetchParseReady(true)
-    }, METADATA_PREFETCH_STARTUP_DELAY_MS)
-    return () => window.clearTimeout(timer)
+    }, BULK_METADATA_PREFETCH_STARTUP_DELAY_MS)
+    return () => {
+      window.clearTimeout(visibleTimer)
+      window.clearTimeout(bulkTimer)
+    }
   }, [libraryStateReady])
 
   useEffect(() => {
@@ -11551,16 +11571,22 @@ export default function App() {
 
     if (albumName && albumKey && !isTrackScopedCoverEntry(coverEntry)) {
       setAlbumCoverMap((prev) => {
-        if (prev[albumKey]) return prev
-        return { ...prev, [albumKey]: displaySafeCoverUrl }
-      })
-      if (!isUnknownArtistName(cacheArtist)) {
-        persistAlbumCoverCacheItems({
-          album: albumName,
-          artist: cacheArtist,
-          cover: displaySafeCoverUrl
+        return mergeAlbumCoverMapEntries(prev, {
+          [albumKey]: {
+            albumKey,
+            album: albumName,
+            albumName,
+            displayAlbumName: albumName,
+            artist: cacheArtist,
+            cover: displaySafeCoverUrl
+          }
         })
-      }
+      })
+      persistAlbumCoverCacheItems({
+        album: albumName,
+        artist: cacheArtist,
+        cover: displaySafeCoverUrl
+      })
     }
 
     writeTrackMetaCache({ [currentTrack.path]: coverEntry })
@@ -13005,38 +13031,35 @@ export default function App() {
 
   useEffect(() => {
     if (listMode !== 'album') return
-    const foundCovers = {}
+    const foundCoverEntries = {}
     const foundCoverItems = []
     for (const track of parsedPlaylist) {
       if (isTrackScopedCoverEntry(trackMetaMap[track.path])) continue
       const albumName = getTrackAlbumName(track)
       const albumKey = getTrackAlbumGroupKey(track)
       const cover = track?.info?.cover
-      if (albumName && albumKey && cover && !foundCovers[albumKey]) {
-        foundCovers[albumKey] = cover
+      if (albumName && albumKey && cover && !foundCoverEntries[albumKey]) {
         const artist = getTrackAlbumArtist(track)
-        if (artist && !isUnknownArtistName(artist)) {
-          foundCoverItems.push({
-            album: albumName,
-            artist,
-            cover
-          })
+        foundCoverEntries[albumKey] = {
+          albumKey,
+          album: albumName,
+          albumName,
+          displayAlbumName: albumName,
+          artist,
+          cover
         }
+        foundCoverItems.push({
+          album: albumName,
+          artist,
+          cover
+        })
       }
     }
-    if (Object.keys(foundCovers).length === 0) return
+    if (Object.keys(foundCoverEntries).length === 0) return
     if (foundCoverItems.length > 0) persistAlbumCoverCacheItems(foundCoverItems)
 
     setAlbumCoverMap((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const [albumKey, cover] of Object.entries(foundCovers)) {
-        if (!next[albumKey] && cover) {
-          next[albumKey] = cover
-          changed = true
-        }
-      }
-      return changed ? next : prev
+      return mergeAlbumCoverMapEntries(prev, foundCoverEntries)
     })
   }, [listMode, parsedPlaylist, persistAlbumCoverCacheItems, trackMetaMap])
 
@@ -13076,7 +13099,8 @@ export default function App() {
         albumKey,
         albumName,
         artist: cacheArtist,
-        exactKey: cacheArtist ? createAlbumCoverCacheKey(albumName, cacheArtist) : ''
+        exactKey: cacheArtist ? createAlbumCoverCacheKey(albumName, cacheArtist) : '',
+        fallbackKey: createAlbumCoverFallbackKey(albumName)
       })
     }
     return Array.from(targetsByAlbum.values())
@@ -13094,18 +13118,28 @@ export default function App() {
       const keys = []
       for (const target of albumCoverCacheTargets) {
         if (target.exactKey) keys.push(target.exactKey)
+        if (target.fallbackKey) keys.push(target.fallbackKey)
       }
       const uniqueKeys = [...new Set(keys.filter(Boolean))]
       if (uniqueKeys.length === 0) return
 
-      const keyToAlbum = new Map()
+      const keyToTargets = new Map()
+      const addKeyTarget = (key, target) => {
+        if (!key) return
+        const targets = keyToTargets.get(key) || []
+        targets.push(target)
+        keyToTargets.set(key, targets)
+      }
       for (const target of albumCoverCacheTargets) {
-        if (target.exactKey) keyToAlbum.set(target.exactKey, target.albumKey)
+        addKeyTarget(target.exactKey, target)
+        addKeyTarget(target.fallbackKey, target)
       }
 
       const BATCH_KEYS = 220
       const MAX_KEYS_PER_RUN = 1800
       const cappedKeys = uniqueKeys.slice(0, MAX_KEYS_PER_RUN)
+      let totalHits = 0
+      let appliedGroupKeys = 0
 
       for (let offset = 0; offset < cappedKeys.length; offset += BATCH_KEYS) {
         if (cancelled) return
@@ -13118,20 +13152,28 @@ export default function App() {
         }
 
         setAlbumCoverMap((prev) => {
-          let changed = false
-          const next = { ...prev }
+          const entries = {}
           for (const [key, entry] of Object.entries(cached)) {
             if (!entry?.cover) continue
-            const albumName = keyToAlbum.get(key)
-            if (!albumName || next[albumName]) continue
-            next[albumName] = entry.cover
-            changed = true
+            for (const target of keyToTargets.get(key) || []) {
+              const coverEntry = buildAlbumCoverMapEntryFromCacheTarget(target, entry)
+              if (!coverEntry) continue
+              entries[target.albumKey] = coverEntry
+            }
           }
-          return changed ? next : prev
+          const next = mergeAlbumCoverMapEntries(prev, entries)
+          if (next !== prev) appliedGroupKeys += Object.keys(entries).length
+          return next
         })
+        totalHits += Object.keys(cached).length
 
         // Let the browser breathe between IDB batches.
         await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      if (!cancelled) {
+        console.info(
+          `[album-cover-cache] restore album cover cache: requested=${cappedKeys.length} hits=${totalHits} appliedGroupKeys=${appliedGroupKeys}`
+        )
       }
     }
 
@@ -14845,20 +14887,11 @@ export default function App() {
           return trimTrackMetaCoverEntries(merged, protectedPaths)
         })
       }
-      const cacheItems = Object.values(covers)
-        .filter((entry) => entry?.cover && entry?.album && entry?.artist && !isUnknownArtistName(entry.artist))
-        .map((entry) => ({ album: entry.album, artist: entry.artist, cover: entry.cover }))
+      const cacheItems = buildPersistableAlbumCoverCacheItems(Object.values(covers))
       if (cacheItems.length > 0) persistAlbumCoverCacheItems(cacheItems)
       if (Object.keys(covers).length > 0) {
         setAlbumCoverMap((prev) => {
-          let changed = false
-          const next = { ...prev }
-          for (const [albumKey, entry] of Object.entries(covers)) {
-            if (!entry?.cover || next[albumKey]) continue
-            next[albumKey] = entry.cover
-            changed = true
-          }
-          return changed ? next : prev
+          return mergeAlbumCoverMapEntries(prev, covers)
         })
       }
     }
@@ -15276,76 +15309,56 @@ export default function App() {
   ])
 
   const metadataPrefetchPlan = useMemo(() => {
-    const byPath = new Map()
-    const requirementByPath = new Map()
-    const pushTrack = (track, requirement = null) => {
-      if (!track?.path) return
-      if (!byPath.has(track.path)) byPath.set(track.path, track)
-      if (requirement) {
-        const previous = requirementByPath.get(track.path) || {}
-        requirementByPath.set(track.path, {
-          track,
-          albumKey: requirement.albumKey || previous.albumKey || '',
-          albumName: requirement.albumName || previous.albumName || '',
-          needsCover: previous.needsCover === true || requirement.needsCover === true,
-          needsArtist: previous.needsArtist === true || requirement.needsArtist === true,
-          needsAlbum: previous.needsAlbum === true || requirement.needsAlbum === true,
-          source: requirement.source || previous.source || ''
-        })
-      }
-    }
+    const isVisibleRowLocalTrack = (candidate) =>
+      isLocalAudioFilePath(candidate?.path) &&
+      !isRemoteTrackPath(candidate?.path) &&
+      !isStreamingTrackPath(candidate?.path)
 
-    pushTrack(currentTrack)
-
+    const limit =
+      listMode === 'album' && selectedAlbum === 'all'
+        ? ALBUM_METADATA_PREFETCH_LIMIT
+        : METADATA_PREFETCH_LIMIT
+    const occupiedPaths = new Set()
+    if (currentTrack?.path) occupiedPaths.add(currentTrack.path)
     if (showTrackList) {
       for (const track of visibleSidebarTracks) {
-        const requirement = buildVisibleTrackMetaHydrateRequirement(
-          track,
-          effectiveTrackMetaMap[track.path] || trackMetaMap[track.path] || null,
-          {
-            isLocalTrack: (candidate) =>
-              isLocalAudioFilePath(candidate?.path) &&
-              !isRemoteTrackPath(candidate?.path) &&
-              !isStreamingTrackPath(candidate?.path),
-            coverProbePaths: albumCoverProbePathsRef.current,
-            artistProbePaths: albumArtistProbePathsRef.current
-          }
-        )
-        pushTrack(track, requirement)
+        if (track?.path) occupiedPaths.add(track.path)
       }
-      for (const track of metadataPrefetchSidebarTracks) pushTrack(track)
+      for (const track of metadataPrefetchSidebarTracks) {
+        if (track?.path) occupiedPaths.add(track.path)
+      }
     }
 
+    let albumWallHydrateTargets = []
     if (listMode === 'album' && selectedAlbum === 'all') {
-      const hydrateTargets = buildAlbumWallHydrateTargets(
+      albumWallHydrateTargets = buildAlbumWallHydrateTargets(
         metadataPrefetchAlbumGroups.flatMap((album) => album.tracks || []),
         trackMetaMap,
         albumCoverMap,
         {
           maxTracksPerAlbum: 3,
           maxAlbums: ALBUM_METADATA_PREFETCH_LIMIT,
-          maxTargets: Math.max(0, ALBUM_METADATA_PREFETCH_LIMIT - byPath.size),
+          maxTargets: Math.max(0, limit - occupiedPaths.size),
           isLocalTrack: (track) => !isRemoteTrackPath(track?.path),
           albumCoverProbePaths: albumCoverProbePathsRef.current,
           albumArtistProbePaths: albumArtistProbePathsRef.current
         }
       )
-      for (const target of hydrateTargets) pushTrack(target.track, target)
     }
 
-    const limit =
-      listMode === 'album' && selectedAlbum === 'all'
-        ? ALBUM_METADATA_PREFETCH_LIMIT
-        : METADATA_PREFETCH_LIMIT
-    const tracks = Array.from(byPath.values()).slice(0, limit)
-    const limitedPaths = new Set(tracks.map((track) => track?.path).filter(Boolean))
-    for (const path of Array.from(requirementByPath.keys())) {
-      if (!limitedPaths.has(path)) requirementByPath.delete(path)
-    }
-    return {
-      tracks,
-      metadataHydrateRequirementByPath: requirementByPath
-    }
+    return buildTrackMetadataPrefetchPlan({
+      currentTrack,
+      visibleSidebarTracks: showTrackList ? visibleSidebarTracks : [],
+      metadataPrefetchSidebarTracks: showTrackList ? metadataPrefetchSidebarTracks : [],
+      albumWallHydrateTargets,
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      maxTracks: limit,
+      visibleAheadLimit: VISIBLE_ROW_HYDRATE_AHEAD_LIMIT,
+      isLocalTrack: isVisibleRowLocalTrack,
+      coverProbePaths: albumCoverProbePathsRef.current,
+      artistProbePaths: albumArtistProbePathsRef.current
+    })
   }, [
     currentTrack,
     albumCoverMap,
@@ -15423,6 +15436,18 @@ export default function App() {
   }, [metadataCoverKeepPathSet])
 
   useEffect(() => {
+    const isVisibleRowHydrateTrack = (track) =>
+      metadataHydrateRequirementByPath.get(track?.path)?.source === 'visible-row'
+    const isCurrentTrackCandidate = (track) =>
+      Boolean(
+        currentTrack?.path &&
+          track?.path === currentTrack.path &&
+          isLocalAudioFilePath(track.path) &&
+          !isRemoteTrackPath(track.path) &&
+          !isStreamingTrackPath(track.path)
+      )
+    const isUrgentMetadataHydrateTrack = (track) =>
+      isCurrentTrackCandidate(track) || isVisibleRowHydrateTrack(track)
     const pending = metadataPrefetchTracks.filter((track) => {
       const entry = trackMetaMap[track.path]
       const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
@@ -15503,29 +15528,14 @@ export default function App() {
         target[coverEntry.albumKey] = coverEntry
       }
       const persistResolvedAlbumCovers = (albumCoverEntries) => {
-        const cacheItems = Object.values(albumCoverEntries)
-          .filter((entry) => entry?.artist && !isUnknownArtistName(entry.artist))
-          .map((entry) => ({
-            album: entry.album,
-            artist: entry.artist,
-            cover: entry.cover
-          }))
+        const cacheItems = buildPersistableAlbumCoverCacheItems(Object.values(albumCoverEntries))
         if (cacheItems.length > 0) persistAlbumCoverCacheItems(cacheItems)
       }
       const mergeResolvedAlbumCovers = (albumCoverEntries) => {
         const entries = Object.entries(albumCoverEntries)
         if (entries.length === 0) return
         setAlbumCoverMap((prev) => {
-          let changed = false
-          const next = { ...prev }
-          for (const [albumKey, entry] of entries) {
-            const cover = entry.cover
-            if (!next[albumKey] && cover) {
-              next[albumKey] = cover
-              changed = true
-            }
-          }
-          return changed ? next : prev
+          return mergeAlbumCoverMapEntries(prev, albumCoverEntries)
         })
       }
       const cachedAlbumCovers = {}
@@ -15543,9 +15553,9 @@ export default function App() {
           return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
         })
       }
-      if (!metadataPrefetchParseReady) return
+      if (!visibleRowMetadataParseReady && !metadataPrefetchParseReady) return
 
-      const uncachedPending = pending.filter((track) => {
+      const allUncachedPending = pending.filter((track) => {
         const cachedMeta = cached[track.path]
         const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
         if (!cachedMeta) return true
@@ -15576,7 +15586,11 @@ export default function App() {
         }
         return !cachedMeta.cover && !albumCoverProbePathsRef.current.has(track.path)
       })
+      const uncachedPending = metadataPrefetchParseReady
+        ? allUncachedPending
+        : allUncachedPending.filter(isUrgentMetadataHydrateTrack)
       if (cancelled) return
+      if (uncachedPending.length === 0) return
       const activePlaybackPath = currentTrack?.path || ''
       const playbackActive = isPlaying === true
       const parseCandidates =
@@ -15586,17 +15600,24 @@ export default function App() {
               ...uncachedPending.filter((track) => track?.path !== activePlaybackPath)
             ]
           : uncachedPending
-      const parseBatchSize =
-        playbackActive && activePlaybackPath
-          ? PLAYING_METADATA_PARSE_BATCH_SIZE
-          : listMode === 'album' && selectedAlbum === 'all'
-            ? ALBUM_METADATA_PARSE_BATCH_SIZE
-            : METADATA_PARSE_BATCH_SIZE
+      const urgentParseCandidates = parseCandidates.filter(isUrgentMetadataHydrateTrack)
+      const parseQueue =
+        urgentParseCandidates.length > 0
+          ? urgentParseCandidates.slice(0, VISIBLE_ROW_HYDRATE_AHEAD_LIMIT)
+          : parseCandidates.slice(
+              0,
+              playbackActive && activePlaybackPath
+                ? PLAYING_METADATA_PARSE_BATCH_SIZE
+                : listMode === 'album' && selectedAlbum === 'all'
+                  ? ALBUM_METADATA_PARSE_BATCH_SIZE
+                  : METADATA_PARSE_BATCH_SIZE
+            )
       const parseWorkers =
-        playbackActive && activePlaybackPath
-          ? PLAYING_METADATA_PARSE_WORKERS
-          : METADATA_PARSE_WORKERS
-      const parseQueue = parseCandidates.slice(0, parseBatchSize)
+        urgentParseCandidates.length > 0
+          ? VISIBLE_ROW_METADATA_PARSE_WORKERS
+          : playbackActive && activePlaybackPath
+            ? PLAYING_METADATA_PARSE_WORKERS
+            : METADATA_PARSE_WORKERS
       let nextIndex = 0
 
       // Stream parsed entries into trackMetaMap as workers complete tracks,
@@ -15740,7 +15761,8 @@ export default function App() {
     metadataPrefetchTracks,
     persistAlbumCoverCacheItems,
     selectedAlbum,
-    trackMetaMap
+    trackMetaMap,
+    visibleRowMetadataParseReady
   ])
 
   useEffect(() => {
@@ -15772,25 +15794,10 @@ export default function App() {
       if (entries.length === 0) return
 
       setAlbumCoverMap((prev) => {
-        let changed = false
-        const next = { ...prev }
-        for (const [albumKey, entry] of entries) {
-          if (!entry?.cover) continue
-          if (next[albumKey] && !entry.coverFailed) continue
-          next[albumKey] = entry.cover
-          changed = true
-        }
-        return changed ? next : prev
+        return mergeAlbumCoverMapEntries(prev, albumCovers)
       })
 
-      const cacheItems = entries
-        .map(([, entry]) => entry)
-        .filter((entry) => entry?.artist && !isUnknownArtistName(entry.artist))
-        .map((entry) => ({
-          album: entry.album,
-          artist: entry.artist,
-          cover: entry.cover
-        }))
+      const cacheItems = buildPersistableAlbumCoverCacheItems(entries.map(([, entry]) => entry))
       if (cacheItems.length > 0) persistAlbumCoverCacheItems(cacheItems)
     }
 
@@ -15958,9 +15965,16 @@ export default function App() {
     const applyCloudAlbumCover = (candidate, cover) => {
       if (!cover) return
       setAlbumCoverMap((prev) => {
-        const cacheKey = candidate.albumKey || candidate.albumName
-        if (prev[cacheKey] && !candidate.coverFailed) return prev
-        return { ...prev, [cacheKey]: cover }
+        return mergeAlbumCoverMapEntries(prev, {
+          [candidate.albumKey || candidate.albumName]: {
+            albumKey: candidate.albumKey,
+            album: candidate.albumName,
+            albumName: candidate.albumName,
+            displayAlbumName: candidate.albumName,
+            artist: candidate.artist || '',
+            cover
+          }
+        })
       })
       persistAlbumCoverCacheItems({
         album: candidate.albumName,

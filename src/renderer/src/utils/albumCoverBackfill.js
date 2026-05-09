@@ -129,11 +129,59 @@ export function buildParsedAlbumCoverMetaEntry(track, data, cachedMeta = {}) {
   }
 }
 
+function pushAlbumCoverMapKey(keys, value) {
+  const key = String(value || '').trim()
+  if (key && !keys.includes(key)) keys.push(key)
+}
+
+export function getAlbumCoverMapKeys(entry = {}, sourceKey = '') {
+  const keys = []
+  pushAlbumCoverMapKey(keys, sourceKey)
+  pushAlbumCoverMapKey(keys, entry?.albumKey)
+  pushAlbumCoverMapKey(keys, entry?.displayAlbumName)
+  pushAlbumCoverMapKey(keys, entry?.albumName)
+  pushAlbumCoverMapKey(keys, entry?.album)
+  return keys
+}
+
+export function mergeAlbumCoverMapEntries(prev = {}, entries = {}) {
+  const items = Object.entries(entries || {})
+  if (items.length === 0) return prev
+
+  let changed = false
+  const next = { ...(prev || {}) }
+  for (const [sourceKey, entry] of items) {
+    if (!entry?.cover) continue
+    for (const key of getAlbumCoverMapKeys(entry, sourceKey)) {
+      if (next[key]) continue
+      next[key] = entry.cover
+      changed = true
+    }
+  }
+  return changed ? next : prev
+}
+
+export function buildAlbumCoverMapEntryFromCacheTarget(target, cachedEntry) {
+  if (!target?.albumKey || !cachedEntry?.cover) return null
+  const albumName = String(cachedEntry.album || target.albumName || '').trim()
+  const displayAlbumName = String(target.albumName || albumName || '').trim()
+  if (!displayAlbumName && !albumName) return null
+  return {
+    albumKey: target.albumKey,
+    album: albumName || displayAlbumName,
+    albumName: displayAlbumName || albumName,
+    displayAlbumName: displayAlbumName || albumName,
+    artist: cachedEntry.artist || target.artist || '',
+    cover: cachedEntry.cover
+  }
+}
+
 export function collectAlbumCoverFromMeta(target, entry) {
   if (!entry?.cover) return null
   if (isTrackScopedCoverEntry(entry)) return null
 
   const albumName = entry.album || target?.albumName || target?.track?.info?.album || 'Singles'
+  const displayAlbumName = target?.albumName || albumName
   const albumTrack = {
     ...(target?.track || {}),
     info: {
@@ -149,6 +197,8 @@ export function collectAlbumCoverFromMeta(target, entry) {
   return {
     albumKey,
     album: albumName,
+    albumName: displayAlbumName,
+    displayAlbumName,
     artist: getTrackExplicitAlbumArtist(albumTrack) || getTrackAlbumArtist(albumTrack),
     cover: entry.cover,
     coverFailed: target?.coverFailed === true

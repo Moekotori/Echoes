@@ -11,8 +11,10 @@ import {
   resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
 import {
+  buildAlbumCoverMapEntryFromCacheTarget,
   buildAlbumCoverBackfillPlan,
-  collectAlbumCoverFromMeta
+  collectAlbumCoverFromMeta,
+  mergeAlbumCoverMapEntries
 } from '../../src/renderer/src/utils/albumCoverBackfill.js'
 
 const makeTrack = (path, album, cover = '', artist = 'Artist', albumArtist = '') => ({
@@ -389,6 +391,44 @@ test('album cover backfill cache artist falls back to track artist metadata', ()
   )
 
   assert.equal(entry.artist, 'Real Artist')
+})
+
+test('album cover map entries write both album group key and album name', () => {
+  const merged = mergeAlbumCoverMapEntries(
+    {},
+    {
+      'album-group-key': {
+        albumKey: 'album-group-key',
+        album: 'Embedded Album',
+        albumName: 'Visible Album',
+        displayAlbumName: 'Visible Album',
+        cover: 'data:image/mapped-cover'
+      }
+    }
+  )
+
+  assert.equal(merged['album-group-key'], 'data:image/mapped-cover')
+  assert.equal(merged['Visible Album'], 'data:image/mapped-cover')
+  assert.equal(merged['Embedded Album'], 'data:image/mapped-cover')
+})
+
+test('album cover cache restore maps album-only fallback hits to the current album group key', () => {
+  const entry = buildAlbumCoverMapEntryFromCacheTarget(
+    {
+      albumKey: 'current-album-group-key',
+      albumName: 'Current Album Name',
+      artist: ''
+    },
+    {
+      album: 'Current Album Name',
+      artist: '',
+      cover: 'data:image/restored-fallback'
+    }
+  )
+  const merged = mergeAlbumCoverMapEntries({}, { [entry.albumKey]: entry })
+
+  assert.equal(merged['current-album-group-key'], 'data:image/restored-fallback')
+  assert.equal(merged['Current Album Name'], 'data:image/restored-fallback')
 })
 
 test('track album name normalizes empty metadata to Singles', () => {
