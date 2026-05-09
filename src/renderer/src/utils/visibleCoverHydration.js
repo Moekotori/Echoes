@@ -7,6 +7,13 @@ import {
 } from './trackMetaCache.js'
 import { isUnknownArtistName } from './trackUtils.js'
 
+const DEBUG_VISIBLE_COVER_HYDRATION = false
+
+function logVisibleCoverHydration(message, details = {}) {
+  if (!DEBUG_VISIBLE_COVER_HYDRATION) return
+  console.debug('[visible-cover-hydration]', message, details)
+}
+
 export function getVisibleCoverHydrationPathExtension(path) {
   const match = String(path || '').match(/\.([^.\\/]+)(?:[#?].*)?$/)
   return match ? `.${match[1].toLowerCase()}` : ''
@@ -97,7 +104,7 @@ export async function runVisibleCoverHydrationQueue({
   if (typeof readTrackMetaCache !== 'function') return
   if (typeof getExtendedMetadata !== 'function') return
   const batchStartedAt = Date.now()
-  console.debug('[visible-cover-hydration] queue start', {
+  logVisibleCoverHydration('queue start', {
     queueLength: coverQueue.length,
     visibleCount,
     aheadCount,
@@ -160,7 +167,7 @@ export async function runVisibleCoverHydrationQueue({
         if (requirement?.needsArtist) {
           markArtistProbed(path, isUnknownArtistName(entry.albumArtist || entry.artist || ''))
         }
-        console.debug('[visible-cover-hydration] extracted', {
+        logVisibleCoverHydration('extracted', {
           ext,
           metadataCacheHit: Boolean(cached[path]),
           hasCover: Boolean(entry.cover),
@@ -178,7 +185,7 @@ export async function runVisibleCoverHydrationQueue({
           mtimeMs: track.mtimeMs
         }
         markCoverProbed(path, true)
-        console.debug('[visible-cover-hydration] extracted', {
+        logVisibleCoverHydration('extracted', {
           ext,
           metadataCacheHit: Boolean(cached[path]),
           hasCover: false,
@@ -201,7 +208,7 @@ export async function runVisibleCoverHydrationQueue({
   if (Object.keys(freshCacheEntries).length > 0 && typeof writeTrackMetaCache === 'function') {
     writeTrackMetaCache(freshCacheEntries)
   }
-  console.debug('[visible-cover-hydration] queue complete', {
+  logVisibleCoverHydration('queue complete', {
     queueLength: coverQueue.length,
     parsedLength: parseQueue.length,
     elapsedMs: Date.now() - batchStartedAt

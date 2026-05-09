@@ -231,6 +231,7 @@ import { clampBiquadQ } from './utils/eqBiquad'
 import { copySongCardImage, saveSongCardImage } from './utils/songCardImage'
 import { parseLyricsSourceLink } from './utils/lyricsLink'
 import { getDroppedLyricsFile, hasDroppedFiles, readDroppedLyricsFile } from './utils/lyricsDrop'
+import { parseCuePlaylist, parseM3UPlaylist } from './utils/playlistFileImport'
 import { hasSelectedText, isSelectableTextTarget } from './utils/textSelection'
 import PluginSlot from './plugins/PluginSlot'
 import PluginManagerDrawer from './components/PluginManagerDrawer'
@@ -269,7 +270,7 @@ import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../shared/embeddedCoverVers
 import { EMBEDDED_LYRICS_EXTRACTOR_VERSION } from '../../shared/embeddedLyricsVersion.mjs'
 import { buildLyricKaraokeState } from '../../shared/lyricsKaraoke.mjs'
 import { getPlaybackSequencePath, resolvePlaybackSequence } from '../../shared/playbackSequence.mjs'
-import { getCueAudioPath } from '../../shared/cueTracks.mjs'
+import { createCueVirtualPath, getCueAudioPath } from '../../shared/cueTracks.mjs'
 import { decodeTextBytes } from '../../shared/textEncoding.mjs'
 import {
   buildBilibiliAutoMvQueries,
@@ -462,7 +463,7 @@ const ALBUM_COVER_BACKFILL_BATCH_DELAY_MS = 40
 const ALBUM_COVER_BACKFILL_WORKERS = 1
 const METADATA_PARSE_WORKERS = 1
 const VISIBLE_ROW_METADATA_PARSE_WORKERS = 2
-const VISIBLE_ROW_COVER_PARSE_WORKERS = 4
+const VISIBLE_ROW_COVER_PARSE_WORKERS = 6
 const PLAYING_METADATA_PARSE_BATCH_SIZE = 6
 const PLAYING_METADATA_PARSE_WORKERS = 1
 const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 96
@@ -800,46 +801,6 @@ function getPathDirname(filePath) {
   const normalized = String(filePath || '')
   const idx = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
   return idx >= 0 ? normalized.slice(0, idx) : ''
-}
-
-function isAbsolutePlaylistPath(value) {
-  const path = String(value || '').trim()
-  return (
-    /^[a-zA-Z]:[\\/]/.test(path) ||
-    path.startsWith('\\\\') ||
-    path.startsWith('/') ||
-    /^https?:\/\//i.test(path)
-  )
-}
-
-function resolvePlaylistEntryPath(entry, playlistFilePath) {
-  const raw = String(entry || '').trim()
-  if (!raw) return ''
-  if (/^file:\/\//i.test(raw)) {
-    try {
-      const url = new URL(raw)
-      const decoded = decodeURIComponent(url.pathname || '')
-      if (url.host) return `\\\\${url.host}${decoded.replace(/\//g, '\\')}`
-      return decoded.replace(/^\/([a-zA-Z]:)/, '$1').replace(/\//g, '\\')
-    } catch {
-      return raw
-    }
-  }
-  if (isAbsolutePlaylistPath(raw)) return raw
-  const baseDir = getPathDirname(playlistFilePath)
-  if (!baseDir) return raw
-  const separator = baseDir.includes('\\') ? '\\' : '/'
-  return `${baseDir.replace(/[\\/]+$/, '')}${separator}${raw.replace(/^[\\/]+/, '')}`
-}
-
-function parseM3UPlaylist(content, filePath) {
-  const paths = []
-  for (const rawLine of String(content || '').split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    paths.push(resolvePlaylistEntryPath(line, filePath))
-  }
-  return [...new Set(paths.filter(Boolean))]
 }
 
 const UpNextQueueSortableItem = memo(function UpNextQueueSortableItem({
@@ -2769,6 +2730,8 @@ export default function App() {
   const [bpmDetectionState, setBpmDetectionState] = useState('idle')
   const [isConverting, setIsConverting] = useState(false)
   const [conversionMsg, setConversionMsg] = useState('')
+  const ncmConversionQueueRef = useRef([])
+  const ncmConversionRunningRef = useRef(false)
   const [audioDevices, setAudioDevices] = useState([])
   const [queueDragOver, setQueueDragOver] = useState(false)
   const [queueUndoStack, setQueueUndoStack] = useState([])
@@ -8190,7 +8153,16 @@ export default function App() {
       return
     }
 
-    setCoverUrl(null)
+    const earlyCachedCover =
+      (typeof memoryMeta?.cover === 'string' && memoryMeta.cover) ||
+      (typeof trackHints?.cover === 'string' && trackHints.cover) ||
+      (typeof trackHints?.info?.cover === 'string' && trackHints.info.cover) ||
+      ''
+    if (earlyCachedCover) {
+      setCoverUrl(earlyCachedCover)
+    } else {
+      setCoverUrl(null)
+    }
     setMetadata({
       title: '',
       artist: '',
@@ -8965,11 +8937,92 @@ export default function App() {
   }
 
   /** @returns {Promise<string[]>} Paths to reference (new or already in library), for user playlists etc. */
-  const processFiles = async (files) => {
+  const appendTracksToLibrary = (tracks) => {
+    const normalizedTracks = (tracks || []).filter((track) => track?.path)
+    if (normalizedTracks.length === 0) return []
+    const addedPaths = []
+    setPlaylist((prev) => {
+      const seen = new Set(prev.map((track) => track.path))
+      const next = [...prev]
+      for (const track of normalizedTracks) {
+        if (seen.has(track.path)) continue
+        seen.add(track.path)
+        next.push(track)
+        addedPaths.push(track.path)
+      }
+      if (addedPaths.length === 0) return prev
+      playlistRef.current = next
+      persistStateImmediately(
+        'playlist',
+        'nc_playlist',
+        next,
+        configRef.current.autoSaveLibrary !== false && playlistStoreHydratedRef.current
+      )
+      return next
+    })
+    if (currentIndexRef.current === -1) setCurrentIndex(0)
+    return addedPaths
+  }
+
+  const appendPathsToUserPlaylist = useCallback((playlistId, paths) => {
+    const normalizedPaths = [...new Set((paths || []).filter(Boolean))]
+    if (!playlistId || normalizedPaths.length === 0) return
+    setUserPlaylists((prev) =>
+      prev.map((playlistItem) =>
+        playlistItem.id === playlistId
+          ? {
+              ...playlistItem,
+              paths: [...new Set([...(playlistItem.paths || []), ...normalizedPaths])]
+            }
+          : playlistItem
+      )
+    )
+  }, [])
+
+  const drainNcmConversionQueue = async () => {
+    if (ncmConversionRunningRef.current) return
+    ncmConversionRunningRef.current = true
+    try {
+      while (ncmConversionQueueRef.current.length > 0) {
+        const job = ncmConversionQueueRef.current.shift()
+        const file = job?.file
+        if (!file?.path) continue
+        setConversionMsg(t('settings.decrypting', { name: file.name || getPathBasename(file.path) }))
+        try {
+          const result = await window.api.convertNcmHandler(file.path)
+          if (result?.success && result.path) {
+            const item = { name: result.name || getPathBasename(result.path), path: result.path }
+            appendTracksToLibrary([item])
+            if (typeof job.onConvertedPath === 'function') {
+              job.onConvertedPath(item.path)
+            }
+          } else {
+            console.error('Failed to convert:', file.path, result?.error)
+          }
+        } catch (error) {
+          console.error('Failed to convert:', file.path, error)
+        }
+      }
+    } finally {
+      ncmConversionRunningRef.current = false
+      setConversionMsg('')
+    }
+  }
+
+  const queueNcmConversion = (file, options = {}) => {
+    ncmConversionQueueRef.current.push({
+      file,
+      onConvertedPath: options.onConvertedPath
+    })
+    void drainNcmConversionQueue()
+  }
+
+  const processFiles = async (files, options = {}) => {
     setIsConverting(true)
     const processed = []
-    const existingPaths = new Set(playlist.map((p) => p.path))
+    const existingPaths = new Set((playlistRef.current || playlist).map((p) => p.path))
     const pathsForPlaylist = []
+    let queuedBackgroundNcm = false
 
     for (const file of files) {
       if (existingPaths.has(file.path)) {
@@ -8978,16 +9031,10 @@ export default function App() {
       }
 
       if (file.path.toLowerCase().endsWith('.ncm')) {
-        setConversionMsg(t('settings.decrypting', { name: file.name }))
-        const result = await window.api.convertNcmHandler(file.path)
-        if (result.success) {
-          const item = { name: result.name, path: result.path }
-          processed.push(item)
-          existingPaths.add(result.path)
-          pathsForPlaylist.push(result.path)
-        } else {
-          console.error('Failed to convert:', file.path, result.error)
-        }
+        queuedBackgroundNcm = true
+        queueNcmConversion(file, {
+          onConvertedPath: options.onNcmConvertedPath
+        })
       } else {
         processed.push(file)
         existingPaths.add(file.path)
@@ -8995,22 +9042,9 @@ export default function App() {
       }
     }
 
-    if (processed.length > 0) {
-      setPlaylist((prev) => {
-        const next = [...prev, ...processed]
-        playlistRef.current = next
-        persistStateImmediately(
-          'playlist',
-          'nc_playlist',
-          next,
-          configRef.current.autoSaveLibrary !== false && playlistStoreHydratedRef.current
-        )
-        return next
-      })
-      if (currentIndex === -1) setCurrentIndex(0)
-    }
+    appendTracksToLibrary(processed)
     setIsConverting(false)
-    setConversionMsg('')
+    if (!queuedBackgroundNcm) setConversionMsg('')
     return [...new Set(pathsForPlaylist)]
   }
 
@@ -9056,16 +9090,79 @@ export default function App() {
         return false
       }
 
-      const audioFiles = await window.api.getAudioFilesFromPaths(paths)
-      if (audioFiles && audioFiles.length > 0) {
-        await processFiles(audioFiles)
-      }
-
       const name = getPathBasename(filePath).replace(/\.(m3u8?|txt)$/i, '') || 'M3U Playlist'
       const importedPlaylist = {
         id: crypto.randomUUID(),
         name,
-        paths
+        paths: []
+      }
+      setUserPlaylists((prev) => [...prev, importedPlaylist])
+      setSelectedSmartCollectionId(null)
+      setSelectedUserPlaylistId(importedPlaylist.id)
+      setListMode('playlists')
+
+      const audioFiles = await window.api.getAudioFilesFromPaths(paths)
+      if (audioFiles && audioFiles.length > 0) {
+        const importedPaths = await processFiles(audioFiles, {
+          onNcmConvertedPath: (convertedPath) =>
+            appendPathsToUserPlaylist(importedPlaylist.id, [convertedPath])
+        })
+        appendPathsToUserPlaylist(importedPlaylist.id, importedPaths)
+      } else {
+        appendPathsToUserPlaylist(importedPlaylist.id, paths)
+      }
+
+      return true
+    },
+    [appendPathsToUserPlaylist, processFiles, t]
+  )
+
+  const importCuePlaylistFromText = useCallback(
+    async (content, filePath) => {
+      const cueTracks = parseCuePlaylist(content, filePath)
+      if (cueTracks.length === 0) {
+        alert(t('playlists.noPlaylistsInFile'))
+        return false
+      }
+
+      const audioPaths = [...new Set(cueTracks.map((track) => track.audioPath).filter(Boolean))]
+      const baseAudioFiles = await window.api.getAudioFilesFromPaths(audioPaths)
+      const audioFileByPath = new Map(
+        (baseAudioFiles || []).map((item) => [String(item?.path || '').toLowerCase(), item])
+      )
+      const cueEntries = cueTracks.map((cueTrack) => {
+        const baseFile = audioFileByPath.get(String(cueTrack.audioPath || '').toLowerCase())
+        const title = cueTrack.title || `Track ${cueTrack.trackNo}`
+        const virtualPath = createCueVirtualPath(cueTrack.audioPath, cueTrack)
+        return {
+          ...(baseFile || {}),
+          name: title,
+          path: virtualPath,
+          folder: getPathDirname(cueTrack.audioPath),
+          cue: {
+            audioPath: cueTrack.audioPath,
+            trackNo: cueTrack.trackNo,
+            start: cueTrack.start,
+            end: cueTrack.end,
+            duration: cueTrack.duration
+          },
+          info: {
+            ...(baseFile?.info || {}),
+            title,
+            artist: cueTrack.artist || baseFile?.info?.artist,
+            album: cueTrack.albumTitle || baseFile?.info?.album,
+            duration: cueTrack.duration || baseFile?.info?.duration
+          }
+        }
+      })
+
+      await processFiles(cueEntries)
+
+      const name = getPathBasename(filePath).replace(/\.cue$/i, '') || 'CUE Playlist'
+      const importedPlaylist = {
+        id: crypto.randomUUID(),
+        name,
+        paths: cueEntries.map((entry) => entry.path)
       }
       setUserPlaylists((prev) => [...prev, importedPlaylist])
       setSelectedSmartCollectionId(null)
@@ -9283,6 +9380,20 @@ export default function App() {
     [importM3UPlaylistFromText]
   )
 
+  const handleDroppedCueFiles = useCallback(
+    async (cuePaths) => {
+      if (!Array.isArray(cuePaths) || cuePaths.length === 0) return false
+      let imported = false
+      for (const cuePath of cuePaths) {
+        const content = await window.api.readTextFileHandler(cuePath)
+        if (!content) continue
+        imported = (await importCuePlaylistFromText(content, cuePath)) || imported
+      }
+      return imported
+    },
+    [importCuePlaylistFromText]
+  )
+
   const handleDragOver = (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -9304,8 +9415,12 @@ export default function App() {
         .filter(Boolean)
       const jsonPaths = droppedPaths.filter((filePath) => filePath.toLowerCase().endsWith('.json'))
       const m3uPaths = droppedPaths.filter((filePath) => /\.m3u8?$/i.test(filePath))
+      const cuePaths = droppedPaths.filter((filePath) => /\.cue$/i.test(filePath))
       const otherPaths = droppedPaths.filter(
-        (filePath) => !filePath.toLowerCase().endsWith('.json') && !/\.m3u8?$/i.test(filePath)
+        (filePath) =>
+          !filePath.toLowerCase().endsWith('.json') &&
+          !/\.m3u8?$/i.test(filePath) &&
+          !/\.cue$/i.test(filePath)
       )
 
       if (jsonPaths.length > 0) {
@@ -9314,6 +9429,10 @@ export default function App() {
 
       if (m3uPaths.length > 0) {
         await handleDroppedM3UFiles(m3uPaths)
+      }
+
+      if (cuePaths.length > 0) {
+        await handleDroppedCueFiles(cuePaths)
       }
 
       const audioFiles = await window.api.getAudioFilesFromPaths(otherPaths)
@@ -15490,21 +15609,29 @@ export default function App() {
       metadataHydrateRequirementByPath,
       trackMetaMap,
       effectiveTrackMetaMap,
+      albumCoverMap,
+      albumTracksByKey: trackAlbumTracksByKey,
+      isLocalTrack: (track) =>
+        isLocalAudioFilePath(track?.path) &&
+        !isRemoteTrackPath(track?.path) &&
+        !isStreamingTrackPath(track?.path),
       maxVisibleTracks: VISIBLE_ROW_COVER_HYDRATE_VISIBLE_LIMIT,
       maxAheadTracks: VISIBLE_ROW_COVER_HYDRATE_AHEAD_LIMIT
     })
   }, [
+    albumCoverMap,
     coverPrefetchAheadSidebarTracks,
     effectiveTrackMetaMap,
     metadataHydrateRequirementByPath,
     showTrackList,
+    trackAlbumTracksByKey,
     trackMetaMap,
     visibleSidebarTracks
   ])
 
   useEffect(() => {
     if (!showTrackList) return undefined
-    if (!visibleRowMetadataParseReady) return undefined
+    if (!libraryStateReady) return undefined
     if (typeof window.api?.getExtendedMetadataHandler !== 'function') return undefined
     const coverQueue = visibleCoverHydrationPlan.tracks.filter((track) => {
       const path = track?.path
@@ -15566,11 +15693,11 @@ export default function App() {
       cancelled = true
     }
   }, [
+    libraryStateReady,
     metadataCoverKeepPathSet,
     metadataHydrateRequirementByPath,
     showTrackList,
-    visibleCoverHydrationPlan,
-    visibleRowMetadataParseReady
+    visibleCoverHydrationPlan
   ])
 
   useEffect(() => {
@@ -17528,37 +17655,57 @@ export default function App() {
       alert(r.error)
       return
     }
-    if (!r?.content) return
+    const selectedFiles = Array.isArray(r?.files) && r.files.length > 0 ? r.files : [r]
+    if (!selectedFiles.some((file) => file?.content)) return
     try {
-      if (/\.m3u8?$/i.test(r.path || '')) {
-        await importM3UPlaylistFromText(r.content, r.path)
-        return
+      const importedJsonPlaylists = []
+      let importedAny = false
+      for (const file of selectedFiles) {
+        if (file?.error) {
+          alert(file.error)
+          continue
+        }
+        if (!file?.content) continue
+        if (/\.m3u8?$/i.test(file.path || '')) {
+          importedAny = (await importM3UPlaylistFromText(file.content, file.path)) || importedAny
+          continue
+        }
+        if (/\.cue$/i.test(file.path || '')) {
+          importedAny = (await importCuePlaylistFromText(file.content, file.path)) || importedAny
+          continue
+        }
+        const data = JSON.parse(file.content)
+        const imported = normalizeImportedPlaylists(data)
+        importedJsonPlaylists.push(...imported)
       }
-      const data = JSON.parse(r.content)
-      const imported = normalizeImportedPlaylists(data)
-      if (!imported.length) {
+
+      if (importedJsonPlaylists.length > 0) {
+        setUserPlaylists((prev) => [...prev, ...importedJsonPlaylists])
+        setSelectedSmartCollectionId(null)
+        setSelectedUserPlaylistId(
+          importedJsonPlaylists[importedJsonPlaylists.length - 1]?.id || null
+        )
+        importedAny = true
+      }
+
+      if (!importedAny) {
         alert(t('playlists.noPlaylistsInFile'))
-        return
       }
-      setUserPlaylists((prev) => [...prev, ...imported])
-      setSelectedSmartCollectionId(null)
-      setSelectedUserPlaylistId(imported[imported.length - 1]?.id || null)
     } catch (e) {
       alert(e.message || String(e))
     }
-  }, [importM3UPlaylistFromText, t])
+  }, [importCuePlaylistFromText, importM3UPlaylistFromText, t])
 
   const importAudioIntoSelectedUserPlaylist = async () => {
     if (!selectedUserPlaylistId) return
     const files = await window.api.openFileHandler(configRef.current.uiLocale)
     if (!files || files.length === 0) return
-    const paths = await processFiles(files)
+    const paths = await processFiles(files, {
+      onNcmConvertedPath: (convertedPath) =>
+        appendPathsToUserPlaylist(selectedUserPlaylistId, [convertedPath])
+    })
     if (paths.length === 0) return
-    setUserPlaylists((prev) =>
-      prev.map((p) =>
-        p.id === selectedUserPlaylistId ? { ...p, paths: [...new Set([...p.paths, ...paths])] } : p
-      )
-    )
+    appendPathsToUserPlaylist(selectedUserPlaylistId, paths)
   }
 
   const discordPresencePositionBucket = Math.floor(Math.max(0, Number(currentTime) || 0) / 10)

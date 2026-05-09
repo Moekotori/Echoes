@@ -215,6 +215,9 @@ export function buildVisibleCoverHydrationPlan({
   metadataHydrateRequirementByPath = new Map(),
   trackMetaMap = {},
   effectiveTrackMetaMap = {},
+  albumCoverMap = {},
+  albumTracksByKey = null,
+  isLocalTrack = null,
   maxVisibleTracks = 48,
   maxAheadTracks = 120
 } = {}) {
@@ -230,7 +233,15 @@ export function buildVisibleCoverHydrationPlan({
   const shouldQueue = (track) => {
     const path = track?.path
     if (!path || seen.has(path)) return false
-    const requirement = metadataHydrateRequirementByPath.get(path)
+    const requirement =
+      metadataHydrateRequirementByPath.get(path) ||
+      buildVisibleTrackMetaHydrateRequirement(track, getEntry(track), {
+        isLocalTrack,
+        trackMetaMap,
+        effectiveTrackMetaMap,
+        albumCoverMap,
+        albumTracks: albumTracksByKey?.get?.(getTrackAlbumGroupKey(track)) || []
+      })
     if (requirement?.source !== 'visible-row') return false
     return !satisfiesMetadataHydrateRequirement(getEntry(track), requirement)
   }

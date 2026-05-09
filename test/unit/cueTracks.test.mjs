@@ -45,3 +45,28 @@ test('cue virtual paths preserve the real audio path and translate time', () => 
   assert.equal(getCueDuration(virtualPath), 50)
   assert.equal(toCueAbsoluteTime(virtualPath, 5), 75)
 })
+
+test('parseCueSheet preserves external FILE references per track', () => {
+  const cue = `
+TITLE "Singles"
+PERFORMER "Artist"
+FILE "disc one.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Two"
+    INDEX 01 02:00:00
+FILE "disc two.flac" WAVE
+  TRACK 03 AUDIO
+    TITLE "Three"
+    INDEX 01 00:00:00
+`
+  const tracks = parseCueSheet(cue)
+  assert.equal(tracks.length, 3)
+  assert.equal(tracks[0].audioPath, 'disc one.flac')
+  assert.equal(tracks[0].duration, 120)
+  assert.equal(tracks[1].audioPath, 'disc one.flac')
+  assert.equal(tracks[1].duration, null)
+  assert.equal(tracks[2].audioPath, 'disc two.flac')
+})

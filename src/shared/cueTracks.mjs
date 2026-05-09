@@ -31,18 +31,27 @@ export function parseCueSheet(cueText, audioPath = '', durationSec = 0) {
   let albumTitle = ''
   let albumArtist = ''
   let current = null
+  let currentFilePath = ''
 
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim()
-    if (!line || /^REM\b/i.test(line) || /^FILE\b/i.test(line)) continue
+    if (!line || /^REM\b/i.test(line)) continue
+
+    const fileMatch = line.match(/^FILE\s+(?:"([^"]+)"|(.+?))\s+\S+\s*$/i)
+    if (fileMatch) {
+      currentFilePath = stripQuotes(fileMatch[1] || fileMatch[2] || '')
+      continue
+    }
 
     const trackMatch = line.match(/^TRACK\s+(\d+)\s+(\S+)/i)
     if (trackMatch) {
       current = {
         trackNo: Number(trackMatch[1]) || tracks.length + 1,
+        order: tracks.length,
         title: '',
         artist: '',
-        start: null
+        start: null,
+        audioPath: audioPath || currentFilePath
       }
       tracks.push(current)
       continue
@@ -70,19 +79,20 @@ export function parseCueSheet(cueText, audioPath = '', durationSec = 0) {
 
   const usable = tracks
     .filter((track) => Number.isFinite(track.start) && track.start >= 0)
-    .sort((a, b) => a.start - b.start)
+    .sort((a, b) => (audioPath ? a.start - b.start : a.order - b.order))
 
   return usable.map((track, index) => {
-    const next = usable[index + 1]
+    const next = usable.slice(index + 1).find((item) => item.audioPath === track.audioPath)
     const end = next?.start ?? toPositiveNumber(durationSec, 0)
     const trackDuration = end > track.start ? end - track.start : null
+    const { order, ...trackWithoutOrder } = track
     return {
-      ...track,
+      ...trackWithoutOrder,
       albumTitle,
       albumArtist,
       title: track.title || `Track ${track.trackNo}`,
       artist: track.artist || albumArtist || '',
-      audioPath,
+      audioPath: track.audioPath || audioPath,
       start: track.start,
       end: end > track.start ? end : null,
       duration: trackDuration

@@ -774,6 +774,38 @@ test('visible cover hydration plan caps ahead rows without pulling the whole lis
   )
 })
 
+test('visible cover hydration plan can classify cover-ahead rows outside metadata plan', () => {
+  const aheadTracks = [
+    missingVisibleMetaTrack('D:/Music/cover-ahead-1.flac'),
+    missingVisibleMetaTrack('D:/Music/cover-ahead-2.flac')
+  ]
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    aheadTracks,
+    metadataHydrateRequirementByPath: new Map(),
+    maxAheadTracks: 2,
+    isLocalTrack: isLocalVisibleTestTrack
+  })
+
+  assert.deepEqual(
+    coverPlan.tracks.map((track) => track.path),
+    aheadTracks.map((track) => track.path)
+  )
+  assert.equal(coverPlan.aheadCount, 2)
+})
+
+test('visible cover hydration plan still skips remote rows without metadata-plan requirements', () => {
+  const localTrack = missingVisibleMetaTrack('D:/Music/local-ahead.flac')
+  const streamingTrack = missingVisibleMetaTrack('streaming://netease/track/1')
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    aheadTracks: [localTrack, streamingTrack],
+    metadataHydrateRequirementByPath: new Map(),
+    maxAheadTracks: 5,
+    isLocalTrack: isLocalVisibleTestTrack
+  })
+
+  assert.deepEqual(coverPlan.tracks.map((track) => track.path), [localTrack.path])
+})
+
 test('visible cover hydration plan skips cached-cover tracks', () => {
   const visibleTrack = missingVisibleMetaTrack('D:/Music/cached-cover.flac')
   const prefetchPlan = buildTrackMetadataPrefetchPlan({

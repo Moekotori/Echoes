@@ -591,6 +591,7 @@ function compressEmbeddedCoverData(picture) {
 }
 
 function logEmbeddedCoverDebug(message, details = {}) {
+  if (!process.env.ECHO_DEBUG_EMBEDDED_COVER) return
   console.debug('[embedded-cover]', message, details)
 }
 
@@ -4089,20 +4090,24 @@ app.whenReady().then(async () => {
   ipcMain.handle('dialog:openPlaylistFile', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: '导入播放列表',
-      properties: ['openFile'],
+      properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Playlist Files', extensions: ['json', 'm3u8', 'm3u'] },
+        { name: 'Playlist Files', extensions: ['json', 'm3u8', 'm3u', 'cue'] },
         { name: 'M3U Playlist', extensions: ['m3u8', 'm3u'] },
+        { name: 'CUE Sheet', extensions: ['cue'] },
         { name: 'JSON', extensions: ['json'] }
       ]
     })
     if (canceled || !filePaths?.length) return null
-    try {
-      const content = readTextFileCompat(filePaths[0])
-      return { path: filePaths[0], content }
-    } catch (e) {
-      return { error: String(e.message || e) }
-    }
+    const files = filePaths.map((filePath) => {
+      try {
+        const content = readTextFileCompat(filePath)
+        return { path: filePath, content }
+      } catch (e) {
+        return { path: filePath, error: String(e.message || e) }
+      }
+    })
+    return { ...files[0], files }
   })
 
   ipcMain.handle('dialog:saveThemeJson', async (_, text, defaultName, opts) => {
