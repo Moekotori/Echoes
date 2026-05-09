@@ -28,6 +28,7 @@ export function buildEmptyVisibleCoverEntry() {
     trackNo: null,
     discNo: null,
     cover: null,
+    coverSource: null,
     duration: null,
     coverChecked: true,
     coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
@@ -58,6 +59,7 @@ export function buildVisibleCoverEntry(data, cachedMeta = {}) {
     discNo: common.discNo ?? cachedMeta.discNo ?? null,
     cover: common.cover || cachedMeta.cover || null,
     coverScope: common.coverScope || cachedMeta.coverScope || null,
+    coverSource: common.coverSource || cachedMeta.coverSource || null,
     coverExtractorVersion:
       common.coverExtractorVersion ??
       cachedMeta.coverExtractorVersion ??
@@ -88,6 +90,9 @@ export async function runVisibleCoverHydrationQueue({
   visibleCount = 0,
   aheadCount = 0,
   workerCount = 4,
+  immediateApplyLimit = 8,
+  flushBatchSize = 8,
+  flushIntervalMs = 120,
   metadataHydrateRequirementByPath = new Map(),
   readTrackMetaCache,
   writeTrackMetaCache,
@@ -124,24 +129,51 @@ export async function runVisibleCoverHydrationQueue({
     if (cachedMeta && satisfiesMetadataHydrateRequirement(cachedMeta, requirement)) {
       cachedEntries[path] = cachedMeta
       markCoverProbed(path, !cachedMeta.cover)
-      markArtistProbed(
-        path,
-        isUnknownArtistName(cachedMeta.albumArtist || cachedMeta.artist || '')
-      )
+      markArtistProbed(path, isUnknownArtistName(cachedMeta.albumArtist || cachedMeta.artist || ''))
       clearInFlightPath(path)
       continue
     }
     parseQueue.push(track)
   }
-  if (shouldApply()) applyEntries(cachedEntries)
+  if (Object.keys(cachedEntries).length > 0 && shouldApply() && !isCancelled()) {
+    applyEntries(cachedEntries)
+  }
   if (parseQueue.length === 0) return
 
   let nextIndex = 0
-  const parsedEntries = {}
+  const pendingParsedEntries = {}
   const freshCacheEntries = {}
-  const flushParsedEntries = () => {
-    if (!shouldApply()) return
-    applyEntries({ ...parsedEntries })
+  let appliedParsedCount = 0
+  let lastFlushAt = Date.now()
+  const normalizedImmediateApplyLimit = Math.max(
+    0,
+    Math.min(
+      Number(immediateApplyLimit) || 0,
+      Math.max(0, Number(visibleCount) || 0) || Number(immediateApplyLimit) || 0
+    )
+  )
+  const normalizedFlushBatchSize = Math.max(1, Number(flushBatchSize) || 8)
+  const normalizedFlushIntervalMs = Math.max(0, Number(flushIntervalMs) || 0)
+
+  const flushPendingParsedEntries = ({ force = false } = {}) => {
+    if (isCancelled() || !shouldApply()) return
+    const pendingPaths = Object.keys(pendingParsedEntries)
+    if (pendingPaths.length === 0) return
+    const now = Date.now()
+    const shouldFlush =
+      force ||
+      appliedParsedCount < normalizedImmediateApplyLimit ||
+      pendingPaths.length >= normalizedFlushBatchSize ||
+      now - lastFlushAt >= normalizedFlushIntervalMs
+    if (!shouldFlush) return
+    const deltaEntries = {}
+    for (const path of pendingPaths) {
+      deltaEntries[path] = pendingParsedEntries[path]
+      delete pendingParsedEntries[path]
+    }
+    appliedParsedCount += pendingPaths.length
+    lastFlushAt = now
+    applyEntries(deltaEntries)
   }
 
   const parseNextCover = async () => {
@@ -156,7 +188,7 @@ export async function runVisibleCoverHydrationQueue({
       try {
         const data = await getExtendedMetadata(path, buildVisibleRowMetadataRequestOptions())
         const entry = buildVisibleCoverEntry(data, cachedMeta)
-        parsedEntries[path] = entry
+        pendingParsedEntries[path] = entry
         freshCacheEntries[path] = mergeTrackMetaEntryPreservingCover(getCurrentMeta(path) || {}, {
           ...entry,
           sizeBytes: track.sizeBytes,
@@ -178,7 +210,7 @@ export async function runVisibleCoverHydrationQueue({
         })
       } catch (error) {
         const entry = buildEmptyVisibleCoverEntry()
-        parsedEntries[path] = entry
+        pendingParsedEntries[path] = entry
         freshCacheEntries[path] = {
           ...entry,
           sizeBytes: track.sizeBytes,
@@ -197,7 +229,7 @@ export async function runVisibleCoverHydrationQueue({
         })
       } finally {
         clearInFlightPath(path)
-        flushParsedEntries()
+        flushPendingParsedEntries()
       }
     }
   }
@@ -205,6 +237,7 @@ export async function runVisibleCoverHydrationQueue({
   await Promise.all(
     Array.from({ length: Math.min(workerCount, parseQueue.length) }, () => parseNextCover())
   )
+  flushPendingParsedEntries({ force: true })
   if (Object.keys(freshCacheEntries).length > 0 && typeof writeTrackMetaCache === 'function') {
     writeTrackMetaCache(freshCacheEntries)
   }

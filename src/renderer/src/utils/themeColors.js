@@ -19,6 +19,12 @@ function parseHexColor(hex) {
   }
 }
 
+function perceivedBrightness(hex) {
+  const rgb = parseHexColor(hex)
+  if (!rgb) return null
+  return 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b
+}
+
 function luminance(hex) {
   const rgb = parseHexColor(hex)
   if (!rgb) return null
@@ -44,6 +50,21 @@ function readableTextFor(bg) {
 
 function readableSoftTextFor(bg) {
   return isDarkHex(bg) ? '#c5cfdb' : '#4b5968'
+}
+
+export function resolveThemeTone(colors = {}) {
+  const glassBrightness = perceivedBrightness(colors.glassColor)
+  if (glassBrightness != null && colors.glassColor !== '#ffffff') {
+    return glassBrightness < 0.43 ? 'dark' : 'light'
+  }
+
+  const bgBrightness = perceivedBrightness(colors.bgColor)
+  const gradientBrightness = perceivedBrightness(colors.bgGradientEnd)
+  const brightnessValues = [bgBrightness, gradientBrightness].filter((value) => value != null)
+  if (brightnessValues.length === 0) return 'light'
+  const averageBrightness =
+    brightnessValues.reduce((total, value) => total + value, 0) / brightnessValues.length
+  return averageBrightness < 0.43 ? 'dark' : 'light'
 }
 
 function ensureReadableText(base) {

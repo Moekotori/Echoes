@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getUiFontStack } from '../../src/renderer/src/utils/themeColors.js'
+import { getUiFontStack, resolveThemeTone } from '../../src/renderer/src/utils/themeColors.js'
 
 test('getUiFontStack inserts selected CJK fallback after the primary UI font', () => {
   const stack = getUiFontStack({ uiFontFamily: 'outfit', uiCjkFontFamily: 'yahei' })
@@ -33,4 +33,42 @@ test('getUiFontStack uses a custom CJK font as the first CJK fallback', () => {
   assert.match(stack, /"EchoesUserCjkFont"/)
   assert.match(stack, /"PingFang SC"/)
   assert.ok(stack.indexOf('"EchoesUserCjkFont"') < stack.indexOf('"PingFang SC"'))
+})
+
+test('resolveThemeTone uses perceived brightness instead of the red channel alone', () => {
+  assert.equal(
+    resolveThemeTone({
+      glassColor: '#00e6ff',
+      bgColor: '#f6fbff',
+      bgGradientEnd: '#ecf7ff'
+    }),
+    'light'
+  )
+  assert.equal(
+    resolveThemeTone({
+      glassColor: '#8a0000',
+      bgColor: '#fff5f5',
+      bgGradientEnd: '#ffe8e8'
+    }),
+    'dark'
+  )
+})
+
+test('resolveThemeTone falls back to theme background when glass is neutral white', () => {
+  assert.equal(
+    resolveThemeTone({
+      glassColor: '#ffffff',
+      bgColor: '#101722',
+      bgGradientEnd: '#172033'
+    }),
+    'dark'
+  )
+  assert.equal(
+    resolveThemeTone({
+      glassColor: '#ffffff',
+      bgColor: '#f7fbff',
+      bgGradientEnd: '#edf6ff'
+    }),
+    'light'
+  )
 })

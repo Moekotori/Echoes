@@ -154,6 +154,7 @@ import {
   findInfoSidecarCoverDataUrl,
   readInfoSidecarMetadata
 } from './utils/folderCover.js'
+import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
 import { readWavInfoTags } from './utils/wavInfoTags.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
 import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
@@ -597,6 +598,14 @@ function logEmbeddedCoverDebug(message, details = {}) {
 
 function logEmbeddedCoverWarn(message, details = {}) {
   console.warn('[embedded-cover]', message, details)
+}
+
+function getEmbeddedCoverLogContext(filePath, parser) {
+  return {
+    filePath,
+    ext: extname(filePath).toLowerCase(),
+    parser
+  }
 }
 
 function isJsmediatagsCoverFallbackPath(filePath) {
@@ -5157,13 +5166,21 @@ app.whenReady().then(async () => {
     const extShort = ext.replace(/^\./, '').toUpperCase() || null
     const infoSidecar = readInfoSidecarMetadata(filePath)
     const filenameIdentity = parseLocalFilenameIdentitySafe(filePath)
+    const musicMetadataResult = requestOptions.includeCover
+      ? await readMusicMetadataForLocalFile(filePath)
+      : null
+    const musicMetadata = musicMetadataResult?.metadata || {}
     const ffmpegInfo = requestOptions.includeTechnicalProbe
       ? await getFfmpegAudioInfo(filePath).catch(() => null)
       : null
-    const rawAlbum = firstReadableMetadataText(ffmpegInfo?.tags?.album)
-    const rawAlbumArtist = firstReadableMetadataText(ffmpegInfo?.tags?.albumArtist)
+    const rawAlbum = firstReadableMetadataText(musicMetadata.album, ffmpegInfo?.tags?.album)
+    const rawAlbumArtist = firstReadableMetadataText(
+      musicMetadata.albumArtist,
+      ffmpegInfo?.tags?.albumArtist
+    )
     const rawArtist = firstReadableMetadataText(
       filenameIdentity.artist,
+      musicMetadata.artist,
       ffmpegInfo?.tags?.artist,
       ffmpegInfo?.tags?.artists,
       ffmpegInfo?.tags?.author,
@@ -5172,6 +5189,7 @@ app.whenReady().then(async () => {
       'Unknown Artist'
     )
     const rawTitle = firstReadableMetadataText(
+      musicMetadata.title,
       ffmpegInfo?.tags?.title,
       getReadableInfoSidecarName(infoSidecar),
       filenameIdentity.title,
@@ -5179,56 +5197,87 @@ app.whenReady().then(async () => {
     )
     let cover = null
     let coverScope = 'album'
+    let coverSource = null
     let coverBytes = 0
     if (requestOptions.includeCover) {
-      const jsmediatagsCover = await readJsmediatagsPicture(filePath)
-      const jsmediatagsPicture = jsmediatagsCover?.picture || null
-      const compressedJsmediatagsCover = jsmediatagsPicture
-        ? compressEmbeddedCoverData({
-            data: jsmediatagsPicture.data,
-            format: jsmediatagsPicture.format
-          })
+      const compressedMusicMetadataCover = musicMetadataResult?.picture
+        ? compressEmbeddedCoverData(musicMetadataResult.picture)
         : null
-      if (compressedJsmediatagsCover?.dataUrl) {
-        cover = compressedJsmediatagsCover.dataUrl
-        coverScope = 'track'
-        coverBytes = compressedJsmediatagsCover.bytes
-        logEmbeddedCoverDebug('music-metadata fallback recovered ID3 artwork', {
-          ext: ext.toLowerCase(),
-          musicMetadataPictures: 0,
-          jsmediatagsPicture: true,
-          nativeImageEmpty: compressedJsmediatagsCover.nativeImageEmpty === true,
-          elapsedMs: Date.now() - metadataStartedAt,
-          coverChecked: true,
-          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      logEmbeddedCoverDebug('local artwork extraction attempt', {
+        ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
+        embeddedPictureFound: Boolean(musicMetadataResult?.picture),
+        compressionSucceeded: Boolean(compressedMusicMetadataCover?.dataUrl),
+        coverBytes: compressedMusicMetadataCover?.bytes || 0,
+        error: musicMetadataResult?.error || ''
+      })
+      if (compressedMusicMetadataCover?.dataUrl) {
+        cover = compressedMusicMetadataCover.dataUrl
+        coverScope = 'album'
+        coverSource = 'embedded'
+        coverBytes = compressedMusicMetadataCover.bytes
+      } else {
+        const jsmediatagsCover = await readJsmediatagsPicture(filePath)
+        const jsmediatagsPicture = jsmediatagsCover?.picture || null
+        const compressedJsmediatagsCover = jsmediatagsPicture
+          ? compressEmbeddedCoverData({
+              data: jsmediatagsPicture.data,
+              format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
+            })
+          : null
+        logEmbeddedCoverDebug('local artwork extraction attempt', {
+          ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+          embeddedPictureFound: Boolean(jsmediatagsPicture?.data),
+          compressionSucceeded: Boolean(compressedJsmediatagsCover?.dataUrl),
+          coverBytes: compressedJsmediatagsCover?.bytes || 0,
+          error: jsmediatagsCover?.error || ''
         })
-      } else if (jsmediatagsPicture) {
-        logEmbeddedCoverWarn('jsmediatags picture could not be converted during metadata fallback', {
-          ext: ext.toLowerCase(),
-          musicMetadataPictures: 0,
-          jsmediatagsPicture: true,
-          nativeImageEmpty: false,
-          elapsedMs: Date.now() - metadataStartedAt,
-          coverChecked: true,
-          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
-        })
-      } else if (jsmediatagsCover?.error) {
-        logEmbeddedCoverWarn('jsmediatags fallback failed during metadata fallback', {
-          ext: ext.toLowerCase(),
-          error: jsmediatagsCover.error,
-          elapsedMs: Date.now() - metadataStartedAt,
-          coverChecked: true,
-          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
-        })
+        if (compressedJsmediatagsCover?.dataUrl) {
+          cover = compressedJsmediatagsCover.dataUrl
+          coverScope = 'album'
+          coverSource = 'embedded'
+          coverBytes = compressedJsmediatagsCover.bytes
+        } else if (jsmediatagsPicture) {
+          logEmbeddedCoverWarn('jsmediatags picture could not be converted during metadata fallback', {
+            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+            embeddedPictureFound: true,
+            compressionSucceeded: false,
+            coverBytes: 0,
+            error: ''
+          })
+        } else if (jsmediatagsCover?.error) {
+          logEmbeddedCoverWarn('jsmediatags fallback failed during metadata fallback', {
+            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+            embeddedPictureFound: false,
+            compressionSucceeded: false,
+            coverBytes: 0,
+            error: jsmediatagsCover.error
+          })
+        }
       }
       if (!cover) {
         cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
         coverScope = cover ? 'track' : 'album'
+        coverSource = cover ? 'sidecar' : null
+        logEmbeddedCoverDebug('local artwork extraction attempt', {
+          ...getEmbeddedCoverLogContext(filePath, 'info-sidecar'),
+          embeddedPictureFound: false,
+          compressionSucceeded: Boolean(cover),
+          coverBytes: cover ? cover.length : 0,
+          error: ''
+        })
       }
     }
     if (requestOptions.includeCover && !cover) {
       cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbum })
       coverScope = 'album'
+      coverSource = cover ? 'folder' : null
+      logEmbeddedCoverDebug('local artwork extraction attempt', {
+        ...getEmbeddedCoverLogContext(filePath, 'folder-cover'),
+        embeddedPictureFound: false,
+        compressionSucceeded: Boolean(cover),
+        coverBytes: cover ? cover.length : 0,
+        error: ''
+      })
     }
     if (requestOptions.includeCover && !cover) {
       logEmbeddedCoverDebug('no cover found during metadata fallback', {
@@ -5267,6 +5316,7 @@ app.whenReady().then(async () => {
         lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
         cover,
         coverScope,
+        coverSource,
         coverChecked: requestOptions.includeCover === true,
         coverExtractorVersion: requestOptions.includeCover
           ? EMBEDDED_COVER_EXTRACTOR_VERSION
@@ -5508,10 +5558,14 @@ app.whenReady().then(async () => {
     const cueTrack = parseCueVirtualPath(requestedPath)
     filePath = getCueAudioPath(filePath)
     try {
-      const { parseFile, selectCover } = await import('music-metadata')
-      const metadata = await parseFile(filePath)
+      const musicMetadataResult = await readMusicMetadataForLocalFile(filePath)
+      if (!musicMetadataResult?.rawMetadata) {
+        throw new Error(musicMetadataResult?.error || 'music-metadata parse failed')
+      }
+      const metadata = musicMetadataResult.rawMetadata
       let cover = null
       let coverScope = 'album'
+      let coverSource = null
 
       const extLower = extname(filePath).toLowerCase()
       const infoSidecar = readInfoSidecarMetadata(filePath)
@@ -5553,7 +5607,7 @@ app.whenReady().then(async () => {
         requestOptions.includeCover && Array.isArray(metadata.common.picture)
           ? metadata.common.picture.length
           : 0
-      const picture = requestOptions.includeCover ? selectCover(metadata.common.picture) : null
+      const musicMetadataPicture = requestOptions.includeCover ? musicMetadataResult.picture : null
       let coverBytes = 0
       let coverWidth = 0
       let coverHeight = 0
@@ -5568,34 +5622,33 @@ app.whenReady().then(async () => {
         (preferFfmpegInfo ||
           /\.(opus|ogg)$/i.test(filePath) ||
           /ogg/i.test(metadata.format?.container || ''))
-      if (preferFfmpegCover) {
-        const extractedCover = await extractAttachedCoverWithFfmpeg(filePath)
-        if (extractedCover?.dataUrl) {
-          cover = extractedCover.dataUrl
-          coverBytes = extractedCover.bytes
-          coverWidth = extractedCover.width
-          coverHeight = extractedCover.height
-          coverNativeImageEmpty = extractedCover.nativeImageEmpty === true
-        }
-      }
-      if (picture) {
-        const compressedCover = cover ? null : compressEmbeddedCoverData(picture)
+      if (requestOptions.includeCover) {
+        const compressedCover = musicMetadataPicture
+          ? compressEmbeddedCoverData(musicMetadataPicture)
+          : null
+        logEmbeddedCoverDebug('local artwork extraction attempt', {
+          ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
+          embeddedPictureFound: Boolean(musicMetadataPicture),
+          compressionSucceeded: Boolean(compressedCover?.dataUrl),
+          coverBytes: compressedCover?.bytes || 0,
+          error: musicMetadataResult?.error || ''
+        })
         if (compressedCover?.dataUrl) {
           cover = compressedCover.dataUrl
           coverScope = 'album'
+          coverSource = 'embedded'
           coverBytes = compressedCover.bytes
           coverWidth = compressedCover.width
           coverHeight = compressedCover.height
           coverNativeImageEmpty = compressedCover.nativeImageEmpty === true
-        } else if (!cover) {
+        } else if (musicMetadataPicture) {
           logEmbeddedCoverWarn('music-metadata picture could not be converted', {
-            ext: extLower,
+            ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
             musicMetadataPictures: musicMetadataPictureCount,
-            jsmediatagsPicture: false,
-            nativeImageEmpty: false,
-            elapsedMs: Date.now() - metadataStartedAt,
-            coverChecked: true,
-            coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+            embeddedPictureFound: true,
+            compressionSucceeded: false,
+            coverBytes: 0,
+            error: ''
           })
         }
       }
@@ -5606,11 +5659,19 @@ app.whenReady().then(async () => {
         if (jsmediatagsPicture) {
           const compressedCover = compressEmbeddedCoverData({
             data: jsmediatagsPicture.data,
-            format: jsmediatagsPicture.format
+            format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
+          })
+          logEmbeddedCoverDebug('local artwork extraction attempt', {
+            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+            embeddedPictureFound: true,
+            compressionSucceeded: Boolean(compressedCover?.dataUrl),
+            coverBytes: compressedCover?.bytes || 0,
+            error: ''
           })
           if (compressedCover?.dataUrl) {
             cover = compressedCover.dataUrl
             coverScope = 'album'
+            coverSource = 'embedded'
             coverBytes = compressedCover.bytes
             coverWidth = compressedCover.width
             coverHeight = compressedCover.height
@@ -5626,31 +5687,76 @@ app.whenReady().then(async () => {
             })
           } else {
             logEmbeddedCoverWarn('jsmediatags picture could not be converted', {
-              ext: extLower,
+              ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
               musicMetadataPictures: musicMetadataPictureCount,
-              jsmediatagsPicture: true,
-              nativeImageEmpty: false,
-              elapsedMs: Date.now() - metadataStartedAt,
-              coverChecked: true,
-              coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+              embeddedPictureFound: true,
+              compressionSucceeded: false,
+              coverBytes: 0,
+              error: ''
             })
           }
         } else if (jsmediatagsCover?.error) {
           logEmbeddedCoverWarn('jsmediatags fallback failed', {
-            ext: extLower,
+            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
             musicMetadataPictures: musicMetadataPictureCount,
-            jsmediatagsPicture: false,
+            embeddedPictureFound: false,
+            compressionSucceeded: false,
+            coverBytes: 0,
             error: jsmediatagsCover.error,
-            elapsedMs: Date.now() - metadataStartedAt,
-            coverChecked: true,
-            coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+            elapsedMs: Date.now() - metadataStartedAt
           })
+        } else {
+          logEmbeddedCoverDebug('local artwork extraction attempt', {
+            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+            embeddedPictureFound: false,
+            compressionSucceeded: false,
+            coverBytes: 0,
+            error: ''
+          })
+        }
+      }
+      if (requestOptions.includeCover && !cover && preferFfmpegCover) {
+        const extractedCover = await extractAttachedCoverWithFfmpeg(filePath)
+        logEmbeddedCoverDebug('local artwork extraction attempt', {
+          ...getEmbeddedCoverLogContext(filePath, 'ffmpeg-attached-cover'),
+          embeddedPictureFound: Boolean(extractedCover?.dataUrl),
+          compressionSucceeded: Boolean(extractedCover?.dataUrl),
+          coverBytes: extractedCover?.bytes || 0,
+          error: ''
+        })
+        if (extractedCover?.dataUrl) {
+          cover = extractedCover.dataUrl
+          coverScope = 'album'
+          coverSource = 'embedded'
+          coverBytes = extractedCover.bytes
+          coverWidth = extractedCover.width
+          coverHeight = extractedCover.height
+          coverNativeImageEmpty = extractedCover.nativeImageEmpty === true
         }
       }
       if (requestOptions.includeCover && !cover) {
         cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
         coverScope = cover ? 'track' : 'album'
-        if (!cover) cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
+        coverSource = cover ? 'sidecar' : null
+        logEmbeddedCoverDebug('local artwork extraction attempt', {
+          ...getEmbeddedCoverLogContext(filePath, 'info-sidecar'),
+          embeddedPictureFound: false,
+          compressionSucceeded: Boolean(cover),
+          coverBytes: cover ? cover.length : 0,
+          error: ''
+        })
+        if (!cover) {
+          cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
+          coverScope = 'album'
+          coverSource = cover ? 'folder' : null
+          logEmbeddedCoverDebug('local artwork extraction attempt', {
+            ...getEmbeddedCoverLogContext(filePath, 'folder-cover'),
+            embeddedPictureFound: false,
+            compressionSucceeded: Boolean(cover),
+            coverBytes: cover ? cover.length : 0,
+            error: ''
+          })
+        }
       }
       if (requestOptions.includeCover && coverNativeImageEmpty) {
         logEmbeddedCoverWarn('nativeImage could not decode embedded cover; keeping raw data URL', {
@@ -5783,6 +5889,7 @@ app.whenReady().then(async () => {
           lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
           cover,
           coverScope,
+          coverSource,
           coverChecked: requestOptions.includeCover === true,
           coverExtractorVersion,
           coverBytes,

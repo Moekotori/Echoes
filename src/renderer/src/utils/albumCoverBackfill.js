@@ -113,6 +113,7 @@ export function buildParsedAlbumCoverMetaEntry(track, data, cachedMeta = {}) {
     discNo: common.discNo ?? cachedMeta.discNo ?? null,
     cover: common.cover || cachedMeta.cover || null,
     coverScope: common.coverScope || cachedMeta.coverScope || null,
+    coverSource: common.coverSource || cachedMeta.coverSource || null,
     duration: technical.duration || cachedMeta.duration || null,
     coverChecked: true,
     bpmChecked: true,
@@ -133,6 +134,14 @@ export function buildParsedAlbumCoverMetaEntry(track, data, cachedMeta = {}) {
 function pushAlbumCoverMapKey(keys, value) {
   const key = String(value || '').trim()
   if (key && !keys.includes(key)) keys.push(key)
+}
+
+function getAlbumCoverMapValuePriority(value = '') {
+  const cover = String(value || '').trim()
+  if (!cover) return 0
+  if (/^(?:data:image\/|file:\/\/)/i.test(cover)) return 3
+  if (/^https?:\/\//i.test(cover)) return 1
+  return 2
 }
 
 export function getAlbumCoverMapKeys(
@@ -164,7 +173,12 @@ export function mergeAlbumCoverMapEntries(
   for (const [sourceKey, entry] of items) {
     if (!entry?.cover) continue
     for (const key of getAlbumCoverMapKeys(entry, sourceKey, { includeLooseAlbumNameKeys })) {
-      if (next[key]) continue
+      if (
+        next[key] &&
+        getAlbumCoverMapValuePriority(next[key]) >= getAlbumCoverMapValuePriority(entry.cover)
+      ) {
+        continue
+      }
       next[key] = entry.cover
       changed = true
     }

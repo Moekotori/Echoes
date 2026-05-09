@@ -156,7 +156,8 @@ import {
   buildUiCustomFontFaceCss,
   UI_CJK_CUSTOM_FONT_FAMILY,
   normalizeThemeColors,
-  getAppThemeBackgroundStyle
+  getAppThemeBackgroundStyle,
+  resolveThemeTone
 } from './utils/themeColors'
 import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './utils/themeBundle'
 import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
@@ -1247,16 +1248,7 @@ function normalizeConfigState(raw) {
   if (!['embedded', 'lrc'].includes(merged.localLyricsPriority)) {
     merged.localLyricsPriority = DEFAULT_CONFIG.localLyricsPriority
   }
-  if (
-    ![
-      'local',
-      'lrclib',
-      'netease',
-      'qq',
-      'kugou',
-      'kuwo'
-    ].includes(merged.lyricsSource)
-  ) {
+  if (!['local', 'lrclib', 'netease', 'qq', 'kugou', 'kuwo'].includes(merged.lyricsSource)) {
     merged.lyricsSource = DEFAULT_CONFIG.lyricsSource
   }
   merged.lyricsBackgroundMode = normalizeLyricsBackgroundMode(merged.lyricsBackgroundMode)
@@ -1957,7 +1949,8 @@ const AlbumSidebarCard = memo(function AlbumSidebarCard({
           decoding="async"
           onError={() => {
             setCoverIndex((index) => {
-              const nextIndex = index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
+              const nextIndex =
+                index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
               if (nextIndex >= coverCandidates.length) {
                 onCoverFailed?.(album, coverCandidateKey)
               }
@@ -4685,9 +4678,7 @@ export default function App() {
       }
     }
 
-    const isDark =
-      activeTheme.glassColor !== '#ffffff' &&
-      parseInt(String(glassRgbStr).split(',')[0].trim(), 10) < 100
+    const isDark = resolveThemeTone(activeTheme) === 'dark'
     root.dataset.echoThemeTone = isDark ? 'dark' : 'light'
     root.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
 
@@ -5112,10 +5103,7 @@ export default function App() {
     )
     const persistStartupScanSignature = () => {
       try {
-        localStorage.setItem(
-          STARTUP_IMPORTED_FOLDER_SCAN_SIGNATURE_LOCAL_KEY,
-          startupScanSignature
-        )
+        localStorage.setItem(STARTUP_IMPORTED_FOLDER_SCAN_SIGNATURE_LOCAL_KEY, startupScanSignature)
       } catch {
         /* best-effort */
       }
@@ -6220,14 +6208,7 @@ export default function App() {
   )
 
   const searchAndApplyMvForTrack = useCallback(
-    async ({
-      filePath,
-      title = '',
-      artist = '',
-      hints = {},
-      requestSeq = null,
-      force = false
-    }) => {
+    async ({ filePath, title = '', artist = '', hints = {}, requestSeq = null, force = false }) => {
       if (
         !filePath ||
         !window.api?.searchMVHandler ||
@@ -6434,7 +6415,10 @@ export default function App() {
       const storedMeta = trackMetaMapRef.current?.[track.path] || {}
       const parsedInfo = parseTrackInfo(track, storedMeta)
       const rawTitle =
-        parsedInfo?.title || storedMeta.title || track.info?.title || stripExtension(track.name || '')
+        parsedInfo?.title ||
+        storedMeta.title ||
+        track.info?.title ||
+        stripExtension(track.name || '')
       const title = cleanTitleForSearch(rawTitle)
       if (!title) return false
 
@@ -6784,8 +6768,7 @@ export default function App() {
       const externalSources =
         sourcePreference === 'qq'
           ? ['qq']
-          : sourcePreference === 'kugou' ||
-              sourcePreference === 'kuwo'
+          : sourcePreference === 'kugou' || sourcePreference === 'kuwo'
             ? [sourcePreference]
             : ['qq', 'kugou', 'kuwo']
       const hasSyncedLrcTimeTags = (value) =>
@@ -6901,28 +6884,30 @@ export default function App() {
             .then((res) => {
               const items = Array.isArray(res?.items) ? res.items : []
               const ranked = rankLrcLibCandidates(items, audioDur, rankOpts)
-              return ranked.slice(0, 24).map((r, i) => {
-                const item = r.item || {}
-                const source = item.source || 'external'
-                const sourceName =
-                  source === 'qq'
-                    ? 'QQ'
-                    : source === 'kugou'
-                      ? 'Kugou'
-                      : source === 'kuwo'
-                        ? 'Kuwo'
-                        : source
-                const raw = r.chosenLyrics || item.syncedLyrics || item.plainLyrics || ''
-                if (!hasSyncedLrcTimeTags(raw)) return null
-                return {
-                  key: `${source}-${i}-${item.providerId || item.trackName || i}`,
-                  source,
-                  title: item.trackName || '-',
-                  subtitle: item.artistName || '-',
-                  badge: `${sourceName} -${r.score.toFixed(0)}`,
-                  raw
-                }
-              })
+              return ranked
+                .slice(0, 24)
+                .map((r, i) => {
+                  const item = r.item || {}
+                  const source = item.source || 'external'
+                  const sourceName =
+                    source === 'qq'
+                      ? 'QQ'
+                      : source === 'kugou'
+                        ? 'Kugou'
+                        : source === 'kuwo'
+                          ? 'Kuwo'
+                          : source
+                  const raw = r.chosenLyrics || item.syncedLyrics || item.plainLyrics || ''
+                  if (!hasSyncedLrcTimeTags(raw)) return null
+                  return {
+                    key: `${source}-${i}-${item.providerId || item.trackName || i}`,
+                    source,
+                    title: item.trackName || '-',
+                    subtitle: item.artistName || '-',
+                    badge: `${sourceName} -${r.score.toFixed(0)}`,
+                    raw
+                  }
+                })
                 .filter(Boolean)
             })
             .catch(() => [])
@@ -6939,7 +6924,9 @@ export default function App() {
         const merged = []
         for (const doneSource of completedSources) {
           for (const item of sourceItems.get(doneSource) || []) {
-            const key = item?.key || `${item?.source || doneSource}-${item?.title || ''}-${item?.subtitle || ''}`
+            const key =
+              item?.key ||
+              `${item?.source || doneSource}-${item?.title || ''}-${item?.subtitle || ''}`
             if (seen.has(key)) continue
             seen.add(key)
             merged.push(item)
@@ -7316,13 +7303,7 @@ export default function App() {
     const useOnlineLyrics =
       lyricsSource !== 'local' &&
       lyricsSource !== 'manual' &&
-      [
-        'lrclib',
-        'netease',
-        'qq',
-        'kugou',
-        'kuwo'
-      ].includes(lyricsSource)
+      ['lrclib', 'netease', 'qq', 'kugou', 'kuwo'].includes(lyricsSource)
 
     if (title && useOnlineLyrics) {
       try {
@@ -7431,9 +7412,14 @@ export default function App() {
               })
           })
 
-        const runFirstSuccessfulLyricsAttempt = (attempts, timeoutMs = STRICT_LYRICS_SOURCE_TIMEOUT_MS) =>
+        const runFirstSuccessfulLyricsAttempt = (
+          attempts,
+          timeoutMs = STRICT_LYRICS_SOURCE_TIMEOUT_MS
+        ) =>
           new Promise((resolve) => {
-            const activeAttempts = (attempts || []).filter((attempt) => typeof attempt?.run === 'function')
+            const activeAttempts = (attempts || []).filter(
+              (attempt) => typeof attempt?.run === 'function'
+            )
             if (activeAttempts.length === 0) {
               resolve(false)
               return
@@ -7451,22 +7437,25 @@ export default function App() {
             timers.push(setTimeout(() => finish(false), timeoutMs))
 
             activeAttempts.forEach((attempt) => {
-              const timer = setTimeout(() => {
-                Promise.resolve()
-                  .then(attempt.run)
-                  .then((hit) => {
-                    if (hit) {
-                      finish(true)
-                      return
-                    }
-                    completed += 1
-                    if (completed === activeAttempts.length) finish(false)
-                  })
-                  .catch(() => {
-                    completed += 1
-                    if (completed === activeAttempts.length) finish(false)
-                  })
-              }, Math.max(0, Number(attempt.delayMs) || 0))
+              const timer = setTimeout(
+                () => {
+                  Promise.resolve()
+                    .then(attempt.run)
+                    .then((hit) => {
+                      if (hit) {
+                        finish(true)
+                        return
+                      }
+                      completed += 1
+                      if (completed === activeAttempts.length) finish(false)
+                    })
+                    .catch(() => {
+                      completed += 1
+                      if (completed === activeAttempts.length) finish(false)
+                    })
+                },
+                Math.max(0, Number(attempt.delayMs) || 0)
+              )
               timers.push(timer)
             })
           })
@@ -7697,7 +7686,8 @@ export default function App() {
         }
 
         const applyRankedLyricsCandidate = (candidate, fallbackSource) => {
-          if (!candidate || !isAutoLyricsCandidateAccepted(candidate, lyricsRankOptions)) return false
+          if (!candidate || !isAutoLyricsCandidateAccepted(candidate, lyricsRankOptions))
+            return false
           const raw =
             candidate.chosenLyrics ||
             candidate.item?.syncedLyrics ||
@@ -7802,7 +7792,10 @@ export default function App() {
                   candidate?.item?.syncedLyrics ||
                   candidate?.item?.plainLyrics ||
                   ''
-                return hasSyncedLrcTimeTags(raw) && isAutoLyricsCandidateAccepted(candidate, lyricsRankOptions)
+                return (
+                  hasSyncedLrcTimeTags(raw) &&
+                  isAutoLyricsCandidateAccepted(candidate, lyricsRankOptions)
+                )
               })
               .sort((a, b) => {
                 if (b.score !== a.score) return b.score - a.score
@@ -7829,7 +7822,13 @@ export default function App() {
         }
 
         if (configRef.current.lyricsDeepSearchEnabled === true) {
-          if (await runWithLyricsAttemptTimeout(runDeepPrioritySearch, LRCLIB_LYRICS_SOURCE_TIMEOUT_MS)) return
+          if (
+            await runWithLyricsAttemptTimeout(
+              runDeepPrioritySearch,
+              LRCLIB_LYRICS_SOURCE_TIMEOUT_MS
+            )
+          )
+            return
         } else {
           const onlineAttemptBySource = {
             netease: () => tryNeteaseVariants(),
@@ -7838,14 +7837,9 @@ export default function App() {
             kuwo: () => tryExternalVariants(['kuwo']),
             lrclib: () => runLrcLibAttempts()
           }
-          const fallbackOrder = [
-            lyricsSource,
-            'netease',
-            'qq',
-            'kugou',
-            'kuwo',
-            'lrclib'
-          ].filter((source, index, arr) => source && arr.indexOf(source) === index)
+          const fallbackOrder = [lyricsSource, 'netease', 'qq', 'kugou', 'kuwo', 'lrclib'].filter(
+            (source, index, arr) => source && arr.indexOf(source) === index
+          )
           const attempts = fallbackOrder
             .map((source, index) => {
               const run = onlineAttemptBySource[source]
@@ -7859,7 +7853,8 @@ export default function App() {
               return { source, delayMs, run }
             })
             .filter(Boolean)
-          if (await runFirstSuccessfulLyricsAttempt(attempts, LRCLIB_LYRICS_SOURCE_TIMEOUT_MS)) return
+          if (await runFirstSuccessfulLyricsAttempt(attempts, LRCLIB_LYRICS_SOURCE_TIMEOUT_MS))
+            return
         }
       } catch (e) {
         console.error('Online lyrics error', e)
@@ -8115,7 +8110,9 @@ export default function App() {
 
     const memoryMeta = trackMetaMapRef.current?.[filePath]
     if (isCompleteCachedMeta(memoryMeta)) {
-      applyCachedMeta(memoryMeta, { loadLyrics: !isRemoteTrackPath(filePath) || isStreamingTrackPath(filePath) })
+      applyCachedMeta(memoryMeta, {
+        loadLyrics: !isRemoteTrackPath(filePath) || isStreamingTrackPath(filePath)
+      })
       return
     }
     startEarlyLyricsLoad(hasCurrentEmbeddedLyricsExtraction(memoryMeta) ? memoryMeta : trackHints)
@@ -8123,7 +8120,9 @@ export default function App() {
     if (isRemoteTrackPath(filePath)) {
       const isStreamingRemoteTrack = isStreamingTrackPath(filePath)
       const playlistTrack = playlistRef.current.find((track) => track.path === filePath)
-      const builtRemoteMeta = buildRemoteTrackMeta(playlistTrack || { path: filePath, info: trackHints })
+      const builtRemoteMeta = buildRemoteTrackMeta(
+        playlistTrack || { path: filePath, info: trackHints }
+      )
       const remoteMeta = mergeRemoteTrackMeta(memoryMeta, builtRemoteMeta)
       if (!isStreamingRemoteTrack) {
         setLyricsMatchStatus('none')
@@ -8349,8 +8348,8 @@ export default function App() {
             discNo: common.discNo ?? null,
             cover: resolvedCover,
             coverScope: common.coverScope || cachedMeta?.coverScope || null,
-            coverExtractorVersion:
-              common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
+            coverSource: common.coverSource || cachedMeta?.coverSource || null,
+            coverExtractorVersion: common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
             duration: technical.duration || null,
@@ -8464,7 +8463,10 @@ export default function App() {
     if (lyricsMvSurfaceLoadKeyRef.current === loadKey) return
     lyricsMvSurfaceLoadKeyRef.current = loadKey
 
-    if (lyricsLoadSurfaceActive && (!isRemoteTrackPath(filePath) || isStreamingTrackPath(filePath))) {
+    if (
+      lyricsLoadSurfaceActive &&
+      (!isRemoteTrackPath(filePath) || isStreamingTrackPath(filePath))
+    ) {
       fetchLyrics(filePath, title, artist, {
         ...hints,
         mvRequestSeq: requestSeq,
@@ -8987,7 +8989,9 @@ export default function App() {
         const job = ncmConversionQueueRef.current.shift()
         const file = job?.file
         if (!file?.path) continue
-        setConversionMsg(t('settings.decrypting', { name: file.name || getPathBasename(file.path) }))
+        setConversionMsg(
+          t('settings.decrypting', { name: file.name || getPathBasename(file.path) })
+        )
         try {
           const result = await window.api.convertNcmHandler(file.path)
           if (result?.success && result.path) {
@@ -9698,16 +9702,8 @@ export default function App() {
       nextTrack.title ||
       stripExtension(nextTrack.name || '')
     if (!title) return
-    const artist =
-      parsedInfo?.artist ||
-      nextTrack.info?.artist ||
-      nextTrack.artist ||
-      ''
-    const album =
-      parsedInfo?.album ||
-      nextTrack.info?.album ||
-      nextTrack.album ||
-      ''
+    const artist = parsedInfo?.artist || nextTrack.info?.artist || nextTrack.artist || ''
+    const album = parsedInfo?.album || nextTrack.info?.album || nextTrack.album || ''
     const durationSec =
       Number(storedMeta?.duration) ||
       Number(nextTrack.info?.duration) ||
@@ -10349,7 +10345,14 @@ export default function App() {
         }
       }
     },
-    [currentTrackPath, markLyricsSeekJump, mvId?.id, mvId?.source, shouldLoadActiveMvMedia, syncYTVideo]
+    [
+      currentTrackPath,
+      markLyricsSeekJump,
+      mvId?.id,
+      mvId?.source,
+      shouldLoadActiveMvMedia,
+      syncYTVideo
+    ]
   )
 
   const syncYTVideoRef = useRef(syncYTVideo)
@@ -11001,7 +11004,14 @@ export default function App() {
       if (album) return album
     }
     return currentTrack?.info?.album || 'Unknown Album'
-  }, [coverUrlTrackPath, lastCastStatus, currentDisplayOverride, metadata.album, currentTrackInfo, currentTrack])
+  }, [
+    coverUrlTrackPath,
+    lastCastStatus,
+    currentDisplayOverride,
+    metadata.album,
+    currentTrackInfo,
+    currentTrack
+  ])
 
   useEffect(() => {
     const track = currentTrack
@@ -11665,6 +11675,7 @@ export default function App() {
       discNo: metadata.discNo ?? currentTrackInfo?.discNo ?? null,
       cover: displaySafeCoverUrl,
       coverScope: existingCurrentMeta.coverScope || null,
+      coverSource: existingCurrentMeta.coverSource || null,
       coverExtractorVersion: existingCurrentMeta.coverExtractorVersion || null,
       duration: duration || currentTrackInfo?.duration || null,
       coverChecked: true,
@@ -13419,7 +13430,9 @@ export default function App() {
     if (selectedAlbum === 'all') return []
     const picked = selectedAlbumTracksRef.current
     if (picked?.paths instanceof Set && picked.paths.size > 0) {
-      const matchingPickedTracks = queryFilteredPlaylist.filter((track) => picked.paths.has(track.path))
+      const matchingPickedTracks = queryFilteredPlaylist.filter((track) =>
+        picked.paths.has(track.path)
+      )
       if (matchingPickedTracks.length > 0) return matchingPickedTracks
     }
     if (selectedAlbumKey) {
@@ -13472,9 +13485,13 @@ export default function App() {
     } else if (artistSortMode === 'tracksDesc') {
       buckets.sort((a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name))
     } else if (artistSortMode === 'dateAsc') {
-      buckets.sort((a, b) => getArtistAddedAt(a) - getArtistAddedAt(b) || a.name.localeCompare(b.name))
+      buckets.sort(
+        (a, b) => getArtistAddedAt(a) - getArtistAddedAt(b) || a.name.localeCompare(b.name)
+      )
     } else if (artistSortMode === 'dateDesc') {
-      buckets.sort((a, b) => getArtistAddedAt(b) - getArtistAddedAt(a) || a.name.localeCompare(b.name))
+      buckets.sort(
+        (a, b) => getArtistAddedAt(b) - getArtistAddedAt(a) || a.name.localeCompare(b.name)
+      )
     }
 
     return buckets
@@ -13785,8 +13802,9 @@ export default function App() {
         result = queryFilteredPlaylist
           .filter(
             (track) =>
-              normalizeArtistNameKey(track.info.artist || t('artists.unknown', 'Unknown Artist')) ===
-              selectedArtistKey
+              normalizeArtistNameKey(
+                track.info.artist || t('artists.unknown', 'Unknown Artist')
+              ) === selectedArtistKey
           )
           .sort(compareTrackOrder)
       }
@@ -13845,7 +13863,10 @@ export default function App() {
     if (selectedAlbum === 'all') return
     if (listMode === 'album') return
     const selectedKey = selectedAlbumKey || normalizeAlbumNameKey(selectedAlbum)
-    if (!albumNamesSet.has(selectedKey) && !albumNamesSet.has(normalizeAlbumNameKey(selectedAlbum))) {
+    if (
+      !albumNamesSet.has(selectedKey) &&
+      !albumNamesSet.has(normalizeAlbumNameKey(selectedAlbum))
+    ) {
       setSelectedAlbum('all')
     }
   }, [albumNamesSet, listMode, selectedAlbum, selectedAlbumKey])
@@ -14366,11 +14387,17 @@ export default function App() {
                 ))
         }
       }
-      const { targetIndex, trackPaths } = ensureStreamingTracksInPlaylist(options.contextTracks, track)
+      const { targetIndex, trackPaths } = ensureStreamingTracksInPlaylist(
+        options.contextTracks,
+        track
+      )
       if (targetIndex < 0) {
         return {
           ok: false,
-          message: t('streaming.notices.playbackPrepareFailed', 'Could not prepare streaming playback.')
+          message: t(
+            'streaming.notices.playbackPrepareFailed',
+            'Could not prepare streaming playback.'
+          )
         }
       }
       await stopCastBeforeLocalPlayback()
@@ -14987,11 +15014,7 @@ export default function App() {
   }, [albumGroupsFiltered, listMode, selectedAlbum])
 
   const albumCoverManualLoadTargets = useMemo(() => {
-    if (
-      !libraryBrowserVisible ||
-      listMode !== 'album' ||
-      selectedAlbum !== 'all'
-    ) {
+    if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
       return []
     }
     return buildAlbumWallHydrateTargets(
@@ -15068,7 +15091,9 @@ export default function App() {
         const pendingTargets = []
         const cachedEntries = {}
         const cachedCovers = {}
-        const cached = await readTrackMetaCache(targets.map((target) => target.track).filter(Boolean))
+        const cached = await readTrackMetaCache(
+          targets.map((target) => target.track).filter(Boolean)
+        )
         if (cancelled) return
         for (const target of targets) {
           const track = target?.track
@@ -15076,7 +15101,10 @@ export default function App() {
           if (!path) continue
           const cachedMeta = cached?.[path]
           if (cachedMeta) {
-            cachedEntries[path] = mergeTrackMetaEntryPreservingCover(trackMetaMapRef.current[path] || {}, cachedMeta)
+            cachedEntries[path] = mergeTrackMetaEntryPreservingCover(
+              trackMetaMapRef.current[path] || {},
+              cachedMeta
+            )
             const coverEntry = collectAlbumCoverFromMeta(target, cachedEntries[path])
             if (coverEntry) cachedCovers[target.albumKey] = coverEntry
           }
@@ -15139,12 +15167,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [
-    albumCoverManualLoadRequest,
-    persistAlbumCoverCacheItems,
-    setAlbumCoverMap,
-    setTrackMetaMap
-  ])
+  }, [albumCoverManualLoadRequest, persistAlbumCoverCacheItems, setAlbumCoverMap, setTrackMetaMap])
 
   const albumSortOptions = useMemo(
     () => [
@@ -15223,7 +15246,10 @@ export default function App() {
         : Math.max(1, Math.floor((nextWidth + rowGap) / (160 + rowGap)))
       const estimatedCardWidth =
         nextColumnCount > 0
-          ? Math.max(160, Math.floor((nextWidth - rowGap * (nextColumnCount - 1)) / nextColumnCount))
+          ? Math.max(
+              160,
+              Math.floor((nextWidth - rowGap * (nextColumnCount - 1)) / nextColumnCount)
+            )
           : firstCardRect?.width || 160
       const nextRowHeight = Math.max(
         ALBUM_GRID_DEFAULT_ROW_HEIGHT,
@@ -15746,10 +15772,10 @@ export default function App() {
     const isCurrentTrackCandidate = (track) =>
       Boolean(
         currentTrack?.path &&
-          track?.path === currentTrack.path &&
-          isLocalAudioFilePath(track.path) &&
-          !isRemoteTrackPath(track.path) &&
-          !isStreamingTrackPath(track.path)
+        track?.path === currentTrack.path &&
+        isLocalAudioFilePath(track.path) &&
+        !isRemoteTrackPath(track.path) &&
+        !isStreamingTrackPath(track.path)
       )
     const isUrgentMetadataHydrateTrack = (track) =>
       isCurrentTrackCandidate(track) || isVisibleRowHydrateTrack(track)
@@ -15762,19 +15788,12 @@ export default function App() {
       ) {
         return false
       }
-      if (
-        hydrateRequirement &&
-        !satisfiesMetadataHydrateRequirement(entry, hydrateRequirement)
-      ) {
+      if (hydrateRequirement && !satisfiesMetadataHydrateRequirement(entry, hydrateRequirement)) {
         return !isVisibleRowHydrateRequirementFullyProbed(track, hydrateRequirement)
       }
       if (entry?.coverMemoryTrimmed && metadataCoverKeepPathSet.has(track.path)) return true
       const hasUsefulArtist = !isUnknownArtistName(
-        entry?.albumArtist ||
-          entry?.artist ||
-          track?.info?.albumArtist ||
-          track?.info?.artist ||
-          ''
+        entry?.albumArtist || entry?.artist || track?.info?.albumArtist || track?.info?.artist || ''
       )
       const shouldProbeMissingCover =
         entry?.coverChecked === true &&
@@ -16005,6 +16024,7 @@ export default function App() {
                 discNo: common.discNo ?? null,
                 cover: common.cover || cachedMeta.cover || null,
                 coverScope: common.coverScope || cachedMeta.coverScope || null,
+                coverSource: common.coverSource || cachedMeta.coverSource || null,
                 coverExtractorVersion:
                   common.coverExtractorVersion ??
                   cachedMeta.coverExtractorVersion ??
@@ -16040,9 +16060,7 @@ export default function App() {
       }
 
       await Promise.all(
-        Array.from({ length: Math.min(parseWorkers, parseQueue.length) }, () =>
-          parseNextTrack()
-        )
+        Array.from({ length: Math.min(parseWorkers, parseQueue.length) }, () => parseNextTrack())
       )
       flushPendingMeta(true)
 
@@ -16244,9 +16262,8 @@ export default function App() {
         }
 
         await Promise.all(
-          Array.from(
-            { length: Math.min(ALBUM_COVER_BACKFILL_WORKERS, parseTargets.length) },
-            () => parseNextBackfillTarget()
+          Array.from({ length: Math.min(ALBUM_COVER_BACKFILL_WORKERS, parseTargets.length) }, () =>
+            parseNextBackfillTarget()
           )
         )
 
@@ -16285,9 +16302,19 @@ export default function App() {
       if (!album.cacheArtist || isUnknownArtistName(album.cacheArtist)) continue
 
       const representativeTrack =
-        album.tracks.find((track) => trackMetaMap[track.path]?.coverChecked === true) ||
-        album.tracks.find((track) => albumCoverProbePathsRef.current.has(track.path)) ||
-        album.tracks.find((track) => track?.path) ||
+        album.tracks.find((track) => {
+          const entry = trackMetaMap[track.path]
+          return entry && !entry.cover && hasCurrentEmbeddedCoverCheck(entry)
+        }) ||
+        album.tracks.find((track) => {
+          const entry = trackMetaMap[track.path]
+          return (
+            entry &&
+            !entry.cover &&
+            hasCurrentEmbeddedCoverCheck(entry) &&
+            albumCoverProbePathsRef.current.has(track.path)
+          )
+        }) ||
         null
       if (!representativeTrack?.path) continue
 
@@ -16341,21 +16368,27 @@ export default function App() {
         discNo: currentEntry.discNo ?? info.discNo ?? null,
         duration: currentEntry.duration || info.duration || null,
         cover,
+        coverScope: 'album',
+        coverSource: 'network',
         coverChecked: true
       }
 
       setTrackMetaMap((prev) => {
         const existing = prev[candidate.track.path] || {}
-        if (existing.cover && !candidate.coverFailed) return prev
+        const mergedEntry = mergeTrackMetaEntryPreservingCover(existing, cacheEntry)
+        if (
+          existing === mergedEntry ||
+          (existing.cover && mergedEntry.cover === existing.cover && !candidate.coverFailed)
+        )
+          return prev
         return {
           ...prev,
-          [candidate.track.path]: {
-            ...existing,
-            ...cacheEntry
-          }
+          [candidate.track.path]: mergedEntry
         }
       })
-      writeTrackMetaCache({ [candidate.track.path]: cacheEntry })
+      writeTrackMetaCache({
+        [candidate.track.path]: mergeTrackMetaEntryPreservingCover(currentEntry, cacheEntry)
+      })
     }
 
     const runNext = async () => {
@@ -18480,7 +18513,9 @@ export default function App() {
                   e.currentTarget.style.color = 'var(--accent-pink)'
                 }}
                 onMouseOut={(e) => {
-                  e.currentTarget.style.color = castSendDrawerOpen ? 'var(--accent-pink)' : 'inherit'
+                  e.currentTarget.style.color = castSendDrawerOpen
+                    ? 'var(--accent-pink)'
+                    : 'inherit'
                 }}
                 title={t('titlebar.castSender')}
               >
@@ -18881,29 +18916,29 @@ export default function App() {
                 listMode !== 'streaming' &&
                 listMode !== 'queue' &&
                 listMode !== 'history' && (
-                <span className="browser-topbar-count">
-                  {'\u00b7 '}
-                  {listMode === 'album' && selectedAlbum === 'all'
-                    ? t('albums.count', {
-                        count: albumGroupsFiltered.length,
-                        defaultValue: '{{count}} 张'
-                      })
-                    : listMode === 'artists' && selectedArtist === 'all'
-                      ? t('artists.count', {
-                          count: artistGroups.length,
-                          defaultValue: '{{count}} \u4f4d'
+                  <span className="browser-topbar-count">
+                    {'\u00b7 '}
+                    {listMode === 'album' && selectedAlbum === 'all'
+                      ? t('albums.count', {
+                          count: albumGroupsFiltered.length,
+                          defaultValue: '{{count}} 张'
                         })
-                      : listMode === 'folders' && selectedFolder === 'all'
-                        ? t('playlists.groups', {
-                            count: folderGroupsFiltered.length,
-                            defaultValue: '{{count}} 组'
+                      : listMode === 'artists' && selectedArtist === 'all'
+                        ? t('artists.count', {
+                            count: artistGroups.length,
+                            defaultValue: '{{count}} \u4f4d'
                           })
-                        : t('songs.count', {
-                            count: tracksForSidebarListFiltered.length,
-                            defaultValue: '{{count}} \u9996'
-                          })}
-                </span>
-              )}
+                        : listMode === 'folders' && selectedFolder === 'all'
+                          ? t('playlists.groups', {
+                              count: folderGroupsFiltered.length,
+                              defaultValue: '{{count}} 组'
+                            })
+                          : t('songs.count', {
+                              count: tracksForSidebarListFiltered.length,
+                              defaultValue: '{{count}} \u9996'
+                            })}
+                  </span>
+                )}
             </span>
             <div
               className="browser-toolbar-group"
@@ -19012,174 +19047,178 @@ export default function App() {
             listMode !== 'streaming' &&
             listMode !== 'queue' &&
             listMode !== 'history' && (
-            <div className="search-container no-drag" style={{ flexShrink: 0 }}>
-              <Search size={16} className="search-icon" />
-              <input
-                type="text"
-                placeholder={t('search.placeholder')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery.trim() && (
-                <button
-                  type="button"
-                  className="search-clear-btn"
-                  onClick={() => setSearchQuery('')}
-                  aria-label={t('common.clear', { defaultValue: 'Clear' })}
-                  title={t('common.clear', { defaultValue: 'Clear' })}
-                >
-                  <X size={14} strokeWidth={1.8} />
-                </button>
-              )}
-              {listMode === 'songs' && (
-                <div className="folder-sort-wrap search-sort-wrap" ref={songSortRef}>
+              <div className="search-container no-drag" style={{ flexShrink: 0 }}>
+                <Search size={16} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder={t('search.placeholder')}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery.trim() && (
                   <button
                     type="button"
-                    className="folder-sort-trigger"
-                    onClick={() => setSongSortOpen((v) => !v)}
-                    aria-expanded={songSortOpen}
+                    className="search-clear-btn"
+                    onClick={() => setSearchQuery('')}
+                    aria-label={t('common.clear', { defaultValue: 'Clear' })}
+                    title={t('common.clear', { defaultValue: 'Clear' })}
                   >
-                    {songSortMode === 'dateAsc'
-                      ? t('songs.sortDateAsc', 'Oldest added')
-                      : songSortMode === 'dateDesc'
-                        ? t('songs.sortDateDesc', 'Newest added')
-                        : songSortMode === 'nameAsc'
-                          ? t('songs.sortNameAsc', 'Name (A-Z)')
-                          : songSortMode === 'nameDesc'
-                            ? t('songs.sortNameDesc', 'Name (Z-A)')
-                            : songSortMode === 'durationAsc'
-                              ? t('songs.sortDurationAsc', 'Duration (Short)')
-                              : songSortMode === 'durationDesc'
-                                ? t('songs.sortDurationDesc', 'Duration (Long)')
-                                : songSortMode === 'qualityAsc'
-                                  ? t('songs.sortQualityAsc', 'Quality (Low)')
-                                  : songSortMode === 'qualityDesc'
-                                    ? t('songs.sortQualityDesc', 'Quality (High)')
-                                    : songSortMode === 'frequentDesc'
-                                      ? t('songs.sortFrequentDesc', 'Most played first')
-                                      : songSortMode === 'random'
-                                        ? t('songs.sortRandom', 'Random')
-                                        : t('songs.sortDefault', 'Default')}
-                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                    <X size={14} strokeWidth={1.8} />
                   </button>
-                  {songSortOpen && (
-                    <div className="folder-sort-menu" role="menu">
-                      {[
-                        { key: 'default', label: t('songs.sortDefault', 'Default') },
-                        { key: 'dateAsc', label: t('songs.sortDateAsc', 'Oldest added') },
-                        { key: 'dateDesc', label: t('songs.sortDateDesc', 'Newest added') },
-                        { key: 'nameAsc', label: t('songs.sortNameAsc', 'Name (A-Z)') },
-                        { key: 'nameDesc', label: t('songs.sortNameDesc', 'Name (Z-A)') },
-                        {
-                          key: 'durationAsc',
-                          label: t('songs.sortDurationAsc', 'Duration (Short)')
-                        },
-                        {
-                          key: 'durationDesc',
-                          label: t('songs.sortDurationDesc', 'Duration (Long)')
-                        },
-                        { key: 'qualityAsc', label: t('songs.sortQualityAsc', 'Quality (Low)') },
-                        { key: 'qualityDesc', label: t('songs.sortQualityDesc', 'Quality (High)') },
-                        {
-                          key: 'frequentDesc',
-                          label: t('songs.sortFrequentDesc', 'Most played first')
-                        },
-                        {
-                          key: 'random',
-                          label: t('songs.sortRandom', 'Random')
-                        }
-                      ].map((opt) => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          role="menuitem"
-                          className={`folder-sort-menu-item${songSortMode === opt.key ? ' active' : ''}`}
-                          onClick={() => {
-                            if (opt.key === 'random') setSongRandomSortSeed(createSongRandomSortSeed())
-                            setSongSortMode(opt.key)
-                            setSongSortOpen(false)
-                          }}
-                        >
-                          <div className="folder-sort-chk">
-                            {songSortMode === opt.key && <Check size={14} strokeWidth={2} />}
-                          </div>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {listMode === 'album' && selectedAlbum === 'all' && (
-                <div className="folder-sort-wrap search-sort-wrap" ref={albumSortRef}>
-                  <button
-                    type="button"
-                    className="folder-sort-trigger"
-                    onClick={() => setAlbumSortOpen((v) => !v)}
-                    aria-expanded={albumSortOpen}
-                  >
-                    {activeAlbumSortLabel}
-                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
-                  </button>
-                  {albumSortOpen && (
-                    <div className="folder-sort-menu" role="menu">
-                      {albumSortOptions.map((opt) => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          role="menuitem"
-                          className={`folder-sort-menu-item${albumSortMode === opt.key ? ' active' : ''}`}
-                          onClick={() => {
-                            setAlbumSortMode(opt.key)
-                            setAlbumSortOpen(false)
-                          }}
-                        >
-                          <div className="folder-sort-chk">
-                            {albumSortMode === opt.key && <Check size={14} strokeWidth={2} />}
-                          </div>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {listMode === 'artists' && selectedArtist === 'all' && (
-                <div className="folder-sort-wrap search-sort-wrap" ref={artistSortRef}>
-                  <button
-                    type="button"
-                    className="folder-sort-trigger"
-                    onClick={() => setArtistSortOpen((v) => !v)}
-                    aria-expanded={artistSortOpen}
-                  >
-                    {activeArtistSortLabel}
-                    <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
-                  </button>
-                  {artistSortOpen && (
-                    <div className="folder-sort-menu" role="menu">
-                      {artistSortOptions.map((opt) => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          role="menuitem"
-                          className={`folder-sort-menu-item${artistSortMode === opt.key ? ' active' : ''}`}
-                          onClick={() => {
-                            setArtistSortMode(opt.key)
-                            setArtistSortOpen(false)
-                          }}
-                        >
-                          <div className="folder-sort-chk">
-                            {artistSortMode === opt.key && <Check size={14} strokeWidth={2} />}
-                          </div>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                )}
+                {listMode === 'songs' && (
+                  <div className="folder-sort-wrap search-sort-wrap" ref={songSortRef}>
+                    <button
+                      type="button"
+                      className="folder-sort-trigger"
+                      onClick={() => setSongSortOpen((v) => !v)}
+                      aria-expanded={songSortOpen}
+                    >
+                      {songSortMode === 'dateAsc'
+                        ? t('songs.sortDateAsc', 'Oldest added')
+                        : songSortMode === 'dateDesc'
+                          ? t('songs.sortDateDesc', 'Newest added')
+                          : songSortMode === 'nameAsc'
+                            ? t('songs.sortNameAsc', 'Name (A-Z)')
+                            : songSortMode === 'nameDesc'
+                              ? t('songs.sortNameDesc', 'Name (Z-A)')
+                              : songSortMode === 'durationAsc'
+                                ? t('songs.sortDurationAsc', 'Duration (Short)')
+                                : songSortMode === 'durationDesc'
+                                  ? t('songs.sortDurationDesc', 'Duration (Long)')
+                                  : songSortMode === 'qualityAsc'
+                                    ? t('songs.sortQualityAsc', 'Quality (Low)')
+                                    : songSortMode === 'qualityDesc'
+                                      ? t('songs.sortQualityDesc', 'Quality (High)')
+                                      : songSortMode === 'frequentDesc'
+                                        ? t('songs.sortFrequentDesc', 'Most played first')
+                                        : songSortMode === 'random'
+                                          ? t('songs.sortRandom', 'Random')
+                                          : t('songs.sortDefault', 'Default')}
+                      <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                    </button>
+                    {songSortOpen && (
+                      <div className="folder-sort-menu" role="menu">
+                        {[
+                          { key: 'default', label: t('songs.sortDefault', 'Default') },
+                          { key: 'dateAsc', label: t('songs.sortDateAsc', 'Oldest added') },
+                          { key: 'dateDesc', label: t('songs.sortDateDesc', 'Newest added') },
+                          { key: 'nameAsc', label: t('songs.sortNameAsc', 'Name (A-Z)') },
+                          { key: 'nameDesc', label: t('songs.sortNameDesc', 'Name (Z-A)') },
+                          {
+                            key: 'durationAsc',
+                            label: t('songs.sortDurationAsc', 'Duration (Short)')
+                          },
+                          {
+                            key: 'durationDesc',
+                            label: t('songs.sortDurationDesc', 'Duration (Long)')
+                          },
+                          { key: 'qualityAsc', label: t('songs.sortQualityAsc', 'Quality (Low)') },
+                          {
+                            key: 'qualityDesc',
+                            label: t('songs.sortQualityDesc', 'Quality (High)')
+                          },
+                          {
+                            key: 'frequentDesc',
+                            label: t('songs.sortFrequentDesc', 'Most played first')
+                          },
+                          {
+                            key: 'random',
+                            label: t('songs.sortRandom', 'Random')
+                          }
+                        ].map((opt) => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            role="menuitem"
+                            className={`folder-sort-menu-item${songSortMode === opt.key ? ' active' : ''}`}
+                            onClick={() => {
+                              if (opt.key === 'random')
+                                setSongRandomSortSeed(createSongRandomSortSeed())
+                              setSongSortMode(opt.key)
+                              setSongSortOpen(false)
+                            }}
+                          >
+                            <div className="folder-sort-chk">
+                              {songSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                            </div>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {listMode === 'album' && selectedAlbum === 'all' && (
+                  <div className="folder-sort-wrap search-sort-wrap" ref={albumSortRef}>
+                    <button
+                      type="button"
+                      className="folder-sort-trigger"
+                      onClick={() => setAlbumSortOpen((v) => !v)}
+                      aria-expanded={albumSortOpen}
+                    >
+                      {activeAlbumSortLabel}
+                      <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                    </button>
+                    {albumSortOpen && (
+                      <div className="folder-sort-menu" role="menu">
+                        {albumSortOptions.map((opt) => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            role="menuitem"
+                            className={`folder-sort-menu-item${albumSortMode === opt.key ? ' active' : ''}`}
+                            onClick={() => {
+                              setAlbumSortMode(opt.key)
+                              setAlbumSortOpen(false)
+                            }}
+                          >
+                            <div className="folder-sort-chk">
+                              {albumSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                            </div>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {listMode === 'artists' && selectedArtist === 'all' && (
+                  <div className="folder-sort-wrap search-sort-wrap" ref={artistSortRef}>
+                    <button
+                      type="button"
+                      className="folder-sort-trigger"
+                      onClick={() => setArtistSortOpen((v) => !v)}
+                      aria-expanded={artistSortOpen}
+                    >
+                      {activeArtistSortLabel}
+                      <ChevronDown size={14} aria-hidden strokeWidth={1.5} />
+                    </button>
+                    {artistSortOpen && (
+                      <div className="folder-sort-menu" role="menu">
+                        {artistSortOptions.map((opt) => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            role="menuitem"
+                            className={`folder-sort-menu-item${artistSortMode === opt.key ? ' active' : ''}`}
+                            onClick={() => {
+                              setArtistSortMode(opt.key)
+                              setArtistSortOpen(false)
+                            }}
+                          >
+                            <div className="folder-sort-chk">
+                              {artistSortMode === opt.key && <Check size={14} strokeWidth={2} />}
+                            </div>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
           <div
             className={`sidebar-list-stack${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' sidebar-list-stack--pl-detail' : ''}`}
@@ -19421,7 +19460,8 @@ export default function App() {
                           role="menuitem"
                           className={`folder-sort-menu-item${songSortMode === opt.key ? ' active' : ''}`}
                           onClick={() => {
-                            if (opt.key === 'random') setSongRandomSortSeed(createSongRandomSortSeed())
+                            if (opt.key === 'random')
+                              setSongRandomSortSeed(createSongRandomSortSeed())
                             setSongSortMode(opt.key)
                             setSongSortOpen(false)
                           }}
@@ -19500,11 +19540,7 @@ export default function App() {
                   />
                 )}
 
-                {listMode === 'streaming' && (
-                  <StreamingView
-                    onPlayTrack={playStreamingTrack}
-                  />
-                )}
+                {listMode === 'streaming' && <StreamingView onPlayTrack={playStreamingTrack} />}
 
                 {playlist.length === 0 &&
                   listMode !== 'playlists' &&
@@ -20974,7 +21010,9 @@ export default function App() {
                 playbackRate={playbackRate}
                 isDragging={isProgressDragging}
                 disabled={dlnaUiOn}
-                unknownDuration={dlnaUiOn && (!displayProgressDuration || displayProgressDuration <= 0)}
+                unknownDuration={
+                  dlnaUiOn && (!displayProgressDuration || displayProgressDuration <= 0)
+                }
                 onSeekChange={handleSeek}
                 onSeekStart={(value) => {
                   progressSeekValueRef.current = value
@@ -21575,13 +21613,19 @@ export default function App() {
                                     sleepTimerMinutes:
                                       raw === ''
                                         ? ''
-                                        : normalizeSleepTimerMinutes(raw, prev.sleepTimerMinutes || DEFAULT_CONFIG.sleepTimerMinutes)
+                                        : normalizeSleepTimerMinutes(
+                                            raw,
+                                            prev.sleepTimerMinutes ||
+                                              DEFAULT_CONFIG.sleepTimerMinutes
+                                          )
                                   }))
                                 }}
                                 onBlur={() =>
                                   setConfig((prev) => ({
                                     ...prev,
-                                    sleepTimerMinutes: normalizeSleepTimerMinutes(prev.sleepTimerMinutes)
+                                    sleepTimerMinutes: normalizeSleepTimerMinutes(
+                                      prev.sleepTimerMinutes
+                                    )
                                   }))
                                 }
                                 aria-label={t('settings.sleepTimerCustomMinutes')}
@@ -22250,7 +22294,10 @@ export default function App() {
                             )}
                           </p>
                         </div>
-                        <div className="settings-chip-row no-drag" style={{ justifyContent: 'flex-end' }}>
+                        <div
+                          className="settings-chip-row no-drag"
+                          style={{ justifyContent: 'flex-end' }}
+                        >
                           {[
                             {
                               key: 'showTitlebarCastSender',
@@ -24830,8 +24877,7 @@ export default function App() {
                         handleLocateTrackAlbum(track)
                       }}
                     >
-                      <Disc size={14} aria-hidden />{' '}
-                      {t('contextMenu.locateAlbum', 'Locate album')}
+                      <Disc size={14} aria-hidden /> {t('contextMenu.locateAlbum', 'Locate album')}
                     </button>
                     <button
                       type="button"
@@ -25251,7 +25297,9 @@ export default function App() {
               >
                 <Heart
                   size={17}
-                  fill={currentTrack?.path && likedSet.has(currentTrack.path) ? 'currentColor' : 'none'}
+                  fill={
+                    currentTrack?.path && likedSet.has(currentTrack.path) ? 'currentColor' : 'none'
+                  }
                   strokeWidth={1.7}
                 />
               </button>
@@ -25265,7 +25313,9 @@ export default function App() {
               playbackRate={playbackRate}
               isDragging={isProgressDragging}
               disabled={dlnaUiOn}
-              unknownDuration={dlnaUiOn && (!displayProgressDuration || displayProgressDuration <= 0)}
+              unknownDuration={
+                dlnaUiOn && (!displayProgressDuration || displayProgressDuration <= 0)
+              }
               onSeekChange={handleSeek}
               onSeekStart={(value) => {
                 progressSeekValueRef.current = value

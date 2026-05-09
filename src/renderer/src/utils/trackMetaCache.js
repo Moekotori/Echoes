@@ -117,10 +117,11 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   const needsAlbum = requirement?.needsAlbum === true
   if (!needsCover && !needsArtist && !needsAlbum) return true
   if (!entry || typeof entry !== 'object') return false
-  if (needsCover && !entry.cover) {
+  if (needsCover) {
+    const coverSatisfiedByLocalCover = entry.cover && isLocalCoverEntry(entry)
     const coverSatisfiedByCurrentNoCover =
-      requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
-    if (!coverSatisfiedByCurrentNoCover) return false
+      !entry.cover && requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
+    if (!coverSatisfiedByLocalCover && !coverSatisfiedByCurrentNoCover) return false
   }
   if (
     needsArtist &&
@@ -135,20 +136,58 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
 
 export const satisfiesAlbumWallHydrateRequirement = satisfiesMetadataHydrateRequirement
 
+function isNetworkCoverUrl(value = '') {
+  return /^https?:\/\//i.test(String(value || '').trim())
+}
+
+function isLocalCoverUrl(value = '') {
+  const cover = String(value || '').trim()
+  return /^(?:data:image\/|file:\/\/)/i.test(cover)
+}
+
+function normalizeCoverSource(value = '') {
+  const source = String(value || '').trim().toLowerCase()
+  if (['embedded', 'sidecar', 'folder', 'local', 'network'].includes(source)) return source
+  return ''
+}
+
+export function isLocalCoverEntry(entry = {}) {
+  if (!entry?.cover) return false
+  const source = normalizeCoverSource(entry.coverSource)
+  if (source && source !== 'network') return true
+  if (source === 'network') return false
+  return isLocalCoverUrl(entry.cover) || !isNetworkCoverUrl(entry.cover)
+}
+
+function getCoverPriority(entry = {}, cover = '') {
+  if (!cover) return 0
+  const source = normalizeCoverSource(entry?.coverSource)
+  if (source === 'embedded') return 5
+  if (source === 'sidecar' || source === 'folder' || source === 'local') return 4
+  if (source === 'network') return 1
+  if (isLocalCoverUrl(cover)) return 3
+  if (isNetworkCoverUrl(cover)) return 1
+  return 2
+}
+
 function hasOwnTrackCover(track, entry = null, options = {}) {
   const path = track?.path || ''
-  const ownCoverSources = [
-    path ? options.effectiveTrackMetaMap?.[path]?.cover : '',
-    path ? options.trackMetaMap?.[path]?.cover : '',
-    entry?.cover,
-    track?.info?.cover,
-    track?.cover
-  ]
-  return ownCoverSources.some((source) => typeof source === 'string' && source.trim())
+  const ownEntries = [
+    path ? options.effectiveTrackMetaMap?.[path] : null,
+    path ? options.trackMetaMap?.[path] : null,
+    entry
+  ].filter(Boolean)
+  if (ownEntries.some((item) => item?.cover && isLocalCoverEntry(item))) return true
+
+  const trackCoverSources = [track?.info?.cover, track?.cover]
+  return trackCoverSources.some((source) => {
+    const value = typeof source === 'string' ? source.trim() : ''
+    return Boolean(value && !isNetworkCoverUrl(value))
+  })
 }
 
 export function hasCurrentEmbeddedCoverCheck(entry = null) {
-  if (entry?.cover) return true
+  if (entry?.cover && isLocalCoverEntry(entry)) return true
   return (
     entry?.coverChecked === true &&
     Number(entry?.coverExtractorVersion) === EMBEDDED_COVER_EXTRACTOR_VERSION
@@ -436,6 +475,7 @@ export function stripCoverFieldsFromTrackMeta(meta) {
     cover,
     coverChecked,
     coverScope,
+    coverSource,
     coverExtractorVersion,
     coverMemoryTrimmed,
     ...rest
@@ -447,9 +487,15 @@ export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {})
   const next = { ...(existing || {}), ...(incoming || {}) }
   const incomingCover = typeof incoming?.cover === 'string' && incoming.cover ? incoming.cover : ''
   const existingCover = typeof existing?.cover === 'string' && existing.cover ? existing.cover : ''
-  if (!incomingCover && existingCover) {
+  const shouldPreserveExistingCover =
+    existingCover &&
+    (!incomingCover ||
+      getCoverPriority(existing, existingCover) > getCoverPriority(incoming, incomingCover))
+  if (shouldPreserveExistingCover) {
     next.cover = existingCover
     next.coverChecked = true
+    if (existing.coverScope != null) next.coverScope = existing.coverScope
+    if (existing.coverSource != null) next.coverSource = existing.coverSource
     if (existing.coverExtractorVersion != null && next.coverExtractorVersion == null) {
       next.coverExtractorVersion = existing.coverExtractorVersion
     }
@@ -541,6 +587,10 @@ function normalizeTrackMetaEntry(entry) {
   }
   if (entry.coverScope === 'track') next.coverScope = 'track'
   else if (entry.coverScope === 'album') next.coverScope = 'album'
+  {
+    const source = normalizeCoverSource(entry.coverSource)
+    if (source) next.coverSource = source
+  }
   for (const key of ['trackNo', 'discNo', 'duration', 'bitrateKbps', 'sampleRateHz', 'bitDepth', 'channels', 'bpm']) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null

@@ -636,6 +636,44 @@ test('album cover map entries write loose album name keys only when enabled', ()
   assert.equal(merged['Embedded Album'], 'data:image/mapped-cover')
 })
 
+test('album cover map lets local artwork replace network artwork', () => {
+  const merged = mergeAlbumCoverMapEntries(
+    {
+      'album-group-key': 'https://example.test/network.jpg'
+    },
+    {
+      'album-group-key': {
+        albumKey: 'album-group-key',
+        album: 'Album',
+        albumName: 'Album',
+        displayAlbumName: 'Album',
+        cover: 'data:image/jpeg;base64,local'
+      }
+    }
+  )
+
+  assert.equal(merged['album-group-key'], 'data:image/jpeg;base64,local')
+})
+
+test('album cover map does not let network artwork replace local artwork', () => {
+  const merged = mergeAlbumCoverMapEntries(
+    {
+      'album-group-key': 'data:image/jpeg;base64,local'
+    },
+    {
+      'album-group-key': {
+        albumKey: 'album-group-key',
+        album: 'Album',
+        albumName: 'Album',
+        displayAlbumName: 'Album',
+        cover: 'https://example.test/network.jpg'
+      }
+    }
+  )
+
+  assert.equal(merged['album-group-key'], 'data:image/jpeg;base64,local')
+})
+
 test('loose album name keys skip generic album names', () => {
   const merged = mergeAlbumCoverMapEntries(
     {},

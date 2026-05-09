@@ -12,6 +12,7 @@ import {
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
+  hasCurrentEmbeddedCoverCheck,
   isTrackMetaCacheRecordFresh,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
@@ -339,6 +340,114 @@ test('visible-row hydrate requirement rejects stale cached metadata missing requ
       { needsCover: true, needsArtist: false, needsAlbum: false, source: 'visible-row' }
     ),
     false
+  )
+})
+
+test('mergeTrackMetaEntryPreservingCover keeps local embedded cover over network cover', () => {
+  const merged = mergeTrackMetaEntryPreservingCover(
+    {
+      title: 'Song',
+      cover: 'data:image/jpeg;base64,local',
+      coverSource: 'embedded',
+      coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+    },
+    {
+      title: 'Song',
+      cover: 'https://example.test/network.jpg',
+      coverSource: 'network',
+      coverChecked: true
+    }
+  )
+
+  assert.equal(merged.cover, 'data:image/jpeg;base64,local')
+  assert.equal(merged.coverSource, 'embedded')
+})
+
+test('mergeTrackMetaEntryPreservingCover lets local embedded cover replace network cover', () => {
+  const merged = mergeTrackMetaEntryPreservingCover(
+    {
+      title: 'Song',
+      cover: 'https://example.test/network.jpg',
+      coverSource: 'network',
+      coverChecked: true
+    },
+    {
+      title: 'Song',
+      cover: 'data:image/jpeg;base64,local',
+      coverSource: 'embedded',
+      coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+    }
+  )
+
+  assert.equal(merged.cover, 'data:image/jpeg;base64,local')
+  assert.equal(merged.coverSource, 'embedded')
+})
+
+test('mergeTrackMetaEntryPreservingCover keeps folder cover over network cover', () => {
+  const merged = mergeTrackMetaEntryPreservingCover(
+    {
+      cover: 'data:image/jpeg;base64,folder',
+      coverSource: 'folder',
+      coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+    },
+    {
+      cover: 'https://example.test/network.jpg',
+      coverSource: 'network',
+      coverChecked: true
+    }
+  )
+
+  assert.equal(merged.cover, 'data:image/jpeg;base64,folder')
+  assert.equal(merged.coverSource, 'folder')
+})
+
+test('network cover alone does not satisfy current local embedded cover check', () => {
+  assert.equal(
+    hasCurrentEmbeddedCoverCheck({
+      cover: 'https://example.test/network.jpg',
+      coverSource: 'network',
+      coverChecked: true
+    }),
+    false
+  )
+  assert.equal(
+    hasCurrentEmbeddedCoverCheck({
+      cover: 'data:image/jpeg;base64,local',
+      coverSource: 'embedded',
+      coverChecked: true
+    }),
+    true
+  )
+})
+
+test('visible-row hydrate still probes local files that only have network cover', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      album: 'Album',
+      artist: 'Artist'
+    }
+  }
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {
+        cover: 'https://example.test/network.jpg',
+        coverSource: 'network',
+        coverChecked: true
+      },
+      { isLocalTrack: () => true }
+    ),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
   )
 })
 

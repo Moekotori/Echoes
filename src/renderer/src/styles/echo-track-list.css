@@ -283,8 +283,15 @@
 }
 
 @keyframes echoPulse {
-  0%, 100% { opacity: 1;    transform: scale(1);   }
-  50%       { opacity: 0.40; transform: scale(0.65); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.65);
+  }
 }
 
 /* 播放中封面蒙版 */
@@ -343,50 +350,50 @@
 /* codec 普通 */
 .aq-badge--codec {
   background: var(--quality-codec-bg, rgba(15, 23, 42, 0.05));
-  color:      var(--quality-codec-text, #667085);
+  color: var(--quality-codec-text, #667085);
   border-color: rgba(15, 23, 42, 0.07);
 }
 
 /* codec 无损格式 */
 .aq-badge--lossless-codec {
   background: var(--quality-lossless-bg, rgba(143, 160, 187, 0.14));
-  color:      var(--quality-lossless-text, #8fa0bb);
+  color: var(--quality-lossless-text, #8fa0bb);
   border-color: var(--theme-accent-border, rgba(143, 160, 187, 0.24));
 }
 
 /* Hi-Res */
 .aq-badge--hires {
   background: var(--quality-hires-bg, rgba(143, 160, 187, 0.24));
-  color:      var(--quality-hires-text, var(--theme-primary, #8fa0bb));
-  border-color: var(--theme-accent-border, rgba(143, 160, 187, 0.30));
+  color: var(--quality-hires-text, var(--theme-primary, #8fa0bb));
+  border-color: var(--theme-accent-border, rgba(143, 160, 187, 0.3));
   font-weight: 800;
 }
 
 /* Lossless — 弱强调 */
 .aq-badge--lossless {
   background: var(--quality-lossless-bg, rgba(143, 160, 187, 0.14));
-  color:      var(--quality-lossless-text, var(--theme-primary, #8fa0bb));
+  color: var(--quality-lossless-text, var(--theme-primary, #8fa0bb));
   border-color: var(--theme-accent-border, rgba(143, 160, 187, 0.22));
 }
 
 /* 技术参数（bitDepth/sampleRate 合并） */
 .aq-badge--tech {
   background: var(--quality-tech-bg, rgba(15, 23, 42, 0.04));
-  color:      var(--quality-tech-text, #98a2b3);
+  color: var(--quality-tech-text, #98a2b3);
   border-color: rgba(15, 23, 42, 0.05);
 }
 
 /* 比特率 — 最弱 */
 .aq-badge--bitrate {
   background: transparent;
-  color:      var(--quality-tech-text, #b0bac8);
+  color: var(--quality-tech-text, #b0bac8);
   border-color: rgba(15, 23, 42, 0.06);
 }
 
 /* 声道 */
 .aq-badge--channels {
   background: transparent;
-  color:      var(--quality-tech-text, #b0bac8);
+  color: var(--quality-tech-text, #b0bac8);
   border-color: rgba(15, 23, 42, 0.05);
 }
 
@@ -415,15 +422,13 @@
 }
 .playlist-virtual-list::-webkit-scrollbar-thumb:hover,
 .queue-preview-list::-webkit-scrollbar-thumb:hover {
-  background: var(--echo-scrollbar-thumb-hover, rgba(143, 160, 187, 0.60));
+  background: var(--echo-scrollbar-thumb-hover, rgba(143, 160, 187, 0.6));
 }
 
 .playlist-virtual-list,
 .queue-preview-list {
   scrollbar-width: thin;
-  scrollbar-color:
-    var(--echo-scrollbar-thumb, rgba(143, 160, 187, 0.25))
-    transparent;
+  scrollbar-color: var(--echo-scrollbar-thumb, rgba(143, 160, 187, 0.25)) transparent;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -514,7 +519,11 @@
 .sidebar.browser-panel,
 .sidebar.browser-panel.glass-panel {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 76%, transparent), color-mix(in srgb, #fff 46%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #fff 76%, transparent),
+      color-mix(in srgb, #fff 46%, transparent)
+    ),
     color-mix(in srgb, var(--echo-bg, var(--bg-color)) 90%, #ffffff) !important;
   border-left: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
 }
@@ -532,8 +541,11 @@
 .browser-toolbar-group {
   padding: 5px !important;
   border-radius: 19px !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 84%, transparent), color-mix(in srgb, #fff 54%, transparent)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #fff 84%, transparent),
+    color-mix(in srgb, #fff 54%, transparent)
+  ) !important;
   border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 78%, transparent),
@@ -549,7 +561,11 @@
 
 .browser-toolbar-btn:hover {
   background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 13%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 24%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 24%,
+    transparent
+  ) !important;
   color: var(--text-main, #5c4349) !important;
 }
 
@@ -580,7 +596,11 @@
 .list-filter-chip.active,
 .folder-sort-trigger:hover {
   background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 14%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 30%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 30%,
+    transparent
+  ) !important;
   color: var(--text-main, #5c4349) !important;
 }
 
@@ -588,7 +608,11 @@
   padding: 12px !important;
   border-radius: 22px !important;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 76%, transparent), color-mix(in srgb, #fff 42%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #fff 76%, transparent),
+      color-mix(in srgb, #fff 42%, transparent)
+    ),
     color-mix(in srgb, var(--echo-surface-muted, #f8fafc) 74%, transparent) !important;
   border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
   box-shadow:
@@ -612,8 +636,14 @@
 }
 
 .track-item:hover {
-  background: var(--echo-row-hover-bg, color-mix(in srgb, #fff 78%, var(--theme-accent, #a3d2e3) 8%)) !important;
-  border-color: var(--echo-row-hover-border, color-mix(in srgb, var(--theme-accent, #a3d2e3) 30%, transparent)) !important;
+  background: var(
+    --echo-row-hover-bg,
+    color-mix(in srgb, #fff 78%, var(--theme-accent, #a3d2e3) 8%)
+  ) !important;
+  border-color: var(
+    --echo-row-hover-border,
+    color-mix(in srgb, var(--theme-accent, #a3d2e3) 30%, transparent)
+  ) !important;
   transform: translateY(-1px) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 72%, transparent),
@@ -621,9 +651,15 @@
 }
 
 .track-item.active {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, #ffffff), color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, #ffffff)) !important;
-  border-color: var(--echo-active-border, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, transparent)) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, #ffffff),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, #ffffff)
+  ) !important;
+  border-color: var(
+    --echo-active-border,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, transparent)
+  ) !important;
   box-shadow:
     inset 4px 0 0 0 var(--theme-primary, var(--accent-pink)),
     inset 0 1px 0 color-mix(in srgb, #fff 72%, transparent),
@@ -654,7 +690,11 @@
 }
 
 .track-subtitle {
-  color: color-mix(in srgb, var(--echo-text-secondary, #667085) 88%, var(--text-main, #5c4349)) !important;
+  color: color-mix(
+    in srgb,
+    var(--echo-text-secondary, #667085) 88%,
+    var(--text-main, #5c4349)
+  ) !important;
 }
 
 .track-meta-pill,
@@ -668,13 +708,27 @@
 .aq-badge--lossless,
 .aq-badge--lossless-codec,
 .aq-badge--hires {
-  background: var(--theme-accent-soft, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent)) !important;
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 76%, var(--text-main, #5c4349)) !important;
-  border-color: var(--theme-accent-border, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, transparent)) !important;
+  background: var(
+    --theme-accent-soft,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent)
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 76%,
+    var(--text-main, #5c4349)
+  ) !important;
+  border-color: var(
+    --theme-accent-border,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, transparent)
+  ) !important;
 }
 
 .track-row-meta {
-  color: color-mix(in srgb, var(--echo-text-tertiary, #98a2b3) 82%, var(--text-main, #5c4349)) !important;
+  color: color-mix(
+    in srgb,
+    var(--echo-text-tertiary, #98a2b3) 82%,
+    var(--text-main, #5c4349)
+  ) !important;
 }
 
 .track-like-btn,
@@ -695,8 +749,11 @@
 .bottom-player-bar:not(.bottom-player-bar--lyrics) {
   height: 124px !important;
   padding: 0 28px !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 88%, transparent), color-mix(in srgb, #fff 76%, transparent)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #fff 88%, transparent),
+    color-mix(in srgb, #fff 76%, transparent)
+  ) !important;
   border-top: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 8%, transparent) !important;
   box-shadow:
     0 -14px 34px color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent),
@@ -764,7 +821,11 @@
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport:hover {
   color: var(--text-main, #5c4349) !important;
   background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 13%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 18%,
+    transparent
+  ) !important;
   transform: translateY(-1px) !important;
 }
 
@@ -773,17 +834,33 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport.lyrics-toggle.active {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 74%, var(--text-main, #5c4349)) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 74%,
+    var(--text-main, #5c4349)
+  ) !important;
   background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 26%,
+    transparent
+  ) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport.play-mode-toggle.is-active {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 82%, var(--text-main, #5c4349)) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 82%,
+    var(--text-main, #5c4349)
+  ) !important;
   background:
     radial-gradient(circle at 70% 24%, color-mix(in srgb, #fff 78%, transparent), transparent 34%),
     color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 48%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 48%,
+    transparent
+  ) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 72%, transparent),
     0 0 0 3px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 13%, transparent),
@@ -832,17 +909,20 @@
   min-width: 0 !important;
 }
 
-.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress::-webkit-slider-runnable-track {
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress::-webkit-slider-runnable-track {
   height: 4px !important;
-  background:
-    linear-gradient(
-      to right,
-      var(--theme-primary, var(--accent-pink)) 0 var(--seek-pct, 0%),
-      color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) var(--seek-pct, 0%) 100%
-    ) !important;
+  background: linear-gradient(
+    to right,
+    var(--theme-primary, var(--accent-pink)) 0 var(--seek-pct, 0%),
+    color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) var(--seek-pct, 0%) 100%
+  ) !important;
 }
 
-.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress::-webkit-slider-thumb {
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress::-webkit-slider-thumb {
   width: 12px !important;
   height: 12px !important;
   margin-top: -4px !important;
@@ -853,17 +933,23 @@
     0 4px 10px color-mix(in srgb, var(--text-main, #5c4349) 14%, transparent) !important;
 }
 
-.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress::-moz-range-track {
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress::-moz-range-track {
   height: 4px !important;
   background: color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) !important;
 }
 
-.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress::-moz-range-progress {
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress::-moz-range-progress {
   height: 4px !important;
   background: var(--theme-primary, var(--accent-pink)) !important;
 }
 
-.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress::-moz-range-thumb {
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress::-moz-range-thumb {
   width: 12px !important;
   height: 12px !important;
   border: 2px solid #fff !important;
@@ -876,8 +962,11 @@
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-right .btn--transport {
   width: 38px !important;
   height: 38px !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 70%, transparent), color-mix(in srgb, #fff 44%, transparent)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #fff 70%, transparent),
+    color-mix(in srgb, #fff 44%, transparent)
+  ) !important;
   border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 66%, transparent),
@@ -902,9 +991,17 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset .btn--transport.active {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 72%, var(--text-main, #5c4349)) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 72%,
+    var(--text-main, #5c4349)
+  ) !important;
   background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 26%,
+    transparent
+  ) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset .btn--transport:disabled {
@@ -923,8 +1020,11 @@
   padding: 14px 16px !important;
   border-radius: 20px !important;
   color: var(--text-main, #5c4349) !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 86%, transparent), color-mix(in srgb, #fff 70%, transparent)) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #fff 86%, transparent),
+    color-mix(in srgb, #fff 70%, transparent)
+  ) !important;
   border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 8%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 82%, transparent),
@@ -1075,8 +1175,16 @@
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 16%, color-mix(in srgb, #ffffff 34%, transparent) 0 20%, transparent 46%),
-    radial-gradient(circle at 82% 72%, color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 16%, transparent) 0 24%, transparent 54%),
+    radial-gradient(
+      circle at 20% 16%,
+      color-mix(in srgb, #ffffff 34%, transparent) 0 20%,
+      transparent 46%
+    ),
+    radial-gradient(
+      circle at 82% 72%,
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 16%, transparent) 0 24%,
+      transparent 54%
+    ),
     linear-gradient(
       180deg,
       color-mix(in srgb, #ffffff 24%, transparent) 0%,
@@ -1105,7 +1213,11 @@
 .app-root:has(.app-wallpaper-backdrop) .settings-page.glass-panel,
 .app-root:has(.app-wallpaper-backdrop) .settings-page .settings-section {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent), color-mix(in srgb, #ffffff 8%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 18%, transparent),
+      color-mix(in srgb, #ffffff 8%, transparent)
+    ),
     var(--glass-bg, rgba(255, 255, 255, 0.6)) !important;
   border-color: var(--glass-border, rgba(255, 255, 255, 0.28)) !important;
   backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.18) !important;
@@ -1119,7 +1231,11 @@
 .app-container:has(.app-wallpaper-backdrop) .folder-sort-trigger,
 .app-root:has(.app-wallpaper-backdrop) .bottom-player-bar:not(.bottom-player-bar--lyrics) {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 20%, transparent), color-mix(in srgb, #ffffff 8%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 20%, transparent),
+      color-mix(in srgb, #ffffff 8%, transparent)
+    ),
     color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 86%, transparent) !important;
   border-color: var(--glass-border, rgba(255, 255, 255, 0.28)) !important;
   backdrop-filter: blur(var(--glass-blur, 20px)) saturate(1.16) !important;
@@ -1141,7 +1257,11 @@
   top: -34px;
   height: 34px;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 64%, transparent));
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 64%, transparent)
+  );
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item,
@@ -1151,8 +1271,16 @@
 .app-container:has(.app-wallpaper-backdrop) .bottom-bar-transport,
 .app-container:has(.app-wallpaper-backdrop) .bottom-bar-toolset,
 .app-container:has(.app-wallpaper-backdrop) .bottom-bar-right .btn--transport {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 68%, #ffffff 10%) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.28)) 86%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.6)) 68%,
+    #ffffff 10%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.28)) 86%,
+    transparent
+  ) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item:hover,
@@ -1160,42 +1288,77 @@
 .app-container:has(.app-wallpaper-backdrop) .track-add-pl-btn:hover,
 .app-container:has(.app-wallpaper-backdrop) .track-remove-pl-btn:hover,
 .app-container:has(.app-wallpaper-backdrop) .bottom-bar-toolset .btn--transport:hover {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%, var(--theme-accent, var(--accent-blue)) 18%) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%,
+    var(--theme-accent, var(--accent-blue)) 18%
+  ) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item.active {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%, var(--theme-primary, var(--accent-pink)) 20%),
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%, var(--theme-accent, var(--accent-blue)) 16%)
-    ) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%,
+      var(--theme-primary, var(--accent-pink)) 20%
+    ),
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 72%,
+      var(--theme-accent, var(--accent-blue)) 16%
+    )
+  ) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .nav-rail-item.active,
 .app-container:has(.app-wallpaper-backdrop) .nav-rail-subitem.active {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 62%, var(--theme-accent, var(--accent-blue)) 22%) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.6)) 62%,
+    var(--theme-accent, var(--accent-blue)) 22%
+  ) !important;
 }
 
 /* Settings needs a calmer wallpaper treatment than the library panes. */
 .app-root:has(.app-wallpaper-backdrop) .settings-page.glass-panel {
   background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, #ffffff 24%, transparent) 0 22%, transparent 48%),
-    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, transparent) 0 24%, transparent 52%),
+    radial-gradient(
+      circle at 18% 8%,
+      color-mix(in srgb, #ffffff 24%, transparent) 0 22%,
+      transparent 48%
+    ),
+    radial-gradient(
+      circle at 88% 0%,
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, transparent) 0 24%,
+      transparent 52%
+    ),
     linear-gradient(
       135deg,
       color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.68)) 88%, #ffffff 18%),
       color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.68)) 74%, transparent)
     ) !important;
-  border-color: color-mix(in srgb, #ffffff 34%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  border-color: color-mix(
+    in srgb,
+    #ffffff 34%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
   box-shadow:
     0 22px 64px color-mix(in srgb, var(--text-main, #1f2937) 12%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 44%, transparent) !important;
 }
 
 .app-root:has(.app-wallpaper-backdrop) .settings-page .settings-nav {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.72)) 82%, #ffffff 12%) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.32)) 72%, #ffffff 12%) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.72)) 82%,
+    #ffffff 12%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.32)) 72%,
+    #ffffff 12%
+  ) !important;
   backdrop-filter: blur(calc(var(--glass-blur, 20px) + 6px)) saturate(1.14) !important;
   -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 6px)) saturate(1.14) !important;
 }
@@ -1203,9 +1366,17 @@
 .app-root:has(.app-wallpaper-backdrop) .settings-page .settings-section,
 .app-root:has(.app-wallpaper-backdrop) .settings-page .settings-disclosure {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 42%, transparent), color-mix(in srgb, #ffffff 18%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 42%, transparent),
+      color-mix(in srgb, #ffffff 18%, transparent)
+    ),
     color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.72)) 86%, #ffffff 8%) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.32)) 76%, #ffffff 10%) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.32)) 76%,
+    #ffffff 10%
+  ) !important;
   box-shadow:
     0 14px 34px color-mix(in srgb, var(--text-main, #1f2937) 7%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent) !important;
@@ -1225,8 +1396,16 @@
 
 .app-root:has(.app-wallpaper-backdrop) .settings-page .settings-text-input,
 .app-root:has(.app-wallpaper-backdrop) .settings-page .list-filter-chip {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.76)) 78%, #ffffff 14%) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.32)) 70%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.76)) 78%,
+    #ffffff 14%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.32)) 70%,
+    transparent
+  ) !important;
 }
 
 /* Main list hierarchy polish: panel reads as content, rows stay light. */
@@ -1249,35 +1428,59 @@
 
 .track-item {
   background: color-mix(in srgb, #ffffff 38%, transparent) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.28)) 58%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.28)) 58%,
+    transparent
+  ) !important;
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 42%, transparent) !important;
 }
 
 .track-item:hover {
-  background: color-mix(in srgb, #ffffff 56%, var(--theme-accent, var(--accent-blue)) 5%) !important;
-  border-color: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 22%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: color-mix(
+    in srgb,
+    #ffffff 56%,
+    var(--theme-accent, var(--accent-blue)) 5%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 22%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 64%, transparent),
     0 10px 24px -22px color-mix(in srgb, var(--text-main, #5c4349) 30%, transparent) !important;
 }
 
 .track-item.active {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 10%, #ffffff 58%) 0%,
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 8%, #ffffff 46%) 52%,
-      color-mix(in srgb, #ffffff 34%, transparent) 100%
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 10%, #ffffff 58%) 0%,
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 8%, #ffffff 46%) 52%,
+    color-mix(in srgb, #ffffff 34%, transparent) 100%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 26%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
   box-shadow:
-    inset 3px 0 0 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 86%, var(--text-main, #5c4349) 10%),
+    inset 3px 0 0 0
+      color-mix(
+        in srgb,
+        var(--theme-primary, var(--accent-pink)) 86%,
+        var(--text-main, #5c4349) 10%
+      ),
     inset 0 1px 0 color-mix(in srgb, #ffffff 66%, transparent),
     0 14px 30px -26px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 44%, transparent) !important;
 }
 
 .track-item.active .track-art {
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 32%, #ffffff 42%) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 32%,
+    #ffffff 42%
+  ) !important;
   box-shadow:
     0 8px 18px color-mix(in srgb, var(--text-main, #5c4349) 12%, transparent),
     0 0 0 3px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent),
@@ -1286,12 +1489,20 @@
 }
 
 .track-item.active .track-name {
-  color: color-mix(in srgb, var(--text-main, #1f2937) 92%, var(--theme-primary, var(--accent-pink)) 8%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-main, #1f2937) 92%,
+    var(--theme-primary, var(--accent-pink)) 8%
+  ) !important;
 }
 
 .track-item.active .track-subtitle,
 .track-item.active .track-row-meta {
-  color: color-mix(in srgb, var(--text-soft, #667085) 76%, var(--text-main, #1f2937) 24%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-soft, #667085) 76%,
+    var(--text-main, #1f2937) 24%
+  ) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .playlist {
@@ -1302,7 +1513,11 @@
       color-mix(in srgb, #ffffff 40%, transparent)
     ),
     color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 94%, #ffffff 8%) !important;
-  border-color: color-mix(in srgb, #ffffff 42%, var(--glass-border, rgba(255, 255, 255, 0.28)) 72%) !important;
+  border-color: color-mix(
+    in srgb,
+    #ffffff 42%,
+    var(--glass-border, rgba(255, 255, 255, 0.28)) 72%
+  ) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent),
     0 22px 58px color-mix(in srgb, var(--text-main, #1f2937) 10%, transparent) !important;
@@ -1311,28 +1526,55 @@
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 46%, #ffffff 8%) !important;
-  border-color: color-mix(in srgb, var(--glass-border, rgba(255, 255, 255, 0.28)) 68%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.6)) 46%,
+    #ffffff 8%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--glass-border, rgba(255, 255, 255, 0.28)) 68%,
+    transparent
+  ) !important;
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item:hover {
-  background: color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 56%, #ffffff 18%) !important;
-  border-color: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 20%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: color-mix(
+    in srgb,
+    var(--glass-bg, rgba(255, 255, 255, 0.6)) 56%,
+    #ffffff 18%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 20%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 46%, transparent),
     0 10px 24px -22px color-mix(in srgb, var(--text-main, #1f2937) 28%, transparent) !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item.active {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 58%, var(--theme-primary, var(--accent-pink)) 13%),
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 50%, var(--theme-accent, var(--accent-blue)) 9%),
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 42%, transparent)
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 30%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 58%,
+      var(--theme-primary, var(--accent-pink)) 13%
+    ),
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 50%,
+      var(--theme-accent, var(--accent-blue)) 9%
+    ),
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 42%, transparent)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 30%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
 }
 
 /* Compact library header and soften the list-to-player handoff. */
@@ -1379,13 +1621,12 @@
   margin-top: -38px;
   pointer-events: none;
   border-radius: 0 0 20px 20px;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--echo-surface-muted, #f8fafc) 22%, transparent) 38%,
-      color-mix(in srgb, var(--echo-surface-muted, #f8fafc) 58%, transparent) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--echo-surface-muted, #f8fafc) 22%, transparent) 38%,
+    color-mix(in srgb, var(--echo-surface-muted, #f8fafc) 58%, transparent) 100%
+  );
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)::before {
@@ -1396,13 +1637,12 @@
   top: -42px;
   height: 42px;
   pointer-events: none;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--bg-base, #f8f2f7) 20%, transparent) 50%,
-      color-mix(in srgb, var(--bg-base, #f8f2f7) 42%, transparent) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--bg-base, #f8f2f7) 20%, transparent) 50%,
+    color-mix(in srgb, var(--bg-base, #f8f2f7) 42%, transparent) 100%
+  );
 }
 
 .app-container:has(.app-wallpaper-backdrop) .browser-topbar-actions {
@@ -1419,45 +1659,55 @@
 }
 
 .app-container:has(.app-wallpaper-backdrop) .playlist::after {
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 34%, transparent) 38%,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 70%, transparent) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 34%, transparent) 38%,
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 70%, transparent) 100%
+  );
 }
 
 .app-root:has(.app-wallpaper-backdrop) .bottom-player-bar:not(.bottom-player-bar--lyrics)::before {
   top: -50px;
   height: 50px;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 24%, transparent) 44%,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 58%, transparent) 100%
-    );
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 24%, transparent) 44%,
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 58%, transparent) 100%
+  );
 }
 
 /* Quiet premium pass: calmer active row, system-like tools, clearer type hierarchy. */
 .track-item.active {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 6%, #ffffff 48%) 0%,
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 5%, #ffffff 34%) 48%,
-      color-mix(in srgb, #ffffff 24%, transparent) 100%
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 6%, #ffffff 48%) 0%,
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 5%, #ffffff 34%) 48%,
+    color-mix(in srgb, #ffffff 24%, transparent) 100%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 16%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
   box-shadow:
-    inset 3px 0 0 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 76%, var(--text-main, #1f2937) 18%),
+    inset 3px 0 0 0
+      color-mix(
+        in srgb,
+        var(--theme-primary, var(--accent-pink)) 76%,
+        var(--text-main, #1f2937) 18%
+      ),
     inset 0 1px 0 color-mix(in srgb, #ffffff 54%, transparent),
     0 12px 26px -26px color-mix(in srgb, var(--text-main, #1f2937) 22%, transparent) !important;
 }
 
 .track-item.active .track-art {
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, #ffffff 48%) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 20%,
+    #ffffff 48%
+  ) !important;
   box-shadow:
     0 8px 18px color-mix(in srgb, var(--text-main, #1f2937) 10%, transparent),
     0 0 0 2px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 8%, transparent),
@@ -1466,26 +1716,36 @@
 }
 
 .app-container:has(.app-wallpaper-backdrop) .track-item.active {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 54%, var(--theme-primary, var(--accent-pink)) 7%),
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 46%, var(--theme-accent, var(--accent-blue)) 5%),
-      color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 36%, transparent)
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, var(--glass-border, rgba(255, 255, 255, 0.28))) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 54%,
+      var(--theme-primary, var(--accent-pink)) 7%
+    ),
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 46%,
+      var(--theme-accent, var(--accent-blue)) 5%
+    ),
+    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 36%, transparent)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 18%,
+    var(--glass-border, rgba(255, 255, 255, 0.28))
+  ) !important;
 }
 
 .browser-toolbar-group {
   padding: 4px !important;
   gap: 2px !important;
   border-radius: 18px !important;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, #ffffff 64%, transparent),
-      color-mix(in srgb, #ffffff 38%, transparent)
-    ) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #ffffff 64%, transparent),
+    color-mix(in srgb, #ffffff 38%, transparent)
+  ) !important;
   border-color: color-mix(in srgb, var(--text-main, #1f2937) 6%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent),
@@ -1498,14 +1758,30 @@
   border-radius: 13px !important;
   background: transparent !important;
   border-color: transparent !important;
-  color: color-mix(in srgb, var(--text-soft, #667085) 84%, var(--text-main, #1f2937) 16%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-soft, #667085) 84%,
+    var(--text-main, #1f2937) 16%
+  ) !important;
   box-shadow: none !important;
 }
 
 .browser-toolbar-btn:hover {
-  background: color-mix(in srgb, #ffffff 54%, var(--theme-accent, var(--accent-blue)) 10%) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--text-main, #1f2937)) !important;
+  background: color-mix(
+    in srgb,
+    #ffffff 54%,
+    var(--theme-accent, var(--accent-blue)) 10%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 18%,
+    transparent
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 58%,
+    var(--text-main, #1f2937)
+  ) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 64%, transparent),
     0 6px 14px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 10%, transparent) !important;
@@ -1528,12 +1804,20 @@
 }
 
 .track-subtitle {
-  color: color-mix(in srgb, var(--text-soft, #667085) 88%, var(--text-main, #1f2937) 12%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-soft, #667085) 88%,
+    var(--text-main, #1f2937) 12%
+  ) !important;
   font-weight: 560 !important;
 }
 
 .track-row-meta {
-  color: color-mix(in srgb, var(--text-soft, #667085) 82%, var(--text-main, #1f2937) 18%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-soft, #667085) 82%,
+    var(--text-main, #1f2937) 18%
+  ) !important;
   font-weight: 720 !important;
 }
 
@@ -1551,7 +1835,11 @@
   font-weight: 740 !important;
   letter-spacing: 0 !important;
   background: color-mix(in srgb, var(--text-main, #1f2937) 4%, transparent) !important;
-  color: color-mix(in srgb, var(--text-soft, #667085) 78%, var(--text-main, #1f2937) 22%) !important;
+  color: color-mix(
+    in srgb,
+    var(--text-soft, #667085) 78%,
+    var(--text-main, #1f2937) 22%
+  ) !important;
   border-color: color-mix(in srgb, var(--text-main, #1f2937) 4%, transparent) !important;
   box-shadow: none !important;
 }
@@ -1559,9 +1847,21 @@
 .aq-badge--lossless,
 .aq-badge--lossless-codec,
 .aq-badge--hires {
-  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 8%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--text-main, #1f2937)) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 9%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 8%,
+    transparent
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 58%,
+    var(--text-main, #1f2937)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 9%,
+    transparent
+  ) !important;
 }
 
 .track-item.active .track-meta-pill,
@@ -1572,12 +1872,11 @@
 
 /* Align bottom tool popovers and sort controls with the unified floating menu language. */
 .deck-popover--bottom-tools {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-elevated, #ffffff) 88%, transparent),
-      color-mix(in srgb, var(--surface-base, #ffffff) 76%, transparent)
-    ) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-elevated, #ffffff) 88%, transparent),
+    color-mix(in srgb, var(--surface-base, #ffffff) 76%, transparent)
+  ) !important;
   border-color: color-mix(in srgb, var(--text-main, #243044) 10%, transparent) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent),
@@ -1623,7 +1922,11 @@
 
 .folder-sort-trigger:hover {
   background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-blue)) 18%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-blue)) 18%,
+    transparent
+  ) !important;
 }
 
 /* Library header and chip clarity pass. */
@@ -1695,12 +1998,11 @@
   min-height: 38px !important;
   padding: 7px 14px 9px !important;
   border-radius: 18px 18px 0 0 !important;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, #ffffff 64%, transparent),
-      color-mix(in srgb, #ffffff 34%, transparent)
-    ) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #ffffff 64%, transparent),
+    color-mix(in srgb, #ffffff 34%, transparent)
+  ) !important;
   border: 1px solid color-mix(in srgb, var(--text-main, #1f2937) 6%, transparent) !important;
   border-bottom-color: color-mix(in srgb, var(--text-main, #1f2937) 4%, transparent) !important;
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 64%, transparent) !important;
@@ -1774,7 +2076,11 @@
 
 .aq-badge--bpm {
   background: color-mix(in srgb, var(--theme-primary, #8fa0bb) 11%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-primary, #8fa0bb) 64%, var(--text-main, #1f2937)) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, #8fa0bb) 64%,
+    var(--text-main, #1f2937)
+  ) !important;
   border-color: color-mix(in srgb, var(--theme-primary, #8fa0bb) 14%, transparent) !important;
   font-weight: 820 !important;
 }
@@ -1932,22 +2238,54 @@
   --echo-bg: color-mix(in srgb, var(--bg-color, #101722) 88%, #07101a);
   --echo-surface: color-mix(in srgb, var(--glass-bg, rgba(21, 31, 45, 0.8)) 86%, #0b1420);
   --echo-surface-muted: color-mix(in srgb, var(--glass-bg, rgba(21, 31, 45, 0.8)) 72%, #101927);
-  --echo-surface-hover: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 16%, rgba(255, 255, 255, 0.08));
+  --echo-surface-hover: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 16%,
+    rgba(255, 255, 255, 0.08)
+  );
   --echo-text-primary: color-mix(in srgb, var(--text-main, #f8fbff) 94%, #ffffff);
   --echo-text-secondary: color-mix(in srgb, var(--text-soft, #c3cfdd) 90%, #ffffff 10%);
   --echo-text-tertiary: color-mix(in srgb, var(--text-soft, #c3cfdd) 72%, #6f8095);
   --echo-border: rgba(255, 255, 255, 0.12);
   --echo-border-strong: rgba(255, 255, 255, 0.2);
-  --echo-row-hover-bg: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 15%, rgba(255, 255, 255, 0.08));
-  --echo-row-hover-border: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 36%, rgba(255, 255, 255, 0.14));
-  --echo-active-bg: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, rgba(255, 255, 255, 0.09));
-  --echo-active-border: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 46%, rgba(255, 255, 255, 0.18));
+  --echo-row-hover-bg: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 15%,
+    rgba(255, 255, 255, 0.08)
+  );
+  --echo-row-hover-border: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 36%,
+    rgba(255, 255, 255, 0.14)
+  );
+  --echo-active-bg: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 20%,
+    rgba(255, 255, 255, 0.09)
+  );
+  --echo-active-border: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 46%,
+    rgba(255, 255, 255, 0.18)
+  );
   --echo-active-text: #ffffff;
   --quality-codec-bg: rgba(255, 255, 255, 0.08);
   --quality-codec-text: var(--echo-text-secondary);
-  --quality-lossless-bg: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, rgba(255, 255, 255, 0.08));
-  --quality-lossless-text: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 48%, #ffffff);
-  --quality-hires-bg: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 22%, rgba(255, 255, 255, 0.08));
+  --quality-lossless-bg: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 18%,
+    rgba(255, 255, 255, 0.08)
+  );
+  --quality-lossless-text: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 48%,
+    #ffffff
+  );
+  --quality-hires-bg: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 22%,
+    rgba(255, 255, 255, 0.08)
+  );
   --quality-hires-text: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 50%, #ffffff);
   --quality-tech-bg: rgba(255, 255, 255, 0.06);
   --quality-tech-text: var(--echo-text-tertiary);
@@ -1962,9 +2300,21 @@
 
 :root[data-echo-theme-tone='dark'] .app-root:not(:has(.main-player.lyrics-mode)) {
   background:
-    radial-gradient(circle at 14% 8%, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, transparent) 0, transparent 34%),
-    radial-gradient(circle at 86% 6%, color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 14%, transparent) 0, transparent 38%),
-    linear-gradient(135deg, color-mix(in srgb, var(--bg-color, #101722) 92%, #050b12), color-mix(in srgb, var(--bg-gradient-end, #202a3e) 82%, #080e17)) !important;
+    radial-gradient(
+      circle at 14% 8%,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, transparent) 0,
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 86% 6%,
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 14%, transparent) 0,
+      transparent 38%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--bg-color, #101722) 92%, #050b12),
+      color-mix(in srgb, var(--bg-gradient-end, #202a3e) 82%, #080e17)
+    ) !important;
 }
 
 :root[data-echo-theme-tone='dark'] .titlebar,
@@ -2025,7 +2375,11 @@
 }
 
 :root[data-echo-theme-tone='dark'] .nav-rail-item.active {
-  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, rgba(255, 255, 255, 0.08)) !important;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 20%,
+    rgba(255, 255, 255, 0.08)
+  ) !important;
   color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 52%, #ffffff) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -2067,9 +2421,21 @@
   --settings-glass-border: rgba(255, 255, 255, 0.12);
   --settings-divider: rgba(255, 255, 255, 0.1);
   background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent) 0, transparent 36%),
-    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, transparent) 0, transparent 40%),
-    linear-gradient(135deg, color-mix(in srgb, var(--glass-bg) 82%, #07101a), color-mix(in srgb, var(--bg-color) 74%, #050b12)) !important;
+    radial-gradient(
+      circle at 18% 8%,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent) 0,
+      transparent 36%
+    ),
+    radial-gradient(
+      circle at 88% 0%,
+      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 12%, transparent) 0,
+      transparent 40%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--glass-bg) 82%, #07101a),
+      color-mix(in srgb, var(--bg-color) 74%, #050b12)
+    ) !important;
   border-color: var(--settings-glass-border) !important;
   color: var(--echo-text-primary) !important;
 }
@@ -2081,8 +2447,16 @@
 :root[data-echo-theme-tone='dark'] .folder-sort-trigger:hover,
 :root[data-echo-theme-tone='dark'] .folder-sort-menu-item:hover,
 :root[data-echo-theme-tone='dark'] .folder-sort-menu-item.active {
-  background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 18%, rgba(255, 255, 255, 0.08)) !important;
-  border-color: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 34%, rgba(255, 255, 255, 0.12)) !important;
+  background: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 18%,
+    rgba(255, 255, 255, 0.08)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 34%,
+    rgba(255, 255, 255, 0.12)
+  ) !important;
   color: var(--echo-text-primary) !important;
 }
 
@@ -2119,8 +2493,11 @@
 :root[data-echo-theme-tone='dark'] .track-item.active,
 :root[data-echo-theme-tone='dark'] .playlist--pl-detail .track-item--in-pl.active,
 :root[data-echo-theme-tone='dark'] .user-playlist-card--active {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 22%, rgba(255, 255, 255, 0.08)), color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 14%, rgba(255, 255, 255, 0.07))) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 22%, rgba(255, 255, 255, 0.08)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 14%, rgba(255, 255, 255, 0.07))
+  ) !important;
   border-color: var(--echo-active-border) !important;
   box-shadow:
     inset 4px 0 0 0 var(--theme-primary, var(--accent-pink)),
@@ -2174,7 +2551,11 @@
 :root[data-echo-theme-tone='dark'] .browser-toolbar-btn:hover,
 :root[data-echo-theme-tone='dark'] .import-btn:hover,
 :root[data-echo-theme-tone='dark'] .deck-popover-btn:hover {
-  background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 18%, rgba(255, 255, 255, 0.08)) !important;
+  background: color-mix(
+    in srgb,
+    var(--theme-accent, var(--accent-blue)) 18%,
+    rgba(255, 255, 255, 0.08)
+  ) !important;
   color: var(--echo-text-primary) !important;
 }
 
@@ -2232,22 +2613,48 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
 
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-transport,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-right .btn--transport,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport {
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-transport,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-toolset,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-right
+  .btn--transport,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .btn--transport {
   background: rgba(255, 255, 255, 0.07) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
   color: var(--echo-text-secondary) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport:hover,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset .btn--transport.active,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport.play-mode-toggle.is-active,
-:root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport.lyrics-toggle.active {
-  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, rgba(255, 255, 255, 0.08)) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, rgba(255, 255, 255, 0.12)) !important;
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .btn--transport:hover,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-toolset
+  .btn--transport.active,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .btn--transport.play-mode-toggle.is-active,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .btn--transport.lyrics-toggle.active {
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 18%,
+    rgba(255, 255, 255, 0.08)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 34%,
+    rgba(255, 255, 255, 0.12)
+  ) !important;
   color: var(--echo-text-primary) !important;
 }
 
@@ -3018,15 +3425,26 @@
 .app-root.glass-clear .bottom-player-bar:not(.bottom-player-bar--lyrics),
 .app-root.glass-clear .bottom-bar-transport,
 .app-root.glass-clear .bottom-bar-toolset,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .sidebar.browser-panel,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .sidebar.browser-panel.glass-panel,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-toolbar-group,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-panel .search-container,
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .sidebar.browser-panel,
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .sidebar.browser-panel.glass-panel,
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .browser-toolbar-group,
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .browser-panel
+  .search-container,
 :root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .playlist,
 :root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-item,
 :root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-like-btn,
 :root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-add-pl-btn,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .track-remove-pl-btn {
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .track-remove-pl-btn {
   background: transparent !important;
   background-image: none !important;
   border-color: transparent !important;
@@ -3107,21 +3525,40 @@
 :root[data-echo-glass-clear='true'] .track-like-btn:hover,
 :root[data-echo-glass-clear='true'] .track-add-pl-btn:hover,
 :root[data-echo-glass-clear='true'] .track-remove-pl-btn:hover {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--text-main, #1f2937)) !important;
-  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, #ffffff 26%) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 64%,
+    var(--text-main, #1f2937)
+  ) !important;
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 16%,
+    #ffffff 26%
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 26%,
+    transparent
+  ) !important;
 }
 
 .app-root.glass-clear .track-add-pl-btn.active,
 :root[data-echo-glass-clear='true'] .track-add-pl-btn.active {
   color: #ffffff !important;
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 72%, var(--theme-primary, var(--accent-pink)) 18%)
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 36%, transparent) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
+    color-mix(
+      in srgb,
+      var(--theme-accent, var(--accent-blue)) 72%,
+      var(--theme-primary, var(--accent-pink)) 18%
+    )
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 36%,
+    transparent
+  ) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.34),
     0 8px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
@@ -3178,14 +3615,21 @@
 }
 
 .settings-page .settings-nav-item.active {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 24%, var(--glass-bg, #ffffff) 70%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 18%, var(--glass-bg, #ffffff) 76%)
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, transparent) !important;
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 68%, var(--text-main, #1f2937)) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 24%, var(--glass-bg, #ffffff) 70%),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 18%, var(--glass-bg, #ffffff) 76%)
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 34%,
+    transparent
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 68%,
+    var(--text-main, #1f2937)
+  ) !important;
   box-shadow:
     inset 3px 0 0 var(--theme-primary, var(--accent-pink)),
     inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent),
@@ -3219,13 +3663,20 @@
 }
 
 .settings-page .settings-chip-row .list-filter-chip.active {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 66%, var(--theme-primary, var(--accent-pink)) 20%)
-    ) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 42%, transparent) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, #ffffff 4%),
+    color-mix(
+      in srgb,
+      var(--theme-accent, var(--accent-blue)) 66%,
+      var(--theme-primary, var(--accent-pink)) 20%
+    )
+  ) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 42%,
+    transparent
+  ) !important;
   color: #ffffff !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.32),
@@ -3259,15 +3710,27 @@
 }
 
 .settings-page .toggle-btn.active {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 72%, var(--theme-accent, var(--accent-blue)) 18%) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 72%,
+    var(--theme-accent, var(--accent-blue)) 18%
+  ) !important;
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
 
 .settings-page .toggle-btn:hover {
-  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--text-main, #1f2937));
-  background: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 8%, transparent) !important;
+  color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 58%,
+    var(--text-main, #1f2937)
+  );
+  background: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 8%,
+    transparent
+  ) !important;
 }
 
 .settings-page .toggle-btn svg {
@@ -3278,14 +3741,17 @@
 }
 
 :root[data-echo-theme-tone='dark'] .settings-page .settings-nav-item.active {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, rgba(255, 255, 255, 0.09)),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 22%, rgba(255, 255, 255, 0.07))
-    ) !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, rgba(255, 255, 255, 0.09)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 22%, rgba(255, 255, 255, 0.07))
+  ) !important;
   color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 42%, #ffffff) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 38%, rgba(255, 255, 255, 0.1)) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 38%,
+    rgba(255, 255, 255, 0.1)
+  ) !important;
 }
 
 :root[data-echo-theme-tone='dark'] .settings-page .settings-chip-row .list-filter-chip:not(.active),
@@ -3305,8 +3771,11 @@
   .media-downloader-content
 ) {
   scrollbar-width: thin;
-  scrollbar-color:
-    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 34%, var(--theme-accent, var(--accent-blue)) 28%)
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 34%,
+      var(--theme-accent, var(--accent-blue)) 28%
+    )
     transparent;
 }
 
@@ -3362,8 +3831,7 @@
   min-height: 44px;
   border: 3px solid transparent;
   border-radius: 999px;
-  background:
-    linear-gradient(
+  background: linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 54%, rgba(255, 255, 255, 0.42)),
       color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 48%, rgba(255, 255, 255, 0.34))
@@ -3375,16 +3843,15 @@
 }
 
 :where(
-  .settings-content,
-  .settings-nav,
-  .sidebar-list-stack,
-  .browser-panel,
-  .folder-browser,
-  .folder-list-scroll,
-  .media-downloader-content
-):hover::-webkit-scrollbar-thumb {
-  background:
-    linear-gradient(
+    .settings-content,
+    .settings-nav,
+    .sidebar-list-stack,
+    .browser-panel,
+    .folder-browser,
+    .folder-list-scroll,
+    .media-downloader-content
+  ):hover::-webkit-scrollbar-thumb {
+  background: linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 70%, rgba(255, 255, 255, 0.48)),
       color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 62%, rgba(255, 255, 255, 0.38))
@@ -3396,16 +3863,15 @@
 }
 
 :where(
-  .settings-content,
-  .settings-nav,
-  .sidebar-list-stack,
-  .browser-panel,
-  .folder-browser,
-  .folder-list-scroll,
-  .media-downloader-content
-)::-webkit-scrollbar-thumb:active {
-  background:
-    linear-gradient(
+    .settings-content,
+    .settings-nav,
+    .sidebar-list-stack,
+    .browser-panel,
+    .folder-browser,
+    .folder-list-scroll,
+    .media-downloader-content
+  )::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, rgba(255, 255, 255, 0.5)),
       color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 70%, rgba(255, 255, 255, 0.42))
@@ -3423,8 +3889,7 @@
     .folder-list-scroll,
     .media-downloader-content
   )::-webkit-scrollbar-thumb {
-  background:
-    linear-gradient(
+  background: linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 48%, rgba(255, 255, 255, 0.16)),
       color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 42%, rgba(255, 255, 255, 0.12))
@@ -3438,8 +3903,11 @@
 /* Strong settings-page scrollbar override; index.css has older native-looking rules. */
 .settings-page .settings-content {
   scrollbar-width: thin !important;
-  scrollbar-color:
-    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 58%, var(--theme-accent, var(--accent-blue)) 28%)
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--theme-primary, var(--accent-pink)) 58%,
+      var(--theme-accent, var(--accent-blue)) 28%
+    )
     transparent !important;
 }
 
@@ -3467,14 +3935,14 @@
   margin: 8px 0 !important;
   border: 4px solid transparent !important;
   border-radius: 999px !important;
-  background:
-    linear-gradient(
+  background: linear-gradient(
       180deg,
       color-mix(in srgb, var(--glass-bg, #ffffff) 48%, transparent),
       color-mix(in srgb, var(--glass-bg, #ffffff) 20%, transparent)
     )
     padding-box !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 70%, transparent) !important;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 70%, transparent) !important;
 }
 
 .settings-page .settings-content::-webkit-scrollbar-thumb {
@@ -3484,11 +3952,15 @@
   background:
     radial-gradient(circle at 34% 18%, rgba(255, 255, 255, 0.66) 0, transparent 44%),
     linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, #ffffff 8%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 68%, var(--theme-primary, var(--accent-pink)) 20%)
-    )
-    padding-box !important;
+        180deg,
+        color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, #ffffff 8%),
+        color-mix(
+          in srgb,
+          var(--theme-accent, var(--accent-blue)) 68%,
+          var(--theme-primary, var(--accent-pink)) 20%
+        )
+      )
+      padding-box !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.42),
     0 6px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 26%, transparent) !important;
@@ -3498,11 +3970,15 @@
   background:
     radial-gradient(circle at 34% 18%, rgba(255, 255, 255, 0.78) 0, transparent 48%),
     linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 86%, #ffffff 10%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 76%, var(--theme-primary, var(--accent-pink)) 18%)
-    )
-    padding-box !important;
+        180deg,
+        color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 86%, #ffffff 10%),
+        color-mix(
+          in srgb,
+          var(--theme-accent, var(--accent-blue)) 76%,
+          var(--theme-primary, var(--accent-pink)) 18%
+        )
+      )
+      padding-box !important;
 }
 
 .settings-scroll-shell {
@@ -3543,13 +4019,13 @@
   width: 12px;
   padding: 0 3px;
   border-radius: 999px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--glass-bg, #ffffff) 38%, transparent),
-      color-mix(in srgb, var(--glass-bg, #ffffff) 12%, transparent)
-    );
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 55%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--glass-bg, #ffffff) 38%, transparent),
+    color-mix(in srgb, var(--glass-bg, #ffffff) 12%, transparent)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--glass-border, rgba(0, 0, 0, 0.08)) 55%, transparent);
   cursor: default;
   touch-action: none;
   z-index: 2;
@@ -3563,7 +4039,11 @@
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 82%, #ffffff 6%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 72%, var(--theme-primary, var(--accent-pink)) 18%)
+      color-mix(
+        in srgb,
+        var(--theme-accent, var(--accent-blue)) 72%,
+        var(--theme-primary, var(--accent-pink)) 18%
+      )
     );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
@@ -3579,7 +4059,11 @@
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 90%, #ffffff 7%),
-      color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 80%, var(--theme-primary, var(--accent-pink)) 16%)
+      color-mix(
+        in srgb,
+        var(--theme-accent, var(--accent-blue)) 80%,
+        var(--theme-primary, var(--accent-pink)) 16%
+      )
     );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.58),
@@ -3659,8 +4143,7 @@
 .playlist-virtual-list,
 .queue-preview-list {
   scrollbar-width: thin !important;
-  scrollbar-color:
-    color-mix(
+  scrollbar-color: color-mix(
       in srgb,
       var(--theme-primary, var(--accent-pink)) 62%,
       var(--theme-accent, var(--accent-blue)) 20%
@@ -3736,8 +4219,7 @@
 :root[data-echo-theme-tone='dark'] .playlist,
 :root[data-echo-theme-tone='dark'] .playlist-virtual-list,
 :root[data-echo-theme-tone='dark'] .queue-preview-list {
-  scrollbar-color:
-    color-mix(
+  scrollbar-color: color-mix(
       in srgb,
       var(--theme-primary, var(--accent-pink)) 56%,
       rgba(255, 255, 255, 0.22)
@@ -3846,7 +4328,10 @@
 :root[data-echo-theme-tone='dark'] .browser-panel .search-container,
 :root[data-echo-glass-blur='off'] .browser-panel .search-container,
 :root[data-echo-glass-transparent='true'] .browser-panel .search-container,
-:root[data-echo-glass-clear='true'] .app-container:has(.app-wallpaper-backdrop) .browser-panel .search-container,
+:root[data-echo-glass-clear='true']
+  .app-container:has(.app-wallpaper-backdrop)
+  .browser-panel
+  .search-container,
 .app-root.glass-clear .browser-panel .search-container {
   background: transparent !important;
   border-color: transparent !important;
@@ -3940,6 +4425,11 @@
   background:
     radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.025), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--echo-bg) 86%, #141827), #05070d) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .app-root:has(.app-wallpaper-backdrop),
+:root[data-echo-theme-tone='dark'] .app-root:has(.app-wallpaper-backdrop) .app-container {
+  background: transparent !important;
 }
 
 :root[data-echo-theme-tone='dark'] .app-root:has(.main-player.immersive-mode),
@@ -4079,7 +4569,11 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.064), rgba(255, 255, 255, 0.028)),
     color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, rgba(255, 255, 255, 0.035)) !important;
-  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 28%, rgba(255, 255, 255, 0.1)) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 28%,
+    rgba(255, 255, 255, 0.1)
+  ) !important;
   color: var(--echo-text-primary) !important;
 }
 
@@ -4102,9 +4596,14 @@
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item.active,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn.active,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem.active {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent), transparent 74%) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent),
+    transparent 74%
+  ) !important;
   border-color: transparent !important;
-  box-shadow: inset 3px 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--accent-blue)) !important;
+  box-shadow: inset 3px 0
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--accent-blue)) !important;
   color: var(--echo-text-primary) !important;
 }
 
@@ -4136,13 +4635,17 @@
 
 /* Settings subsections and the EQ editor should inherit the active theme instead of fixed white glass. */
 .settings-page .setting-subsection {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 88%, var(--theme-primary, var(--accent-pink)) 6%),
-      color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 74%, transparent)
-    ) !important;
-  border: 1px solid color-mix(in srgb, var(--settings-glass-border, var(--glass-border)) 82%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(
+      in srgb,
+      var(--settings-glass-card, var(--glass-bg)) 88%,
+      var(--theme-primary, var(--accent-pink)) 6%
+    ),
+    color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 74%, transparent)
+  ) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--settings-glass-border, var(--glass-border)) 82%, transparent);
   box-shadow:
     0 10px 28px color-mix(in srgb, var(--text-main) 6%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 30%, transparent);
@@ -4150,9 +4653,17 @@
 }
 
 .settings-page .echo-clean-eq-section {
-  --eq-clean-surface: color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 88%, var(--theme-primary, var(--accent-pink)) 4%);
+  --eq-clean-surface: color-mix(
+    in srgb,
+    var(--settings-glass-card, var(--glass-bg)) 88%,
+    var(--theme-primary, var(--accent-pink)) 4%
+  );
   --eq-clean-card: color-mix(in srgb, var(--settings-glass-card, var(--glass-bg)) 78%, transparent);
-  --eq-clean-border: color-mix(in srgb, var(--settings-glass-border, var(--glass-border)) 86%, transparent);
+  --eq-clean-border: color-mix(
+    in srgb,
+    var(--settings-glass-border, var(--glass-border)) 86%,
+    transparent
+  );
   --eq-clean-text: var(--text-main);
   --eq-clean-muted: var(--text-soft);
   --eq-clean-shadow: 0 18px 42px color-mix(in srgb, var(--text-main) 8%, transparent);
@@ -4161,7 +4672,11 @@
   --eq-canvas-label: color-mix(in srgb, var(--text-soft) 76%, transparent);
   --eq-canvas-soft-label: color-mix(in srgb, var(--text-soft) 70%, transparent);
   --eq-canvas-active-label: color-mix(in srgb, var(--text-main) 82%, transparent);
-  --eq-canvas-area-top: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent);
+  --eq-canvas-area-top: color-mix(
+    in srgb,
+    var(--theme-primary, var(--accent-pink)) 12%,
+    transparent
+  );
   --eq-canvas-area-mid: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 7%, transparent);
   --eq-canvas-band-fill: color-mix(in srgb, var(--eq-clean-card) 78%, #ffffff 18%);
   --eq-canvas-band-disabled-fill: color-mix(in srgb, var(--eq-clean-card) 70%, transparent);
@@ -4172,7 +4687,11 @@
   --eq-canvas-band-disabled-label: color-mix(in srgb, var(--text-soft) 62%, transparent);
   --eq-canvas-disabled-mark: color-mix(in srgb, var(--text-soft) 76%, transparent);
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent), color-mix(in srgb, #ffffff 6%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 18%, transparent),
+      color-mix(in srgb, #ffffff 6%, transparent)
+    ),
     var(--eq-clean-surface) !important;
   border-color: var(--eq-clean-border) !important;
   color: var(--eq-clean-text) !important;
@@ -4198,7 +4717,11 @@
 .settings-page .eq-canvas-wrapper,
 .settings-page .eq-selected-info-bar {
   background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 14%, transparent), color-mix(in srgb, #ffffff 4%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 14%, transparent),
+      color-mix(in srgb, #ffffff 4%, transparent)
+    ),
     var(--eq-clean-card) !important;
   border-color: var(--eq-clean-border) !important;
   box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent) !important;
@@ -4214,7 +4737,11 @@
   background:
     linear-gradient(to right, var(--eq-canvas-grid, rgba(0, 0, 0, 0.045)) 1px, transparent 1px),
     linear-gradient(to bottom, var(--eq-canvas-grid, rgba(0, 0, 0, 0.045)) 1px, transparent 1px),
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 14%, transparent), color-mix(in srgb, #ffffff 4%, transparent)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 14%, transparent),
+      color-mix(in srgb, #ffffff 4%, transparent)
+    ),
     var(--eq-clean-card) !important;
   background-size:
     12.5% 100%,
@@ -4235,7 +4762,11 @@
 }
 
 :root[data-echo-theme-tone='dark'] .settings-page .echo-clean-eq-section {
-  --eq-clean-surface: color-mix(in srgb, var(--echo-surface) 88%, var(--theme-accent, var(--accent-blue)) 5%);
+  --eq-clean-surface: color-mix(
+    in srgb,
+    var(--echo-surface) 88%,
+    var(--theme-accent, var(--accent-blue)) 5%
+  );
   --eq-clean-card: color-mix(in srgb, var(--echo-surface-muted) 88%, rgba(255, 255, 255, 0.035));
   --eq-clean-border: var(--echo-border);
   --eq-clean-text: var(--echo-text-primary);
@@ -4305,8 +4836,16 @@
 
 :root[data-echo-theme-tone='dark'] .settings-page .eq-canvas-wrapper {
   background:
-    linear-gradient(to right, var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px, transparent 1px),
+    linear-gradient(
+      to right,
+      var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      var(--eq-canvas-grid, rgba(255, 255, 255, 0.08)) 1px,
+      transparent 1px
+    ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
     var(--eq-clean-card) !important;
   background-size:
