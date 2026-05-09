@@ -158,8 +158,6 @@ export function buildVisibleTrackMetaHydrateRequirement(
   entry = null,
   {
     isLocalTrack = null,
-    coverProbePaths = null,
-    artistProbePaths = null,
     trackMetaMap = {},
     effectiveTrackMetaMap = {},
     albumCoverMap = {},
@@ -175,8 +173,8 @@ export function buildVisibleTrackMetaHydrateRequirement(
       effectiveTrackMetaMap,
       albumCoverMap,
       albumTracks
-    }) && !coverProbePaths?.has?.(track.path)
-  const needsArtist = !hasVisibleRowArtist(track, entry) && !artistProbePaths?.has?.(track.path)
+    })
+  const needsArtist = !hasVisibleRowArtist(track, entry)
   if (!needsCover && !needsArtist) return null
 
   return {
@@ -184,6 +182,17 @@ export function buildVisibleTrackMetaHydrateRequirement(
     needsArtist,
     needsAlbum: false,
     source: 'visible-row'
+  }
+}
+
+export function buildVisibleRowMetadataRequestOptions() {
+  return {
+    mode: 'visible-row',
+    includeCover: true,
+    includeTechnicalProbe: false,
+    includeLyrics: false,
+    includeBpm: false,
+    includeMqa: false
   }
 }
 
@@ -209,8 +218,6 @@ export function buildTrackMetadataPrefetchPlan({
   maxTracks = 96,
   visibleAheadLimit = 24,
   isLocalTrack = null,
-  coverProbePaths = null,
-  artistProbePaths = null,
   albumCoverMap = {},
   albumTracksByKey = null
 } = {}) {
@@ -238,8 +245,6 @@ export function buildTrackMetadataPrefetchPlan({
   const buildRequirement = (track) =>
     buildVisibleTrackMetaHydrateRequirement(track, getTrackEntry(track), {
       isLocalTrack,
-      coverProbePaths,
-      artistProbePaths,
       trackMetaMap,
       effectiveTrackMetaMap,
       albumCoverMap,

@@ -288,6 +288,7 @@ import {
   createAlbumCoverFallbackKey,
   createArtistAvatarCacheKey,
   buildTrackMetadataPrefetchPlan,
+  buildVisibleRowMetadataRequestOptions,
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
@@ -444,6 +445,7 @@ const ONLINE_LYRICS_SECOND_FALLBACK_RACE_DELAY_MS = 1700
 const MAX_TRACK_META_COVER_ENTRIES = 720
 const LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE = 360
 const METADATA_PREFETCH_LIMIT = 96
+const SIDEBAR_CONTEXT_METADATA_WARMUP_LIMIT = 100
 const ALBUM_METADATA_PREFETCH_LIMIT = 240
 const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
@@ -2403,6 +2405,8 @@ export default function App() {
   const trackLoadSeqRef = useRef(0)
   const albumCoverProbePathsRef = useRef(new Set())
   const albumArtistProbePathsRef = useRef(new Set())
+  const visibleRowCoverProbePathsRef = useRef(new Set())
+  const visibleRowArtistProbePathsRef = useRef(new Set())
   const albumCoverBackfillRunKeyRef = useRef('')
   const [albumCoverManualLoadRequest, setAlbumCoverManualLoadRequest] = useState({
     id: 0,
@@ -14636,6 +14640,36 @@ export default function App() {
     return tracksForSidebarListFiltered.slice(startIndex, endIndex)
   }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange])
 
+  const metadataContextWarmupSidebarTracks = useMemo(() => {
+    if (!libraryBrowserVisible) return []
+    if (listMode === 'album') return []
+    if (tracksForSidebarListFiltered.length === 0) return []
+    const warmup = []
+    for (const track of tracksForSidebarListFiltered) {
+      if (warmup.length >= SIDEBAR_CONTEXT_METADATA_WARMUP_LIMIT) break
+      if (
+        isLocalAudioFilePath(track?.path) &&
+        !isRemoteTrackPath(track?.path) &&
+        !isStreamingTrackPath(track?.path)
+      ) {
+        warmup.push(track)
+      }
+    }
+    return warmup
+  }, [libraryBrowserVisible, listMode, tracksForSidebarListFiltered])
+
+  const metadataPrefetchCandidateTracks = useMemo(() => {
+    if (metadataContextWarmupSidebarTracks.length === 0) return metadataPrefetchSidebarTracks
+    const byPath = new Map()
+    for (const track of metadataPrefetchSidebarTracks) {
+      if (track?.path && !byPath.has(track.path)) byPath.set(track.path, track)
+    }
+    for (const track of metadataContextWarmupSidebarTracks) {
+      if (track?.path && !byPath.has(track.path)) byPath.set(track.path, track)
+    }
+    return Array.from(byPath.values())
+  }, [metadataContextWarmupSidebarTracks, metadataPrefetchSidebarTracks])
+
   useEffect(() => {
     if (!libraryBrowserVisible) return undefined
     const playlistElement = sidebarPlaylistRef.current
@@ -15314,7 +15348,7 @@ export default function App() {
       for (const track of visibleSidebarTracks) {
         if (track?.path) occupiedPaths.add(track.path)
       }
-      for (const track of metadataPrefetchSidebarTracks) {
+      for (const track of metadataPrefetchCandidateTracks) {
         if (track?.path) occupiedPaths.add(track.path)
       }
     }
@@ -15339,7 +15373,7 @@ export default function App() {
     return buildTrackMetadataPrefetchPlan({
       currentTrack,
       visibleSidebarTracks: showTrackList ? visibleSidebarTracks : [],
-      metadataPrefetchSidebarTracks: showTrackList ? metadataPrefetchSidebarTracks : [],
+      metadataPrefetchSidebarTracks: showTrackList ? metadataPrefetchCandidateTracks : [],
       albumWallHydrateTargets,
       trackMetaMap,
       effectiveTrackMetaMap,
@@ -15347,9 +15381,7 @@ export default function App() {
       albumTracksByKey: trackAlbumTracksByKey,
       maxTracks: limit,
       visibleAheadLimit: VISIBLE_ROW_HYDRATE_AHEAD_LIMIT,
-      isLocalTrack: isVisibleRowLocalTrack,
-      coverProbePaths: albumCoverProbePathsRef.current,
-      artistProbePaths: albumArtistProbePathsRef.current
+      isLocalTrack: isVisibleRowLocalTrack
     })
   }, [
     currentTrack,
@@ -15357,7 +15389,7 @@ export default function App() {
     effectiveTrackMetaMap,
     listMode,
     metadataPrefetchAlbumGroups,
-    metadataPrefetchSidebarTracks,
+    metadataPrefetchCandidateTracks,
     selectedAlbum,
     showTrackList,
     trackAlbumTracksByKey,
@@ -15396,7 +15428,7 @@ export default function App() {
     pushTrack(currentTrack)
 
     if (showTrackList) {
-      for (const track of metadataPrefetchSidebarTracks) pushTrack(track)
+      for (const track of metadataPrefetchCandidateTracks) pushTrack(track)
     }
 
     if (listMode === 'album' && selectedAlbum === 'all') {
@@ -15409,7 +15441,7 @@ export default function App() {
   }, [
     currentTrack,
     listMode,
-    metadataPrefetchSidebarTracks,
+    metadataPrefetchCandidateTracks,
     selectedAlbum,
     showTrackList,
     trackMetaMap,
@@ -15431,6 +15463,43 @@ export default function App() {
   useEffect(() => {
     const isVisibleRowHydrateTrack = (track) =>
       metadataHydrateRequirementByPath.get(track?.path)?.source === 'visible-row'
+    const isVisibleRowHydrateRequirementFullyProbed = (track, requirement) => {
+      const path = track?.path
+      if (!path || requirement?.source !== 'visible-row') return false
+      const coverDone =
+        requirement.needsCover !== true || visibleRowCoverProbePathsRef.current.has(path)
+      const artistDone =
+        requirement.needsArtist !== true || visibleRowArtistProbePathsRef.current.has(path)
+      return coverDone && artistDone
+    }
+    const clearVisibleRowProbeForCachedEntry = (track, entry, requirement) => {
+      const path = track?.path
+      if (!path || requirement?.source !== 'visible-row' || !entry) return
+      if (requirement.needsCover && entry.cover) {
+        visibleRowCoverProbePathsRef.current.delete(path)
+      }
+      if (
+        requirement.needsArtist &&
+        !isUnknownArtistName(entry.albumArtist || entry.artist || '')
+      ) {
+        visibleRowArtistProbePathsRef.current.delete(path)
+      }
+    }
+    const updateVisibleRowProbeAfterParse = (track, entry, requirement) => {
+      const path = track?.path
+      if (!path || requirement?.source !== 'visible-row') return
+      if (requirement.needsCover) {
+        if (entry?.cover) visibleRowCoverProbePathsRef.current.delete(path)
+        else visibleRowCoverProbePathsRef.current.add(path)
+      }
+      if (requirement.needsArtist) {
+        if (!isUnknownArtistName(entry?.albumArtist || entry?.artist || '')) {
+          visibleRowArtistProbePathsRef.current.delete(path)
+        } else {
+          visibleRowArtistProbePathsRef.current.add(path)
+        }
+      }
+    }
     const isCurrentTrackCandidate = (track) =>
       Boolean(
         currentTrack?.path &&
@@ -15448,7 +15517,7 @@ export default function App() {
         hydrateRequirement &&
         !satisfiesMetadataHydrateRequirement(entry, hydrateRequirement)
       ) {
-        return true
+        return !isVisibleRowHydrateRequirementFullyProbed(track, hydrateRequirement)
       }
       if (entry?.coverMemoryTrimmed && metadataCoverKeepPathSet.has(track.path)) return true
       const hasUsefulArtist = !isUnknownArtistName(
@@ -15534,6 +15603,11 @@ export default function App() {
       const cachedAlbumCovers = {}
       for (const track of pending) {
         const cachedEntry = cached[track.path]
+        clearVisibleRowProbeForCachedEntry(
+          track,
+          cachedEntry,
+          metadataHydrateRequirementByPath.get(track.path)
+        )
         collectAlbumCover(cachedAlbumCovers, track, cachedEntry)
       }
       if (!cancelled && Object.keys(cachedAlbumCovers).length > 0) {
@@ -15556,7 +15630,7 @@ export default function App() {
           hydrateRequirement &&
           !satisfiesMetadataHydrateRequirement(cachedMeta, hydrateRequirement)
         ) {
-          return true
+          return !isVisibleRowHydrateRequirementFullyProbed(track, hydrateRequirement)
         }
         if (shouldRefreshTrackMetaCacheForAudioQuality(track.path, cachedMeta)) return true
         if (shouldRefreshInfoSidecarTrackMeta(track.path, cachedMeta)) return true
@@ -15650,7 +15724,12 @@ export default function App() {
           nextIndex += 1
           if (!track) return
           try {
-            const data = await window.api.getExtendedMetadataHandler(track.path)
+            const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
+            const metadataOptions =
+              hydrateRequirement?.source === 'visible-row'
+                ? buildVisibleRowMetadataRequestOptions()
+                : undefined
+            const data = await window.api.getExtendedMetadataHandler(track.path, metadataOptions)
             if (data?.success) {
               const common = data.common || {}
               const technical = data.technical || {}
@@ -15699,8 +15778,13 @@ export default function App() {
 
       for (const track of parseQueue) {
         if (track?.path) {
-          albumCoverProbePathsRef.current.add(track.path)
-          albumArtistProbePathsRef.current.add(track.path)
+          const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
+          if (hydrateRequirement?.source === 'visible-row') {
+            updateVisibleRowProbeAfterParse(track, loaded[track.path], hydrateRequirement)
+          } else {
+            albumCoverProbePathsRef.current.add(track.path)
+            albumArtistProbePathsRef.current.add(track.path)
+          }
         }
       }
 

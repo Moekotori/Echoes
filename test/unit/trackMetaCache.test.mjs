@@ -6,6 +6,7 @@ import {
   buildTrackMetaCacheFingerprint,
   buildTrackMetadataPrefetchPlan,
   buildVisibleTrackMetaHydrateRequirement,
+  buildVisibleRowMetadataRequestOptions,
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
@@ -17,6 +18,7 @@ import {
   stripCoverFieldsFromTrackMeta,
   TRACK_META_CACHE_LIMITS
 } from '../../src/renderer/src/utils/trackMetaCache.js'
+import { getTrackAlbumGroupKey } from '../../src/renderer/src/utils/trackUtils.js'
 
 test('track and album cover cache limits fit large album libraries', () => {
   assert.equal(TRACK_META_CACHE_LIMITS.maxEntries, 50000)
@@ -392,7 +394,7 @@ test('visible-row hydrate requirement is only created for missing displayed fiel
   )
 })
 
-test('visible-row hydrate requirement respects local-track and probe guards', () => {
+test('visible-row hydrate requirement respects local-track guard', () => {
   const track = {
     path: 'streaming://netease/track/1',
     info: {
@@ -405,15 +407,22 @@ test('visible-row hydrate requirement respects local-track and probe guards', ()
     buildVisibleTrackMetaHydrateRequirement(track, {}, { isLocalTrack: () => false }),
     null
   )
+})
+
+test('visible-row hydrate requirement ignores album probe guards for missing UI fields', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      artist: 'Unknown Artist',
+      cover: ''
+    }
+  }
 
   const coverProbePaths = new Set(['D:/Music/Album/01.flac'])
   const artistProbePaths = new Set(['D:/Music/Album/01.flac'])
-  assert.equal(
+  assert.deepEqual(
     buildVisibleTrackMetaHydrateRequirement(
-      {
-        ...track,
-        path: 'D:/Music/Album/01.flac'
-      },
+      track,
       {},
       {
         isLocalTrack: () => true,
@@ -421,7 +430,49 @@ test('visible-row hydrate requirement respects local-track and probe guards', ()
         artistProbePaths
       }
     ),
+    {
+      needsCover: true,
+      needsArtist: true,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
+})
+
+test('visible-row hydrate requirement accepts strict album fallback cover', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      album: 'Shared Album',
+      albumArtist: 'Known Artist',
+      artist: 'Known Artist',
+      cover: ''
+    }
+  }
+  const albumKey = getTrackAlbumGroupKey(track)
+
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(track, {}, {
+      isLocalTrack: () => true,
+      albumCoverMap: {
+        [albumKey]: 'data:image/album-cover'
+      }
+    }),
     null
+  )
+})
+
+test('visible-row metadata request options use light metadata mode', () => {
+  assert.deepEqual(
+    buildVisibleRowMetadataRequestOptions(),
+    {
+      mode: 'visible-row',
+      includeCover: true,
+      includeTechnicalProbe: false,
+      includeLyrics: false,
+      includeBpm: false,
+      includeMqa: false
+    }
   )
 })
 

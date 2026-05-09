@@ -102,7 +102,8 @@ contextBridge.exposeInMainWorld('api', {
   minimizeAppHandler: () => ipcRenderer.send('window:minimize'),
   downloadSoundCloud: (url, downloadPath) =>
     ipcRenderer.invoke('soundcloud:download', url, downloadPath),
-  getExtendedMetadataHandler: (path) => ipcRenderer.invoke('file:getExtendedMetadata', path),
+  getExtendedMetadataHandler: (path, options) =>
+    ipcRenderer.invoke('file:getExtendedMetadata', path, options),
   detectBpmHandler: (path) => ipcRenderer.invoke('file:detectBpm', path),
   updateExtendedMetadataHandler: (payload) =>
     ipcRenderer.invoke('file:updateExtendedMetadata', payload),

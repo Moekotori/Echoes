@@ -5086,13 +5086,29 @@ app.whenReady().then(async () => {
     })
   })
 
-  async function getExtendedMetadataFallback(filePath) {
+  function normalizeExtendedMetadataOptions(options = null) {
+    const mode = options?.mode === 'visible-row' ? 'visible-row' : 'full'
+    const isVisibleRowMode = mode === 'visible-row'
+    return {
+      mode,
+      includeCover: options?.includeCover !== false,
+      includeTechnicalProbe: isVisibleRowMode ? false : options?.includeTechnicalProbe !== false,
+      includeLyrics: isVisibleRowMode ? false : options?.includeLyrics !== false,
+      includeBpm: isVisibleRowMode ? false : options?.includeBpm !== false,
+      includeMqa: isVisibleRowMode ? false : options?.includeMqa !== false
+    }
+  }
+
+  async function getExtendedMetadataFallback(filePath, options = null) {
+    const requestOptions = normalizeExtendedMetadataOptions(options)
     const ext = extname(filePath)
     const baseTitle = basename(filePath, ext)
     const extShort = ext.replace(/^\./, '').toUpperCase() || null
     const infoSidecar = readInfoSidecarMetadata(filePath)
     const filenameIdentity = parseLocalFilenameIdentitySafe(filePath)
-    const ffmpegInfo = await getFfmpegAudioInfo(filePath).catch(() => null)
+    const ffmpegInfo = requestOptions.includeTechnicalProbe
+      ? await getFfmpegAudioInfo(filePath).catch(() => null)
+      : null
     const rawAlbum = firstReadableMetadataText(ffmpegInfo?.tags?.album)
     const rawAlbumArtist = firstReadableMetadataText(ffmpegInfo?.tags?.albumArtist)
     const rawArtist = firstReadableMetadataText(
@@ -5110,23 +5126,25 @@ app.whenReady().then(async () => {
       filenameIdentity.title,
       baseTitle
     )
-    let cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+    let cover = requestOptions.includeCover ? findInfoSidecarCoverDataUrl(filePath, infoSidecar) : null
     let coverScope = cover ? 'track' : 'album'
-    if (!cover) {
+    if (requestOptions.includeCover && !cover) {
       cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbum })
       coverScope = 'album'
     }
     return {
       success: true,
       technical: {
-        sampleRate: ffmpegInfo?.sampleRate || null,
-        bitrate: ffmpegInfo?.bitrate || null,
-        channels: ffmpegInfo?.channels || null,
-        bitDepth: ffmpegInfo?.bitDepth || null,
-        codec: ffmpegInfo?.codec || extShort,
+        sampleRate: requestOptions.includeTechnicalProbe ? ffmpegInfo?.sampleRate || null : null,
+        bitrate: requestOptions.includeTechnicalProbe ? ffmpegInfo?.bitrate || null : null,
+        channels: requestOptions.includeTechnicalProbe ? ffmpegInfo?.channels || null : null,
+        bitDepth: requestOptions.includeTechnicalProbe ? ffmpegInfo?.bitDepth || null : null,
+        codec: requestOptions.includeTechnicalProbe ? ffmpegInfo?.codec || extShort : null,
         duration: ffmpegInfo?.duration || null,
         isMqa: false,
-        lossless: ['FLAC', 'WAV', 'APE', 'ALAC'].includes(extShort || '')
+        lossless: requestOptions.includeTechnicalProbe
+          ? ['FLAC', 'WAV', 'APE', 'ALAC'].includes(extShort || '')
+          : false
       },
       common: {
         title: rawTitle || baseTitle,
@@ -5368,7 +5386,8 @@ app.whenReady().then(async () => {
     )
   }
 
-  async function buildExtendedMetadataResponse(filePath) {
+  async function buildExtendedMetadataResponse(filePath, options = null) {
+    const requestOptions = normalizeExtendedMetadataOptions(options)
     const requestedPath = filePath
     const cueTrack = parseCueVirtualPath(requestedPath)
     filePath = getCueAudioPath(filePath)
@@ -5385,20 +5404,25 @@ app.whenReady().then(async () => {
       const isDsdFile = extLower === '.dsf' || extLower === '.dff'
       const fileSizeBytes = getLocalFileSizeBytes(filePath)
       const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
-      const ffmpegInfo = shouldUseFfmpegAudioInfo(filePath, metadata, firstCodecLabel, {
-        fileSizeBytes
-      })
-        ? await getFfmpegAudioInfo(filePath)
-        : null
-      const preferFfmpegInfo = shouldPreferFfmpegAudioInfo(filePath, metadata, ffmpegInfo, {
-        fileSizeBytes,
-        codecLabel: firstCodecLabel
-      })
+      const shouldRunTechnicalProbe = requestOptions.includeTechnicalProbe !== false
+      const ffmpegInfo =
+        shouldRunTechnicalProbe &&
+        shouldUseFfmpegAudioInfo(filePath, metadata, firstCodecLabel, {
+          fileSizeBytes
+        })
+          ? await getFfmpegAudioInfo(filePath)
+          : null
+      const preferFfmpegInfo =
+        shouldRunTechnicalProbe &&
+        shouldPreferFfmpegAudioInfo(filePath, metadata, ffmpegInfo, {
+          fileSizeBytes,
+          codecLabel: firstCodecLabel
+        })
       let durationSec = metadata.format.duration || infoSidecar?.duration || null
       if (preferFfmpegInfo && Number(ffmpegInfo?.duration) > 0) {
         durationSec = ffmpegInfo.duration
       }
-      if (isDsdFile) {
+      if (shouldRunTechnicalProbe && isDsdFile) {
         const probed = await getMediaDurationSeconds(filePath)
         if (probed > 0) durationSec = probed
       }
@@ -5409,15 +5433,17 @@ app.whenReady().then(async () => {
         ffmpegInfo?.tags?.album
       )
 
-      const picture = selectCover(metadata.common.picture)
+      const picture = requestOptions.includeCover ? selectCover(metadata.common.picture) : null
       let coverBytes = 0
       let coverWidth = 0
       let coverHeight = 0
       let coverExtractorVersion = 0
       const preferFfmpegCover =
-        preferFfmpegInfo ||
-        /\.(opus|ogg)$/i.test(filePath) ||
-        /ogg/i.test(metadata.format?.container || '')
+        requestOptions.includeCover &&
+        shouldRunTechnicalProbe &&
+        (preferFfmpegInfo ||
+          /\.(opus|ogg)$/i.test(filePath) ||
+          /ogg/i.test(metadata.format?.container || ''))
       if (preferFfmpegCover) {
         const extractedCover = await extractAttachedCoverWithFfmpeg(filePath)
         if (extractedCover?.dataUrl) {
@@ -5439,27 +5465,38 @@ app.whenReady().then(async () => {
           coverExtractorVersion = 1
         }
       }
-      if (!cover) {
+      if (requestOptions.includeCover && !cover) {
         cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
         coverScope = cover ? 'track' : 'album'
         if (!cover) cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
         coverExtractorVersion = cover ? 1 : 0
       }
 
-      const codecLabel = normalizeResolvedAudioCodec(metadata, filePath, ffmpegInfo, preferFfmpegInfo)
-      const embeddedLyrics = extractEmbeddedLyricsText(metadata)
-      const sampleRate = preferFfmpegInfo
-        ? ffmpegInfo?.sampleRate || metadata.format.sampleRate || null
-        : metadata.format.sampleRate || ffmpegInfo?.sampleRate || null
-      const bitrate = preferFfmpegInfo
-        ? ffmpegInfo?.bitrate || metadata.format.bitrate || null
-        : metadata.format.bitrate || ffmpegInfo?.bitrate || null
-      const channels = preferFfmpegInfo
-        ? ffmpegInfo?.channels || metadata.format.numberOfChannels || null
-        : metadata.format.numberOfChannels || ffmpegInfo?.channels || null
-      const bitDepth = preferFfmpegInfo
-        ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
-        : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
+      const codecLabel = shouldRunTechnicalProbe
+        ? normalizeResolvedAudioCodec(metadata, filePath, ffmpegInfo, preferFfmpegInfo)
+        : null
+      const embeddedLyrics =
+        requestOptions.includeLyrics === false ? null : extractEmbeddedLyricsText(metadata)
+      const sampleRate = shouldRunTechnicalProbe
+        ? preferFfmpegInfo
+          ? ffmpegInfo?.sampleRate || metadata.format.sampleRate || null
+          : metadata.format.sampleRate || ffmpegInfo?.sampleRate || null
+        : null
+      const bitrate = shouldRunTechnicalProbe
+        ? preferFfmpegInfo
+          ? ffmpegInfo?.bitrate || metadata.format.bitrate || null
+          : metadata.format.bitrate || ffmpegInfo?.bitrate || null
+        : null
+      const channels = shouldRunTechnicalProbe
+        ? preferFfmpegInfo
+          ? ffmpegInfo?.channels || metadata.format.numberOfChannels || null
+          : metadata.format.numberOfChannels || ffmpegInfo?.channels || null
+        : null
+      const bitDepth = shouldRunTechnicalProbe
+        ? preferFfmpegInfo
+          ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
+          : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
+        : null
       const displayDuration = getCueDuration(requestedPath, durationSec || infoSidecar?.duration || 0)
       const rawTitle = firstReadableMetadataText(
         cueTrack?.title,
@@ -5519,13 +5556,14 @@ app.whenReady().then(async () => {
           bitDepth,
           codec: codecLabel,
           duration: displayDuration,
-          isMqa: hasMqaMetadata(metadata),
+          isMqa: requestOptions.includeMqa === false ? false : hasMqaMetadata(metadata),
           lossless:
-            metadata.format.lossless ||
-            /^(alac|flac|wav|aiff|ape)$/i.test(ffmpegInfo?.codec || '') ||
-            /^(alac|flac|wav|aiff|ape)$/i.test(codecLabel) ||
-            metadata.format.container?.toLowerCase() === 'flac' ||
-            metadata.format.container?.toLowerCase() === 'wav'
+            shouldRunTechnicalProbe &&
+            (metadata.format.lossless ||
+              /^(alac|flac|wav|aiff|ape)$/i.test(ffmpegInfo?.codec || '') ||
+              /^(alac|flac|wav|aiff|ape)$/i.test(codecLabel) ||
+              metadata.format.container?.toLowerCase() === 'flac' ||
+              metadata.format.container?.toLowerCase() === 'wav')
         },
         common: {
           title: titleFromFilename || basename(filePath, extname(filePath)),
@@ -5534,7 +5572,10 @@ app.whenReady().then(async () => {
           albumArtist: rawAlbumArtist || null,
           trackNo: metadata.common.track?.no ?? null,
           discNo: metadata.common.disk?.no ?? null,
-          bpm: extractBpmMetadataValue(metadata) || infoSidecar?.bpm || null,
+          bpm:
+            requestOptions.includeBpm === false
+              ? null
+              : extractBpmMetadataValue(metadata) || infoSidecar?.bpm || null,
           lyrics: embeddedLyrics || null,
           lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
           cover,
@@ -5555,7 +5596,7 @@ app.whenReady().then(async () => {
       if (!isKnownParseNoise) {
         console.error('getExtendedMetadata error:', msg)
       }
-      return getExtendedMetadataFallback(filePath)
+      return getExtendedMetadataFallback(filePath, requestOptions)
     }
   }
 
@@ -5999,7 +6040,7 @@ app.whenReady().then(async () => {
   }
 
   // IPC: Get Extended Audio Metadata (Sample rate, bitrate, format, cover)
-  ipcMain.handle('file:getExtendedMetadata', async (_, filePath) => {
+  ipcMain.handle('file:getExtendedMetadata', async (_, filePath, options = null) => {
     if (isSubsonicTrackPath(filePath) || isJellyfinTrackPath(filePath)) {
       try {
         const track = isJellyfinTrackPath(filePath)
@@ -6044,7 +6085,7 @@ app.whenReady().then(async () => {
     if (!existsSync(metadataPath)) {
       return { success: false, error: 'file_not_found' }
     }
-    return await buildExtendedMetadataResponse(filePath)
+    return await buildExtendedMetadataResponse(filePath, options)
   })
 
   ipcMain.handle('file:detectBpm', async (_, filePath) => {
