@@ -1,19 +1,7 @@
 const SELECTABLE_TEXT_SELECTOR = [
-  '.track-name',
-  '.track-subtitle',
-  '.artist-link',
-  '.album-title',
-  '.album-subtitle-artist',
-  '.artist-card-title',
-  '.bottom-bar-title',
-  '.bottom-bar-artist',
-  '.track-info h1',
-  '.artist-text',
-  '.history-sidebar-item-title',
-  '.history-sidebar-item-subtitle',
-  '.streaming-result-main strong',
-  '.streaming-result-main span',
-  '.metadata-drawer-track-name'
+  '.main-player.lyrics-mode .lyrics-meta h2',
+  '.main-player.lyrics-mode .lyrics-meta p',
+  '.main-player.lyrics-mode .lyrics-meta .artist-link-lyrics'
 ].join(', ')
 
 export function getSelectedText() {

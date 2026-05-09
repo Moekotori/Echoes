@@ -2245,6 +2245,7 @@ export default function App() {
   const [activeDeckPopover, setActiveDeckPopover] = useState(null)
   const volumeDeckToolRef = useRef(null)
   const speedDeckToolRef = useRef(null)
+  const deckPopoverCloseTimerRef = useRef(0)
   const [deckPopoverStyle, setDeckPopoverStyle] = useState(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -2292,6 +2293,31 @@ export default function App() {
     })
   }, [])
 
+  const clearDeckPopoverCloseTimer = useCallback(() => {
+    if (deckPopoverCloseTimerRef.current) {
+      window.clearTimeout(deckPopoverCloseTimerRef.current)
+      deckPopoverCloseTimerRef.current = 0
+    }
+  }, [])
+
+  const openDeckPopover = useCallback(
+    (kind) => {
+      clearDeckPopoverCloseTimer()
+      updateDeckPopoverPosition(kind)
+      setActiveDeckPopover(kind)
+    },
+    [clearDeckPopoverCloseTimer, updateDeckPopoverPosition]
+  )
+
+  const scheduleDeckPopoverClose = useCallback(() => {
+    clearDeckPopoverCloseTimer()
+    deckPopoverCloseTimerRef.current = window.setTimeout(() => {
+      setActiveDeckPopover(null)
+      setDeckPopoverStyle(null)
+      deckPopoverCloseTimerRef.current = 0
+    }, 180)
+  }, [clearDeckPopoverCloseTimer])
+
   const toggleDeckPopover = useCallback(
     (kind) => {
       if (activeDeckPopover === kind) {
@@ -2299,10 +2325,25 @@ export default function App() {
         setDeckPopoverStyle(null)
         return
       }
-      updateDeckPopoverPosition(kind)
-      setActiveDeckPopover(kind)
+      openDeckPopover(kind)
     },
-    [activeDeckPopover, updateDeckPopoverPosition]
+    [activeDeckPopover, openDeckPopover]
+  )
+
+  const handleVolumeToolContextMenu = useCallback((event) => {
+    event.preventDefault()
+    setActiveDeckPopover(null)
+    setDeckPopoverStyle(null)
+    setAudioSettingsDrawerOpen(true)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (deckPopoverCloseTimerRef.current) {
+        window.clearTimeout(deckPopoverCloseTimerRef.current)
+      }
+    },
+    []
   )
 
   useEffect(() => {
@@ -24275,28 +24316,38 @@ export default function App() {
             ) : (
               <div className="bottom-bar-toolset">
                 <button
+                  type="button"
                   ref={volumeDeckToolRef}
                   className={
                     'btn btn--transport deck-tool-trigger deck-tool-trigger--volume ' +
                     (activeDeckPopover === 'volume' ? 'active' : '')
                   }
                   onClick={() => toggleDeckPopover('volume')}
+                  onContextMenu={handleVolumeToolContextMenu}
+                  onMouseEnter={() => openDeckPopover('volume')}
+                  onMouseLeave={scheduleDeckPopoverClose}
+                  onFocus={() => openDeckPopover('volume')}
                   title={t('player.vol')}
                 >
                   {volume <= 0.001 ? <VolumeX size={16} /> : <Volume2 size={16} />}
                 </button>
                 <button
+                  type="button"
                   ref={speedDeckToolRef}
                   className={
                     'btn btn--transport deck-tool-trigger ' +
                     (activeDeckPopover === 'speed' ? 'active' : '')
                   }
                   onClick={() => toggleDeckPopover('speed')}
+                  onMouseEnter={() => openDeckPopover('speed')}
+                  onMouseLeave={scheduleDeckPopoverClose}
+                  onFocus={() => openDeckPopover('speed')}
                   title={t('player.speed')}
                 >
                   <Gauge size={16} />
                 </button>
                 <button
+                  type="button"
                   className="btn btn--transport deck-tool-trigger deck-tool-export"
                   onClick={() => {
                     handleExport()
@@ -24318,6 +24369,8 @@ export default function App() {
                     'deck-popover deck-popover--bottom-tools deck-popover--' + activeDeckPopover
                   }
                   style={deckPopoverStyle || undefined}
+                  onMouseEnter={clearDeckPopoverCloseTimer}
+                  onMouseLeave={scheduleDeckPopoverClose}
                 >
                   {activeDeckPopover === 'volume' ? (
                     <div className="deck-popover-row deck-popover-volume-row">

@@ -11,7 +11,12 @@ try {
 
 export function logLine(text) {
   const line = String(text || '')
-  if (process.platform === 'win32' && iconvLite?.encode && process.stdout?.write) {
+  if (
+    process.platform === 'win32' &&
+    process.env.ECHOES_LOG_CP936 === '1' &&
+    iconvLite?.encode &&
+    process.stdout?.write
+  ) {
     try {
       process.stdout.write(iconvLite.encode(`${line}\n`, 'cp936'))
       return

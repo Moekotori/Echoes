@@ -18,6 +18,45 @@ function formatNcmError(err) {
   return 'NetEase Cloud Music API request failed'
 }
 
+const NETEASE_SONG_DETAIL_BATCH_SIZE = 500
+
+function normalizeNeteaseTrackIds(trackIds = []) {
+  if (!Array.isArray(trackIds)) return []
+  return trackIds
+    .map((item) => item?.id ?? item)
+    .map((id) => String(id || '').trim())
+    .filter((id) => /^\d+$/.test(id))
+}
+
+function chunkArray(items, size) {
+  const chunks = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+export async function fetchNeteaseSongsByTrackIds(ncm, trackIds, base = {}) {
+  const orderedIds = normalizeNeteaseTrackIds(trackIds)
+  if (orderedIds.length === 0) return []
+
+  const uniqueIds = [...new Set(orderedIds)]
+  const songById = new Map()
+
+  for (const batch of chunkArray(uniqueIds, NETEASE_SONG_DETAIL_BATCH_SIZE)) {
+    const result = await ncm.song_detail({
+      ids: batch.join(','),
+      ...base
+    })
+    for (const song of result.body?.songs || []) {
+      const id = String(song?.id || '').trim()
+      if (id) songById.set(id, song)
+    }
+  }
+
+  return orderedIds.map((id) => songById.get(id)).filter(Boolean)
+}
+
 export function parseNeteasePlaylistId(input) {
   if (input == null) return null
   const s = String(input).trim()
@@ -68,13 +107,8 @@ export async function fetchNeteasePlaylistMeta(playlistId, opts = {}) {
 
   let songs = []
   try {
-    const all = await ncm.playlist_track_all({
-      id: playlistId,
-      limit: 100000,
-      offset: 0,
-      ...base
-    })
-    songs = all.body?.songs || []
+    songs = await fetchNeteaseSongsByTrackIds(ncm, playlist.trackIds, base)
+    if (songs.length === 0) songs = playlist.tracks || []
   } catch (err) {
     songs = playlist.tracks || []
     if (songs.length === 0) {

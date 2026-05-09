@@ -3942,6 +3942,17 @@
     linear-gradient(180deg, color-mix(in srgb, var(--echo-bg) 86%, #141827), #05070d) !important;
 }
 
+:root[data-echo-theme-tone='dark'] .app-root:has(.main-player.immersive-mode),
+:root[data-echo-theme-tone='dark'] .app-root:has(.main-player.immersive-mode) .app-container {
+  background: transparent !important;
+}
+
+:root[data-echo-theme-tone='dark'] .app-root:has(.main-player.immersive-mode) .lyrics-main-column {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 :root[data-echo-theme-tone='dark'] .app-wallpaper-backdrop {
   opacity: 0.74 !important;
   filter: blur(var(--wallpaper-blur, 22px)) saturate(0.92) brightness(0.68) !important;
