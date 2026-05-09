@@ -15,6 +15,18 @@ export default class RendererErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error('[RendererErrorBoundary]', error, info?.componentStack)
+    try {
+      window.api?.reportRendererDiagnostic?.({
+        kind: 'react-error-boundary',
+        at: new Date().toISOString(),
+        message: error?.message || String(error),
+        stack: error?.stack || '',
+        componentStack: info?.componentStack || '',
+        url: window.location.href
+      })
+    } catch {
+      /* best-effort diagnostics */
+    }
   }
 
   render() {

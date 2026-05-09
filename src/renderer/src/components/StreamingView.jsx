@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { formatRemoteDuration } from '../utils/remoteLibrary'
 import { writeTrackMetaCache } from '../utils/trackMetaCache'
+import { hasSelectedText, isSelectableTextTarget } from '../utils/textSelection'
 import StreamingSourceBadge from './StreamingSourceBadge'
 
 const STREAMING_QUALITY_STORAGE_KEY = 'echo.streaming.audioQualityMode'
@@ -799,7 +800,10 @@ export default function StreamingView({ onPlayTrack }) {
                 className="streaming-result-row"
                 role="button"
                 tabIndex={0}
-                onDoubleClick={() => handlePlay(track)}
+                onDoubleClick={(event) => {
+                  if (hasSelectedText() || isSelectableTextTarget(event.target)) return
+                  handlePlay(track)
+                }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
                   event.preventDefault()

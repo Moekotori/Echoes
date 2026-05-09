@@ -11,6 +11,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
+import { hasSelectedText, isSelectableTextTarget } from '../utils/textSelection'
 
 const BUCKET_ORDER = ['today', 'yesterday', 'thisWeek', 'thisMonth', 'earlier']
 
@@ -49,8 +50,14 @@ const HistoryRow = memo(function HistoryRow({
       className={`history-sidebar-item${selected ? ' history-sidebar-item--selected' : ''}`}
       tabIndex={selected ? 0 : -1}
       data-history-key={getEntryKey(entry)}
-      onClick={() => onSelect(entry)}
-      onDoubleClick={() => onPlay(entry)}
+      onClick={() => {
+        if (hasSelectedText()) return
+        onSelect(entry)
+      }}
+      onDoubleClick={(event) => {
+        if (hasSelectedText() || isSelectableTextTarget(event.target)) return
+        onPlay(entry)
+      }}
       title={`${entry.title} - ${entry.artist || t('track.unknownArtist', 'Unknown Artist')}`}
     >
       <div className="history-sidebar-cover" aria-hidden>

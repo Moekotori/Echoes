@@ -32,8 +32,19 @@ const SKIP_DIRS = new Set([
 
 const ALLOW_MOJIBAKE_SCAN = new Set([
   // This file intentionally contains a small mojibake detector regex.
-  'src/main/neteaseLyrics.js'
+  'src/main/neteaseLyrics.js',
+  'src/shared/textEncoding.mjs'
 ])
+
+const FAIL_MOJIBAKE_PREFIXES = [
+  'AGENT.md',
+  'AGENTS.md',
+  'package.json',
+  'scripts/',
+  'src/',
+  'electron-app/',
+  'website/'
+]
 
 const MOJIBAKE_TOKENS = [
   '\uFFFD',
@@ -54,7 +65,6 @@ const MOJIBAKE_TOKENS = [
   '\u93B5',
   '\u93C6',
   '\u93BE',
-  '\u62F7',
   '\u7EE0',
   '\u68E3',
   '\u5F5B',
@@ -81,6 +91,7 @@ const MOJIBAKE_TOKENS = [
 const mojibakePattern = new RegExp(MOJIBAKE_TOKENS.join('|'))
 const invalidUtf8 = []
 const mojibakeHits = []
+const blockingMojibakeHits = []
 
 function normalizePath(filePath) {
   return path.relative(root, filePath).replaceAll(path.sep, '/')
@@ -118,14 +129,25 @@ function checkFile(filePath) {
   const lines = text.split(/\r?\n/)
   lines.forEach((line, index) => {
     if (mojibakePattern.test(line)) {
-      mojibakeHits.push(`${rel}:${index + 1}: ${line.trim().slice(0, 160)}`)
+      const hit = `${rel}:${index + 1}: ${line.trim().slice(0, 160)}`
+      mojibakeHits.push(hit)
+      if (shouldBlockMojibake(rel)) {
+        blockingMojibakeHits.push(hit)
+      }
     }
   })
 }
 
+function shouldBlockMojibake(rel) {
+  if (strictMojibakeGuard) return true
+  return FAIL_MOJIBAKE_PREFIXES.some((prefix) =>
+    prefix.endsWith('/') ? rel.startsWith(prefix) : rel === prefix
+  )
+}
+
 walk(root)
 
-if (invalidUtf8.length || (strictMojibakeGuard && mojibakeHits.length)) {
+if (invalidUtf8.length || blockingMojibakeHits.length) {
   console.error('Encoding guard failed.')
 
   if (invalidUtf8.length) {
@@ -133,9 +155,15 @@ if (invalidUtf8.length || (strictMojibakeGuard && mojibakeHits.length)) {
     invalidUtf8.forEach((file) => console.error(`- ${file}`))
   }
 
-  if (mojibakeHits.length) {
-    console.error('\nPossible mojibake text:')
-    mojibakeHits.forEach((hit) => console.error(`- ${hit}`))
+  if (blockingMojibakeHits.length) {
+    console.error('\nPossible mojibake text in source files:')
+    blockingMojibakeHits.forEach((hit) => console.error(`- ${hit}`))
+  }
+
+  const warningOnlyHits = mojibakeHits.filter((hit) => !blockingMojibakeHits.includes(hit))
+  if (warningOnlyHits.length) {
+    console.error('\nPossible mojibake text in warning-only files:')
+    warningOnlyHits.forEach((hit) => console.error(`- ${hit}`))
   }
 
   process.exit(1)

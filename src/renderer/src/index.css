@@ -50,6 +50,45 @@ body {
   flex-direction: column;
 }
 
+.track-name,
+.track-subtitle,
+.album-title,
+.album-subtitle-artist,
+.artist-card-title,
+.artist-link,
+.bottom-bar-title,
+.bottom-bar-artist,
+.track-info h1,
+.artist-text,
+.history-sidebar-item-title,
+.history-sidebar-item-subtitle,
+.streaming-result-main strong,
+.streaming-result-main span,
+.metadata-drawer-track-name {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.track-name,
+.track-subtitle,
+.album-title,
+.album-subtitle-artist,
+.artist-card-title,
+.bottom-bar-title,
+.bottom-bar-artist,
+.history-sidebar-item-title,
+.history-sidebar-item-subtitle,
+.streaming-result-main strong,
+.streaming-result-main span,
+.metadata-drawer-track-name {
+  cursor: text;
+}
+
+.track-item .track-name,
+.track-item .track-subtitle {
+  -webkit-user-drag: none;
+}
+
 /* Draggable title bar region */
 .titlebar {
   -webkit-app-region: drag;

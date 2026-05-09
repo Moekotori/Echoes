@@ -362,6 +362,8 @@ contextBridge.exposeInMainWorld('api', {
   getCrashReportDir: () => ipcRenderer.invoke('crash:getReportDir'),
   listCrashReports: () => ipcRenderer.invoke('crash:listReports'),
   openCrashDir: () => ipcRenderer.send('crash:openDir'),
+  reportRendererDiagnostic: (payload) => ipcRenderer.send('crash:rendererDiagnostic', payload),
+  recoverFromRendererCrash: (action) => ipcRenderer.invoke('crash:recoverRenderer', action),
   openYoutubeSignInWindow: () => ipcRenderer.invoke('youtube:openSignInWindow'),
   openYoutubeSystemSignIn: (browser) => ipcRenderer.invoke('youtube:openSystemSignIn', browser),
   saveYoutubeSystemCookies: () => ipcRenderer.invoke('youtube:saveSystemCookies'),

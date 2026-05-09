@@ -1838,6 +1838,17 @@
   flex-direction: row !important;
   align-items: baseline !important;
   gap: 8px !important;
+  line-height: 1.28 !important;
+  letter-spacing: 0 !important;
+  overflow: visible !important;
+}
+
+.browser-topbar-title > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-height: 1.28em !important;
+  line-height: 1.28 !important;
+  padding-block: 2px !important;
 }
 
 .browser-topbar-count {
@@ -1847,6 +1858,7 @@
   background: transparent !important;
   font-size: 12px !important;
   font-weight: 760 !important;
+  line-height: 1.25 !important;
 }
 
 .browser-panel .search-container {

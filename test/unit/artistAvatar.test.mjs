@@ -69,6 +69,18 @@ test('artist avatar falls back to owned track cover when remote is missing', () 
   assert.equal(buckets[0].hasRemoteAvatar, false)
 })
 
+test('artist buckets merge artist names that only differ by case', () => {
+  const buckets = buildArtistBucketsWithAvatars([
+    makeTrack('song-a', 'my little airport', 'Album A', ''),
+    makeTrack('song-b', 'My Little Airport', 'Album B', ''),
+    makeTrack('song-c', 'my little airport', 'Album C', '')
+  ])
+
+  assert.equal(buckets.length, 1)
+  assert.equal(buckets[0].name, 'my little airport')
+  assert.equal(buckets[0].tracks.length, 3)
+})
+
 test('artist avatar does not reuse a shared compilation cover across artists', () => {
   const buckets = buildArtistBucketsWithAvatars([
     makeTrack('song-a', 'Artist A', 'Shared Album', 'data:image/shared'),

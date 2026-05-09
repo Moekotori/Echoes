@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, RefreshCw, Minus, Plus, Upload, Search, Image } from 'lucide-react'
+import { decodeTextBytes } from '../../../shared/textEncoding.mjs'
 import {
   DEFAULT_LYRICS_BACKGROUND_COLOR,
   DEFAULT_LYRICS_BACKGROUND_MODE,
@@ -328,9 +329,7 @@ export default function LyricsSettingsDrawer({
     if (f.path && window.api?.readBufferHandler) {
       const buf = await window.api.readBufferHandler(f.path)
       if (buf) {
-        const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-        const text = new TextDecoder('utf-8').decode(u8)
-        onApplyLyricsText(text)
+        onApplyLyricsText(decodeTextBytes(buf))
       }
     } else {
       const text = await f.text()

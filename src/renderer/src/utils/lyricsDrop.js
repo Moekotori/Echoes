@@ -1,3 +1,5 @@
+import { decodeTextBytes } from '../../../shared/textEncoding.mjs'
+
 const LYRICS_FILE_EXT_RE = /\.(lrc|lrcx)$/i
 
 function getFileName(file) {
@@ -37,7 +39,7 @@ export async function readDroppedLyricsFile(file, api = null) {
   if (file?.path && api?.readBufferHandler) {
     const buffer = await api.readBufferHandler(file.path)
     const bytes = toUint8Array(buffer)
-    if (bytes) return new TextDecoder('utf-8').decode(bytes).replace(/^\uFEFF/, '')
+    if (bytes) return decodeTextBytes(bytes)
   }
 
   if (typeof file?.text === 'function') {

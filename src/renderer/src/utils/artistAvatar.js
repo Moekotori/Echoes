@@ -13,6 +13,12 @@ const GENERIC_ALBUM_ARTIST_NAMES = new Set([
   'ost'
 ])
 
+function choosePreferredArtistName(currentName, candidateName, currentCount, candidateCount) {
+  if (!currentName) return candidateName
+  if (candidateCount > currentCount) return candidateName
+  return currentName
+}
+
 const NETEASE_DEFAULT_ARTIST_AVATAR_IDS = new Set([
   '5639395138885805',
   '109951168529049969'
@@ -188,17 +194,30 @@ export function buildArtistBucketsWithAvatars(
 
   for (const track of Array.isArray(tracks) ? tracks : []) {
     const artistName = track?.info?.artist || unknownArtist
-    if (!groups.has(artistName)) groups.set(artistName, { name: artistName, tracks: [] })
-    groups.get(artistName).tracks.push(track)
+    const artistToken = normalizeArtistToken(artistName)
+    const unknown = artistName === unknownArtist || isGenericAlbumArtist(artistName)
+    const groupKey = unknown ? `unknown:${normalizeArtistToken(unknownArtist)}` : artistToken || artistName
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        name: artistName,
+        tracks: [],
+        variantCounts: new Map([[artistName, 0]])
+      })
+    }
+    const group = groups.get(groupKey)
+    const previousCount = group.variantCounts.get(group.name) || 0
+    const nextCount = (group.variantCounts.get(artistName) || 0) + 1
+    group.variantCounts.set(artistName, nextCount)
+    group.name = choosePreferredArtistName(group.name, artistName, previousCount, nextCount)
+    group.tracks.push(track)
 
     const albumKey = normalizeAlbumKey(track?.info?.album || 'Singles')
     if (!albumArtistSets.has(albumKey)) albumArtistSets.set(albumKey, new Set())
-    const artistToken = normalizeArtistToken(artistName)
-    if (artistToken && artistName !== unknownArtist) albumArtistSets.get(albumKey).add(artistToken)
+    if (artistToken && !unknown) albumArtistSets.get(albumKey).add(artistToken)
 
     const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
     const fingerprint = coverFingerprint(coverCandidate?.cover)
-    if (fingerprint && artistToken && artistName !== unknownArtist) {
+    if (fingerprint && artistToken && !unknown) {
       if (!coverArtistSets.has(fingerprint)) coverArtistSets.set(fingerprint, new Set())
       coverArtistSets.get(fingerprint).add(artistToken)
     }
@@ -209,9 +228,10 @@ export function buildArtistBucketsWithAvatars(
   )
 
   const buckets = Array.from(groups.values()).map((artist) => {
+    const { variantCounts, ...artistBucket } = artist
     let best = null
 
-    for (const track of artist.tracks) {
+    for (const track of artistBucket.tracks) {
       const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
       if (!coverCandidate?.cover) continue
       const fingerprint = coverFingerprint(coverCandidate.cover)
@@ -220,7 +240,7 @@ export function buildArtistBucketsWithAvatars(
 
       const ownershipScore = getArtistTrackScore(
         track,
-        artist.name,
+        artistBucket.name,
         trackMetaMap,
         albumArtistCountByAlbum
       )
@@ -239,11 +259,11 @@ export function buildArtistBucketsWithAvatars(
     }
 
     const fallbackCover = best?.cover || null
-    const remoteAvatar = artistAvatarMap[artist.name] || ''
+    const remoteAvatar = artistAvatarMap[artistBucket.name] || ''
     const usableRemoteAvatar = isPlatformDefaultArtistAvatarUrl(remoteAvatar) ? '' : remoteAvatar
 
     return {
-      ...artist,
+      ...artistBucket,
       cover: usableRemoteAvatar || fallbackCover,
       fallbackCover,
       coverSource: usableRemoteAvatar
@@ -255,9 +275,9 @@ export function buildArtistBucketsWithAvatars(
           : 'initials',
       hasLocalCover: !!fallbackCover,
       hasRemoteAvatar: !!usableRemoteAvatar,
-      isUnknownArtist: artist.name === unknownArtist,
-      avatarInitials: getArtistAvatarInitials(artist.name),
-      avatarHue: getArtistAvatarHue(artist.name)
+      isUnknownArtist: artistBucket.name === unknownArtist || isGenericAlbumArtist(artistBucket.name),
+      avatarInitials: getArtistAvatarInitials(artistBucket.name),
+      avatarHue: getArtistAvatarHue(artistBucket.name)
     }
   })
 

@@ -17,6 +17,7 @@ import { createRequire } from 'module'
 import { join, basename, dirname, extname, resolve, sep } from 'path'
 import { pathToFileURL } from 'url'
 import { execSync as _execSyncUtf } from 'child_process'
+import { decodeTextBytes } from '../shared/textEncoding.mjs'
 
 // Fix Windows console encoding so CJK characters in logs aren't garbled
 if (process.platform === 'win32') {
@@ -25,6 +26,10 @@ if (process.platform === 'win32') {
   } catch {
     /* best-effort */
   }
+}
+
+function readTextFileCompat(filePath) {
+  return decodeTextBytes(fs.readFileSync(filePath))
 }
 
 // YouTube 内嵌 MV：主界面来自 localhost / 本地 file，embed 为跨域 iframe。Chromium 默认按「顶级站点 × 嵌入源」做
@@ -76,7 +81,12 @@ import {
   parseJellyfinTrackPath
 } from './remote/JellyfinClient.js'
 import { PhoneRemoteServer } from './remote/PhoneRemoteServer.js'
-import { initCrashReporter, logError, getCrashDir } from './CrashReporter'
+import {
+  initCrashReporter,
+  logError,
+  getCrashDir,
+  recordRendererEvent
+} from './CrashReporter'
 import MediaDownloader from './MediaDownloader'
 import { importPlaylistFromLink } from './playlistLinkImport.js'
 import { importSharedPlaylists } from './playlistShareImport.js'
@@ -292,6 +302,7 @@ function dialogLocaleFromOpts(opts) {
 let mainWindow = null
 let tray = null
 let isQuitting = false
+let mainRendererUrl = ''
 let trayPlaybackState = {
   isPlaying: false,
   trackTitle: ''
@@ -2352,6 +2363,117 @@ async function startRendererHttpServer() {
   return rendererServerUrl
 }
 
+async function getMainRendererUrl() {
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainRendererUrl = process.env['ELECTRON_RENDERER_URL']
+    return mainRendererUrl
+  }
+  if (!mainRendererUrl) {
+    mainRendererUrl = await startRendererHttpServer()
+  }
+  return mainRendererUrl
+}
+
+function escapeCrashHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+    return map[ch] || ch
+  })
+}
+
+function buildRendererCrashHtml({ details = {}, reportPath = '', crashDir = '' } = {}) {
+  const reason = escapeCrashHtml(details.reason || 'unknown')
+  const exitCode = details.exitCode ?? ''
+  const reportText = escapeCrashHtml(reportPath || crashDir || '(report path unavailable)')
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ECHO crashed</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #111318;
+      color: #f5f5f4;
+      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(720px, calc(100vw - 48px));
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      background: #18181b;
+      padding: 24px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+    }
+    h1 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    p { margin: 8px 0; color: #d4d4d8; }
+    code {
+      display: block;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #09090b;
+      color: #e4e4e7;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button {
+      border: 1px solid #52525b;
+      border-radius: 6px;
+      background: #27272a;
+      color: #fafafa;
+      padding: 9px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary { background: #e7e5e4; color: #18181b; border-color: #e7e5e4; }
+    .muted { color: #a1a1aa; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ECHO interface crashed</h1>
+    <p>The main window renderer stopped unexpectedly. The app showed this recovery screen instead of leaving a blank white window.</p>
+    <p>Reason: <strong>${reason}</strong>${exitCode !== '' ? `, exit code: <strong>${escapeCrashHtml(exitCode)}</strong>` : ''}</p>
+    <p>Crash report:</p>
+    <code>${reportText}</code>
+    <div class="actions">
+      <button class="primary" id="reload">Reload interface</button>
+      <button id="restart">Restart ECHO</button>
+      <button id="reports">Open reports folder</button>
+    </div>
+    <p class="muted">If this keeps happening, send the newest crash report file and what you clicked right before the crash.</p>
+  </main>
+  <script>
+    const recover = (action) => window.api?.recoverFromRendererCrash?.(action).catch(() => {})
+    document.getElementById('reload').addEventListener('click', () => recover('reload'))
+    document.getElementById('restart').addEventListener('click', () => recover('restart'))
+    document.getElementById('reports').addEventListener('click', () => recover('openReports'))
+  </script>
+</body>
+</html>`
+}
+
+function showRendererCrashPrompt({ details = {}, reportPath = '' } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const html = buildRendererCrashHtml({
+    details,
+    reportPath,
+    crashDir: getCrashDir()
+  })
+  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+  mainWindow.show()
+  mainWindow.loadURL(dataUrl).catch((error) => {
+    console.error('[CrashReporter] Failed to show renderer crash screen:', error?.message || error)
+  })
+}
+
 async function stopRendererHttpServer() {
   if (!rendererHttpServer) return
   await new Promise((resolvePromise) => {
@@ -2537,6 +2659,19 @@ async function createWindow() {
     mainWindow.show()
   })
 
+  mainWindow.on('unresponsive', () => {
+    recordRendererEvent('window-unresponsive', {
+      url: mainWindow?.webContents?.getURL?.() || '',
+      bounds: mainWindow?.getBounds?.() || null
+    })
+  })
+
+  mainWindow.on('responsive', () => {
+    recordRendererEvent('window-responsive', {
+      url: mainWindow?.webContents?.getURL?.() || ''
+    })
+  })
+
   mainWindow.webContents.on('did-finish-load', () => {
     if (updaterCurrentEvent) {
       mainWindow.webContents.send('updater-message', updaterCurrentEvent)
@@ -2595,12 +2730,7 @@ async function createWindow() {
     return { action: 'deny' }
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    const localUrl = await startRendererHttpServer()
-    mainWindow.loadURL(localUrl)
-  }
+  mainWindow.loadURL(await getMainRendererUrl())
 
   createTray()
 }
@@ -3092,7 +3222,51 @@ app.whenReady().then(async () => {
   )
 
   // 初始化崩溃报告器（必须在最前）
-  initCrashReporter(() => audioEngine.getStatus())
+  const getCrashExtraContext = () => {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    const webContents = win?.webContents
+    return {
+      window: win
+        ? {
+            bounds: win.getBounds(),
+            isVisible: win.isVisible(),
+            isFocused: win.isFocused(),
+            isMinimized: win.isMinimized(),
+            isFullScreen: win.isFullScreen()
+          }
+        : null,
+      webContents: webContents
+        ? {
+            id: webContents.id,
+            url: webContents.getURL(),
+            title: webContents.getTitle(),
+            isLoading: webContents.isLoading(),
+            isWaitingForResponse: webContents.isWaitingForResponse(),
+            isCrashed:
+              typeof webContents.isCrashed === 'function' ? webContents.isCrashed() : null,
+            osProcessId:
+              typeof webContents.getOSProcessId === 'function' ? webContents.getOSProcessId() : null
+          }
+        : null,
+      rendererServerUrl,
+      mainRendererUrl,
+      backgroundServices: {
+        castDlnaActive: Boolean(dlnaRenderer),
+        airplayActive: Boolean(airplayReceiver),
+        phoneRemoteActive: Boolean(phoneRemoteServer)
+      }
+    }
+  }
+
+  initCrashReporter(() => audioEngine.getStatus(), {
+    getExtraContext: getCrashExtraContext,
+    onRendererGone: ({ webContents, details, reportPath }) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      if (isQuitting || details?.reason === 'clean-exit') return
+      if (webContents.id !== mainWindow.webContents.id) return
+      showRendererCrashPrompt({ details, reportPath })
+    }
+  })
 
   // 插件系统
   const pluginManager = new PluginManager()
@@ -3845,7 +4019,7 @@ app.whenReady().then(async () => {
     })
     if (canceled || !filePaths?.length) return null
     try {
-      const content = fs.readFileSync(filePaths[0], 'utf8')
+      const content = readTextFileCompat(filePaths[0])
       return { path: filePaths[0], content }
     } catch (e) {
       return { error: String(e.message || e) }
@@ -3860,7 +4034,7 @@ app.whenReady().then(async () => {
     })
     if (canceled || !filePaths?.length) return null
     try {
-      const content = fs.readFileSync(filePaths[0], 'utf8')
+      const content = readTextFileCompat(filePaths[0])
       return { path: filePaths[0], content }
     } catch (e) {
       return { error: String(e.message || e) }
@@ -3879,7 +4053,7 @@ app.whenReady().then(async () => {
     })
     if (canceled || !filePaths?.length) return null
     try {
-      const content = fs.readFileSync(filePaths[0], 'utf8')
+      const content = readTextFileCompat(filePaths[0])
       return { path: filePaths[0], content }
     } catch (e) {
       return { error: String(e.message || e) }
@@ -4050,13 +4224,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('file:readText', async (_, filePath) => {
     try {
       filePath = resolveMetadataFilePath(filePath)
-      return fs.readFileSync(filePath, 'utf8')
+      return readTextFileCompat(filePath)
     } catch (e) {
       return null
     }
   })
 
-  // IPC: 日文歌词??????罗马音（Kuroshiro + Kuromoji，首调较慢）
+  // IPC: convert Japanese lyrics to romaji (Kuroshiro + Kuromoji; first run is slower).
   ipcMain.handle('lyrics:toRomajiBatch', async (_, texts) => {
     try {
       return await convertLinesToRomaji(texts)
@@ -4119,10 +4293,10 @@ app.whenReady().then(async () => {
       const lrcPath = pathJoin(dir, `${nameWithoutExt}.lrc`)
       const lrcPath2 = pathJoin(dir, `${nameWithoutExt}.txt`) // Check for .txt as well
       if (fs.existsSync(lrcPath)) {
-        const content = fs.readFileSync(lrcPath, 'utf-8')
+        const content = readTextFileCompat(lrcPath)
         return content
       } else if (fs.existsSync(lrcPath2)) {
-        return fs.readFileSync(lrcPath2, 'utf8')
+        return readTextFileCompat(lrcPath2)
       }
       return null
     } catch (error) {
@@ -4141,7 +4315,7 @@ app.whenReady().then(async () => {
       const nameWithoutExt = basename(audioFilePath, extname(audioFilePath))
       const infoPath = pathJoin(dir, `${nameWithoutExt}.info.json`)
       if (fs.existsSync(infoPath)) {
-        const content = fs.readFileSync(infoPath, 'utf-8')
+        const content = readTextFileCompat(infoPath)
         return JSON.parse(content)
       }
       return null
@@ -5020,17 +5194,29 @@ app.whenReady().then(async () => {
   }
 
   function isReadableMetadataText(value) {
-    const text = String(value || '').trim()
+    const text = sanitizeMetadataText(value)
     if (!text) return false
     if (text.includes('\ufffd')) return false
     const controlMatches = text.match(/[\u0001-\u001f\u007f]/g) || []
     if (controlMatches.length >= 2) return false
+    // Detect Latin-1-as-CJK mojibake: bytes from a multi-byte CJK
+    // encoding (Shift-JIS / EUC-JP / GBK) decoded as Latin-1 produce
+    // strings dominated by characters in U+0080 - U+00FF
+    // (e.g. '\u00a4\u00c9\u00a4\u00ed\u00a4\u00f3' is the EUC-JP
+    // bytes for '\u3069\u308d\u3093'). Treat these as unreadable so
+    // a downstream source (correctly-decoded WAV INFO tag, filename,
+    // etc.) gets a chance to win.
+    const stripped = text.replace(/\s+/g, '')
+    if (stripped.length >= 2) {
+      const highBitMatches = stripped.match(/[\u0080-\u00ff]/g) || []
+      if (highBitMatches.length / stripped.length > 0.5) return false
+    }
     return true
   }
 
   function firstReadableMetadataText(...values) {
     for (const value of values) {
-      const text = String(value || '').trim()
+      const text = sanitizeMetadataText(value)
       if (isReadableMetadataText(text)) return text
     }
     return ''
@@ -5038,6 +5224,7 @@ app.whenReady().then(async () => {
 
   function stripTrackNumberPrefix(value) {
     return String(value || '')
+      .replace(/^\s*\d{1,3}\.\d{1,3}\s+/, '')
       .replace(/^\s*\d{1,3}[.)\-\s_]+/, '')
       .trim()
   }
@@ -5050,13 +5237,36 @@ app.whenReady().then(async () => {
       .trim()
   }
 
+  function splitFilenameOutsideBrackets(value, separators = []) {
+    const text = String(value || '')
+    let depth = 0
+    for (let index = 0; index < text.length; index += 1) {
+      const ch = text[index]
+      if (ch === '[' || ch === '(' || ch === '{' || ch === '【' || ch === '（') {
+        depth += 1
+        continue
+      }
+      if (ch === ']' || ch === ')' || ch === '}' || ch === '】' || ch === '）') {
+        depth = Math.max(0, depth - 1)
+        continue
+      }
+      if (depth > 0) continue
+      for (const separator of separators) {
+        if (text.slice(index, index + separator.length) === separator) {
+          return [text.slice(0, index), text.slice(index + separator.length)]
+        }
+      }
+    }
+    return null
+  }
+
   function parseLocalFilenameIdentity(filePath) {
     const stem = stripTrackNumberPrefix(basename(filePath, extname(filePath)))
     const dashMatch = stem.match(/^(.+?)[\s_-]*[-–—]\s*(.+)$/)
-    if (dashMatch?.[1] && dashMatch?.[2]) {
+    if (dashMatch?.[0] && dashMatch?.[1]) {
       return {
-        artist: dashMatch[1].replace(/[_/]+/g, ' / ').replace(/\s+/g, ' ').trim(),
-        title: dashMatch[2].trim()
+        artist: dashMatch[0].replace(/[_/]+/g, ' / ').replace(/\s+/g, ' ').trim(),
+        title: dashMatch[1].trim()
       }
     }
 
@@ -5065,6 +5275,27 @@ app.whenReady().then(async () => {
       return {
         artist: underscoreMatch[1].trim(),
         title: underscoreMatch[2].trim()
+      }
+    }
+
+    return { artist: '', title: stem }
+  }
+
+  function parseLocalFilenameIdentitySafe(filePath) {
+    const stem = stripTrackNumberPrefix(basename(filePath, extname(filePath)))
+    const dashMatch = splitFilenameOutsideBrackets(stem, [' - ', ' – ', ' — ', '-', '–', '—'])
+    if (dashMatch?.[0] && dashMatch?.[1]) {
+      return {
+        artist: dashMatch[0].replace(/[_/]+/g, ' / ').replace(/\s+/g, ' ').trim(),
+        title: dashMatch[1].trim()
+      }
+    }
+
+    const underscoreMatch = splitFilenameOutsideBrackets(stem, ['_'])
+    if (underscoreMatch?.[0] && underscoreMatch?.[1]) {
+      return {
+        artist: underscoreMatch[0].trim(),
+        title: underscoreMatch[1].trim()
       }
     }
 
@@ -5091,7 +5322,7 @@ app.whenReady().then(async () => {
       const extLower = extname(filePath).toLowerCase()
       const infoSidecar = readInfoSidecarMetadata(filePath)
       const wavInfoTags = readWavInfoTags(filePath)
-      const filenameIdentity = parseLocalFilenameIdentity(filePath)
+      const filenameIdentity = parseLocalFilenameIdentitySafe(filePath)
       const isDsdFile = extLower === '.dsf' || extLower === '.dff'
       const fileSizeBytes = getLocalFileSizeBytes(filePath)
       const firstCodecLabel = resolveAudioCodecLabel(metadata, filePath)
@@ -5248,8 +5479,16 @@ app.whenReady().then(async () => {
     }
   }
 
+  function sanitizeMetadataText(value) {
+    if (value === null || value === undefined) return ''
+    return String(value)
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   function normalizeMetadataText(value) {
-    return typeof value === 'string' ? value.trim() : ''
+    return typeof value === 'string' ? sanitizeMetadataText(value) : ''
   }
 
   function normalizeMetadataNumber(value) {
@@ -5760,7 +5999,7 @@ app.whenReady().then(async () => {
       const { parseFile, selectCover } = await import('music-metadata')
       const metadata = await parseFile(resolvedPath)
       const wavInfoTags = readWavInfoTags(resolvedPath)
-      const filenameIdentity = parseLocalFilenameIdentity(resolvedPath)
+      const filenameIdentity = parseLocalFilenameIdentitySafe(resolvedPath)
       const rawTitle = firstReadableMetadataText(
         wavInfoTags.title,
         metadata.common.title,
@@ -5778,7 +6017,7 @@ app.whenReady().then(async () => {
       return {
         title,
         artist,
-        albumArtist: metadata.common.albumartist || metadata.common.albumArtist || '',
+        albumArtist: firstReadableMetadataText(metadata.common.albumartist, metadata.common.albumArtist),
         album: firstReadableMetadataText(wavInfoTags.album, metadata.common.album),
         trackNumber: metadata.common.track?.no ? String(metadata.common.track.no) : '',
         year: metadata.common.year ? String(metadata.common.year) : '',
@@ -6554,6 +6793,44 @@ app.whenReady().then(async () => {
     const dir = getCrashDir()
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     shell.openPath(dir)
+  })
+
+  ipcMain.on('crash:rendererDiagnostic', (event, payload = {}) => {
+    const sender = event.sender
+    recordRendererEvent(payload?.kind || 'renderer-diagnostic', {
+      ...payload,
+      sender: {
+        id: sender.id,
+        url: sender.getURL(),
+        title: sender.getTitle(),
+        osProcessId:
+          typeof sender.getOSProcessId === 'function' ? sender.getOSProcessId() : null
+      }
+    })
+  })
+
+  ipcMain.handle('crash:recoverRenderer', async (_, action) => {
+    if (action === 'openReports') {
+      const dir = getCrashDir()
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      await shell.openPath(dir)
+      return { ok: true }
+    }
+
+    if (action === 'restart') {
+      isQuitting = true
+      app.relaunch()
+      app.exit(0)
+      return { ok: true }
+    }
+
+    if (action === 'reload') {
+      if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'main_window_missing' }
+      mainWindow.loadURL(await getMainRendererUrl())
+      return { ok: true }
+    }
+
+    return { ok: false, error: 'unknown_action' }
   })
 
   ipcMain.handle('dev:openDevTools', () => {

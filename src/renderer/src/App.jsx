@@ -108,6 +108,7 @@ import LyricsCandidatePicker from './components/LyricsCandidatePicker'
 import MetadataEditorDrawer from './components/MetadataEditorDrawer'
 import ImportedFolderRail from './components/ImportedFolderRail'
 import FolderTreeBrowser from './components/FolderTreeBrowser'
+import TrackArtwork, { normalizeArtworkSource } from './components/TrackArtwork'
 import { UiButton } from './components/ui'
 import AudioQualityBadges from './components/AudioQualityBadges'
 import { parseAnyLyrics } from './utils/lyricsParse'
@@ -121,6 +122,7 @@ import {
   pickLyricsFromLrcLibResult,
   rankLrcLibCandidates
 } from './utils/lyricsCandidateRank'
+import { preloadLyricsForTrack } from './utils/lyricsPreload'
 import {
   clearMediaSession,
   clearMediaSessionHandlers,
@@ -165,6 +167,11 @@ import {
   compareTrackFrequent,
   compareTrackRandom,
   getEffectiveTrackMeta,
+  getAlbumCoverCandidates,
+  getBestAlbumCover,
+  getTrackAlbumName,
+  normalizeAlbumNameKey,
+  normalizeArtistNameKey,
   stripExtension,
   parseArtistTitleFromName,
   resolveTrackIdentityFromMetadata
@@ -210,6 +217,7 @@ import { clampBiquadQ } from './utils/eqBiquad'
 import { copySongCardImage, saveSongCardImage } from './utils/songCardImage'
 import { parseLyricsSourceLink } from './utils/lyricsLink'
 import { getDroppedLyricsFile, hasDroppedFiles, readDroppedLyricsFile } from './utils/lyricsDrop'
+import { hasSelectedText, isSelectableTextTarget } from './utils/textSelection'
 import PluginSlot from './plugins/PluginSlot'
 import PluginManagerDrawer from './components/PluginManagerDrawer'
 import { extractAverageHexFromSrc, generatePaletteFromHex } from './utils/color'
@@ -247,6 +255,7 @@ import { EMBEDDED_LYRICS_EXTRACTOR_VERSION } from '../../shared/embeddedLyricsVe
 import { buildLyricKaraokeState } from '../../shared/lyricsKaraoke.mjs'
 import { getPlaybackSequencePath, resolvePlaybackSequence } from '../../shared/playbackSequence.mjs'
 import { getCueAudioPath } from '../../shared/cueTracks.mjs'
+import { decodeTextBytes } from '../../shared/textEncoding.mjs'
 import {
   buildBilibiliAutoMvQueries,
   buildYoutubeAutoMvQueries
@@ -1910,34 +1919,54 @@ const AlbumSidebarCard = memo(function AlbumSidebarCard({
   album,
   isSelected,
   onPickAlbum,
-  onContextMenu
+  onContextMenu,
+  onCoverFailed
 }) {
   const { t } = useTranslation()
-  const [coverFailed, setCoverFailed] = useState(false)
+  const [coverIndex, setCoverIndex] = useState(0)
+  const coverCandidates =
+    Array.isArray(album.coverCandidates) && album.coverCandidates.length > 0
+      ? album.coverCandidates
+      : album.cover
+        ? [album.cover]
+        : []
+  const coverCandidateKey = coverCandidates.join('\u0001')
+  const coverSource = normalizeArtworkSource(coverCandidates[coverIndex] || '')
 
   useEffect(() => {
-    setCoverFailed(false)
-  }, [album.cover])
+    setCoverIndex(0)
+  }, [coverCandidateKey])
 
   return (
     <button
       type="button"
       className={`album-card ${isSelected ? 'active' : ''}`}
-      onClick={() => onPickAlbum(album)}
+      onClick={() => {
+        if (hasSelectedText()) return
+        onPickAlbum(album)
+      }}
       onContextMenu={onContextMenu ? (e) => onContextMenu(e, album) : undefined}
       title={t('albumCard.title', {
         name: album.name,
         count: album.tracks.length
       })}
     >
-      {album.cover && !coverFailed ? (
+      {coverSource ? (
         <img
-          src={album.cover}
+          src={coverSource}
           alt={album.name}
           className="album-cover-image"
-          loading={String(album.cover).startsWith('data:') ? 'eager' : 'lazy'}
+          loading={String(coverSource).startsWith('data:') ? 'eager' : 'lazy'}
           decoding="async"
-          onError={() => setCoverFailed(true)}
+          onError={() => {
+            setCoverIndex((index) => {
+              const nextIndex = index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
+              if (nextIndex >= coverCandidates.length) {
+                onCoverFailed?.(album, coverCandidateKey)
+              }
+              return nextIndex
+            })
+          }}
         />
       ) : (
         <div className="album-cover-fallback">
@@ -1963,6 +1992,18 @@ const AlbumSidebarCard = memo(function AlbumSidebarCard({
   )
 })
 
+function getAlbumCoverFailureKey(album) {
+  const albumName = String(album?.name || '').trim()
+  const coverCandidates =
+    Array.isArray(album?.coverCandidates) && album.coverCandidates.length > 0
+      ? album.coverCandidates
+      : album?.cover
+        ? [album.cover]
+        : []
+  const coverKey = coverCandidates.join('\u0001')
+  return albumName && coverKey ? `${albumName}\u0001${coverKey}` : ''
+}
+
 const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, onPickArtist }) {
   const [coverFailed, setCoverFailed] = useState(false)
   const avatarStyle = useMemo(
@@ -1978,7 +2019,10 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, 
     <button
       type="button"
       className={`artist-card ${isSelected ? 'active' : ''}`}
-      onClick={() => onPickArtist(artist)}
+      onClick={() => {
+        if (hasSelectedText()) return
+        onPickArtist(artist)
+      }}
       title={`${artist.name} - ${artist.tracks.length} tracks`}
     >
       {artist.cover && !coverFailed ? (
@@ -2340,6 +2384,7 @@ export default function App() {
   const lastMvIframeSeekRef = useRef({ key: '', at: 0, target: -1 })
   const lastMvTailPauseAtRef = useRef(0)
   const nextMvPreloadKeyRef = useRef('')
+  const nextLyricsPreloadKeyRef = useRef('')
 
   useEffect(() => {
     const refresh = () => {
@@ -2626,6 +2671,7 @@ export default function App() {
   const [missingLibraryPaths, setMissingLibraryPaths] = useState([])
   const [trackMetaMap, setTrackMetaMap] = useState({})
   const [albumCoverMap, setAlbumCoverMap] = useState({})
+  const [failedAlbumCoverKeys, setFailedAlbumCoverKeys] = useState(() => new Set())
   const [artistAvatarMap, setArtistAvatarMap] = useState({})
   const [artistAvatarRetryNonce, setArtistAvatarRetryNonce] = useState(0)
   const trackMetaMapRef = useRef(trackMetaMap)
@@ -6552,13 +6598,7 @@ export default function App() {
     if (!path) return
     const buf = await window.api.readBufferHandler(path)
     if (!buf) return
-    let u8
-    if (buf instanceof Uint8Array) u8 = buf
-    else if (buf instanceof ArrayBuffer) u8 = new Uint8Array(buf)
-    else if (Array.isArray(buf)) u8 = new Uint8Array(buf)
-    else if (buf?.data && Array.isArray(buf.data)) u8 = new Uint8Array(buf.data)
-    else u8 = new Uint8Array(buf)
-    const text = new TextDecoder('utf-8').decode(u8)
+    const text = decodeTextBytes(buf)
     applyLyricsFromText(text, { origin: 'local' })
   }, [applyLyricsFromText])
 
@@ -8734,6 +8774,37 @@ export default function App() {
     }
   }
 
+  const fetchCloudTrackCover = async (title, artist, album) => {
+    const cleanTitle = String(title || '').trim()
+    const cleanArtist = String(artist || '').trim()
+    const cleanAlbum = String(album || '').trim()
+    if (!cleanTitle) return null
+
+    if (window.api?.neteaseSearch) {
+      try {
+        const songs = await window.api.neteaseSearch(`${cleanTitle} ${cleanArtist}`.trim())
+        const bestSong = pickBestCoverCandidate(songs, cleanTitle, cleanArtist, cleanAlbum)
+        const cover = normalizeNeteaseCoverUrl(bestSong?.cover)
+        if (cover) return cover
+      } catch (e) {
+        console.warn('Netease track cover prefetch error:', e)
+      }
+    }
+
+    try {
+      const query = encodeURIComponent(`${cleanTitle} ${cleanArtist}`.trim())
+      const response = await fetch(
+        `https://itunes.apple.com/search?term=${query}&entity=song&limit=1`
+      )
+      const data = await response.json()
+      const artwork = data?.results?.[0]?.artworkUrl100
+      return normalizeItunesCoverUrl(artwork) || null
+    } catch (e) {
+      console.warn('iTunes track cover prefetch error:', e)
+      return null
+    }
+  }
+
   /** @returns {Promise<string[]>} Paths to reference (new or already in library), for user playlists etc. */
   const processFiles = async (files) => {
     setIsConverting(true)
@@ -9332,6 +9403,59 @@ export default function App() {
   useEffect(() => {
     nextTrackRef.current = nextTrack
   }, [nextTrack])
+
+  useEffect(() => {
+    if (!isPlaying || !currentTrackPath || !nextTrack?.path) return
+    if (nextTrack.path === currentTrackPath) return
+    if (isRemoteTrackPath(nextTrack.path) && !isStreamingTrackPath(nextTrack.path)) return
+
+    const storedMeta = trackMetaMapRef.current?.[nextTrack.path] || null
+    const parsedInfo = parseTrackInfo(nextTrack, storedMeta)
+    const title =
+      parsedInfo?.title ||
+      nextTrack.info?.title ||
+      nextTrack.title ||
+      stripExtension(nextTrack.name || '')
+    if (!title) return
+    const artist =
+      parsedInfo?.artist ||
+      nextTrack.info?.artist ||
+      nextTrack.artist ||
+      ''
+    const album =
+      parsedInfo?.album ||
+      nextTrack.info?.album ||
+      nextTrack.album ||
+      ''
+    const durationSec =
+      Number(storedMeta?.duration) ||
+      Number(nextTrack.info?.duration) ||
+      Number(nextTrack.duration) ||
+      0
+    const preloadKey = [
+      currentTrackPath,
+      nextTrack.path,
+      title,
+      artist,
+      config.lyricsSource || DEFAULT_CONFIG.lyricsSource
+    ].join('::')
+    if (nextLyricsPreloadKeyRef.current === preloadKey) return
+    nextLyricsPreloadKeyRef.current = preloadKey
+
+    void preloadLyricsForTrack({
+      track: nextTrack,
+      title,
+      artist,
+      album,
+      durationSec,
+      api: window.api,
+      requestLrcLib,
+      defaultSource: config.lyricsSource || DEFAULT_CONFIG.lyricsSource,
+      isStreamingTrack: isStreamingTrackPath(nextTrack.path)
+    }).catch((e) => {
+      console.warn('[lyrics] next track preload failed', e)
+    })
+  }, [config.lyricsSource, currentTrackPath, isPlaying, nextTrack, requestLrcLib])
 
   useEffect(() => {
     if (!config.preloadMV || !isPlaying || !currentTrackPath || !nextTrack?.path) return
@@ -12746,7 +12870,7 @@ export default function App() {
     const foundCoverItems = []
     for (const track of parsedPlaylist) {
       if (isTrackScopedCoverEntry(trackMetaMap[track.path])) continue
-      const albumName = track?.info?.album || 'Singles'
+      const albumName = getTrackAlbumName(track)
       const cover = track?.info?.cover
       if (albumName && cover && !foundCovers[albumName]) {
         foundCovers[albumName] = cover
@@ -12782,7 +12906,7 @@ export default function App() {
     if (listMode !== 'history' && !(listMode === 'album' && selectedAlbum === 'all')) return {}
     const m = {}
     for (const track of queryFilteredPlaylist) {
-      const name = track.info.album || 'Singles'
+      const name = getTrackAlbumName(track)
       if (m[name] == null && track.info.artist && track.info.artist !== 'Unknown Artist') {
         m[name] = track.info.artist
       }
@@ -12799,7 +12923,7 @@ export default function App() {
   const albumCoverCacheTargets = useMemo(() => {
     const targetsByAlbum = new Map()
     for (const track of queryFilteredPlaylist) {
-      const albumName = String(track?.info?.album || 'Singles').trim() || 'Singles'
+      const albumName = getTrackAlbumName(track)
       if (!albumName || targetsByAlbum.has(albumName)) continue
       const artist =
         track?.info?.artist && track.info.artist !== 'Unknown Artist' ? track.info.artist : ''
@@ -12880,33 +13004,63 @@ export default function App() {
     if (selectedAlbum === 'all' || listMode === 'album') return EMPTY_SET
     const s = new Set()
     for (const t of queryFilteredPlaylist) {
-      s.add(t.info.album || 'Singles')
+      s.add(normalizeAlbumNameKey(getTrackAlbumName(t)))
     }
     return s
   }, [listMode, queryFilteredPlaylist, selectedAlbum])
+
+  const albumCoverCandidatesByName = useMemo(() => {
+    if (!shouldBuildAlbumBuckets) return {}
+    const groups = queryFilteredPlaylist.reduce((acc, track) => {
+      const key = normalizeAlbumNameKey(getTrackAlbumName(track))
+      if (!acc.has(key)) acc.set(key, [])
+      acc.get(key).push(track)
+      return acc
+    }, new Map())
+    const next = {}
+    for (const [key, tracks] of groups.entries()) {
+      const name = getTrackAlbumName(tracks[0])
+      next[key] = getAlbumCoverCandidates(tracks, {
+        albumName: name,
+        albumCoverMap,
+        trackMetaMap: effectiveTrackMetaMap
+      })
+    }
+    return next
+  }, [albumCoverMap, effectiveTrackMetaMap, queryFilteredPlaylist, shouldBuildAlbumBuckets])
 
   /* Build heavyweight library groupings only for the views that need them. */
   const albumBuckets = useMemo(() => {
     if (!shouldBuildAlbumBuckets) return []
     const groups = queryFilteredPlaylist.reduce((acc, track) => {
-      const key = track.info.album || 'Singles'
-      if (!acc.has(key)) acc.set(key, [])
-      acc.get(key).push(track)
+      const name = getTrackAlbumName(track)
+      const key = normalizeAlbumNameKey(name)
+      if (!acc.has(key)) acc.set(key, { name, tracks: [] })
+      acc.get(key).tracks.push(track)
       return acc
     }, new Map())
 
-    const buckets = Array.from(groups.entries()).map(([name, tracks]) => ({
-      name,
-      tracks,
-      artist:
-        tracks.find((t) => t.info.artist && t.info.artist !== 'Unknown Artist')?.info.artist ||
-        'Unknown Artist',
-      cover:
-        albumCoverMap[name] ||
-        trackMetaMap[tracks.find((t) => trackMetaMap[t.path]?.cover)?.path]?.cover ||
-        tracks.find((t) => t.info.cover)?.info.cover ||
-        null
-    }))
+    const buckets = Array.from(groups.values()).map(({ name, tracks }) => {
+      const albumKey = normalizeAlbumNameKey(name)
+      const coverCandidates =
+        albumCoverCandidatesByName[albumKey] ||
+        getAlbumCoverCandidates(tracks, {
+          albumName: name,
+          albumCoverMap,
+          trackMetaMap: effectiveTrackMetaMap
+        })
+      return {
+        name,
+        tracks,
+        artist:
+          tracks.find((t) => t.info.artist && t.info.artist !== 'Unknown Artist')?.info.artist ||
+          'Unknown Artist',
+        cover:
+          coverCandidates[0] ||
+          getBestAlbumCover(tracks, { albumName: name, albumCoverMap, trackMetaMap: effectiveTrackMetaMap }),
+        coverCandidates
+      }
+    })
 
     const getAlbumAddedAt = (album) =>
       Math.min(...album.tracks.map((track) => track.birthtimeMs || Infinity))
@@ -12935,7 +13089,14 @@ export default function App() {
     })
 
     return buckets
-  }, [albumCoverMap, albumSortMode, queryFilteredPlaylist, shouldBuildAlbumBuckets, trackMetaMap])
+  }, [
+    albumCoverCandidatesByName,
+    albumCoverMap,
+    albumSortMode,
+    effectiveTrackMetaMap,
+    queryFilteredPlaylist,
+    shouldBuildAlbumBuckets
+  ])
 
   const albumGroups = listMode === 'album' ? albumBuckets : []
 
@@ -12996,7 +13157,7 @@ export default function App() {
   const artistNamesSet = useMemo(() => {
     if (selectedArtist === 'all') return EMPTY_SET
     const s = new Set()
-    for (const b of artistBuckets) s.add(b.name)
+    for (const b of artistBuckets) s.add(normalizeArtistNameKey(b.name))
     return s
   }, [artistBuckets, selectedArtist])
 
@@ -13279,8 +13440,9 @@ export default function App() {
       })
     } else if (listMode === 'artists' && selectedArtist !== 'all') {
       const pickedArtistTracks = selectedArtistTracksRef.current
+      const selectedArtistKey = normalizeArtistNameKey(selectedArtist)
       if (
-        pickedArtistTracks.name === selectedArtist &&
+        normalizeArtistNameKey(pickedArtistTracks.name) === selectedArtistKey &&
         pickedArtistTracks.source === queryFilteredPlaylist &&
         pickedArtistTracks.tracks.length > 0
       ) {
@@ -13289,13 +13451,15 @@ export default function App() {
         result = queryFilteredPlaylist
           .filter(
             (track) =>
-              (track.info.artist || t('artists.unknown', 'Unknown Artist')) === selectedArtist
+              normalizeArtistNameKey(track.info.artist || t('artists.unknown', 'Unknown Artist')) ===
+              selectedArtistKey
           )
           .sort(compareTrackOrder)
       }
     } else if (selectedAlbum !== 'all') {
+      const selectedAlbumKey = normalizeAlbumNameKey(selectedAlbum)
       result = queryFilteredPlaylist
-        .filter((track) => track.info.album === selectedAlbum)
+        .filter((track) => normalizeAlbumNameKey(getTrackAlbumName(track)) === selectedAlbumKey)
         .sort(compareTrackOrder)
     }
 
@@ -13348,7 +13512,7 @@ export default function App() {
   useEffect(() => {
     if (selectedAlbum === 'all') return
     if (listMode === 'album') return
-    if (!albumNamesSet.has(selectedAlbum)) setSelectedAlbum('all')
+    if (!albumNamesSet.has(normalizeAlbumNameKey(selectedAlbum))) setSelectedAlbum('all')
   }, [albumNamesSet, listMode, selectedAlbum])
 
   useEffect(() => {
@@ -13360,7 +13524,7 @@ export default function App() {
   useEffect(() => {
     if (selectedArtist === 'all') return
     if (listMode === 'artists') return
-    if (!artistNamesSet.has(selectedArtist)) setSelectedArtist('all')
+    if (!artistNamesSet.has(normalizeArtistNameKey(selectedArtist))) setSelectedArtist('all')
   }, [artistNamesSet, listMode, selectedArtist])
 
   const selectedUserPlaylist = useMemo(
@@ -14773,7 +14937,8 @@ export default function App() {
 
     if (listMode === 'album' && selectedAlbum === 'all') {
       const albumsNeedingCover = metadataPrefetchAlbumGroups.filter((album) => {
-        if (album.cover) return false
+        const coverFailed = failedAlbumCoverKeys.has(getAlbumCoverFailureKey(album))
+        if (album.cover && !coverFailed) return false
         return album.tracks.some((track) => !trackMetaMap[track.path]?.cover)
       })
       const longestAlbumTrackCount = Math.max(
@@ -14807,6 +14972,7 @@ export default function App() {
     return Array.from(byPath.values()).slice(0, limit)
   }, [
     currentTrack,
+    failedAlbumCoverKeys,
     listMode,
     metadataPrefetchAlbumGroups,
     metadataPrefetchSidebarTracks,
@@ -15165,11 +15331,15 @@ export default function App() {
     const candidates = []
     for (const album of metadataPrefetchAlbumGroups) {
       const albumName = String(album?.name || '').trim()
-      if (!albumName || album?.cover || albumCoverMap[albumName]) continue
+      const coverFailed = failedAlbumCoverKeys.has(getAlbumCoverFailureKey(album))
+      if (!albumName) continue
+      if (album?.cover && !coverFailed) continue
+      if (albumCoverMap[albumName] && !coverFailed) continue
 
       const representativeTrack =
         album.tracks.find((track) => trackMetaMap[track.path]?.coverChecked === true) ||
         album.tracks.find((track) => albumCoverProbePathsRef.current.has(track.path)) ||
+        album.tracks.find((track) => track?.path) ||
         null
       if (!representativeTrack?.path) continue
 
@@ -15183,7 +15353,7 @@ export default function App() {
       if (!key || albumCloudCoverAttemptedRef.current.has(key)) continue
       if (albumCloudCoverPendingRef.current.has(key)) continue
 
-      candidates.push({ albumName, artist, key, track: representativeTrack })
+      candidates.push({ albumName, artist, key, track: representativeTrack, coverFailed })
       if (candidates.length >= ALBUM_CLOUD_COVER_PREFETCH_LIMIT) break
     }
 
@@ -15194,7 +15364,7 @@ export default function App() {
     const applyCloudAlbumCover = (candidate, cover) => {
       if (!cover) return
       setAlbumCoverMap((prev) => {
-        if (prev[candidate.albumName]) return prev
+        if (prev[candidate.albumName] && !candidate.coverFailed) return prev
         return { ...prev, [candidate.albumName]: cover }
       })
       persistAlbumCoverCacheItems({
@@ -15220,7 +15390,7 @@ export default function App() {
 
       setTrackMetaMap((prev) => {
         const existing = prev[candidate.track.path] || {}
-        if (existing.cover) return prev
+        if (existing.cover && !candidate.coverFailed) return prev
         return {
           ...prev,
           [candidate.track.path]: {
@@ -15241,7 +15411,16 @@ export default function App() {
         albumCloudCoverAttemptedRef.current.add(candidate.key)
         albumCloudCoverPendingRef.current.add(candidate.key)
         try {
-          const cover = await fetchCloudAlbumCover(candidate.albumName, candidate.artist)
+          let cover = await fetchCloudAlbumCover(candidate.albumName, candidate.artist)
+          if (!cover) {
+            const currentEntry = trackMetaMapRef.current?.[candidate.track.path] || {}
+            const info = parseTrackInfo(candidate.track, currentEntry)
+            cover = await fetchCloudTrackCover(
+              info?.title || candidate.track?.info?.title || '',
+              info?.artist || candidate.artist || '',
+              candidate.albumName
+            )
+          }
           applyCloudAlbumCover(candidate, cover)
         } finally {
           albumCloudCoverPendingRef.current.delete(candidate.key)
@@ -15261,6 +15440,7 @@ export default function App() {
   }, [
     albumArtistByName,
     albumCoverMap,
+    failedAlbumCoverKeys,
     listMode,
     metadataPrefetchAlbumGroups,
     persistAlbumCoverCacheItems,
@@ -15462,6 +15642,18 @@ export default function App() {
   const handleBackToAlbumOverview = useCallback(() => {
     pendingAlbumOverviewRestoreRef.current = true
     setSelectedAlbum('all')
+  }, [])
+
+  const handleAlbumCoverFailed = useCallback((album, coverKey) => {
+    const albumName = String(album?.name || '').trim()
+    const failedKey = `${albumName}\u0001${String(coverKey || '')}`
+    if (!albumName || !coverKey) return
+    setFailedAlbumCoverKeys((prev) => {
+      if (prev.has(failedKey)) return prev
+      const next = new Set(prev)
+      next.add(failedKey)
+      return next
+    })
   }, [])
 
   useLayoutEffect(() => {
@@ -18787,6 +18979,7 @@ export default function App() {
                           album={album}
                           isSelected={selectedAlbum === album.name}
                           onPickAlbum={handlePickAlbumFromSidebar}
+                          onCoverFailed={handleAlbumCoverFailed}
                           onContextMenu={(e, pickedAlbum) =>
                             openGroupContextMenu(e, 'album', pickedAlbum)
                           }
@@ -19052,9 +19245,10 @@ export default function App() {
                           />
                         )}
                         {visibleSidebarTracks.map((track) => {
+                          const trackAlbumName = getTrackAlbumName(track)
                           const displayArtist =
                             track.info.artist === 'Unknown Artist'
-                              ? albumArtistByName[track.info.album] || track.info.artist
+                              ? albumArtistByName[trackAlbumName] || track.info.artist
                               : track.info.artist
                           const trackExt = String(track.name || track.path || '')
                             .split('.')
@@ -19072,6 +19266,10 @@ export default function App() {
                               : ''
                           const trackMeta = effectiveTrackMetaMap[track.path] || {}
                           const selectedForDrag = selectedSidebarTrackPathSet.has(track.path)
+                          const trackCoverSources = [
+                            track.info.cover,
+                            ...(albumCoverCandidatesByName[normalizeAlbumNameKey(trackAlbumName)] || [])
+                          ]
 
                           const liked = likedSet.has(track.path)
                           const inUpNext = upNextPathSet.has(track.path)
@@ -19083,6 +19281,10 @@ export default function App() {
                               data-track-path={track.path}
                               draggable
                               onDragStart={(e) => {
+                                if (isSelectableTextTarget(e.target)) {
+                                  e.preventDefault()
+                                  return
+                                }
                                 const dragPaths =
                                   selectedForDrag && selectedSidebarTrackPaths.length > 1
                                     ? selectedSidebarTrackPaths
@@ -19096,6 +19298,7 @@ export default function App() {
                                 e.dataTransfer.setData('text/plain', track.path)
                               }}
                               onClick={(event) => {
+                                if (hasSelectedText()) return
                                 if (handleSidebarTrackSelectionClick(track, event)) return
                                 setSelectedSidebarTrackPaths([])
                                 lastSelectedSidebarTrackPathRef.current = ''
@@ -19110,16 +19313,10 @@ export default function App() {
                                 setTrackContextMenu({ clientX, clientY, track })
                               }}
                             >
-                              <div
-                                className={`track-art${track.originalIdx === currentIndex ? ' track-art--playing' : ''}`}
-                                aria-hidden
-                              >
-                                {track.info.cover ? (
-                                  <img src={track.info.cover} alt="" draggable={false} />
-                                ) : (
-                                  <Music size={17} />
-                                )}
-                              </div>
+                              <TrackArtwork
+                                sources={trackCoverSources}
+                                isPlaying={track.originalIdx === currentIndex}
+                              />
                               <div className="track-text-group">
                                 <div className="track-name" title={track.info.title}>
                                   {track.originalIdx === currentIndex && (
@@ -19129,7 +19326,7 @@ export default function App() {
                                 </div>
                                 <div
                                   className="track-subtitle"
-                                  title={`${displayArtist} - ${track.info.album}`}
+                                  title={`${displayArtist} - ${trackAlbumName}`}
                                 >
                                   <ArtistLink
                                     artist={displayArtist}
@@ -19137,7 +19334,7 @@ export default function App() {
                                     stopPropagation
                                     noLink
                                   />{' '}
-                                  - {track.info.album}
+                                  - {trackAlbumName}
                                 </div>
                                 <div className="track-meta-pills" aria-hidden>
                                   <AudioQualityBadges
@@ -23902,7 +24099,13 @@ export default function App() {
               </div>
             )}
             <div className="bottom-bar-meta">
-              <div className="bottom-bar-title" onClick={() => setShowLyrics(true)}>
+              <div
+                className="bottom-bar-title"
+                onClick={() => {
+                  if (hasSelectedText()) return
+                  setShowLyrics(true)
+                }}
+              >
                 {displayMainTitle || t('player.selectTrack')}
               </div>
               <div className="bottom-bar-artist">{displayMainArtist || ''}</div>

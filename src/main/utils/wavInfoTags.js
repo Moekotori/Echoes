@@ -12,6 +12,18 @@ const INFO_TAG_MAP = {
   ISFT: 'software'
 }
 
+const FALLBACK_ENCODINGS = ['utf-8', 'shift_jis', 'gb18030', 'euc-jp', 'big5']
+const TEXT_DECODER_CACHE = new Map()
+
+function getDecoder(encoding) {
+  let decoder = TEXT_DECODER_CACHE.get(encoding)
+  if (!decoder) {
+    decoder = new TextDecoder(encoding, { fatal: false, ignoreBOM: false })
+    TEXT_DECODER_CACHE.set(encoding, decoder)
+  }
+  return decoder
+}
+
 function isWaveBuffer(buffer) {
   return (
     Buffer.isBuffer(buffer) &&
@@ -49,18 +61,60 @@ function cleanupTagText(value) {
     .trim()
 }
 
-function scoreDecodedText(value) {
-  const text = cleanupTagText(value)
+function looksLikeQuestionMarkPlaceholder(value) {
+  const stripped = String(value || '').replace(/\s+/g, '')
+  if (stripped.length < 2) return false
+  if (/[\p{L}\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(stripped)) return false
+  const questionCount = (stripped.match(/[?\uff1f]/g) || []).length
+  return questionCount >= 2 && questionCount / stripped.length >= 0.6
+}
+
+const REPLACEMENT_CHAR_RE = /\ufffd/g
+const CONTROL_CHAR_RE = /[\u0001-\u001f\u007f]/g
+const LATIN1_HIGH_BIT_RE = /[\u0080-\u00ff]/g
+const KANA_RE = /[\u3040-\u30ff]/
+const CJK_IDEOGRAPH_RE = /[\u3400-\u9fff]/
+const HANGUL_RE = /[\uac00-\ud7af]/
+const FULLWIDTH_RE = /[\uff00-\uffef]/
+const MOJIBAKE_HINT_RE = /[\u00c2\u00c3\u20ac\ufffd\u3126\u57cd\u5d84\u5fd3\u5ffd\u590a\u656e\u66e0\u6d7c\u6f83\u704f\u70bd\u7567\u7ba0\u9288\u9289\u9357\u935b\u93b4\u93c9\u9416\u9426\u947a]/
+
+function looksLikeLatin1MojibakeOfCjk(text) {
+  const stripped = String(text || '').replace(/\s+/g, '')
+  if (stripped.length < 2) return false
+  const matches = stripped.match(LATIN1_HIGH_BIT_RE) || []
+  return matches.length / stripped.length > 0.5
+}
+
+function scoreDecodedText(text, encoding) {
   if (!text) return -1000
+
   let score = 0
-  const replacementCount = (text.match(/\ufffd/g) || []).length
-  const controlCount = (text.match(/[\u0001-\u001f\u007f]/g) || []).length
+  const replacementCount = (text.match(REPLACEMENT_CHAR_RE) || []).length
+  const controlCount = (text.match(CONTROL_CHAR_RE) || []).length
   score -= replacementCount * 80
   score -= controlCount * 30
-  if (/[\u3040-\u30ff\u3400-\u9fff]/.test(text)) score += 40
+
+  if (KANA_RE.test(text)) score += 70
+  if (CJK_IDEOGRAPH_RE.test(text)) score += 40
+  if (HANGUL_RE.test(text)) score += 30
+  if (FULLWIDTH_RE.test(text)) score += 10
   if (/[A-Za-z0-9]/.test(text)) score += 4
   score += Math.min(text.length, 80) / 8
+
+  if (looksLikeLatin1MojibakeOfCjk(text)) score -= 200
+  if (MOJIBAKE_HINT_RE.test(text)) score -= 35
+  if (encoding === 'utf-8') score += 1
+  if (encoding === 'latin1') score -= 10
   return score
+}
+
+function tryDecode(buffer, encoding) {
+  try {
+    if (encoding === 'latin1') return buffer.toString('latin1')
+    return getDecoder(encoding).decode(buffer)
+  } catch {
+    return ''
+  }
 }
 
 function decodeInfoText(buffer) {
@@ -69,20 +123,24 @@ function decodeInfoText(buffer) {
 
   const candidates = []
   if (trimmed[0] === 0xff && trimmed[1] === 0xfe) {
-    candidates.push(trimmed.subarray(2).toString('utf16le'))
+    candidates.push({ encoding: 'utf-16le', text: trimmed.subarray(2).toString('utf16le') })
   } else if (looksLikeUtf16Le(trimmed)) {
-    candidates.push(trimmed.toString('utf16le'))
+    candidates.push({ encoding: 'utf-16le', text: trimmed.toString('utf16le') })
   }
-  candidates.push(trimmed.toString('utf8'))
-  candidates.push(trimmed.toString('latin1'))
+
+  for (const encoding of FALLBACK_ENCODINGS) {
+    candidates.push({ encoding, text: tryDecode(trimmed, encoding) })
+  }
+  candidates.push({ encoding: 'latin1', text: tryDecode(trimmed, 'latin1') })
 
   let best = ''
-  let bestScore = -1000
-  for (const candidate of candidates) {
-    const text = cleanupTagText(candidate)
-    const score = scoreDecodedText(text)
+  let bestScore = -Infinity
+  for (const { encoding, text } of candidates) {
+    const cleaned = cleanupTagText(text)
+    if (looksLikeQuestionMarkPlaceholder(cleaned)) continue
+    const score = scoreDecodedText(cleaned, encoding)
     if (score > bestScore) {
-      best = text
+      best = cleaned
       bestScore = score
     }
   }

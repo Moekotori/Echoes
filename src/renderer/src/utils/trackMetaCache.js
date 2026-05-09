@@ -209,11 +209,51 @@ function normalizeTrackMetaEntry(entry) {
   return next
 }
 
+export function hasCachedTrackCoverRecord(record) {
+  const metaCover = record?.meta?.cover
+  return (
+    (typeof metaCover === 'string' && metaCover.length > 0) ||
+    record?.hasCover === true ||
+    record?.hasCover === 1
+  )
+}
+
 function countRecords(source, keyRange = null) {
   return new Promise((resolve) => {
-    const request = keyRange ? source.count(keyRange) : source.count()
+    let request
+    try {
+      request = keyRange ? source.count(keyRange) : source.count()
+    } catch {
+      resolve(0)
+      return
+    }
     request.onsuccess = () => resolve(Number(request.result) || 0)
     request.onerror = () => resolve(0)
+  })
+}
+
+function countMatchingRecords(source, predicate = () => true) {
+  return new Promise((resolve) => {
+    let count = 0
+    let request
+    try {
+      request = source.openCursor()
+    } catch {
+      resolve(0)
+      return
+    }
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve(count)
+        return
+      }
+
+      if (predicate(cursor.value)) count += 1
+      cursor.continue()
+    }
+    request.onerror = () => resolve(count)
   })
 }
 
@@ -260,6 +300,14 @@ function deleteOldestRecords(db, storeName, overflow, shouldDelete = () => true)
   })
 }
 
+function runCachePrune(task) {
+  Promise.resolve()
+    .then(task)
+    .catch((error) => {
+      console.warn('[track-meta-cache] prune failed', error)
+    })
+}
+
 export async function readTrackMetaCache(paths = []) {
   const db = await openTrackMetaDb()
   if (!db || !Array.isArray(paths) || paths.length === 0) return {}
@@ -301,7 +349,7 @@ export async function writeTrackMetaCache(entries = {}) {
       if (!path) continue
       const meta = normalizeTrackMetaEntry(entry)
       if (!meta) continue
-      store.put({ path, meta, updatedAt, hasCover: typeof meta.cover === 'string' && meta.cover.length > 0 })
+      store.put({ path, meta, updatedAt, hasCover: hasCachedTrackCoverRecord({ meta }) ? 1 : 0 })
     }
 
     tx.oncomplete = resolve
@@ -309,7 +357,7 @@ export async function writeTrackMetaCache(entries = {}) {
     tx.onabort = resolve
   })
 
-  pruneTrackMetaCache()
+  runCachePrune(pruneTrackMetaCache)
 }
 
 export async function readAlbumCoverCache(keys = []) {
@@ -369,7 +417,7 @@ export async function writeAlbumCoverCache(entries = {}) {
     tx.onabort = resolve
   })
 
-  pruneAlbumCoverCache()
+  runCachePrune(pruneAlbumCoverCache)
 }
 
 export async function readArtistAvatarCache(keys = []) {
@@ -432,7 +480,7 @@ export async function writeArtistAvatarCache(entries = {}) {
     tx.onabort = resolve
   })
 
-  pruneArtistAvatarCache()
+  runCachePrune(pruneArtistAvatarCache)
 }
 
 export async function pruneArtistAvatarCache() {
@@ -492,18 +540,14 @@ export async function pruneTrackMetaCache() {
 
     const coverReadTx = db.transaction(STORE_NAME, 'readonly')
     const coverStore = coverReadTx.objectStore(STORE_NAME)
-    const hasCoverIndex =
-      coverStore.indexNames.contains('hasCover') && typeof IDBKeyRange !== 'undefined'
-    const coverSource = hasCoverIndex ? coverStore.index('hasCover') : coverStore
-    const coverKeyRange = hasCoverIndex ? IDBKeyRange.only(true) : null
-    const coverTotal = await countRecords(coverSource, coverKeyRange)
+    const coverTotal = await countMatchingRecords(coverStore, hasCachedTrackCoverRecord)
     const coverOverflow = coverTotal - MAX_CACHE_COVER_ENTRIES
     if (coverOverflow > 0) {
       await deleteOldestRecords(
         db,
         STORE_NAME,
         coverOverflow,
-        (record) => record?.hasCover === true && !!record?.path
+        (record) => hasCachedTrackCoverRecord(record) && !!record?.path
       )
     }
   })().finally(() => {

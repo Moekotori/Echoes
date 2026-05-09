@@ -1,7 +1,31 @@
 export const stripExtension = (name = '') => name.replace(/\.[^/.]+$/, '')
 
+export function cleanMetadataText(value = '') {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function stripAudioQualityTitleSuffix(value = '') {
+  return String(value || '')
+    .replace(
+      /\s*[\[(（【]\s*(?=[^\])）】]*(?:\d+(?:\.\d+)?\s*ch|channels?|声道|k(?:hz)?|khz|hz|bit|bits|hi-?res|lossless|flac|alac|dsd|mqa|kbps))[^\])）】]*[\])）】]\s*$/i,
+      ''
+    )
+    .trim()
+}
+
+function looksLikeAudioQualityFragment(value = '') {
+  return /^(?:\d+(?:\.\d+)?\s*ch|channels?|声道|k(?:hz)?|khz|hz|bit|bits|hi-?res|lossless|flac|alac|dsd|mqa|kbps|[\d\s./-]+(?:ch|khz|hz|bit|kbps)\]?)$/i.test(
+    String(value || '').trim()
+  )
+}
+
 /** Slash in YT/B站 titles is usually 「曲名 / 翻唱署名」, not 「歌手 / 曲名」. */
 const SLASH_LIKE = new Set(['/', '／'])
+
+SLASH_LIKE.add('／')
 
 function looksLikeSlashSideCredit(right) {
   const r = (right || '').trim()
@@ -18,20 +42,44 @@ function looksLikeLatinInWordHyphen(value) {
   )
 }
 
+function splitOutsideBrackets(value, separator) {
+  const text = String(value || '')
+  const sep = String(separator || '')
+  if (!text || !sep) return null
+
+  let depth = 0
+  for (let index = 0; index <= text.length - sep.length; index += 1) {
+    const ch = text[index]
+    if (ch === '[' || ch === '(' || ch === '{' || ch === '【' || ch === '（') {
+      depth += 1
+    } else if (ch === ']' || ch === ')' || ch === '}' || ch === '】' || ch === '）') {
+      depth = Math.max(0, depth - 1)
+    }
+
+    if (depth > 0) continue
+    if (text.slice(index, index + sep.length) !== sep) continue
+    return [text.slice(0, index), text.slice(index + sep.length)]
+  }
+
+  return null
+}
+
 export const parseArtistTitleFromName = (name = '') => {
   const separators = [' - ', ' – ', ' — ', '_', '／', '/', '-', '–', '—']
   for (const separator of separators) {
-    if (!name.includes(separator)) continue
+    const parts = splitOutsideBrackets(name, separator)
+    if (!parts) continue
     if (separator === '-' && looksLikeLatinInWordHyphen(name)) continue
-    const [left, ...rest] = name.split(separator)
-    if (!left || rest.length === 0) continue
+    const [left, right] = parts
+    if (!left || !right) continue
     const leftPart = left.trim()
-    const rightPart = rest.join(separator).trim()
+    const rightPart = right.trim()
     if (!leftPart || !rightPart) continue
 
     if (SLASH_LIKE.has(separator) && looksLikeSlashSideCredit(rightPart)) {
       return { title: leftPart, artist: undefined }
     }
+    if (SLASH_LIKE.has(separator)) continue
 
     return { artist: leftPart, title: rightPart }
   }
@@ -48,7 +96,48 @@ function normalizeIdentityText(value = '') {
 
 function isUnknownArtistName(value = '') {
   const normalized = String(value || '').trim().toLowerCase()
-  return !normalized || normalized === 'unknown artist'
+  return !normalized || normalized === 'unknown artist' || looksLikeTrackIndexArtistName(normalized)
+}
+
+export function looksLikeTrackIndexArtistName(value = '') {
+  const normalized = String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+  if (!normalized) return false
+  return /^(?:cd|disc|disk)?\s*\d{1,3}(?:\s*[-./_]\s*\d{1,3})?$/.test(normalized)
+}
+
+function cleanArtistCandidate(value = '') {
+  const cleaned = cleanMetadataText(value)
+  return isUnknownArtistName(cleaned) ? '' : cleaned
+}
+
+export function normalizeAlbumDisplayName(value = '') {
+  const cleaned = cleanMetadataText(value).normalize('NFKC')
+  return (
+    cleaned
+      .replace(/^\s*[\[(]\s*(?:19|20)\d{2}\s*[\])]\s*[-_.:：]?\s*/, '')
+      .replace(/^\s*(?:19|20)\d{2}\s*[-_.:：]\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim() || cleaned
+  )
+}
+
+export function normalizeAlbumNameKey(value = '') {
+  return normalizeAlbumDisplayName(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function normalizeArtistNameKey(value = '') {
+  return cleanMetadataText(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim()
 }
 
 function looksLikeTrailingDashTitleFragment(metaTitle = '', fileTitle = '') {
@@ -75,31 +164,36 @@ export function resolveTrackIdentityFromMetadata({
   albumArtist = ''
 } = {}) {
   const strippedFileName = stripExtension(fileName || '')
-  const parsedFromFile = parseArtistTitleFromName(strippedFileName)
-  const parsedFromMetaTitle = title ? parseArtistTitleFromName(title) : null
+  const displayFileName = stripAudioQualityTitleSuffix(strippedFileName)
+  const displayTitle = stripAudioQualityTitleSuffix(title)
+  const parsedFromFile = parseArtistTitleFromName(displayFileName)
+  const parsedFromMetaTitle = displayTitle ? parseArtistTitleFromName(displayTitle) : null
 
-  const validMetaArtist = !isUnknownArtistName(artist) ? artist : ''
-  const validAlbumArtist = !isUnknownArtistName(albumArtist) ? albumArtist : ''
-  const resolvedTitle = parsedFromMetaTitle?.title || title || parsedFromFile?.title || strippedFileName
+  const validMetaArtist = cleanArtistCandidate(artist)
+  const validAlbumArtist = cleanArtistCandidate(albumArtist)
+  const parsedMetaArtist = cleanArtistCandidate(parsedFromMetaTitle?.artist)
+  const parsedFileArtist = cleanArtistCandidate(parsedFromFile?.artist)
+  const resolvedTitle =
+    parsedFromMetaTitle?.title || displayTitle || parsedFromFile?.title || displayFileName
   const resolvedArtist =
     validMetaArtist ||
     validAlbumArtist ||
-    parsedFromMetaTitle?.artist ||
-    parsedFromFile?.artist ||
+    parsedMetaArtist ||
+    parsedFileArtist ||
     'Unknown Artist'
 
   if (
     parsedFromFile?.title &&
-    parsedFromFile?.artist &&
+    parsedFileArtist &&
     looksLikeTrailingDashTitleFragment(title, parsedFromFile.title)
   ) {
     const normalizedArtist = normalizeIdentityText(validMetaArtist || validAlbumArtist)
-    const normalizedFileArtist = normalizeIdentityText(parsedFromFile.artist)
+    const normalizedFileArtist = normalizeIdentityText(parsedFileArtist)
     const keepMetaArtist = normalizedArtist && normalizedArtist === normalizedFileArtist
 
     return {
       title: parsedFromFile.title,
-      artist: keepMetaArtist ? validMetaArtist || validAlbumArtist : parsedFromFile.artist,
+      artist: keepMetaArtist ? validMetaArtist || validAlbumArtist : parsedFileArtist,
       source: 'filename'
     }
   }
@@ -165,14 +259,65 @@ export const compareTrackRandom = (a, b, seed = 0) => {
   return compareTrackOrder(a, b)
 }
 
+export function getTrackAlbumName(track) {
+  return normalizeAlbumDisplayName(track?.info?.album || track?.album || 'Singles') || 'Singles'
+}
+
+function pushUniqueCover(covers, seen, cover) {
+  const value = typeof cover === 'string' ? cover.trim() : ''
+  if (!value || seen.has(value)) return
+  seen.add(value)
+  covers.push(value)
+}
+
+export function getAlbumCoverCandidates(
+  tracks = [],
+  { albumName = '', albumCoverMap = {}, trackMetaMap = {} } = {}
+) {
+  const normalizedAlbumName =
+    String(albumName || getTrackAlbumName(tracks.find((track) => getTrackAlbumName(track))) || '').trim() ||
+    getTrackAlbumName(tracks[0])
+  const covers = []
+  const seen = new Set()
+
+  pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
+
+  const trackScopedMetaCovers = []
+  for (const track of tracks) {
+    const entry = trackMetaMap?.[track?.path]
+    if (entry?.coverScope === 'track') {
+      pushUniqueCover(trackScopedMetaCovers, seen, entry?.cover)
+    } else {
+      pushUniqueCover(covers, seen, entry?.cover)
+    }
+  }
+
+  for (const track of tracks) {
+    pushUniqueCover(covers, seen, track?.cover)
+    pushUniqueCover(covers, seen, track?.info?.cover)
+  }
+
+  if (covers.length === 0) covers.push(...trackScopedMetaCovers)
+
+  return covers
+}
+
+export function getBestAlbumCover(tracks = [], options = {}) {
+  return getAlbumCoverCandidates(tracks, options)[0] || null
+}
+
 export const parseTrackInfo = (track, meta) => {
   const rawName = track?.name || ''
   const fileName = stripExtension(rawName)
   const pathParts = (track?.path || '').split(/[/\\]/).filter(Boolean)
   const folderAlbum = pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'Unknown Album'
 
-  const trackNoFromName = fileName.match(/^\s*(\d{1,3})[.)\-\s_]+/)?.[1] || null
-  const noTrackNo = fileName.replace(/^\s*\d+[.)\-\s_]+/, '').trim()
+  const discTrackPrefix = fileName.match(/^\s*(\d{1,3})\.(\d{1,3})\s+/)
+  const trackNoFromName =
+    discTrackPrefix?.[2] || fileName.match(/^\s*(\d{1,3})[.)\-\s_]+/)?.[1] || null
+  const noTrackNo = discTrackPrefix
+    ? fileName.slice(discTrackPrefix[0].length).trim()
+    : fileName.replace(/^\s*\d+[.)\-\s_]+/, '').trim()
   const normalized = noTrackNo || fileName
   const parsedFromMeta = meta?.title ? parseArtistTitleFromName(meta.title) : null
   /** Slash+cover 启发式时只返回 title，不把左侧当歌手 */
@@ -183,18 +328,24 @@ export const parseTrackInfo = (track, meta) => {
 
   const resolvedIdentity = resolveTrackIdentityFromMetadata({
     fileName: normalized,
-    title: metaTitleForUi || meta?.title || '',
-    artist: meta?.artist || '',
-    albumArtist: meta?.albumArtist || ''
+    title: cleanMetadataText(metaTitleForUi || meta?.title || ''),
+    artist: cleanMetadataText(meta?.artist || ''),
+    albumArtist: cleanMetadataText(meta?.albumArtist || '')
   })
   const artist = resolvedIdentity.artist || 'Unknown Artist'
-  const title = resolvedIdentity.title || normalized || 'Unknown Track'
+  const fallbackFromFileName = stripAudioQualityTitleSuffix(normalized) || normalized
+  const repairedTechnicalFragmentTitle =
+    looksLikeAudioQualityFragment(resolvedIdentity.title) && fallbackFromFileName
+      ? fallbackFromFileName
+      : resolvedIdentity.title
+  const title = repairedTechnicalFragmentTitle || fallbackFromFileName || 'Unknown Track'
 
   return {
     fileName,
     title,
     artist,
-    album: meta?.album || track?.album || folderAlbum || 'Unknown Album',
+    album:
+      normalizeAlbumDisplayName(meta?.album || track?.album || folderAlbum) || 'Unknown Album',
     cover: meta?.cover || null,
     trackNo: meta?.trackNo ?? (trackNoFromName ? Number(trackNoFromName) : null),
     discNo: meta?.discNo ?? null,

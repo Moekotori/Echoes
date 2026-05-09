@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react'
 import { ArtistLink } from './ArtistLink'
+import { hasSelectedText, isSelectableTextTarget } from '../utils/textSelection'
 
 const QUEUE_OVERSCAN = 8
 
@@ -78,10 +79,14 @@ const QueueRow = memo(function QueueRow({
       data-track-path={item.path}
       tabIndex={selected ? 0 : -1}
       onClick={(event) => {
+        if (hasSelectedText()) return
         onSelect(item.path, event)
         if (!event.ctrlKey && !event.metaKey && !event.shiftKey) onPlayNow(item.path)
       }}
-      onDoubleClick={() => onPlayNow(item.path)}
+      onDoubleClick={(event) => {
+        if (hasSelectedText() || isSelectableTextTarget(event.target)) return
+        onPlayNow(item.path)
+      }}
       onContextMenu={(event) => {
         event.preventDefault()
         onContextMenu(item.path, event.clientX, event.clientY)

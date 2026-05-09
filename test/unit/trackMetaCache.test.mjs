@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  hasCachedTrackCoverRecord,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
   shouldRefreshTrackMetaCacheForAudioQuality
@@ -119,4 +120,11 @@ test('mergeTrackMetaMapPreservingCovers prevents stale no-cover batches from wip
   assert.equal(merged['D:/music/a.flac'].cover, 'https://example.test/a.jpg')
   assert.equal(merged['D:/music/a.flac'].album, 'Album A')
   assert.equal(merged['D:/music/b.flac'].cover, null)
+})
+
+test('hasCachedTrackCoverRecord accepts numeric and legacy boolean cover markers', () => {
+  assert.equal(hasCachedTrackCoverRecord({ meta: { cover: 'data:image/cover' } }), true)
+  assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 1 }), true)
+  assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: true }), true)
+  assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 0 }), false)
 })

@@ -5,6 +5,8 @@ import {
   buildParsedPlaylistWithCache,
   compareTrackFrequent,
   compareTrackRandom,
+  getTrackAlbumName,
+  normalizeAlbumNameKey,
   parseTrackInfo,
   resolveTrackIdentityFromMetadata
 } from '../../src/renderer/src/utils/trackUtils.js'
@@ -17,6 +19,75 @@ const makeTrack = (path, fileName) => ({
     trackNo: null,
     discNo: null
   }
+})
+
+test('parseTrackInfo strips embedded NUL control characters from FLAC tags', () => {
+  const title = '\u516d\u7b49\u661f\u306e\u591c'
+  const info = parseTrackInfo(
+    {
+      path: `D:/Music/Aimer/01.${title}.flac`,
+      name: `01.${title}.flac`
+    },
+    {
+      title: `${title}\u0000`,
+      artist: 'Aimer\u0000',
+      album: 'BEST SELECTION "blanc"\u0000',
+      albumArtist: 'Aimer\u0000'
+    }
+  )
+
+  assert.equal(info.title, title)
+  assert.equal(info.artist, 'Aimer')
+  assert.equal(info.album, 'BEST SELECTION "blanc"')
+})
+
+test('parseTrackInfo does not split audio quality suffixes as artist title separators', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'C:/Users/Moe/Downloads/10.13 Staff Credits [5.1ch 96kHz-24bit].flac',
+      name: '10.13 Staff Credits [5.1ch 96kHz-24bit].flac'
+    },
+    {
+      title: 'Staff Credits [5.1ch 96kHz/24bit]',
+      artist: 'Nintendo',
+      album: 'The Legend of Zelda: Tears of the Kingdom Original Soundtrack',
+      trackNo: 13,
+      discNo: 10
+    }
+  )
+
+  assert.equal(info.title, 'Staff Credits')
+  assert.equal(info.artist, 'Nintendo')
+  assert.equal(info.trackNo, 13)
+})
+
+test('filename identity ignores separators inside bracketed technical suffixes', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: '10.13 Staff Credits [5.1ch 96kHz-24bit].flac',
+    title: '',
+    artist: ''
+  })
+
+  assert.equal(identity.title, '10.13 Staff Credits')
+  assert.equal(identity.artist, 'Unknown Artist')
+})
+
+test('cached audio quality title fragments are repaired from the file name', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'C:/Users/Moe/Downloads/10.13 Staff Credits [5.1ch 96kHz-24bit].flac',
+      name: '10.13 Staff Credits [5.1ch 96kHz-24bit].flac'
+    },
+    {
+      title: '24bit]',
+      artist: 'Nintendo',
+      trackNo: 13,
+      discNo: 10
+    }
+  )
+
+  assert.equal(info.title, 'Staff Credits')
+  assert.equal(info.artist, 'Nintendo')
 })
 
 test('compareTrackFrequent sorts by play count then last played time', () => {
@@ -146,13 +217,51 @@ test('keeps normal metadata when it is not a truncated filename suffix', () => {
 })
 
 test('keeps Latin hyphenated titles intact', () => {
+  const artist = '\u9e7f\u4e43'
   const identity = resolveTrackIdentityFromMetadata({
-    fileName: '鹿乃 - Stella-rium.flac',
+    fileName: `${artist} - Stella-rium.flac`,
     title: 'Stella-rium',
-    artist: '鹿乃'
+    artist
   })
 
   assert.equal(identity.title, 'Stella-rium')
-  assert.equal(identity.artist, '鹿乃')
+  assert.equal(identity.artist, artist)
   assert.equal(identity.source, 'metadata')
+})
+
+test('parseTrackInfo ignores numeric track ranges misread as artist names', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'D:/Music/King Crimson/In The Court/02 - Epitaph.flac',
+      name: '02 - Epitaph.flac'
+    },
+    {
+      title: 'Epitaph',
+      artist: '2-4',
+      albumArtist: 'King Crimson',
+      album: '1969 - In The Court Of The Crimson King'
+    }
+  )
+
+  assert.equal(info.artist, 'King Crimson')
+  assert.equal(info.album, 'In The Court Of The Crimson King')
+})
+
+test('metadata title track numbers are not promoted to artist names', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: '02 - Epitaph.flac',
+    title: '2-4 - Epitaph',
+    artist: ''
+  })
+
+  assert.equal(identity.title, 'Epitaph')
+  assert.equal(identity.artist, 'Unknown Artist')
+})
+
+test('album names strip folder-style leading years for grouping', () => {
+  assert.equal(getTrackAlbumName({ info: { album: '2004 - 在动物园散步才是正经事' } }), '在动物园散步才是正经事')
+  assert.equal(
+    normalizeAlbumNameKey('2004 - 在动物园散步才是正经事'),
+    normalizeAlbumNameKey('在动物园散步才是正经事')
+  )
 })
