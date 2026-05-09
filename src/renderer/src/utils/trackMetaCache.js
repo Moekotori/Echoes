@@ -209,6 +209,60 @@ export function buildVisibleRowMetadataRequestOptions() {
   }
 }
 
+export function buildVisibleCoverHydrationPlan({
+  visibleTracks = [],
+  aheadTracks = [],
+  metadataHydrateRequirementByPath = new Map(),
+  trackMetaMap = {},
+  effectiveTrackMetaMap = {},
+  maxVisibleTracks = 48,
+  maxAheadTracks = 120
+} = {}) {
+  const tracks = []
+  const seen = new Set()
+
+  const getEntry = (track) => {
+    const path = track?.path
+    if (!path) return null
+    return effectiveTrackMetaMap[path] || trackMetaMap[path] || null
+  }
+
+  const shouldQueue = (track) => {
+    const path = track?.path
+    if (!path || seen.has(path)) return false
+    const requirement = metadataHydrateRequirementByPath.get(path)
+    if (requirement?.source !== 'visible-row') return false
+    return !satisfiesMetadataHydrateRequirement(getEntry(track), requirement)
+  }
+
+  const pushTrack = (track) => {
+    if (!shouldQueue(track)) return false
+    seen.add(track.path)
+    tracks.push(track)
+    return true
+  }
+
+  let visibleCount = 0
+  const visibleLimit = Math.max(0, Number(maxVisibleTracks) || 0)
+  for (const track of visibleTracks || []) {
+    if (visibleCount >= visibleLimit) break
+    if (pushTrack(track)) visibleCount += 1
+  }
+
+  let aheadCount = 0
+  const aheadLimit = Math.max(0, Number(maxAheadTracks) || 0)
+  for (const track of aheadTracks || []) {
+    if (aheadCount >= aheadLimit) break
+    if (pushTrack(track)) aheadCount += 1
+  }
+
+  return {
+    tracks,
+    visibleCount,
+    aheadCount
+  }
+}
+
 function mergeMetadataHydrateRequirement(previous = {}, requirement = {}, track = null) {
   return {
     track,

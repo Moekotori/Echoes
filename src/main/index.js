@@ -5145,6 +5145,7 @@ app.whenReady().then(async () => {
   }
 
   async function getExtendedMetadataFallback(filePath, options = null) {
+    const metadataStartedAt = Date.now()
     const requestOptions = normalizeExtendedMetadataOptions(options)
     const ext = extname(filePath)
     const baseTitle = basename(filePath, ext)
@@ -5192,6 +5193,7 @@ app.whenReady().then(async () => {
           musicMetadataPictures: 0,
           jsmediatagsPicture: true,
           nativeImageEmpty: compressedJsmediatagsCover.nativeImageEmpty === true,
+          elapsedMs: Date.now() - metadataStartedAt,
           coverChecked: true,
           coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
         })
@@ -5201,6 +5203,7 @@ app.whenReady().then(async () => {
           musicMetadataPictures: 0,
           jsmediatagsPicture: true,
           nativeImageEmpty: false,
+          elapsedMs: Date.now() - metadataStartedAt,
           coverChecked: true,
           coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
         })
@@ -5208,6 +5211,7 @@ app.whenReady().then(async () => {
         logEmbeddedCoverWarn('jsmediatags fallback failed during metadata fallback', {
           ext: ext.toLowerCase(),
           error: jsmediatagsCover.error,
+          elapsedMs: Date.now() - metadataStartedAt,
           coverChecked: true,
           coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
         })
@@ -5227,6 +5231,7 @@ app.whenReady().then(async () => {
         musicMetadataPictures: 0,
         jsmediatagsPicture: false,
         nativeImageEmpty: null,
+        elapsedMs: Date.now() - metadataStartedAt,
         coverChecked: true,
         coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
       })
@@ -5492,6 +5497,7 @@ app.whenReady().then(async () => {
   }
 
   async function buildExtendedMetadataResponse(filePath, options = null) {
+    const metadataStartedAt = Date.now()
     const requestOptions = normalizeExtendedMetadataOptions(options)
     const requestedPath = filePath
     const cueTrack = parseCueVirtualPath(requestedPath)
@@ -5582,6 +5588,7 @@ app.whenReady().then(async () => {
             musicMetadataPictures: musicMetadataPictureCount,
             jsmediatagsPicture: false,
             nativeImageEmpty: false,
+            elapsedMs: Date.now() - metadataStartedAt,
             coverChecked: true,
             coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
           })
@@ -5608,6 +5615,7 @@ app.whenReady().then(async () => {
               musicMetadataPictures: musicMetadataPictureCount,
               jsmediatagsPicture: true,
               nativeImageEmpty: coverNativeImageEmpty,
+              elapsedMs: Date.now() - metadataStartedAt,
               coverChecked: true,
               coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
             })
@@ -5617,6 +5625,7 @@ app.whenReady().then(async () => {
               musicMetadataPictures: musicMetadataPictureCount,
               jsmediatagsPicture: true,
               nativeImageEmpty: false,
+              elapsedMs: Date.now() - metadataStartedAt,
               coverChecked: true,
               coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
             })
@@ -5627,6 +5636,7 @@ app.whenReady().then(async () => {
             musicMetadataPictures: musicMetadataPictureCount,
             jsmediatagsPicture: false,
             error: jsmediatagsCover.error,
+            elapsedMs: Date.now() - metadataStartedAt,
             coverChecked: true,
             coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
           })
@@ -5643,6 +5653,7 @@ app.whenReady().then(async () => {
           musicMetadataPictures: musicMetadataPictureCount,
           jsmediatagsPicture: jsmediatagsPictureFound,
           nativeImageEmpty: true,
+          elapsedMs: Date.now() - metadataStartedAt,
           coverChecked: true,
           coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
         })
@@ -5653,6 +5664,7 @@ app.whenReady().then(async () => {
           musicMetadataPictures: musicMetadataPictureCount,
           jsmediatagsPicture: jsmediatagsPictureFound,
           nativeImageEmpty: false,
+          elapsedMs: Date.now() - metadataStartedAt,
           coverChecked: true,
           coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
         })

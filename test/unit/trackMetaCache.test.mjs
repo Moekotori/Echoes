@@ -6,6 +6,7 @@ import {
   buildPersistableAlbumCoverCacheItems,
   buildTrackMetaCacheFingerprint,
   buildTrackMetadataPrefetchPlan,
+  buildVisibleCoverHydrationPlan,
   buildVisibleTrackMetaHydrateRequirement,
   buildVisibleRowMetadataRequestOptions,
   createAlbumCoverCacheKey,
@@ -721,6 +722,135 @@ test('metadata prefetch plan keeps current track and visible requirements ahead 
   assert.equal(plan.metadataHydrateRequirementByPath.get(prefetchTracks[0].path)?.source, 'visible-row')
   assert.equal(plan.metadataHydrateRequirementByPath.get(prefetchTracks[1].path)?.source, 'visible-row')
   assert.equal(plan.metadataHydrateRequirementByPath.has(prefetchTracks[2].path), false)
+})
+
+test('visible cover hydration plan keeps visible rows before ahead rows', () => {
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/visible.flac')
+  const aheadTracks = [
+    missingVisibleMetaTrack('D:/Music/ahead-1.flac'),
+    missingVisibleMetaTrack('D:/Music/ahead-2.flac')
+  ]
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    visibleSidebarTracks: [visibleTrack],
+    metadataPrefetchSidebarTracks: aheadTracks,
+    visibleAheadLimit: 2,
+    maxTracks: 10,
+    isLocalTrack: isLocalVisibleTestTrack
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    visibleTracks: [visibleTrack],
+    aheadTracks,
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    maxAheadTracks: 2
+  })
+
+  assert.deepEqual(
+    coverPlan.tracks.map((track) => track.path),
+    [visibleTrack.path, aheadTracks[0].path, aheadTracks[1].path]
+  )
+  assert.equal(coverPlan.visibleCount, 1)
+  assert.equal(coverPlan.aheadCount, 2)
+})
+
+test('visible cover hydration plan caps ahead rows without pulling the whole list', () => {
+  const aheadTracks = Array.from({ length: 8 }, (_, index) =>
+    missingVisibleMetaTrack(`D:/Music/ahead-cap-${index + 1}.flac`)
+  )
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    metadataPrefetchSidebarTracks: aheadTracks,
+    visibleAheadLimit: 8,
+    maxTracks: 20,
+    isLocalTrack: isLocalVisibleTestTrack
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    aheadTracks,
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    maxAheadTracks: 3
+  })
+
+  assert.deepEqual(
+    coverPlan.tracks.map((track) => track.path),
+    aheadTracks.slice(0, 3).map((track) => track.path)
+  )
+})
+
+test('visible cover hydration plan skips cached-cover tracks', () => {
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/cached-cover.flac')
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    visibleSidebarTracks: [visibleTrack],
+    maxTracks: 10,
+    isLocalTrack: isLocalVisibleTestTrack
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    visibleTracks: [visibleTrack],
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    trackMetaMap: {
+      [visibleTrack.path]: {
+        artist: 'Known Artist',
+        cover: 'data:image/cover',
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      }
+    }
+  })
+
+  assert.equal(coverPlan.tracks.length, 0)
+})
+
+test('visible cover hydration plan retries stale no-cover rows', () => {
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/stale-no-cover.flac')
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    visibleSidebarTracks: [visibleTrack],
+    maxTracks: 10,
+    isLocalTrack: isLocalVisibleTestTrack,
+    trackMetaMap: {
+      [visibleTrack.path]: {
+        artist: 'Known Artist',
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION - 1
+      }
+    }
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    visibleTracks: [visibleTrack],
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    trackMetaMap: {
+      [visibleTrack.path]: {
+        artist: 'Known Artist',
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION - 1
+      }
+    }
+  })
+
+  assert.deepEqual(coverPlan.tracks.map((track) => track.path), [visibleTrack.path])
+})
+
+test('visible cover hydration plan skips current no-cover rows', () => {
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/current-no-cover.flac')
+  const trackMetaMap = {
+    [visibleTrack.path]: {
+      artist: 'Known Artist',
+      cover: null,
+      coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+    }
+  }
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    visibleSidebarTracks: [visibleTrack],
+    maxTracks: 10,
+    isLocalTrack: isLocalVisibleTestTrack,
+    trackMetaMap
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    visibleTracks: [visibleTrack],
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    trackMetaMap
+  })
+
+  assert.equal(coverPlan.tracks.length, 0)
 })
 
 test('metadata prefetch plan caps tracks and does not require an entire playlist', () => {

@@ -189,6 +189,7 @@ import {
   getAlbumCoverFailureKey,
   mergeAlbumCoverMapEntries
 } from './utils/albumCoverBackfill'
+import { runVisibleCoverHydrationQueue } from './utils/visibleCoverHydration'
 import { filterAndRankTracksBySearch, getTrackSearchScore } from './utils/librarySearch'
 import {
   buildFolderHierarchy,
@@ -288,6 +289,7 @@ import {
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   createArtistAvatarCacheKey,
+  buildVisibleCoverHydrationPlan,
   buildTrackMetadataPrefetchPlan,
   buildVisibleRowMetadataRequestOptions,
   hasCurrentEmbeddedCoverCheck,
@@ -413,6 +415,7 @@ const STORED_VOLUME_KEY = 'nc_volume'
 const SIDEBAR_LIST_OVERSCAN = 10
 const SIDEBAR_META_PREFETCH_BEHIND_ROWS = 16
 const SIDEBAR_META_PREFETCH_AHEAD_ROWS = 72
+const SIDEBAR_COVER_PREFETCH_AHEAD_ROWS = 140
 const ALBUM_META_PREFETCH_BEHIND_ROWS = 4
 const ALBUM_META_PREFETCH_AHEAD_ROWS = 24
 const SIDEBAR_ROW_HEIGHT = 75
@@ -459,9 +462,12 @@ const ALBUM_COVER_BACKFILL_BATCH_DELAY_MS = 40
 const ALBUM_COVER_BACKFILL_WORKERS = 1
 const METADATA_PARSE_WORKERS = 1
 const VISIBLE_ROW_METADATA_PARSE_WORKERS = 2
+const VISIBLE_ROW_COVER_PARSE_WORKERS = 4
 const PLAYING_METADATA_PARSE_BATCH_SIZE = 6
 const PLAYING_METADATA_PARSE_WORKERS = 1
-const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 24
+const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 96
+const VISIBLE_ROW_COVER_HYDRATE_AHEAD_LIMIT = 120
+const VISIBLE_ROW_COVER_HYDRATE_VISIBLE_LIMIT = 48
 const VISIBLE_ROW_METADATA_STARTUP_DELAY_MS = 800
 const BULK_METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
 const STARTUP_IMPORTED_FOLDER_IDLE_RESCAN_DELAY_MS = 8000
@@ -2409,6 +2415,8 @@ export default function App() {
   const albumArtistProbePathsRef = useRef(new Set())
   const visibleRowCoverProbePathsRef = useRef(new Set())
   const visibleRowArtistProbePathsRef = useRef(new Set())
+  const visibleRowCoverHydrationInFlightPathsRef = useRef(new Set())
+  const visibleRowCoverHydrationSeqRef = useRef(0)
   const albumCoverBackfillRunKeyRef = useRef('')
   const [albumCoverManualLoadRequest, setAlbumCoverManualLoadRequest] = useState({
     id: 0,
@@ -14644,6 +14652,17 @@ export default function App() {
     return tracksForSidebarListFiltered.slice(startIndex, endIndex)
   }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange])
 
+  const coverPrefetchAheadSidebarTracks = useMemo(() => {
+    if (!libraryBrowserVisible) return []
+    if (tracksForSidebarListFiltered.length === 0) return []
+    const startIndex = Math.max(0, visibleSidebarRange.endIndex)
+    const endIndex = Math.min(
+      tracksForSidebarListFiltered.length,
+      startIndex + SIDEBAR_COVER_PREFETCH_AHEAD_ROWS
+    )
+    return tracksForSidebarListFiltered.slice(startIndex, endIndex)
+  }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange.endIndex])
+
   const metadataContextWarmupSidebarTracks = useMemo(() => {
     if (!libraryBrowserVisible) return []
     if (listMode === 'album') return []
@@ -15464,6 +15483,96 @@ export default function App() {
     })
   }, [metadataCoverKeepPathSet])
 
+  const visibleCoverHydrationPlan = useMemo(() => {
+    return buildVisibleCoverHydrationPlan({
+      visibleTracks: showTrackList ? visibleSidebarTracks : [],
+      aheadTracks: showTrackList ? coverPrefetchAheadSidebarTracks : [],
+      metadataHydrateRequirementByPath,
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      maxVisibleTracks: VISIBLE_ROW_COVER_HYDRATE_VISIBLE_LIMIT,
+      maxAheadTracks: VISIBLE_ROW_COVER_HYDRATE_AHEAD_LIMIT
+    })
+  }, [
+    coverPrefetchAheadSidebarTracks,
+    effectiveTrackMetaMap,
+    metadataHydrateRequirementByPath,
+    showTrackList,
+    trackMetaMap,
+    visibleSidebarTracks
+  ])
+
+  useEffect(() => {
+    if (!showTrackList) return undefined
+    if (!visibleRowMetadataParseReady) return undefined
+    if (typeof window.api?.getExtendedMetadataHandler !== 'function') return undefined
+    const coverQueue = visibleCoverHydrationPlan.tracks.filter((track) => {
+      const path = track?.path
+      return path && !visibleRowCoverHydrationInFlightPathsRef.current.has(path)
+    })
+    if (coverQueue.length === 0) return undefined
+
+    const runSeq = (visibleRowCoverHydrationSeqRef.current += 1)
+    let cancelled = false
+    const startedPaths = new Set()
+    for (const track of coverQueue) {
+      if (!track?.path) continue
+      visibleRowCoverHydrationInFlightPathsRef.current.add(track.path)
+      startedPaths.add(track.path)
+    }
+
+    const applyEntries = (entries) => {
+      if (cancelled || runSeq !== visibleRowCoverHydrationSeqRef.current) return
+      if (Object.keys(entries).length === 0) return
+      setTrackMetaMap((prev) => {
+        const merged = mergeTrackMetaMapPreservingCovers(prev, entries)
+        return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
+      })
+    }
+    const markCoverProbed = (path, noCover) => {
+      if (!path) return
+      if (noCover) visibleRowCoverProbePathsRef.current.add(path)
+      else visibleRowCoverProbePathsRef.current.delete(path)
+    }
+    const markArtistProbed = (path, unknownArtist) => {
+      if (!path) return
+      if (unknownArtist) visibleRowArtistProbePathsRef.current.add(path)
+      else visibleRowArtistProbePathsRef.current.delete(path)
+    }
+
+    runVisibleCoverHydrationQueue({
+      coverQueue,
+      visibleCount: visibleCoverHydrationPlan.visibleCount,
+      aheadCount: visibleCoverHydrationPlan.aheadCount,
+      workerCount: VISIBLE_ROW_COVER_PARSE_WORKERS,
+      metadataHydrateRequirementByPath,
+      readTrackMetaCache,
+      writeTrackMetaCache,
+      getExtendedMetadata: window.api.getExtendedMetadataHandler,
+      getCurrentMeta: (path) => trackMetaMapRef.current?.[path] || {},
+      applyEntries,
+      markCoverProbed,
+      markArtistProbed,
+      clearInFlightPath: (path) => visibleRowCoverHydrationInFlightPathsRef.current.delete(path),
+      isCancelled: () => cancelled,
+      shouldApply: () => !cancelled && runSeq === visibleRowCoverHydrationSeqRef.current
+    }).finally(() => {
+      for (const path of startedPaths) {
+        visibleRowCoverHydrationInFlightPathsRef.current.delete(path)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    metadataCoverKeepPathSet,
+    metadataHydrateRequirementByPath,
+    showTrackList,
+    visibleCoverHydrationPlan,
+    visibleRowMetadataParseReady
+  ])
+
   useEffect(() => {
     const isVisibleRowHydrateTrack = (track) =>
       metadataHydrateRequirementByPath.get(track?.path)?.source === 'visible-row'
@@ -15520,6 +15629,12 @@ export default function App() {
     const pending = metadataPrefetchTracks.filter((track) => {
       const entry = trackMetaMap[track.path]
       const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
+      if (
+        hydrateRequirement?.source === 'visible-row' &&
+        visibleRowCoverHydrationInFlightPathsRef.current.has(track.path)
+      ) {
+        return false
+      }
       if (
         hydrateRequirement &&
         !satisfiesMetadataHydrateRequirement(entry, hydrateRequirement)
@@ -15635,6 +15750,12 @@ export default function App() {
       const allUncachedPending = pending.filter((track) => {
         const cachedMeta = cached[track.path]
         const hydrateRequirement = metadataHydrateRequirementByPath.get(track.path)
+        if (
+          hydrateRequirement?.source === 'visible-row' &&
+          visibleRowCoverHydrationInFlightPathsRef.current.has(track.path)
+        ) {
+          return false
+        }
         if (!cachedMeta) return true
         if (
           hydrateRequirement &&
