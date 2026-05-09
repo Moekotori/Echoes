@@ -3,14 +3,23 @@ import assert from 'node:assert/strict'
 
 import {
   buildAlbumWallHydrateTargets,
+  buildTrackArtworkSources,
   getAlbumCoverCandidates,
   getBestAlbumCover,
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
+  isGenericAlbumFallbackName,
   getTrackAlbumName,
   resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
 import {
+  buildVisibleTrackMetaHydrateRequirement,
+  createAlbumCoverCacheKey,
+  createAlbumCoverFallbackKey
+} from '../../src/renderer/src/utils/trackMetaCache.js'
+import {
+  buildAlbumCoverCacheHydrationEntries,
+  buildAlbumCoverCacheTargetIndex,
   buildAlbumCoverMapEntryFromCacheTarget,
   buildAlbumCoverBackfillPlan,
   collectAlbumCoverFromMeta,
@@ -82,6 +91,196 @@ test('album wall cover falls back to another track in the same album', () => {
   })
 
   assert.equal(display.cover, 'data:image/second')
+})
+
+test('track artwork sources fall back to another track in the same album', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/first', 'Known Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
+  ]
+
+  assert.deepEqual(
+    buildTrackArtworkSources(tracks[1], {
+      albumTracks: tracks
+    }),
+    ['data:image/first']
+  )
+})
+
+test('track artwork sources keep current track cover before album fallback', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/album', 'Known Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', 'data:image/self', 'Known Artist')
+  ]
+
+  assert.deepEqual(
+    buildTrackArtworkSources(tracks[1], {
+      albumTracks: tracks,
+      albumCoverMap: {
+        [getTrackAlbumGroupKey(tracks[1])]: 'data:image/cached-album'
+      }
+    }),
+    ['data:image/self', 'data:image/cached-album', 'data:image/album']
+  )
+})
+
+test('track artwork sources use album group key cover', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')
+  const albumKey = getTrackAlbumGroupKey(track)
+
+  assert.deepEqual(
+    buildTrackArtworkSources(track, {
+      albumCoverMap: {
+        [albumKey]: 'data:image/group-cover'
+      },
+      albumTracks: [track]
+    }),
+    ['data:image/group-cover']
+  )
+})
+
+test('track artwork sources do not use loose album name cover', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')
+
+  assert.deepEqual(
+    buildTrackArtworkSources(track, {
+      albumCoverMap: {
+        'Album A': 'data:image/name-cover'
+      },
+      albumTracks: [track]
+    }),
+    []
+  )
+})
+
+test('track artwork sources do not share same album name across folders', () => {
+  const first = makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', 'data:image/anime', 'Known Artist')
+  const second = makeTrack('D:/Music/Gym/Album A/01.flac', 'Album A', '', 'Known Artist')
+
+  assert.notEqual(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
+  assert.deepEqual(
+    buildTrackArtworkSources(second, {
+      albumTracks: [first, second],
+      albumCoverMap: {
+        'Album A': 'data:image/loose-name'
+      }
+    }),
+    []
+  )
+})
+
+test('track artwork sources do not share generic Music albums across groups', () => {
+  const first = makeTrack('D:/Music/Anime/01.flac', 'Music', 'data:image/anime', 'Known Artist')
+  const second = makeTrack('D:/Music/Gym/01.flac', 'Music', '', 'Known Artist')
+
+  assert.equal(isGenericAlbumFallbackName('Music'), true)
+  assert.notEqual(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
+  assert.deepEqual(
+    buildTrackArtworkSources(second, {
+      albumTracks: [first, second],
+      albumCoverMap: {
+        Music: 'data:image/loose-music'
+      }
+    }),
+    []
+  )
+})
+
+test('track artwork sources do not share generic Music tracks in the same folder group', () => {
+  const first = makeTrack('D:/Loose/01.flac', 'Music', 'data:image/first', 'Known Artist')
+  const second = makeTrack('D:/Loose/02.flac', 'Music', '', 'Known Artist')
+  const albumKey = getTrackAlbumGroupKey(second)
+
+  assert.equal(isGenericAlbumFallbackName('Music'), true)
+  assert.equal(getTrackAlbumGroupKey(first), albumKey)
+  assert.deepEqual(
+    buildTrackArtworkSources(second, {
+      albumTracks: [first, second],
+      albumCoverMap: {
+        [albumKey]: 'data:image/group-cover'
+      }
+    }),
+    []
+  )
+})
+
+test('visible-row hydrate skips cover parsing when album fallback is available', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/first', 'Known Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
+  ]
+
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
+      isLocalTrack: () => true,
+      albumTracks: tracks
+    }),
+    null
+  )
+})
+
+test('visible-row hydrate ignores generic album group artwork fallback', () => {
+  const tracks = [
+    makeTrack('D:/Loose/01.flac', 'Music', 'data:image/first', 'Known Artist'),
+    makeTrack('D:/Loose/02.flac', 'Music', '', 'Known Artist')
+  ]
+  const albumKey = getTrackAlbumGroupKey(tracks[1])
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
+      isLocalTrack: () => true,
+      albumCoverMap: {
+        [albumKey]: 'data:image/group-cover'
+      },
+      albumTracks: tracks
+    }),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
+})
+
+test('visible-row hydrate ignores loose album name artwork fallback', () => {
+  const track = makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(track, {}, {
+      isLocalTrack: () => true,
+      albumCoverMap: {
+        'Album A': 'data:image/loose-name'
+      },
+      albumTracks: [track]
+    }),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
+})
+
+test('visible-row hydrate still parses unknown artist when album fallback is available', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/first', 'Known Artist'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Unknown Artist')
+  ]
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
+      isLocalTrack: () => true,
+      albumTracks: tracks
+    }),
+    {
+      needsCover: false,
+      needsArtist: true,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
 })
 
 test('album wall display artist prefers albumArtist over track artist', () => {
@@ -393,7 +592,7 @@ test('album cover backfill cache artist falls back to track artist metadata', ()
   assert.equal(entry.artist, 'Real Artist')
 })
 
-test('album cover map entries write both album group key and album name', () => {
+test('album cover map entries default to strict album group keys', () => {
   const merged = mergeAlbumCoverMapEntries(
     {},
     {
@@ -408,8 +607,47 @@ test('album cover map entries write both album group key and album name', () => 
   )
 
   assert.equal(merged['album-group-key'], 'data:image/mapped-cover')
+  assert.equal(merged['Visible Album'], undefined)
+  assert.equal(merged['Embedded Album'], undefined)
+})
+
+test('album cover map entries write loose album name keys only when enabled', () => {
+  const merged = mergeAlbumCoverMapEntries(
+    {},
+    {
+      'album-group-key': {
+        albumKey: 'album-group-key',
+        album: 'Embedded Album',
+        albumName: 'Visible Album',
+        displayAlbumName: 'Visible Album',
+        cover: 'data:image/mapped-cover'
+      }
+    },
+    { includeLooseAlbumNameKeys: true }
+  )
+
+  assert.equal(merged['album-group-key'], 'data:image/mapped-cover')
   assert.equal(merged['Visible Album'], 'data:image/mapped-cover')
   assert.equal(merged['Embedded Album'], 'data:image/mapped-cover')
+})
+
+test('loose album name keys skip generic album names', () => {
+  const merged = mergeAlbumCoverMapEntries(
+    {},
+    {
+      'music-group-key': {
+        albumKey: 'music-group-key',
+        album: 'Music',
+        albumName: 'Music',
+        displayAlbumName: 'Music',
+        cover: 'data:image/music-cover'
+      }
+    },
+    { includeLooseAlbumNameKeys: true }
+  )
+
+  assert.equal(merged['music-group-key'], 'data:image/music-cover')
+  assert.equal(merged.Music, undefined)
 })
 
 test('album cover cache restore maps album-only fallback hits to the current album group key', () => {
@@ -425,10 +663,74 @@ test('album cover cache restore maps album-only fallback hits to the current alb
       cover: 'data:image/restored-fallback'
     }
   )
-  const merged = mergeAlbumCoverMapEntries({}, { [entry.albumKey]: entry })
+  const merged = mergeAlbumCoverMapEntries(
+    {},
+    { [entry.albumKey]: entry },
+    { includeLooseAlbumNameKeys: true }
+  )
 
   assert.equal(merged['current-album-group-key'], 'data:image/restored-fallback')
   assert.equal(merged['Current Album Name'], 'data:image/restored-fallback')
+})
+
+test('album cover cache restore skips ambiguous album-only fallback hits', () => {
+  const fallbackKey = createAlbumCoverFallbackKey('Album A')
+  const targets = [
+    {
+      albumKey: 'album-a-folder-1',
+      albumName: 'Album A',
+      artist: '',
+      exactKey: '',
+      fallbackKey
+    },
+    {
+      albumKey: 'album-a-folder-2',
+      albumName: 'Album A',
+      artist: '',
+      exactKey: '',
+      fallbackKey
+    }
+  ]
+  const { keyToTargets } = buildAlbumCoverCacheTargetIndex(targets)
+
+  assert.deepEqual(
+    buildAlbumCoverCacheHydrationEntries(
+      {
+        [fallbackKey]: {
+          album: 'Album A',
+          artist: '',
+          cover: 'data:image/ambiguous'
+        }
+      },
+      keyToTargets
+    ),
+    {}
+  )
+})
+
+test('album cover cache restore still applies exact album keys', () => {
+  const exactKey = createAlbumCoverCacheKey('Album A', 'Known Artist')
+  const fallbackKey = createAlbumCoverFallbackKey('Album A')
+  const target = {
+    albumKey: 'album-a-folder-1',
+    albumName: 'Album A',
+    artist: 'Known Artist',
+    exactKey,
+    fallbackKey
+  }
+  const { keyToTargets } = buildAlbumCoverCacheTargetIndex([target])
+  const entries = buildAlbumCoverCacheHydrationEntries(
+    {
+      [exactKey]: {
+        album: 'Album A',
+        artist: 'Known Artist',
+        cover: 'data:image/exact'
+      }
+    },
+    keyToTargets
+  )
+
+  assert.equal(entries[target.albumKey].cover, 'data:image/exact')
 })
 
 test('track album name normalizes empty metadata to Singles', () => {

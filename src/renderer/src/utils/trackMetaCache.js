@@ -1,3 +1,5 @@
+import { buildTrackArtworkSources, getTrackAlbumGroupKey } from './trackUtils.js'
+
 const DB_NAME = 'echo-track-meta-cache'
 const DB_VERSION = 4
 const STORE_NAME = 'trackMeta'
@@ -128,8 +130,16 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
 
 export const satisfiesAlbumWallHydrateRequirement = satisfiesMetadataHydrateRequirement
 
-function hasVisibleRowCover(track, entry = null) {
-  return Boolean(entry?.cover || track?.info?.cover || track?.cover)
+function hasVisibleRowCover(track, entry = null, options = {}) {
+  if (entry?.cover || track?.info?.cover || track?.cover) return true
+  return (
+    buildTrackArtworkSources(track, {
+      trackMetaMap: options.trackMetaMap,
+      effectiveTrackMetaMap: options.effectiveTrackMetaMap,
+      albumCoverMap: options.albumCoverMap,
+      albumTracks: options.albumTracks
+    }).length > 0
+  )
 }
 
 function hasVisibleRowArtist(track, entry = null) {
@@ -146,12 +156,26 @@ function hasVisibleRowArtist(track, entry = null) {
 export function buildVisibleTrackMetaHydrateRequirement(
   track,
   entry = null,
-  { isLocalTrack = null, coverProbePaths = null, artistProbePaths = null } = {}
+  {
+    isLocalTrack = null,
+    coverProbePaths = null,
+    artistProbePaths = null,
+    trackMetaMap = {},
+    effectiveTrackMetaMap = {},
+    albumCoverMap = {},
+    albumTracks = []
+  } = {}
 ) {
   if (!track?.path) return null
   if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) return null
 
-  const needsCover = !hasVisibleRowCover(track, entry) && !coverProbePaths?.has?.(track.path)
+  const needsCover =
+    !hasVisibleRowCover(track, entry, {
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      albumCoverMap,
+      albumTracks
+    }) && !coverProbePaths?.has?.(track.path)
   const needsArtist = !hasVisibleRowArtist(track, entry) && !artistProbePaths?.has?.(track.path)
   if (!needsCover && !needsArtist) return null
 
@@ -186,7 +210,9 @@ export function buildTrackMetadataPrefetchPlan({
   visibleAheadLimit = 24,
   isLocalTrack = null,
   coverProbePaths = null,
-  artistProbePaths = null
+  artistProbePaths = null,
+  albumCoverMap = {},
+  albumTracksByKey = null
 } = {}) {
   const byPath = new Map()
   const requirementByPath = new Map()
@@ -213,7 +239,11 @@ export function buildTrackMetadataPrefetchPlan({
     buildVisibleTrackMetaHydrateRequirement(track, getTrackEntry(track), {
       isLocalTrack,
       coverProbePaths,
-      artistProbePaths
+      artistProbePaths,
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      albumCoverMap,
+      albumTracks: albumTracksByKey?.get?.(getTrackAlbumGroupKey(track)) || []
     })
 
   pushTrack(currentTrack)

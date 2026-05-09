@@ -170,6 +170,7 @@ import {
   getTrackAlbumName,
   getTrackAlbumArtist,
   getTrackAlbumGroupKey,
+  buildTrackArtworkSources,
   buildAlbumWallHydrateTargets,
   isUnknownArtistName,
   normalizeAlbumNameKey,
@@ -181,7 +182,8 @@ import {
 } from './utils/trackUtils'
 import {
   buildAlbumCoverBackfillPlan,
-  buildAlbumCoverMapEntryFromCacheTarget,
+  buildAlbumCoverCacheHydrationEntries,
+  buildAlbumCoverCacheTargetIndex,
   buildParsedAlbumCoverMetaEntry,
   collectAlbumCoverFromMeta,
   getAlbumCoverFailureKey,
@@ -13029,6 +13031,18 @@ export default function App() {
     return filterAndRankTracksBySearch(localTracks, deferredSearchQuery)
   }, [parsedPlaylist, deferredSearchQuery])
 
+  const trackAlbumTracksByKey = useMemo(() => {
+    const groups = new Map()
+    for (const track of parsedPlaylist) {
+      if (!track?.path || isRemoteTrackPath(track.path)) continue
+      const key = getTrackAlbumGroupKey(track) || normalizeAlbumNameKey(getTrackAlbumName(track))
+      if (!key) continue
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(track)
+    }
+    return groups
+  }, [parsedPlaylist])
+
   useEffect(() => {
     if (listMode !== 'album') return
     const foundCoverEntries = {}
@@ -13115,25 +13129,9 @@ export default function App() {
       // IndexedDB when the library is large (thousands of tracks / many albums),
       // causing CPU spikes and long main-thread stalls. Batch the lookups and
       // yield between batches so playback/UI stay responsive.
-      const keys = []
-      for (const target of albumCoverCacheTargets) {
-        if (target.exactKey) keys.push(target.exactKey)
-        if (target.fallbackKey) keys.push(target.fallbackKey)
-      }
+      const { keys, keyToTargets } = buildAlbumCoverCacheTargetIndex(albumCoverCacheTargets)
       const uniqueKeys = [...new Set(keys.filter(Boolean))]
       if (uniqueKeys.length === 0) return
-
-      const keyToTargets = new Map()
-      const addKeyTarget = (key, target) => {
-        if (!key) return
-        const targets = keyToTargets.get(key) || []
-        targets.push(target)
-        keyToTargets.set(key, targets)
-      }
-      for (const target of albumCoverCacheTargets) {
-        addKeyTarget(target.exactKey, target)
-        addKeyTarget(target.fallbackKey, target)
-      }
 
       const BATCH_KEYS = 220
       const MAX_KEYS_PER_RUN = 1800
@@ -13152,16 +13150,8 @@ export default function App() {
         }
 
         setAlbumCoverMap((prev) => {
-          const entries = {}
-          for (const [key, entry] of Object.entries(cached)) {
-            if (!entry?.cover) continue
-            for (const target of keyToTargets.get(key) || []) {
-              const coverEntry = buildAlbumCoverMapEntryFromCacheTarget(target, entry)
-              if (!coverEntry) continue
-              entries[target.albumKey] = coverEntry
-            }
-          }
-          const next = mergeAlbumCoverMapEntries(prev, entries)
+          const entries = buildAlbumCoverCacheHydrationEntries(cached, keyToTargets)
+          const next = mergeAlbumCoverMapEntries(prev, entries, { includeLooseAlbumNameKeys: true })
           if (next !== prev) appliedGroupKeys += Object.keys(entries).length
           return next
         })
@@ -15353,6 +15343,8 @@ export default function App() {
       albumWallHydrateTargets,
       trackMetaMap,
       effectiveTrackMetaMap,
+      albumCoverMap,
+      albumTracksByKey: trackAlbumTracksByKey,
       maxTracks: limit,
       visibleAheadLimit: VISIBLE_ROW_HYDRATE_AHEAD_LIMIT,
       isLocalTrack: isVisibleRowLocalTrack,
@@ -15368,6 +15360,7 @@ export default function App() {
     metadataPrefetchSidebarTracks,
     selectedAlbum,
     showTrackList,
+    trackAlbumTracksByKey,
     trackMetaMap,
     visibleSidebarTracks
   ])
@@ -19935,10 +19928,12 @@ export default function App() {
                               : ''
                           const trackMeta = effectiveTrackMetaMap[track.path] || {}
                           const selectedForDrag = selectedSidebarTrackPathSet.has(track.path)
-                          const trackCoverSources = [
-                            track.info.cover,
-                            ...(albumCoverCandidatesByName[trackAlbumKey] || [])
-                          ]
+                          const trackCoverSources = buildTrackArtworkSources(track, {
+                            trackMetaMap,
+                            effectiveTrackMetaMap,
+                            albumCoverMap,
+                            albumTracks: trackAlbumTracksByKey.get(trackAlbumKey) || []
+                          })
 
                           const liked = likedSet.has(track.path)
                           const inUpNext = upNextPathSet.has(track.path)

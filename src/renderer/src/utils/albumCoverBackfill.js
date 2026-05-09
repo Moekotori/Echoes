@@ -2,6 +2,7 @@ import {
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
   getTrackExplicitAlbumArtist,
+  isGenericAlbumFallbackName,
   isUnknownArtistName
 } from './trackUtils.js'
 import { isTrackScopedCoverEntry } from './trackMetaCache.js'
@@ -134,17 +135,27 @@ function pushAlbumCoverMapKey(keys, value) {
   if (key && !keys.includes(key)) keys.push(key)
 }
 
-export function getAlbumCoverMapKeys(entry = {}, sourceKey = '') {
+export function getAlbumCoverMapKeys(
+  entry = {},
+  sourceKey = '',
+  { includeLooseAlbumNameKeys = false } = {}
+) {
   const keys = []
   pushAlbumCoverMapKey(keys, sourceKey)
   pushAlbumCoverMapKey(keys, entry?.albumKey)
-  pushAlbumCoverMapKey(keys, entry?.displayAlbumName)
-  pushAlbumCoverMapKey(keys, entry?.albumName)
-  pushAlbumCoverMapKey(keys, entry?.album)
+  if (includeLooseAlbumNameKeys) {
+    for (const value of [entry?.displayAlbumName, entry?.albumName, entry?.album]) {
+      if (!isGenericAlbumFallbackName(value)) pushAlbumCoverMapKey(keys, value)
+    }
+  }
   return keys
 }
 
-export function mergeAlbumCoverMapEntries(prev = {}, entries = {}) {
+export function mergeAlbumCoverMapEntries(
+  prev = {},
+  entries = {},
+  { includeLooseAlbumNameKeys = false } = {}
+) {
   const items = Object.entries(entries || {})
   if (items.length === 0) return prev
 
@@ -152,13 +163,50 @@ export function mergeAlbumCoverMapEntries(prev = {}, entries = {}) {
   const next = { ...(prev || {}) }
   for (const [sourceKey, entry] of items) {
     if (!entry?.cover) continue
-    for (const key of getAlbumCoverMapKeys(entry, sourceKey)) {
+    for (const key of getAlbumCoverMapKeys(entry, sourceKey, { includeLooseAlbumNameKeys })) {
       if (next[key]) continue
       next[key] = entry.cover
       changed = true
     }
   }
   return changed ? next : prev
+}
+
+export function buildAlbumCoverCacheTargetIndex(targets = []) {
+  const keys = []
+  const keyToTargets = new Map()
+  const addKeyTarget = (key, target, kind) => {
+    if (!key || !target?.albumKey) return
+    if (kind === 'fallback' && isGenericAlbumFallbackName(target.albumName)) return
+    if (!keys.includes(key)) keys.push(key)
+    const matches = keyToTargets.get(key) || []
+    matches.push({ target, kind })
+    keyToTargets.set(key, matches)
+  }
+
+  for (const target of Array.isArray(targets) ? targets : []) {
+    addKeyTarget(target?.exactKey, target, 'exact')
+    addKeyTarget(target?.fallbackKey, target, 'fallback')
+  }
+
+  return { keys, keyToTargets }
+}
+
+export function buildAlbumCoverCacheHydrationEntries(cached = {}, keyToTargets = new Map()) {
+  const entries = {}
+  for (const [key, entry] of Object.entries(cached || {})) {
+    if (!entry?.cover) continue
+    const matches = keyToTargets.get(key) || []
+    const exactMatches = matches.filter((match) => match.kind === 'exact')
+    const fallbackMatches = matches.filter((match) => match.kind === 'fallback')
+    const allowedMatches = exactMatches.length > 0 ? exactMatches : fallbackMatches.length === 1 ? fallbackMatches : []
+    for (const match of allowedMatches) {
+      const coverEntry = buildAlbumCoverMapEntryFromCacheTarget(match.target, entry)
+      if (!coverEntry) continue
+      entries[match.target.albumKey] = coverEntry
+    }
+  }
+  return entries
 }
 
 export function buildAlbumCoverMapEntryFromCacheTarget(target, cachedEntry) {

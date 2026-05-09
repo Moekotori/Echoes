@@ -132,6 +132,22 @@ export function normalizeAlbumNameKey(value = '') {
     .trim()
 }
 
+const GENERIC_ALBUM_FALLBACK_NAMES = new Set([
+  'music',
+  'songs',
+  'single',
+  'singles',
+  'unknown album',
+  'unknown',
+  'album',
+  'misc',
+  'other'
+])
+
+export function isGenericAlbumFallbackName(albumName) {
+  return GENERIC_ALBUM_FALLBACK_NAMES.has(normalizeAlbumNameKey(albumName))
+}
+
 export function normalizeArtistNameKey(value = '') {
   return cleanMetadataText(value)
     .normalize('NFKC')
@@ -367,6 +383,43 @@ export function getAlbumCoverCandidates(
   if (covers.length === 0) covers.push(...trackScopedMetaCovers)
 
   return covers
+}
+
+export function buildTrackArtworkSources(
+  track,
+  { trackMetaMap = {}, effectiveTrackMetaMap = {}, albumCoverMap = {}, albumTracks = [] } = {}
+) {
+  if (!track) return []
+  const sources = []
+  const seen = new Set()
+  const path = track?.path || ''
+  const albumName = getTrackAlbumName(track)
+  const albumKey = getTrackAlbumGroupKey(track)
+  const allowAlbumFallback = albumKey && !isGenericAlbumFallbackName(albumName)
+  const effectiveMetaCover =
+    (path ? effectiveTrackMetaMap?.[path]?.cover || trackMetaMap?.[path]?.cover : '') || ''
+
+  pushUniqueCover(sources, seen, effectiveMetaCover)
+  pushUniqueCover(sources, seen, track?.info?.cover)
+  pushUniqueCover(sources, seen, track?.cover)
+  if (!allowAlbumFallback) return sources
+
+  pushUniqueCover(sources, seen, albumKey ? albumCoverMap?.[albumKey] : null)
+
+  const candidateTracks = Array.isArray(albumTracks) ? albumTracks : []
+  for (const candidate of candidateTracks) {
+    if (!candidate?.path || candidate.path === path) continue
+    if (getTrackAlbumGroupKey(candidate) !== albumKey) continue
+    const candidateEntry =
+      effectiveTrackMetaMap?.[candidate.path] || trackMetaMap?.[candidate.path] || null
+    if (candidateEntry?.coverScope !== 'track') {
+      pushUniqueCover(sources, seen, candidateEntry?.cover)
+    }
+    pushUniqueCover(sources, seen, candidate?.info?.cover)
+    pushUniqueCover(sources, seen, candidate?.cover)
+  }
+
+  return sources
 }
 
 export function getBestAlbumCover(tracks = [], options = {}) {
