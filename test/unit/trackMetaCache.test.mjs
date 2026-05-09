@@ -9,9 +9,17 @@ import {
   isTrackMetaCacheRecordFresh,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
+  satisfiesAlbumWallHydrateRequirement,
   shouldRefreshTrackMetaCacheForAudioQuality,
-  stripCoverFieldsFromTrackMeta
+  stripCoverFieldsFromTrackMeta,
+  TRACK_META_CACHE_LIMITS
 } from '../../src/renderer/src/utils/trackMetaCache.js'
+
+test('track and album cover cache limits fit large album libraries', () => {
+  assert.equal(TRACK_META_CACHE_LIMITS.maxEntries, 50000)
+  assert.ok(TRACK_META_CACHE_LIMITS.maxCoverEntries >= 10000)
+  assert.ok(TRACK_META_CACHE_LIMITS.maxAlbumCoverEntries >= 10000)
+})
 
 test('track meta cache fingerprint accepts unchanged file seeds', () => {
   const seed = { path: 'D:/music/song.flac', sizeBytes: 1024, mtimeMs: 12345.5 }
@@ -233,7 +241,86 @@ test('hasCachedTrackCoverRecord accepts numeric and legacy boolean cover markers
   assert.equal(hasCachedTrackCoverRecord({ meta: { cover: null }, hasCover: 0 }), false)
 })
 
-test('album cover cache entries avoid album-only fallback for known artists', () => {
+test('album wall hydrate requirement rejects incomplete cached metadata', () => {
+  const requirement = {
+    needsCover: true,
+    needsArtist: true,
+    needsAlbum: true
+  }
+
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: 'Album A',
+        artist: 'Known Artist',
+        cover: 'data:image/cover'
+      },
+      requirement
+    ),
+    true
+  )
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: 'Album A',
+        artist: 'Known Artist',
+        cover: null
+      },
+      requirement
+    ),
+    false
+  )
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: 'Album A',
+        artist: 'Unknown Artist',
+        cover: 'data:image/cover'
+      },
+      requirement
+    ),
+    false
+  )
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: '',
+        albumArtist: 'Known Artist',
+        cover: 'data:image/cover'
+      },
+      requirement
+    ),
+    false
+  )
+})
+
+test('album wall hydrate requirement only checks requested fields', () => {
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: '',
+        artist: 'Unknown Artist',
+        cover: null
+      },
+      { needsCover: false, needsArtist: false, needsAlbum: false }
+    ),
+    true
+  )
+  assert.equal(
+    satisfiesAlbumWallHydrateRequirement(
+      {
+        album: '',
+        albumArtist: 'Unknown Artist',
+        artist: 'Known Artist',
+        cover: null
+      },
+      { needsArtist: true }
+    ),
+    true
+  )
+})
+
+test('album cover cache entries write exact and album-only fallback keys', () => {
   const entries = buildAlbumCoverCacheEntries([
     {
       album: 'Same Album',
@@ -243,5 +330,5 @@ test('album cover cache entries avoid album-only fallback for known artists', ()
   ])
 
   assert.equal(entries[createAlbumCoverCacheKey('Same Album', 'Artist A')]?.cover, 'data:image/artist-a')
-  assert.equal(entries[createAlbumCoverFallbackKey('Same Album')], undefined)
+  assert.equal(entries[createAlbumCoverFallbackKey('Same Album')]?.cover, 'data:image/artist-a')
 })

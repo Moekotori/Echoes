@@ -5,9 +5,16 @@ const ALBUM_COVER_STORE_NAME = 'albumCover'
 const ARTIST_AVATAR_STORE_NAME = 'artistAvatar'
 const TRACK_META_CACHE_FINGERPRINT_VERSION = 1
 const MAX_CACHE_ENTRIES = 50000
-const MAX_CACHE_COVER_ENTRIES = 1200
-const MAX_ALBUM_COVER_CACHE_ENTRIES = 1200
+const MAX_CACHE_COVER_ENTRIES = 10000
+const MAX_ALBUM_COVER_CACHE_ENTRIES = 10000
 const MAX_ARTIST_AVATAR_CACHE_ENTRIES = 2000
+
+export const TRACK_META_CACHE_LIMITS = {
+  maxEntries: MAX_CACHE_ENTRIES,
+  maxCoverEntries: MAX_CACHE_COVER_ENTRIES,
+  maxAlbumCoverEntries: MAX_ALBUM_COVER_CACHE_ENTRIES,
+  maxArtistAvatarEntries: MAX_ARTIST_AVATAR_CACHE_ENTRIES
+}
 
 let dbPromise = null
 let prunePromise = null
@@ -94,6 +101,29 @@ export function createAlbumCoverFallbackKey(album) {
 
 export function createArtistAvatarCacheKey(artist) {
   return normalizeAlbumCoverCacheKeyPart(artist)
+}
+
+function isUnknownAlbumWallArtistName(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  return !normalized || normalized === 'unknown artist' || /^(?:cd|disc|disk)?\s*\d{1,3}(?:\s*[-./_]\s*\d{1,3})?$/.test(normalized)
+}
+
+export function satisfiesAlbumWallHydrateRequirement(entry, requirement = null) {
+  const needsCover = requirement?.needsCover === true
+  const needsArtist = requirement?.needsArtist === true
+  const needsAlbum = requirement?.needsAlbum === true
+  if (!needsCover && !needsArtist && !needsAlbum) return true
+  if (!entry || typeof entry !== 'object') return false
+  if (needsCover && !entry.cover) return false
+  if (
+    needsArtist &&
+    isUnknownAlbumWallArtistName(entry.albumArtist) &&
+    isUnknownAlbumWallArtistName(entry.artist)
+  ) {
+    return false
+  }
+  if (needsAlbum && !String(entry.album || '').trim()) return false
+  return true
 }
 
 export function shouldRefreshTrackMetaCacheForAudioQuality(path, entry) {
@@ -233,7 +263,7 @@ export function buildAlbumCoverCacheEntries(items = []) {
     const exactKey = createAlbumCoverCacheKey(entry.album, entry.artist)
     const fallbackKey = createAlbumCoverFallbackKey(entry.album)
     if (exactKey) entries[exactKey] = entry
-    if (!entry.artist && fallbackKey) entries[fallbackKey] = entry
+    if (fallbackKey) entries[fallbackKey] = entry
   }
 
   return entries

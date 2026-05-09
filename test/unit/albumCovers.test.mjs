@@ -268,7 +268,23 @@ test('album cover candidates prefer the selected album group cover over legacy a
         [albumKey]: 'data:image/right-group-cover'
       }
     }),
-    ['data:image/right-group-cover']
+    ['data:image/right-group-cover', 'data:image/wrong-legacy-cover']
+  )
+})
+
+test('album cover candidates fall back to album name when album key has no cached cover', () => {
+  const tracks = [makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', '', 'Known Artist')]
+  const albumKey = getTrackAlbumGroupKey(tracks[0])
+
+  assert.deepEqual(
+    getAlbumCoverCandidates(tracks, {
+      albumName: 'Album A',
+      albumKey,
+      albumCoverMap: {
+        'Album A': 'data:image/legacy-name-cover'
+      }
+    }),
+    ['data:image/legacy-name-cover']
   )
 })
 
@@ -352,6 +368,27 @@ test('album cover backfill entries use the album group key', () => {
 
   assert.equal(entry.albumKey, albumKey)
   assert.equal(entry.cover, 'data:image/backfilled')
+})
+
+test('album cover backfill cache artist falls back to track artist metadata', () => {
+  const track = makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', '', 'Unknown Artist')
+  const albumKey = getTrackAlbumGroupKey(track)
+  const entry = collectAlbumCoverFromMeta(
+    {
+      albumName: 'Album A',
+      albumKey,
+      track,
+      coverFailed: false
+    },
+    {
+      album: 'Album A',
+      artist: 'Real Artist',
+      albumArtist: '',
+      cover: 'data:image/backfilled'
+    }
+  )
+
+  assert.equal(entry.artist, 'Real Artist')
 })
 
 test('track album name normalizes empty metadata to Singles', () => {

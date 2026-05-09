@@ -1,5 +1,6 @@
 import {
   getTrackAlbumGroupKey,
+  getTrackAlbumArtist,
   getTrackExplicitAlbumArtist,
   isUnknownArtistName
 } from './trackUtils.js'
@@ -142,13 +143,13 @@ export function collectAlbumCoverFromMeta(target, entry) {
       albumArtist: entry.albumArtist || target?.track?.info?.albumArtist || ''
     }
   }
-  const albumKey = getTrackAlbumGroupKey(albumTrack) || target?.albumKey || ''
+  const albumKey = target?.albumKey || getTrackAlbumGroupKey(albumTrack) || ''
   if (!albumName || !albumKey) return null
 
   return {
     albumKey,
     album: albumName,
-    artist: getTrackExplicitAlbumArtist(albumTrack),
+    artist: getTrackExplicitAlbumArtist(albumTrack) || getTrackAlbumArtist(albumTrack),
     cover: entry.cover,
     coverFailed: target?.coverFailed === true
   }

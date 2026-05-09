@@ -169,7 +169,6 @@ import {
   getEffectiveTrackMeta,
   getTrackAlbumName,
   getTrackAlbumArtist,
-  getTrackExplicitAlbumArtist,
   getTrackAlbumGroupKey,
   buildAlbumWallHydrateTargets,
   isUnknownArtistName,
@@ -288,6 +287,7 @@ import {
   isTrackScopedCoverEntry,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
+  satisfiesAlbumWallHydrateRequirement,
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
@@ -12942,7 +12942,7 @@ export default function App() {
       const cover = track?.info?.cover
       if (albumName && albumKey && cover && !foundCovers[albumKey]) {
         foundCovers[albumKey] = cover
-        const artist = getTrackExplicitAlbumArtist(track)
+        const artist = getTrackAlbumArtist(track)
         if (artist && !isUnknownArtistName(artist)) {
           foundCoverItems.push({
             album: albumName,
@@ -12998,7 +12998,7 @@ export default function App() {
       const albumName = getTrackAlbumName(track)
       const albumKey = getTrackAlbumGroupKey(track)
       if (!albumName || !albumKey || targetsByAlbum.has(albumKey)) continue
-      const artist = getTrackExplicitAlbumArtist(track)
+      const artist = getTrackAlbumArtist(track)
       const cacheArtist = artist && !isUnknownArtistName(artist) ? artist : ''
       targetsByAlbum.set(albumKey, {
         albumKey,
@@ -14699,6 +14699,13 @@ export default function App() {
     }, 0)
   }, [albumGroupsFiltered, listMode, selectedAlbum])
 
+  const unknownAlbumArtistCount = useMemo(() => {
+    if (listMode !== 'album' || selectedAlbum !== 'all') return 0
+    return albumGroupsFiltered.reduce((count, album) => {
+      return isUnknownArtistName(album?.artist || album?.cacheArtist || '') ? count + 1 : count
+    }, 0)
+  }, [albumGroupsFiltered, listMode, selectedAlbum])
+
   const albumCoverManualLoadTargets = useMemo(() => {
     if (
       !libraryBrowserVisible ||
@@ -14740,10 +14747,14 @@ export default function App() {
   }, [albumCoverManualLoadBusy, albumCoverManualLoadTargets])
 
   const albumCoverManualLoadCountLabel =
-    missingAlbumCoverCount > 999 ? '999+' : String(missingAlbumCoverCount)
+    unknownAlbumArtistCount > 0
+      ? `${missingAlbumCoverCount > 99 ? '99+' : missingAlbumCoverCount}/${unknownAlbumArtistCount > 99 ? '99+' : unknownAlbumArtistCount}`
+      : missingAlbumCoverCount > 999
+        ? '999+'
+        : String(missingAlbumCoverCount)
   const albumCoverManualLoadTitle = albumCoverManualLoadBusy
-    ? `\u6b63\u5728\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u672a\u52a0\u8f7d\u5c01\u9762 ${missingAlbumCoverCount}\uff09`
-    : `\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u672a\u52a0\u8f7d\u5c01\u9762 ${missingAlbumCoverCount}\uff09`
+    ? `\u6b63\u5728\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u7f3a\u5c01\u9762 ${missingAlbumCoverCount}\uff0cUnknown Artist ${unknownAlbumArtistCount}\uff09`
+    : `\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u7f3a\u5c01\u9762 ${missingAlbumCoverCount}\uff0cUnknown Artist ${unknownAlbumArtistCount}\uff09`
 
   useEffect(() => {
     const targets = albumCoverManualLoadRequest.targets || []
@@ -14798,14 +14809,7 @@ export default function App() {
             const coverEntry = collectAlbumCoverFromMeta(target, cachedEntries[path])
             if (coverEntry) cachedCovers[target.albumKey] = coverEntry
           }
-          const cachedHasUsefulArtist = !isUnknownArtistName(
-            cachedMeta?.albumArtist ||
-              cachedMeta?.artist ||
-              track?.info?.albumArtist ||
-              track?.info?.artist ||
-              ''
-          )
-          if (!cachedMeta?.cover || (target.needsArtist && !cachedHasUsefulArtist)) {
+          if (!satisfiesAlbumWallHydrateRequirement(cachedMeta, target)) {
             pendingTargets.push(target)
           }
         }
@@ -15199,11 +15203,23 @@ export default function App() {
     view
   ])
 
-  const metadataPrefetchTracks = useMemo(() => {
+  const metadataPrefetchPlan = useMemo(() => {
     const byPath = new Map()
-    const pushTrack = (track) => {
-      if (!track?.path || byPath.has(track.path)) return
-      byPath.set(track.path, track)
+    const requirementByPath = new Map()
+    const pushTrack = (track, requirement = null) => {
+      if (!track?.path) return
+      if (!byPath.has(track.path)) byPath.set(track.path, track)
+      if (requirement) {
+        const previous = requirementByPath.get(track.path) || {}
+        requirementByPath.set(track.path, {
+          track,
+          albumKey: requirement.albumKey || previous.albumKey || '',
+          albumName: requirement.albumName || previous.albumName || '',
+          needsCover: previous.needsCover === true || requirement.needsCover === true,
+          needsArtist: previous.needsArtist === true || requirement.needsArtist === true,
+          needsAlbum: previous.needsAlbum === true || requirement.needsAlbum === true
+        })
+      }
     }
 
     pushTrack(currentTrack)
@@ -15226,14 +15242,22 @@ export default function App() {
           albumArtistProbePaths: albumArtistProbePathsRef.current
         }
       )
-      for (const target of hydrateTargets) pushTrack(target.track)
+      for (const target of hydrateTargets) pushTrack(target.track, target)
     }
 
     const limit =
       listMode === 'album' && selectedAlbum === 'all'
         ? ALBUM_METADATA_PREFETCH_LIMIT
         : METADATA_PREFETCH_LIMIT
-    return Array.from(byPath.values()).slice(0, limit)
+    const tracks = Array.from(byPath.values()).slice(0, limit)
+    const limitedPaths = new Set(tracks.map((track) => track?.path).filter(Boolean))
+    for (const path of Array.from(requirementByPath.keys())) {
+      if (!limitedPaths.has(path)) requirementByPath.delete(path)
+    }
+    return {
+      tracks,
+      albumWallHydrateRequirementByPath: requirementByPath
+    }
   }, [
     currentTrack,
     albumCoverMap,
@@ -15244,6 +15268,8 @@ export default function App() {
     showTrackList,
     trackMetaMap
   ])
+  const metadataPrefetchTracks = metadataPrefetchPlan.tracks
+  const albumWallHydrateRequirementByPath = metadataPrefetchPlan.albumWallHydrateRequirementByPath
 
   const albumCoverBackfillPlan = useMemo(() => {
     return buildAlbumCoverBackfillPlan({
@@ -15309,6 +15335,13 @@ export default function App() {
   useEffect(() => {
     const pending = metadataPrefetchTracks.filter((track) => {
       const entry = trackMetaMap[track.path]
+      const albumWallRequirement = albumWallHydrateRequirementByPath.get(track.path)
+      if (
+        albumWallRequirement &&
+        !satisfiesAlbumWallHydrateRequirement(entry, albumWallRequirement)
+      ) {
+        return true
+      }
       if (entry?.coverMemoryTrimmed && metadataCoverKeepPathSet.has(track.path)) return true
       const hasUsefulArtist = !isUnknownArtistName(
         entry?.albumArtist ||
@@ -15371,25 +15404,13 @@ export default function App() {
         loaded[path] = entry
       }
       const collectAlbumCover = (target, track, entry) => {
-        if (!entry?.cover) return
-        if (isTrackScopedCoverEntry(entry)) return
-        const albumName = entry.album || track?.info?.album || 'Singles'
-        const albumTrack = {
-          ...(track || {}),
-          info: {
-            ...(track?.info || {}),
-            album: albumName,
-            artist: entry.artist || track?.info?.artist || '',
-            albumArtist: entry.albumArtist || track?.info?.albumArtist || ''
-          }
-        }
-        const albumKey = getTrackAlbumGroupKey(albumTrack)
-        if (!albumName || !albumKey || target[albumKey]) return
-        target[albumKey] = {
-          album: albumName,
-          cover: entry.cover,
-          artist: getTrackExplicitAlbumArtist(albumTrack)
-        }
+        const requirement = albumWallHydrateRequirementByPath.get(track?.path) || null
+        const coverEntry = collectAlbumCoverFromMeta(
+          requirement ? { ...requirement, track: requirement.track || track } : { track },
+          entry
+        )
+        if (!coverEntry || target[coverEntry.albumKey]) return
+        target[coverEntry.albumKey] = coverEntry
       }
       const persistResolvedAlbumCovers = (albumCoverEntries) => {
         const cacheItems = Object.values(albumCoverEntries)
@@ -15435,7 +15456,14 @@ export default function App() {
 
       const uncachedPending = pending.filter((track) => {
         const cachedMeta = cached[track.path]
+        const albumWallRequirement = albumWallHydrateRequirementByPath.get(track.path)
         if (!cachedMeta) return true
+        if (
+          albumWallRequirement &&
+          !satisfiesAlbumWallHydrateRequirement(cachedMeta, albumWallRequirement)
+        ) {
+          return true
+        }
         if (shouldRefreshTrackMetaCacheForAudioQuality(track.path, cachedMeta)) return true
         if (shouldRefreshInfoSidecarTrackMeta(track.path, cachedMeta)) return true
         if (!cachedMeta.bpmChecked) return true
@@ -15612,6 +15640,7 @@ export default function App() {
       cancelled = true
     }
   }, [
+    albumWallHydrateRequirementByPath,
     currentTrack?.path,
     isPlaying,
     listMode,

@@ -347,7 +347,7 @@ export function getAlbumCoverCandidates(
   const normalizedAlbumKey = String(albumKey || '').trim()
 
   pushUniqueCover(covers, seen, normalizedAlbumKey ? albumCoverMap?.[normalizedAlbumKey] : null)
-  if (!normalizedAlbumKey) pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
+  pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
 
   const trackScopedMetaCovers = []
   for (const track of tracks) {
@@ -512,10 +512,17 @@ export function buildAlbumWallHydrateTargets(
       const artist = meta.albumArtist || meta.artist || ''
       const needsCover = !display.cover && !meta.cover
       const needsArtist = !artist || isUnknownArtistDisplay(artist)
+      const needsAlbum = !meta.album
       const coverProbeDone =
         needsCover && meta.coverChecked === true && albumCoverProbePaths.has(track.path)
       const artistProbeDone = needsArtist && albumArtistProbePaths.has(track.path)
-      if ((needsCover ? coverProbeDone : true) && (needsArtist ? artistProbeDone : true)) {
+      const albumProbeDone =
+        needsAlbum && meta.coverChecked === true && albumCoverProbePaths.has(track.path)
+      if (
+        (needsCover ? coverProbeDone : true) &&
+        (needsArtist ? artistProbeDone : true) &&
+        (needsAlbum ? albumProbeDone : true)
+      ) {
         continue
       }
       targets.push({
@@ -524,7 +531,7 @@ export function buildAlbumWallHydrateTargets(
         track,
         needsCover,
         needsArtist,
-        needsAlbum: !meta.album
+        needsAlbum
       })
       picked += 1
     }
