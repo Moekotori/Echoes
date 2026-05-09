@@ -95,7 +95,9 @@ function normalizeIdentityText(value = '') {
 }
 
 export function isUnknownArtistName(value = '') {
-  const normalized = String(value || '').trim().toLowerCase()
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
   return !normalized || normalized === 'unknown artist' || looksLikeTrackIndexArtistName(normalized)
 }
 
@@ -176,7 +178,9 @@ function getPathParentDirectory(value = '') {
 
 function looksLikeDiscSubdirectoryName(value) {
   return /^(?:cd|disc|disk|dvd|bd|vol|volume)?\s*\d{1,3}$/i.test(
-    String(value || '').normalize('NFKC').trim()
+    String(value || '')
+      .normalize('NFKC')
+      .trim()
   )
 }
 
@@ -257,11 +261,7 @@ export function resolveTrackIdentityFromMetadata({
   const resolvedTitle =
     parsedFromMetaTitle?.title || displayTitle || parsedFromFile?.title || displayFileName
   const resolvedArtist =
-    validMetaArtist ||
-    validAlbumArtist ||
-    parsedMetaArtist ||
-    parsedFileArtist ||
-    'Unknown Artist'
+    validMetaArtist || validAlbumArtist || parsedMetaArtist || parsedFileArtist || 'Unknown Artist'
 
   if (
     parsedFromFile?.title &&
@@ -356,8 +356,9 @@ export function getAlbumCoverCandidates(
   { albumName = '', albumKey = '', albumCoverMap = {}, trackMetaMap = {} } = {}
 ) {
   const normalizedAlbumName =
-    String(albumName || getTrackAlbumName(tracks.find((track) => getTrackAlbumName(track))) || '').trim() ||
-    getTrackAlbumName(tracks[0])
+    String(
+      albumName || getTrackAlbumName(tracks.find((track) => getTrackAlbumName(track))) || ''
+    ).trim() || getTrackAlbumName(tracks[0])
   const covers = []
   const seen = new Set()
   const normalizedAlbumKey = String(albumKey || '').trim()
@@ -474,7 +475,9 @@ export function resolveAlbumWallDisplayInfo(
       .find((value) => value && !isUnknownArtistDisplay(value)) || ''
   const artist =
     albumArtist ||
-    resolved.map((item) => item.meta.artist).find((value) => value && !isUnknownArtistDisplay(value)) ||
+    resolved
+      .map((item) => item.meta.artist)
+      .find((value) => value && !isUnknownArtistDisplay(value)) ||
     'Unknown Artist'
   const coverCandidates = getAlbumCoverCandidates(tracks, {
     albumName: displayName,
@@ -551,7 +554,11 @@ export function buildAlbumWallHydrateTargets(
     if (display.cover && display.artist && !isUnknownArtistDisplay(display.artist)) continue
 
     const rankedTracks = group.tracks
-      .map((track, index) => ({ track, index, score: scoreAlbumWallHydrateTrack(track, trackMetaMap) }))
+      .map((track, index) => ({
+        track,
+        index,
+        score: scoreAlbumWallHydrateTrack(track, trackMetaMap)
+      }))
       .sort((a, b) => b.score - a.score || a.index - b.index)
 
     let picked = 0
@@ -584,7 +591,8 @@ export function buildAlbumWallHydrateTargets(
         track,
         needsCover,
         needsArtist,
-        needsAlbum
+        needsAlbum,
+        source: 'album-wall'
       })
       picked += 1
     }
@@ -633,8 +641,7 @@ export const parseTrackInfo = (track, meta) => {
     title,
     artist,
     albumArtist: cleanMetadataText(meta?.albumArtist || track?.albumArtist || ''),
-    album:
-      normalizeAlbumDisplayName(meta?.album || track?.album || folderAlbum) || 'Unknown Album',
+    album: normalizeAlbumDisplayName(meta?.album || track?.album || folderAlbum) || 'Unknown Album',
     cover: meta?.cover || null,
     trackNo: meta?.trackNo ?? (trackNoFromName ? Number(trackNoFromName) : null),
     discNo: meta?.discNo ?? null,
@@ -660,8 +667,7 @@ export function buildParsedPlaylistWithCache(
   trackMetaMap = {},
   displayMetadataOverrides = {}
 ) {
-  const previousEntries =
-    previousCache?.entries instanceof Map ? previousCache.entries : new Map()
+  const previousEntries = previousCache?.entries instanceof Map ? previousCache.entries : new Map()
   const nextEntries = new Map()
   const hasOverrides =
     displayMetadataOverrides &&

@@ -5,6 +5,8 @@ import { basename, dirname, extname, join } from 'path'
 const FOLDER_COVER_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const INFO_SIDECAR_METADATA_FILE = 'metadata.json'
 const MAX_FOLDER_COVER_DIMENSION = 520
+const DEFAULT_ALBUM_THUMBNAIL_DIMENSION = 320
+const MAX_ALBUM_THUMBNAIL_DIMENSION = 384
 const FOLDER_COVER_JPEG_QUALITY = 78
 const MAX_FOLDER_COVER_CACHE_ENTRIES = 512
 const PREFERRED_COVER_NAMES = [
@@ -19,6 +21,23 @@ const PREFERRED_COVER_NAMES = [
 
 const folderCoverCache = new Map()
 const infoSidecarCoverCache = new Map()
+
+function getAlbumThumbnailDimension() {
+  const raw = Number(process.env.ECHO_ALBUM_THUMBNAIL_SIZE)
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(MAX_ALBUM_THUMBNAIL_DIMENSION, Math.max(160, Math.round(raw)))
+  }
+  return DEFAULT_ALBUM_THUMBNAIL_DIMENSION
+}
+
+function normalizeCoverMaxDimension(options = {}) {
+  if (options?.coverSize === 'album-thumbnail') return getAlbumThumbnailDimension()
+  const raw = Number(options?.maxDimension || options?.coverMaxDimension)
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(MAX_FOLDER_COVER_DIMENSION, Math.max(160, Math.round(raw)))
+  }
+  return MAX_FOLDER_COVER_DIMENSION
+}
 
 function trimCache(cache, maxEntries = MAX_FOLDER_COVER_CACHE_ENTRIES) {
   while (cache.size > maxEntries) {
@@ -59,7 +78,9 @@ function imageMimeFromPath(filePath) {
 }
 
 function scoreFolderCoverName(filePath) {
-  const name = basename(filePath, extname(filePath)).toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const name = basename(filePath, extname(filePath))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
   const preferredIndex = PREFERRED_COVER_NAMES.indexOf(name)
   if (preferredIndex >= 0) return preferredIndex
   if (name.includes('cover')) return 20
@@ -100,8 +121,9 @@ function isInfoSidecarDir(dirPath) {
   return /\.info$/i.test(basename(dirPath || ''))
 }
 
-function compressImageFileToDataUrl(filePath) {
+function compressImageFileToDataUrl(filePath, options = {}) {
   try {
+    const maxDimension = normalizeCoverMaxDimension(options)
     const buffer = fs.readFileSync(filePath)
     let image = nativeImage.createFromBuffer(buffer)
     if (image.isEmpty()) {
@@ -110,11 +132,11 @@ function compressImageFileToDataUrl(filePath) {
 
     const size = image.getSize()
     const maxSide = Math.max(size.width || 0, size.height || 0)
-    if (maxSide > MAX_FOLDER_COVER_DIMENSION) {
-      const scale = MAX_FOLDER_COVER_DIMENSION / maxSide
+    if (maxSide > maxDimension) {
+      const scale = maxDimension / maxSide
       image = image.resize({
-        width: Math.max(1, Math.round((size.width || MAX_FOLDER_COVER_DIMENSION) * scale)),
-        height: Math.max(1, Math.round((size.height || MAX_FOLDER_COVER_DIMENSION) * scale)),
+        width: Math.max(1, Math.round((size.width || maxDimension) * scale)),
+        height: Math.max(1, Math.round((size.height || maxDimension) * scale)),
         quality: 'best'
       })
     }
@@ -150,13 +172,18 @@ export function readInfoSidecarMetadata(audioPath) {
   }
 }
 
-export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecarMetadata(audioPath)) {
+export function findInfoSidecarCoverDataUrl(
+  audioPath,
+  sidecar = readInfoSidecarMetadata(audioPath),
+  options = {}
+) {
   if (typeof audioPath !== 'string' || !audioPath || !sidecar) return null
 
   try {
     const dirPath = dirname(audioPath)
     if (!isInfoSidecarDir(dirPath)) return null
-    const cacheKey = `${dirPath}\u0001${basename(audioPath)}\u0001${getDirectoryMtimeMs(dirPath)}`
+    const maxDimension = normalizeCoverMaxDimension(options)
+    const cacheKey = `${dirPath}\u0001${basename(audioPath)}\u0001${getDirectoryMtimeMs(dirPath)}\u0001${maxDimension}`
     const cached = readCoverCache(infoSidecarCoverCache, cacheKey)
     if (cached !== undefined) return cached
 
@@ -174,7 +201,9 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
       (filePath) => !/_thumbnail$/i.test(basename(filePath, extname(filePath)))
     )
     const onlyNonThumbnail =
-      nonThumbnailImages.length === 1 ? normalizeImageStem(basename(nonThumbnailImages[0], extname(nonThumbnailImages[0]))) : ''
+      nonThumbnailImages.length === 1
+        ? normalizeImageStem(basename(nonThumbnailImages[0], extname(nonThumbnailImages[0])))
+        : ''
 
     const scored = images
       .map((filePath) => {
@@ -192,7 +221,7 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
       .sort((a, b) => a.score - b.score)
 
     for (const candidate of scored) {
-      const dataUrl = compressImageFileToDataUrl(candidate.filePath)
+      const dataUrl = compressImageFileToDataUrl(candidate.filePath, { maxDimension })
       if (dataUrl) return writeCoverCache(infoSidecarCoverCache, cacheKey, dataUrl)
     }
     writeCoverCache(infoSidecarCoverCache, cacheKey, null)
@@ -203,7 +232,7 @@ export function findInfoSidecarCoverDataUrl(audioPath, sidecar = readInfoSidecar
   return null
 }
 
-function findFolderCoverDataUrlInDirectory(dirPath) {
+function findFolderCoverDataUrlInDirectory(dirPath, options = {}) {
   if (!dirPath) return null
 
   try {
@@ -213,11 +242,12 @@ function findFolderCoverDataUrlInDirectory(dirPath) {
       .map((entry) => join(dirPath, entry.name))
       .filter((filePath) => FOLDER_COVER_EXTS.has(extname(filePath).toLowerCase()))
 
-    const candidates = (images.length === 1 ? images : images.filter(isPreferredFolderCoverCandidate))
-      .sort((a, b) => scoreFolderCoverName(a) - scoreFolderCoverName(b))
+    const candidates = (
+      images.length === 1 ? images : images.filter(isPreferredFolderCoverCandidate)
+    ).sort((a, b) => scoreFolderCoverName(a) - scoreFolderCoverName(b))
 
     for (const candidate of candidates) {
-      const dataUrl = compressImageFileToDataUrl(candidate)
+      const dataUrl = compressImageFileToDataUrl(candidate, options)
       if (dataUrl) return dataUrl
     }
   } catch {
@@ -227,21 +257,28 @@ function findFolderCoverDataUrlInDirectory(dirPath) {
   return null
 }
 
-export function findFolderCoverDataUrl(audioPath, { albumName = '' } = {}) {
+export function findFolderCoverDataUrl(
+  audioPath,
+  { albumName = '', coverSize = '', maxDimension = null } = {}
+) {
   if (typeof audioPath !== 'string' || !audioPath) return null
 
   const dirPath = dirname(audioPath)
   const parentDir = dirname(dirPath)
+  const coverMaxDimension = normalizeCoverMaxDimension({ coverSize, maxDimension })
   const cacheKey = [
     dirPath,
     normalizeCoverDirectoryText(albumName),
     getDirectoryMtimeMs(dirPath),
-    parentDir && parentDir !== dirPath ? getDirectoryMtimeMs(parentDir) : 0
+    parentDir && parentDir !== dirPath ? getDirectoryMtimeMs(parentDir) : 0,
+    coverMaxDimension
   ].join('\u0001')
   const cached = readCoverCache(folderCoverCache, cacheKey)
   if (cached !== undefined) return cached
 
-  const directCover = findFolderCoverDataUrlInDirectory(dirPath)
+  const directCover = findFolderCoverDataUrlInDirectory(dirPath, {
+    maxDimension: coverMaxDimension
+  })
   if (directCover) return writeCoverCache(folderCoverCache, cacheKey, directCover)
 
   if (!parentDir || parentDir === dirPath) {
@@ -258,5 +295,9 @@ export function findFolderCoverDataUrl(audioPath, { albumName = '' } = {}) {
     return null
   }
 
-  return writeCoverCache(folderCoverCache, cacheKey, findFolderCoverDataUrlInDirectory(parentDir))
+  return writeCoverCache(
+    folderCoverCache,
+    cacheKey,
+    findFolderCoverDataUrlInDirectory(parentDir, { maxDimension: coverMaxDimension })
+  )
 }

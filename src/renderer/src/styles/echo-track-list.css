@@ -2134,6 +2134,16 @@
 .browser-topbar-actions {
   justify-content: flex-start !important;
   gap: 12px !important;
+  -webkit-app-region: drag !important;
+}
+
+.browser-topbar-actions .browser-toolbar-group,
+.browser-topbar-actions .browser-toolbar-group *,
+.browser-panel .search-container,
+.browser-panel .search-container *,
+.folder-sort-wrap,
+.folder-sort-wrap * {
+  -webkit-app-region: no-drag !important;
 }
 
 .browser-toolbar-group {

@@ -207,6 +207,7 @@ import {
   buildDiscordPresenceSignature
 } from './utils/discordPresence'
 import { ArtistLink } from './components/ArtistLink'
+import VirtualAlbumGrid from './components/VirtualAlbumGrid'
 import { EqPlot } from './components/EqPlot'
 import { EQ_PRESETS } from './constants/eq'
 import { DEFAULT_CONFIG, normalizeEqBands } from './config/defaultConfig'
@@ -294,6 +295,7 @@ import {
   buildVisibleCoverHydrationPlan,
   buildTrackMetadataPrefetchPlan,
   buildVisibleRowMetadataRequestOptions,
+  buildAlbumThumbnailMetadataRequestOptions,
   hasCurrentEmbeddedCoverCheck,
   readAlbumCoverCache,
   readArtistAvatarCache,
@@ -424,6 +426,8 @@ const SIDEBAR_ROW_HEIGHT = 75
 const SIDEBAR_DETAIL_ROW_HEIGHT = 75
 const ALBUM_GRID_DEFAULT_ROW_HEIGHT = 244
 const ALBUM_GRID_DEFAULT_GAP = 18
+const ALBUM_GRID_MIN_CARD_WIDTH = 160
+const ALBUM_GRID_OVERSCAN_ROWS = 4
 const RENDERER_PERSIST_DEBOUNCE_MS = 600
 const MV_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
 const BILI_STREAM_CACHE_TTL_MS = 8 * 60 * 1000
@@ -482,6 +486,8 @@ const ARTIST_AVATAR_MISS_TTL_MS = 12 * 60 * 60 * 1000
 const ARTIST_AVATAR_LOOKUP_GAP_MS = 1200
 const ARTIST_AVATAR_PROVIDER_GAP_MS = 350
 const ARTIST_AVATAR_TRANSIENT_RETRY_MS = 8 * 60 * 1000
+const LIBRARY_DETAIL_PREFETCH_DELAY_MS = 180
+const ALBUM_DETAIL_RETURN_ANIMATION_MS = 140
 const ARTIST_DETAIL_RETURN_ANIMATION_MS = 120
 const MAX_SHARE_CARD_COVER_CHARS = 600000
 const ALBUM_COVER_PERSIST_SIGNATURE_LIMIT = 2400
@@ -1945,7 +1951,7 @@ const AlbumSidebarCard = memo(function AlbumSidebarCard({
           src={coverSource}
           alt={album.name}
           className="album-cover-image"
-          loading={String(coverSource).startsWith('data:') ? 'eager' : 'lazy'}
+          loading="lazy"
           decoding="async"
           onError={() => {
             setCoverIndex((index) => {
@@ -2671,8 +2677,12 @@ export default function App() {
   const [selectedArtist, setSelectedArtist] = useState('all')
   const selectedArtistTracksRef = useRef({ name: '', tracks: [], source: null })
   const selectedAlbumTracksRef = useRef({ key: '', name: '', paths: new Set() })
+  const [albumDetailLeaving, setAlbumDetailLeaving] = useState(false)
+  const albumDetailLeaveTimerRef = useRef(null)
   const [artistDetailLeaving, setArtistDetailLeaving] = useState(false)
   const artistDetailLeaveTimerRef = useRef(null)
+  const [libraryDetailPrefetchReady, setLibraryDetailPrefetchReady] = useState(true)
+  const libraryDetailPrefetchTimerRef = useRef(null)
   const [songSortMode, setSongSortMode] = useState('default') // 'default' | 'dateAsc' | 'dateDesc' | 'frequentDesc' | 'random'
   const [songRandomSortSeed, setSongRandomSortSeed] = useState(() => createSongRandomSortSeed())
   const [songSortOpen, setSongSortOpen] = useState(false)
@@ -5764,7 +5774,6 @@ export default function App() {
   const activeLyricIndexRef = useRef(activeLyricIndex)
   const sidebarPlaylistRef = useRef(null)
   const sidebarScrollbarDragRef = useRef(null)
-  const albumGridRef = useRef(null)
   const albumOverviewScrollTopRef = useRef(0)
   const pendingAlbumOverviewRestoreRef = useRef(false)
   const pendingAlbumDetailScrollResetRef = useRef(false)
@@ -8036,6 +8045,7 @@ export default function App() {
         !shouldRefreshCachedOggOpusCover(entry) &&
         !shouldRefreshTrackMetaCacheForAudioQuality(filePath, entry) &&
         !shouldRefreshInfoSidecarTrackMeta(filePath, entry) &&
+        entry.coverThumbnailOnly !== true &&
         entry.coverMemoryTrimmed !== true
       )
 
@@ -8349,6 +8359,9 @@ export default function App() {
             cover: resolvedCover,
             coverScope: common.coverScope || cachedMeta?.coverScope || null,
             coverSource: common.coverSource || cachedMeta?.coverSource || null,
+            coverThumbnailOnly:
+              common.coverThumbnailOnly === true || cachedMeta?.coverThumbnailOnly === true,
+            coverMaxDimension: common.coverMaxDimension ?? cachedMeta?.coverMaxDimension ?? null,
             coverExtractorVersion: common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
@@ -13332,7 +13345,13 @@ export default function App() {
   useEffect(() => {
     if (selectedAlbum !== 'all') return
     if (selectedAlbumKey) setSelectedAlbumKey('')
-    selectedAlbumTracksRef.current = { key: '', name: '', paths: new Set() }
+    selectedAlbumTracksRef.current = {
+      key: '',
+      name: '',
+      paths: new Set(),
+      tracks: [],
+      source: null
+    }
   }, [selectedAlbum, selectedAlbumKey])
 
   const albumCoverCandidatesByName = useMemo(() => {
@@ -13429,6 +13448,13 @@ export default function App() {
   const selectedAlbumTracks = useMemo(() => {
     if (selectedAlbum === 'all') return []
     const picked = selectedAlbumTracksRef.current
+    if (
+      picked?.source === queryFilteredPlaylist &&
+      picked?.tracks?.length > 0 &&
+      (picked.key === selectedAlbumKey || picked.name === selectedAlbum)
+    ) {
+      return picked.tracks
+    }
     if (picked?.paths instanceof Set && picked.paths.size > 0) {
       const matchingPickedTracks = queryFilteredPlaylist.filter((track) =>
         picked.paths.has(track.path)
@@ -13446,6 +13472,11 @@ export default function App() {
       (track) => normalizeAlbumNameKey(getTrackAlbumName(track)) === selectedAlbumNameKey
     )
   }, [queryFilteredPlaylist, selectedAlbum, selectedAlbumKey])
+
+  const selectedAlbumOrderedTracks = useMemo(() => {
+    if (selectedAlbumTracks.length <= 1) return selectedAlbumTracks
+    return [...selectedAlbumTracks].sort(compareTrackOrder)
+  }, [selectedAlbumTracks])
 
   const folderTree = useMemo(() => {
     if (!shouldBuildFolderBuckets) return []
@@ -13809,7 +13840,7 @@ export default function App() {
           .sort(compareTrackOrder)
       }
     } else if (selectedAlbum !== 'all') {
-      result = [...selectedAlbumTracks].sort(compareTrackOrder)
+      result = selectedAlbumOrderedTracks
     }
 
     if (
@@ -13849,7 +13880,7 @@ export default function App() {
   }, [
     queryFilteredPlaylist,
     selectedAlbum,
-    selectedAlbumTracks,
+    selectedAlbumOrderedTracks,
     selectedFolder,
     selectedArtist,
     listMode,
@@ -14115,8 +14146,8 @@ export default function App() {
       )
     }
     if (listMode === 'album' && selectedAlbum && selectedAlbum !== 'all') {
-      if (selectedAlbumTracks.length > 0) {
-        const sortedPaths = [...selectedAlbumTracks].sort(compareTrackOrder).map((t) => t.path)
+      if (selectedAlbumOrderedTracks.length > 0) {
+        const sortedPaths = selectedAlbumOrderedTracks.map((t) => t.path)
         return createPlaybackContext('albumGroup', selectedAlbum, sortedPaths)
       }
     }
@@ -14129,7 +14160,7 @@ export default function App() {
     selectedSmartCollection,
     smartCollectionTracks,
     selectedAlbum,
-    selectedAlbumTracks
+    selectedAlbumOrderedTracks
   ])
 
   const stopCastBeforeLocalPlayback = useCallback(async () => {
@@ -14672,6 +14703,42 @@ export default function App() {
     filteredPlaylist
   ])
 
+  const albumArtistDetailOpen =
+    libraryBrowserVisible &&
+    ((listMode === 'album' && selectedAlbum !== 'all') ||
+      (listMode === 'artists' && selectedArtist !== 'all'))
+  const libraryDetailPrefetchAllowed = !albumArtistDetailOpen || libraryDetailPrefetchReady
+
+  useEffect(() => {
+    if (!albumArtistDetailOpen) {
+      if (libraryDetailPrefetchTimerRef.current) {
+        window.clearTimeout(libraryDetailPrefetchTimerRef.current)
+        libraryDetailPrefetchTimerRef.current = null
+      }
+      setLibraryDetailPrefetchReady((ready) => (ready ? ready : true))
+      return undefined
+    }
+
+    if (libraryDetailPrefetchReady) return undefined
+
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        setLibraryDetailPrefetchReady(true)
+      })
+      if (libraryDetailPrefetchTimerRef.current === timer) {
+        libraryDetailPrefetchTimerRef.current = null
+      }
+    }, LIBRARY_DETAIL_PREFETCH_DELAY_MS)
+    libraryDetailPrefetchTimerRef.current = timer
+
+    return () => {
+      window.clearTimeout(timer)
+      if (libraryDetailPrefetchTimerRef.current === timer) {
+        libraryDetailPrefetchTimerRef.current = null
+      }
+    }
+  }, [albumArtistDetailOpen, libraryDetailPrefetchReady, selectedAlbum, selectedArtist])
+
   const tracksForSidebarListFiltered = useMemo(() => {
     if (
       !showLikedOnly ||
@@ -14705,12 +14772,12 @@ export default function App() {
   const [sidebarScrollTop, setSidebarScrollTop] = useState(0)
   const [sidebarViewportHeight, setSidebarViewportHeight] = useState(0)
   const [sidebarScrollHeight, setSidebarScrollHeight] = useState(0)
-  const [albumGridScrollTop, setAlbumGridScrollTop] = useState(0)
-  const [albumGridViewportHeight, setAlbumGridViewportHeight] = useState(0)
-  const [albumGridColumnCount, setAlbumGridColumnCount] = useState(1)
-  const [albumGridRowHeight, setAlbumGridRowHeight] = useState(ALBUM_GRID_DEFAULT_ROW_HEIGHT)
-  const [albumGridRowGap, setAlbumGridRowGap] = useState(ALBUM_GRID_DEFAULT_GAP)
-  const [albumGridOffsetTop, setAlbumGridOffsetTop] = useState(0)
+  const [visibleAlbumRange, setVisibleAlbumRange] = useState({
+    startIndex: 0,
+    endIndex: 80,
+    columnCount: 1,
+    rowHeight: ALBUM_GRID_DEFAULT_ROW_HEIGHT
+  })
 
   const visibleSidebarRange = useMemo(() => {
     const total = tracksForSidebarListFiltered.length
@@ -14786,6 +14853,7 @@ export default function App() {
 
   const metadataPrefetchSidebarTracks = useMemo(() => {
     if (!libraryBrowserVisible) return []
+    if (!libraryDetailPrefetchAllowed) return []
     if (tracksForSidebarListFiltered.length === 0) return []
     const startIndex = Math.max(
       0,
@@ -14796,10 +14864,16 @@ export default function App() {
       visibleSidebarRange.endIndex + SIDEBAR_META_PREFETCH_AHEAD_ROWS
     )
     return tracksForSidebarListFiltered.slice(startIndex, endIndex)
-  }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange])
+  }, [
+    libraryBrowserVisible,
+    libraryDetailPrefetchAllowed,
+    tracksForSidebarListFiltered,
+    visibleSidebarRange
+  ])
 
   const coverPrefetchAheadSidebarTracks = useMemo(() => {
     if (!libraryBrowserVisible) return []
+    if (!libraryDetailPrefetchAllowed) return []
     if (tracksForSidebarListFiltered.length === 0) return []
     const startIndex = Math.max(0, visibleSidebarRange.endIndex)
     const endIndex = Math.min(
@@ -14807,10 +14881,16 @@ export default function App() {
       startIndex + SIDEBAR_COVER_PREFETCH_AHEAD_ROWS
     )
     return tracksForSidebarListFiltered.slice(startIndex, endIndex)
-  }, [libraryBrowserVisible, tracksForSidebarListFiltered, visibleSidebarRange.endIndex])
+  }, [
+    libraryBrowserVisible,
+    libraryDetailPrefetchAllowed,
+    tracksForSidebarListFiltered,
+    visibleSidebarRange.endIndex
+  ])
 
   const metadataContextWarmupSidebarTracks = useMemo(() => {
     if (!libraryBrowserVisible) return []
+    if (!libraryDetailPrefetchAllowed) return []
     if (listMode === 'album') return []
     if (tracksForSidebarListFiltered.length === 0) return []
     const warmup = []
@@ -14825,7 +14905,7 @@ export default function App() {
       }
     }
     return warmup
-  }, [libraryBrowserVisible, listMode, tracksForSidebarListFiltered])
+  }, [libraryBrowserVisible, libraryDetailPrefetchAllowed, listMode, tracksForSidebarListFiltered])
 
   const metadataPrefetchCandidateTracks = useMemo(() => {
     if (metadataContextWarmupSidebarTracks.length === 0) return metadataPrefetchSidebarTracks
@@ -14927,22 +15007,6 @@ export default function App() {
   const handleSidebarScrollbarPointerUp = useCallback((event) => {
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     sidebarScrollbarDragRef.current = null
-  }, [])
-
-  const setAlbumGridElement = useCallback((node) => {
-    if (!node) {
-      if (albumGridRef.current && !albumGridRef.current.isConnected) {
-        albumGridRef.current = null
-      }
-      return
-    }
-    if (node.closest('.playlist')) {
-      albumGridRef.current = node
-      return
-    }
-    if (!albumGridRef.current || !albumGridRef.current.isConnected) {
-      albumGridRef.current = node
-    }
   }, [])
 
   const handleQueueDragOver = useCallback(
@@ -15221,69 +15285,6 @@ export default function App() {
     artistSortOptions[0]?.label
 
   useEffect(() => {
-    if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
-      setAlbumGridScrollTop(0)
-      setAlbumGridViewportHeight(0)
-      return undefined
-    }
-
-    const playlistElement = sidebarPlaylistRef.current
-    const gridElement = albumGridRef.current
-    if (!playlistElement || !gridElement) return undefined
-
-    const syncMetrics = () => {
-      const playlistRect = playlistElement.getBoundingClientRect()
-      const gridRect = gridElement.getBoundingClientRect()
-      const computed = window.getComputedStyle(gridElement)
-      const rowGap =
-        Number.parseFloat(computed.rowGap || computed.gap || `${ALBUM_GRID_DEFAULT_GAP}`) ||
-        ALBUM_GRID_DEFAULT_GAP
-      const firstCard = gridElement.querySelector('.album-card')
-      const firstCardRect = firstCard?.getBoundingClientRect?.()
-      const nextWidth = Math.round(gridElement.clientWidth || gridRect.width || 0)
-      const nextColumnCount = firstCardRect?.width
-        ? Math.max(1, Math.floor((nextWidth + rowGap) / (firstCardRect.width + rowGap)))
-        : Math.max(1, Math.floor((nextWidth + rowGap) / (160 + rowGap)))
-      const estimatedCardWidth =
-        nextColumnCount > 0
-          ? Math.max(
-              160,
-              Math.floor((nextWidth - rowGap * (nextColumnCount - 1)) / nextColumnCount)
-            )
-          : firstCardRect?.width || 160
-      const nextRowHeight = Math.max(
-        ALBUM_GRID_DEFAULT_ROW_HEIGHT,
-        Math.round(estimatedCardWidth + 64)
-      )
-      const nextOffsetTop = Math.max(
-        0,
-        Math.round(gridRect.top - playlistRect.top + (playlistElement.scrollTop || 0))
-      )
-
-      setAlbumGridRowGap((prev) => (prev === rowGap ? prev : rowGap))
-      setAlbumGridRowHeight((prev) => (prev === nextRowHeight ? prev : nextRowHeight))
-      setAlbumGridOffsetTop((prev) => (prev === nextOffsetTop ? prev : nextOffsetTop))
-      setAlbumGridColumnCount((prev) => (prev === nextColumnCount ? prev : nextColumnCount))
-    }
-
-    syncMetrics()
-
-    if (typeof ResizeObserver === 'undefined') {
-      const fallbackId = window.setInterval(syncMetrics, 250)
-      return () => clearInterval(fallbackId)
-    }
-
-    const ro = new ResizeObserver(() => {
-      syncMetrics()
-    })
-    ro.observe(playlistElement)
-    ro.observe(gridElement)
-    const firstCard = gridElement.querySelector('.album-card')
-    if (firstCard) ro.observe(firstCard)
-    return () => ro.disconnect()
-  }, [libraryBrowserVisible, listMode, selectedAlbum, albumGroupsFiltered.length])
-
-  useEffect(() => {
     if (
       !libraryBrowserVisible ||
       listMode !== 'album' ||
@@ -15306,81 +15307,32 @@ export default function App() {
     return () => window.cancelAnimationFrame(rafId)
   }, [libraryBrowserVisible, listMode, selectedAlbum, albumGroupsFiltered.length])
 
-  useEffect(() => {
-    if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
-      setAlbumGridScrollTop(0)
-      setAlbumGridViewportHeight(0)
-      return
-    }
-
-    const totalRows = Math.ceil(albumGroupsFiltered.length / Math.max(1, albumGridColumnCount))
-    const totalHeight =
-      totalRows > 0 ? totalRows * albumGridRowHeight + (totalRows - 1) * albumGridRowGap : 0
-    const nextScrollTop = Math.max(0, sidebarScrollTop - albumGridOffsetTop)
-    const visibleBottom = Math.max(0, sidebarScrollTop + sidebarViewportHeight - albumGridOffsetTop)
-    const nextViewportHeight = Math.max(0, Math.min(totalHeight, visibleBottom) - nextScrollTop)
-
-    setAlbumGridScrollTop((prev) => (prev === nextScrollTop ? prev : nextScrollTop))
-    setAlbumGridViewportHeight((prev) => (prev === nextViewportHeight ? prev : nextViewportHeight))
-  }, [
-    listMode,
-    libraryBrowserVisible,
-    selectedAlbum,
-    albumGroupsFiltered.length,
-    albumGridColumnCount,
-    albumGridOffsetTop,
-    albumGridRowGap,
-    albumGridRowHeight,
-    sidebarScrollTop,
-    sidebarViewportHeight
-  ])
-
-  const visibleAlbumRange = useMemo(() => {
-    const total = albumGroupsFiltered.length
-    const columnCount = Math.max(1, albumGridColumnCount)
-    const totalRows = Math.ceil(total / columnCount)
-    const rowStride = Math.max(1, albumGridRowHeight + albumGridRowGap)
-
-    if (total <= 0 || totalRows <= 0) {
-      return {
-        startIndex: 0,
-        endIndex: 0,
-        topSpacer: 0,
-        bottomSpacer: 0
-      }
-    }
-
-    const effectiveViewportHeight = Math.max(albumGridViewportHeight, rowStride * 4)
-    const startRow = Math.max(0, Math.floor(albumGridScrollTop / rowStride) - SIDEBAR_LIST_OVERSCAN)
-    const endRow = Math.min(
-      totalRows,
-      Math.ceil((albumGridScrollTop + effectiveViewportHeight) / rowStride) + SIDEBAR_LIST_OVERSCAN
-    )
-
-    return {
-      startIndex: startRow * columnCount,
-      endIndex: Math.min(total, endRow * columnCount),
-      topSpacer: startRow * rowStride,
-      bottomSpacer: Math.max(0, (totalRows - endRow) * rowStride)
-    }
-  }, [
-    albumGroupsFiltered.length,
-    albumGridColumnCount,
-    albumGridRowGap,
-    albumGridRowHeight,
-    albumGridScrollTop,
-    albumGridViewportHeight
-  ])
-
   const visibleAlbumGroups = useMemo(
     () => albumGroupsFiltered.slice(visibleAlbumRange.startIndex, visibleAlbumRange.endIndex),
     [albumGroupsFiltered, visibleAlbumRange]
   )
 
+  const handleAlbumGridVisibleRangeChange = useCallback((range) => {
+    setVisibleAlbumRange((prev) => {
+      const next = {
+        startIndex: Math.max(0, Number(range?.startIndex) || 0),
+        endIndex: Math.max(0, Number(range?.endIndex) || 0),
+        columnCount: Math.max(1, Number(range?.columnCount) || 1),
+        rowHeight: Math.max(ALBUM_GRID_DEFAULT_ROW_HEIGHT, Number(range?.rowHeight) || 0)
+      }
+      return prev.startIndex === next.startIndex &&
+        prev.endIndex === next.endIndex &&
+        prev.columnCount === next.columnCount &&
+        prev.rowHeight === next.rowHeight
+        ? prev
+        : next
+    })
+  }, [])
+
   const metadataPrefetchAlbumGroups = useMemo(() => {
     if (!libraryBrowserVisible) return []
     if (albumGroupsFiltered.length === 0) return []
-    const columnCount = Math.max(1, albumGridColumnCount)
+    const columnCount = Math.max(1, visibleAlbumRange.columnCount)
     const visibleStart = Math.max(
       0,
       visibleAlbumRange.startIndex - columnCount * ALBUM_META_PREFETCH_BEHIND_ROWS
@@ -15402,14 +15354,7 @@ export default function App() {
       return [...visible, ...after, ...before]
     }
     return albumGroupsFiltered.slice(visibleStart, visibleEnd)
-  }, [
-    albumGroupsFiltered,
-    albumGridColumnCount,
-    libraryBrowserVisible,
-    listMode,
-    selectedAlbum,
-    visibleAlbumRange
-  ])
+  }, [albumGroupsFiltered, libraryBrowserVisible, listMode, selectedAlbum, visibleAlbumRange])
 
   const folderGroupsFiltered = useMemo(() => {
     if (!showLikedOnly || listMode !== 'folders') return folderGroups
@@ -15512,7 +15457,7 @@ export default function App() {
         : METADATA_PREFETCH_LIMIT
     const occupiedPaths = new Set()
     if (currentTrack?.path) occupiedPaths.add(currentTrack.path)
-    if (showTrackList) {
+    if (showTrackList && libraryDetailPrefetchAllowed) {
       for (const track of visibleSidebarTracks) {
         if (track?.path) occupiedPaths.add(track.path)
       }
@@ -15540,8 +15485,10 @@ export default function App() {
 
     return buildTrackMetadataPrefetchPlan({
       currentTrack,
-      visibleSidebarTracks: showTrackList ? visibleSidebarTracks : [],
-      metadataPrefetchSidebarTracks: showTrackList ? metadataPrefetchCandidateTracks : [],
+      visibleSidebarTracks:
+        showTrackList && libraryDetailPrefetchAllowed ? visibleSidebarTracks : [],
+      metadataPrefetchSidebarTracks:
+        showTrackList && libraryDetailPrefetchAllowed ? metadataPrefetchCandidateTracks : [],
       albumWallHydrateTargets,
       trackMetaMap,
       effectiveTrackMetaMap,
@@ -15555,6 +15502,7 @@ export default function App() {
     currentTrack,
     albumCoverMap,
     effectiveTrackMetaMap,
+    libraryDetailPrefetchAllowed,
     listMode,
     metadataPrefetchAlbumGroups,
     metadataPrefetchCandidateTracks,
@@ -15630,8 +15578,9 @@ export default function App() {
 
   const visibleCoverHydrationPlan = useMemo(() => {
     return buildVisibleCoverHydrationPlan({
-      visibleTracks: showTrackList ? visibleSidebarTracks : [],
-      aheadTracks: showTrackList ? coverPrefetchAheadSidebarTracks : [],
+      visibleTracks: showTrackList && libraryDetailPrefetchAllowed ? visibleSidebarTracks : [],
+      aheadTracks:
+        showTrackList && libraryDetailPrefetchAllowed ? coverPrefetchAheadSidebarTracks : [],
       metadataHydrateRequirementByPath,
       trackMetaMap,
       effectiveTrackMetaMap,
@@ -15648,6 +15597,7 @@ export default function App() {
     albumCoverMap,
     coverPrefetchAheadSidebarTracks,
     effectiveTrackMetaMap,
+    libraryDetailPrefetchAllowed,
     metadataHydrateRequirementByPath,
     showTrackList,
     trackAlbumTracksByKey,
@@ -16009,7 +15959,9 @@ export default function App() {
             const metadataOptions =
               hydrateRequirement?.source === 'visible-row'
                 ? buildVisibleRowMetadataRequestOptions()
-                : undefined
+                : hydrateRequirement?.source === 'album-wall'
+                  ? buildAlbumThumbnailMetadataRequestOptions()
+                  : undefined
             const data = await window.api.getExtendedMetadataHandler(track.path, metadataOptions)
             if (data?.success) {
               const common = data.common || {}
@@ -16025,6 +15977,9 @@ export default function App() {
                 cover: common.cover || cachedMeta.cover || null,
                 coverScope: common.coverScope || cachedMeta.coverScope || null,
                 coverSource: common.coverSource || cachedMeta.coverSource || null,
+                coverThumbnailOnly:
+                  common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true,
+                coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension ?? null,
                 coverExtractorVersion:
                   common.coverExtractorVersion ??
                   cachedMeta.coverExtractorVersion ??
@@ -16572,38 +16527,55 @@ export default function App() {
 
   const handlePickAlbumFromSidebar = useCallback(
     (album) => {
+      if (albumDetailLeaveTimerRef.current) {
+        window.clearTimeout(albumDetailLeaveTimerRef.current)
+        albumDetailLeaveTimerRef.current = null
+      }
+      setAlbumDetailLeaving(false)
       albumOverviewScrollTopRef.current = sidebarPlaylistRef.current?.scrollTop || 0
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
-      forceCloseTrackContextMenu()
-      forceCloseCoverContextMenu()
-      forceCloseGroupContextMenu()
-      forceCloseAddToPlaylistMenu()
-      setSelectedUserPlaylistId(null)
-      setSelectedSmartCollectionId(null)
-      setPlaylistLibraryMoreOpen(false)
-      setSelectedArtist('all')
+      const albumTracks = Array.isArray(album.tracks) ? album.tracks : []
       const albumKey = album.key || normalizeAlbumNameKey(album.name)
       selectedAlbumTracksRef.current = {
         key: albumKey,
         name: album.name,
-        paths: new Set((album.tracks || []).map((track) => track?.path).filter(Boolean))
+        paths: new Set(albumTracks.map((track) => track?.path).filter(Boolean)),
+        tracks: albumTracks,
+        source: queryFilteredPlaylist
       }
-      setSelectedAlbumKey(albumKey)
-      setSelectedAlbum(album.name)
-      setListMode('album')
+      startTransition(() => {
+        setLibraryDetailPrefetchReady(false)
+        forceCloseTrackContextMenu()
+        forceCloseCoverContextMenu()
+        forceCloseGroupContextMenu()
+        forceCloseAddToPlaylistMenu()
+        setSelectedUserPlaylistId(null)
+        setSelectedSmartCollectionId(null)
+        setPlaylistLibraryMoreOpen(false)
+        setSelectedArtist('all')
+        setSelectedAlbumKey(albumKey)
+        setSelectedAlbum(album.name)
+        setListMode('album')
+      })
     },
     [
       forceCloseTrackContextMenu,
       forceCloseCoverContextMenu,
       forceCloseGroupContextMenu,
-      forceCloseAddToPlaylistMenu
+      forceCloseAddToPlaylistMenu,
+      queryFilteredPlaylist
     ]
   )
 
   const handleLocateTrackAlbum = useCallback(
     (track) => {
       if (!track) return
+      if (albumDetailLeaveTimerRef.current) {
+        window.clearTimeout(albumDetailLeaveTimerRef.current)
+        albumDetailLeaveTimerRef.current = null
+      }
+      setAlbumDetailLeaving(false)
       const info = parseTrackInfo(track, trackMetaMap[track?.path] || null)
       const albumName =
         (info?.album && String(info.album).trim()) ||
@@ -16612,31 +16584,36 @@ export default function App() {
       if (!albumName) return
       const albumTrack = { ...track, info: { ...(track?.info || {}), ...info } }
       const albumKey = getTrackAlbumGroupKey(albumTrack) || normalizeAlbumNameKey(albumName)
-      const albumPaths = queryFilteredPlaylist
-        .filter((item) => getTrackAlbumGroupKey(item) === albumKey)
-        .map((item) => item.path)
-        .filter(Boolean)
+      const albumTracks = queryFilteredPlaylist.filter(
+        (item) => getTrackAlbumGroupKey(item) === albumKey
+      )
+      const albumPaths = albumTracks.map((item) => item.path).filter(Boolean)
 
       albumOverviewScrollTopRef.current = sidebarPlaylistRef.current?.scrollTop || 0
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
-      forceCloseTrackContextMenu()
-      forceCloseCoverContextMenu()
-      forceCloseGroupContextMenu()
-      forceCloseAddToPlaylistMenu()
-      setSelectedUserPlaylistId(null)
-      setSelectedSmartCollectionId(null)
-      setPlaylistLibraryMoreOpen(false)
-      setSelectedArtist('all')
-      setSelectedFolder('all')
       selectedAlbumTracksRef.current = {
         key: albumKey,
         name: albumName,
-        paths: new Set(albumPaths.length > 0 ? albumPaths : [track.path].filter(Boolean))
+        paths: new Set(albumPaths.length > 0 ? albumPaths : [track.path].filter(Boolean)),
+        tracks: albumTracks.length > 0 ? albumTracks : [track].filter(Boolean),
+        source: queryFilteredPlaylist
       }
-      setSelectedAlbumKey(albumKey)
-      setSelectedAlbum(albumName)
-      setListMode('album')
+      startTransition(() => {
+        setLibraryDetailPrefetchReady(false)
+        forceCloseTrackContextMenu()
+        forceCloseCoverContextMenu()
+        forceCloseGroupContextMenu()
+        forceCloseAddToPlaylistMenu()
+        setSelectedUserPlaylistId(null)
+        setSelectedSmartCollectionId(null)
+        setPlaylistLibraryMoreOpen(false)
+        setSelectedArtist('all')
+        setSelectedFolder('all')
+        setSelectedAlbumKey(albumKey)
+        setSelectedAlbum(albumName)
+        setListMode('album')
+      })
     },
     [
       forceCloseTrackContextMenu,
@@ -16649,10 +16626,22 @@ export default function App() {
   )
 
   const handleBackToAlbumOverview = useCallback(() => {
-    pendingAlbumOverviewRestoreRef.current = true
-    selectedAlbumTracksRef.current = { key: '', name: '', paths: new Set() }
-    setSelectedAlbumKey('')
-    setSelectedAlbum('all')
+    if (albumDetailLeaveTimerRef.current) return
+    setAlbumDetailLeaving(true)
+    albumDetailLeaveTimerRef.current = window.setTimeout(() => {
+      pendingAlbumOverviewRestoreRef.current = true
+      selectedAlbumTracksRef.current = {
+        key: '',
+        name: '',
+        paths: new Set(),
+        tracks: [],
+        source: null
+      }
+      setSelectedAlbumKey('')
+      setSelectedAlbum('all')
+      setAlbumDetailLeaving(false)
+      albumDetailLeaveTimerRef.current = null
+    }, ALBUM_DETAIL_RETURN_ANIMATION_MS)
   }, [])
 
   const handleAlbumCoverFailed = useCallback((album, coverKey) => {
@@ -16706,13 +16695,16 @@ export default function App() {
         tracks: Array.isArray(artist.tracks) ? artist.tracks : [],
         source: queryFilteredPlaylist
       }
-      setSelectedArtist(artist.name)
-      setSelectedAlbum('all')
-      setSelectedFolder('all')
-      setSelectedUserPlaylistId(null)
-      setSelectedSmartCollectionId(null)
-      setPlaylistLibraryMoreOpen(false)
-      setListMode('artists')
+      startTransition(() => {
+        setLibraryDetailPrefetchReady(false)
+        setSelectedArtist(artist.name)
+        setSelectedAlbum('all')
+        setSelectedFolder('all')
+        setSelectedUserPlaylistId(null)
+        setSelectedSmartCollectionId(null)
+        setPlaylistLibraryMoreOpen(false)
+        setListMode('artists')
+      })
     },
     [queryFilteredPlaylist]
   )
@@ -16730,8 +16722,14 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (albumDetailLeaveTimerRef.current) {
+        window.clearTimeout(albumDetailLeaveTimerRef.current)
+      }
       if (artistDetailLeaveTimerRef.current) {
         window.clearTimeout(artistDetailLeaveTimerRef.current)
+      }
+      if (libraryDetailPrefetchTimerRef.current) {
+        window.clearTimeout(libraryDetailPrefetchTimerRef.current)
       }
     }
   }, [])
@@ -19353,7 +19351,7 @@ export default function App() {
               (listMode === 'artists' && selectedArtist !== 'all') ||
               (listMode === 'album' && selectedAlbum !== 'all')) && (
               <div
-                className={`folder-browser-header library-list-header no-drag${listMode === 'artists' && selectedArtist !== 'all' ? ' library-list-header--artist-detail' : ''}${artistDetailLeaving ? ' library-list-header--leaving' : ''}`}
+                className={`folder-browser-header library-list-header no-drag${listMode === 'album' && selectedAlbum !== 'all' ? ' library-list-header--album-detail' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' library-list-header--artist-detail' : ''}${albumDetailLeaving || artistDetailLeaving ? ' library-list-header--leaving' : ''}`}
               >
                 <div className="library-list-heading">
                   {listMode === 'album' && selectedAlbum !== 'all' && (
@@ -20032,17 +20030,17 @@ export default function App() {
 
                 {playlist.length > 0 && listMode === 'album' && selectedAlbum === 'all' && (
                   <div className="album-browser no-drag">
-                    <div
-                      ref={setAlbumGridElement}
-                      className="album-grid album-grid-deferred"
-                      style={{
-                        paddingTop: visibleAlbumRange.topSpacer,
-                        paddingBottom: visibleAlbumRange.bottomSpacer
-                      }}
-                    >
-                      {visibleAlbumGroups.map((album) => (
+                    <VirtualAlbumGrid
+                      items={albumGroupsFiltered}
+                      scrollElementRef={sidebarPlaylistRef}
+                      className="album-grid-deferred"
+                      minCardWidth={ALBUM_GRID_MIN_CARD_WIDTH}
+                      minRowHeight={ALBUM_GRID_DEFAULT_ROW_HEIGHT}
+                      gap={ALBUM_GRID_DEFAULT_GAP}
+                      overscanRows={ALBUM_GRID_OVERSCAN_ROWS}
+                      onVisibleRangeChange={handleAlbumGridVisibleRangeChange}
+                      renderItem={(album) => (
                         <AlbumSidebarCard
-                          key={album.key || album.name}
                           album={album}
                           isSelected={
                             selectedAlbumKey
@@ -20055,8 +20053,8 @@ export default function App() {
                             openGroupContextMenu(e, 'album', pickedAlbum)
                           }
                         />
-                      ))}
-                    </div>
+                      )}
+                    />
                   </div>
                 )}
 
@@ -20306,7 +20304,7 @@ export default function App() {
                               ? selectedAlbum
                               : 'sidebar-list'
                         }
-                        className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
+                        className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}${albumDetailLeaving ? ' playlist-virtual-list--album-leaving' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
                       >
                         {visibleSidebarRange.topSpacer > 0 && (
                           <div

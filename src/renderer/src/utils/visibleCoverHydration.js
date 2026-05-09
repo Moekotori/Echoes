@@ -60,6 +60,12 @@ export function buildVisibleCoverEntry(data, cachedMeta = {}) {
     cover: common.cover || cachedMeta.cover || null,
     coverScope: common.coverScope || cachedMeta.coverScope || null,
     coverSource: common.coverSource || cachedMeta.coverSource || null,
+    ...(common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true
+      ? { coverThumbnailOnly: true }
+      : {}),
+    ...((common.coverMaxDimension ?? cachedMeta.coverMaxDimension)
+      ? { coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension }
+      : {}),
     coverExtractorVersion:
       common.coverExtractorVersion ??
       cachedMeta.coverExtractorVersion ??

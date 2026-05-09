@@ -3130,8 +3130,14 @@ body {
 }
 
 .playlist-virtual-list--album-enter {
-  opacity: 0;
-  animation: fadeInList 0.18s ease forwards;
+  transform-origin: top center;
+  will-change: opacity, transform;
+  animation: albumDetailEnter 0.18s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+}
+
+.playlist-virtual-list--album-leaving {
+  pointer-events: none;
+  animation: albumDetailLeave 0.14s cubic-bezier(0.32, 0, 0.2, 1) forwards;
 }
 
 .playlist-virtual-list--artist-detail {
@@ -3143,6 +3149,12 @@ body {
 .playlist-virtual-list--artist-leaving {
   pointer-events: none;
   animation: artistDetailLeave 0.12s cubic-bezier(0.32, 0, 0.2, 1) forwards;
+}
+
+.library-list-header--album-detail {
+  transform-origin: left center;
+  will-change: opacity, transform;
+  animation: albumHeaderEnter 0.18s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
 }
 
 .library-list-header--artist-detail {
@@ -3173,6 +3185,30 @@ body {
   }
 }
 
+@keyframes albumDetailEnter {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes albumDetailLeave {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
 @keyframes artistDetailEnter {
   from {
     opacity: 0;
@@ -3194,6 +3230,18 @@ body {
   to {
     opacity: 0;
     transform: translateX(10px);
+  }
+}
+
+@keyframes albumHeaderEnter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 

@@ -72,11 +72,8 @@ export function buildAlbumCoverBackfillPlan({
     }
     const representativeTrack =
       tracks.find(
-        (track) =>
-          track?.path &&
-          shouldBackfillTrack(track, trackMetaMap[track.path] || {}, needs)
-      ) ||
-      null
+        (track) => track?.path && shouldBackfillTrack(track, trackMetaMap[track.path] || {}, needs)
+      ) || null
 
     if (!representativeTrack?.path) continue
     targets.push({
@@ -114,6 +111,9 @@ export function buildParsedAlbumCoverMetaEntry(track, data, cachedMeta = {}) {
     cover: common.cover || cachedMeta.cover || null,
     coverScope: common.coverScope || cachedMeta.coverScope || null,
     coverSource: common.coverSource || cachedMeta.coverSource || null,
+    coverThumbnailOnly:
+      common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true,
+    coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension ?? null,
     duration: technical.duration || cachedMeta.duration || null,
     coverChecked: true,
     bpmChecked: true,
@@ -213,7 +213,8 @@ export function buildAlbumCoverCacheHydrationEntries(cached = {}, keyToTargets =
     const matches = keyToTargets.get(key) || []
     const exactMatches = matches.filter((match) => match.kind === 'exact')
     const fallbackMatches = matches.filter((match) => match.kind === 'fallback')
-    const allowedMatches = exactMatches.length > 0 ? exactMatches : fallbackMatches.length === 1 ? fallbackMatches : []
+    const allowedMatches =
+      exactMatches.length > 0 ? exactMatches : fallbackMatches.length === 1 ? fallbackMatches : []
     for (const match of allowedMatches) {
       const coverEntry = buildAlbumCoverMapEntryFromCacheTarget(match.target, entry)
       if (!coverEntry) continue

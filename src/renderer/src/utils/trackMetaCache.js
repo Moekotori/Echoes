@@ -107,8 +107,14 @@ export function createArtistAvatarCacheKey(artist) {
 }
 
 function isUnknownMetadataArtistName(value = '') {
-  const normalized = String(value || '').trim().toLowerCase()
-  return !normalized || normalized === 'unknown artist' || /^(?:cd|disc|disk)?\s*\d{1,3}(?:\s*[-./_]\s*\d{1,3})?$/.test(normalized)
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  return (
+    !normalized ||
+    normalized === 'unknown artist' ||
+    /^(?:cd|disc|disk)?\s*\d{1,3}(?:\s*[-./_]\s*\d{1,3})?$/.test(normalized)
+  )
 }
 
 export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
@@ -146,7 +152,9 @@ function isLocalCoverUrl(value = '') {
 }
 
 function normalizeCoverSource(value = '') {
-  const source = String(value || '').trim().toLowerCase()
+  const source = String(value || '')
+    .trim()
+    .toLowerCase()
   if (['embedded', 'sidecar', 'folder', 'local', 'network'].includes(source)) return source
   return ''
 }
@@ -245,6 +253,14 @@ export function buildVisibleRowMetadataRequestOptions() {
     includeLyrics: false,
     includeBpm: false,
     includeMqa: false
+  }
+}
+
+export function buildAlbumThumbnailMetadataRequestOptions() {
+  return {
+    ...buildVisibleRowMetadataRequestOptions(),
+    mode: 'album-wall',
+    coverSize: 'album-thumbnail'
   }
 }
 
@@ -471,16 +487,16 @@ export function isTrackMetaCacheRecordFresh(record, trackOrSeed) {
 
 export function stripCoverFieldsFromTrackMeta(meta) {
   if (!meta || typeof meta !== 'object') return meta
-  const {
-    cover,
-    coverChecked,
-    coverScope,
-    coverSource,
-    coverExtractorVersion,
-    coverMemoryTrimmed,
-    ...rest
-  } = meta
-  return rest
+  const next = { ...meta }
+  delete next.cover
+  delete next.coverChecked
+  delete next.coverScope
+  delete next.coverSource
+  delete next.coverThumbnailOnly
+  delete next.coverMaxDimension
+  delete next.coverExtractorVersion
+  delete next.coverMemoryTrimmed
+  return next
 }
 
 export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {}) {
@@ -496,6 +512,8 @@ export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {})
     next.coverChecked = true
     if (existing.coverScope != null) next.coverScope = existing.coverScope
     if (existing.coverSource != null) next.coverSource = existing.coverSource
+    if (existing.coverThumbnailOnly != null) next.coverThumbnailOnly = existing.coverThumbnailOnly
+    if (existing.coverMaxDimension != null) next.coverMaxDimension = existing.coverMaxDimension
     if (existing.coverExtractorVersion != null && next.coverExtractorVersion == null) {
       next.coverExtractorVersion = existing.coverExtractorVersion
     }
@@ -581,7 +599,16 @@ export function buildPersistableAlbumCoverCacheItems(items = []) {
 function normalizeTrackMetaEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   const next = {}
-  for (const key of ['title', 'artist', 'album', 'albumArtist', 'cover', 'codec', 'lyrics', 'genre']) {
+  for (const key of [
+    'title',
+    'artist',
+    'album',
+    'albumArtist',
+    'cover',
+    'codec',
+    'lyrics',
+    'genre'
+  ]) {
     if (typeof entry[key] === 'string') next[key] = entry[key]
     else if (entry[key] == null) next[key] = null
   }
@@ -591,7 +618,16 @@ function normalizeTrackMetaEntry(entry) {
     const source = normalizeCoverSource(entry.coverSource)
     if (source) next.coverSource = source
   }
-  for (const key of ['trackNo', 'discNo', 'duration', 'bitrateKbps', 'sampleRateHz', 'bitDepth', 'channels', 'bpm']) {
+  for (const key of [
+    'trackNo',
+    'discNo',
+    'duration',
+    'bitrateKbps',
+    'sampleRateHz',
+    'bitDepth',
+    'channels',
+    'bpm'
+  ]) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null
   }
@@ -600,10 +636,15 @@ function normalizeTrackMetaEntry(entry) {
     next.coverExtractorVersion = Number.isFinite(value) && value > 0 ? value : null
   }
   {
+    const value = Number(entry.coverMaxDimension)
+    next.coverMaxDimension = Number.isFinite(value) && value > 0 ? value : null
+  }
+  {
     const value = Number(entry.lyricsExtractorVersion)
     next.lyricsExtractorVersion = Number.isFinite(value) && value > 0 ? value : null
   }
   next.coverChecked = entry.coverChecked === true
+  next.coverThumbnailOnly = entry.coverThumbnailOnly === true
   next.bpmChecked = entry.bpmChecked === true
   next.bpmMeasured = entry.bpmMeasured === true
   next.mqaChecked = entry.mqaChecked === true

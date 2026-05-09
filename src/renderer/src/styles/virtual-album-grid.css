@@ -1,0 +1,35 @@
+.virtual-album-grid {
+  width: 100%;
+  min-width: 0;
+  contain: layout style paint;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.virtual-album-grid--external-scroll {
+  overflow: visible;
+}
+
+.virtual-album-grid__spacer {
+  position: relative;
+  width: 100%;
+  min-height: 1px;
+}
+
+.virtual-album-grid__cell {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  will-change: transform;
+}
+
+.virtual-album-grid__cell .album-card {
+  height: 100%;
+  min-height: 0;
+}
+
+.virtual-album-grid__cell .album-cover-image,
+.virtual-album-grid__cell .album-cover-fallback {
+  min-height: 0;
+}

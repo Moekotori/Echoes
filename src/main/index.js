@@ -357,6 +357,8 @@ const AUDIO_STATUS_PAUSED_HEARTBEAT_MS = 5000
 const AUDIO_STATUS_POSITION_DELTA_SEC = 0.45
 const MAX_EMBEDDED_COVER_DIMENSION = 768
 const MAX_EMBEDDED_COVER_BYTES = 350 * 1024
+const DEFAULT_ALBUM_THUMBNAIL_DIMENSION = 320
+const MAX_ALBUM_THUMBNAIL_DIMENSION = 384
 const MAX_ARTIST_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024
 const ARTIST_AVATAR_IMAGE_FETCH_TIMEOUT_MS = 12000
 const ARTIST_AVATAR_IMAGE_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000
@@ -366,6 +368,23 @@ const coverLimiter = createLimiter(getCoverConcurrency())
 
 function runCoverTask(fn) {
   return coverLimiter(fn)
+}
+
+function getAlbumThumbnailDimension() {
+  const raw = Number(process.env.ECHO_ALBUM_THUMBNAIL_SIZE)
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(MAX_ALBUM_THUMBNAIL_DIMENSION, Math.max(160, Math.round(raw)))
+  }
+  return DEFAULT_ALBUM_THUMBNAIL_DIMENSION
+}
+
+function normalizeRequestedCoverDimension(options = {}) {
+  if (options?.coverSize === 'album-thumbnail') return getAlbumThumbnailDimension()
+  const raw = Number(options?.coverMaxDimension || options?.maxCoverDimension)
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(MAX_EMBEDDED_COVER_DIMENSION, Math.max(160, Math.round(raw)))
+  }
+  return MAX_EMBEDDED_COVER_DIMENSION
 }
 
 function stopLyricsDesktopMainSyncTimer() {
@@ -521,13 +540,14 @@ async function fetchImageDataUrl(url) {
   return await task
 }
 
-function compressEmbeddedCoverData(picture) {
+function compressEmbeddedCoverData(picture, options = {}) {
   const normalizedPicture = normalizeEmbeddedCoverPicture(picture)
   if (!normalizedPicture) {
     return { dataUrl: null, bytes: 0, width: 0, height: 0, nativeImageEmpty: false }
   }
 
   try {
+    const maxCoverDimension = normalizeRequestedCoverDimension(options)
     const originalBuffer = normalizedPicture.buffer
     const originalMime = normalizedPicture.mime
     let image = nativeImage.createFromBuffer(originalBuffer)
@@ -542,10 +562,10 @@ function compressEmbeddedCoverData(picture) {
     }
 
     let { width, height } = image.getSize()
-    if (width > MAX_EMBEDDED_COVER_DIMENSION || height > MAX_EMBEDDED_COVER_DIMENSION) {
+    if (width > maxCoverDimension || height > maxCoverDimension) {
       const scale = Math.min(
-        MAX_EMBEDDED_COVER_DIMENSION / Math.max(1, width),
-        MAX_EMBEDDED_COVER_DIMENSION / Math.max(1, height)
+        maxCoverDimension / Math.max(1, width),
+        maxCoverDimension / Math.max(1, height)
       )
       image = image.resize({
         width: Math.max(1, Math.round(width * scale)),
@@ -5153,15 +5173,18 @@ app.whenReady().then(async () => {
   })
 
   function normalizeExtendedMetadataOptions(options = null) {
-    const mode = options?.mode === 'visible-row' ? 'visible-row' : 'full'
-    const isVisibleRowMode = mode === 'visible-row'
+    const mode =
+      options?.mode === 'visible-row' || options?.mode === 'album-wall' ? options.mode : 'full'
+    const isLightweightMode = mode === 'visible-row' || mode === 'album-wall'
     return {
       mode,
       includeCover: options?.includeCover !== false,
-      includeTechnicalProbe: isVisibleRowMode ? false : options?.includeTechnicalProbe !== false,
-      includeLyrics: isVisibleRowMode ? false : options?.includeLyrics !== false,
-      includeBpm: isVisibleRowMode ? false : options?.includeBpm !== false,
-      includeMqa: isVisibleRowMode ? false : options?.includeMqa !== false
+      includeTechnicalProbe: isLightweightMode ? false : options?.includeTechnicalProbe !== false,
+      includeLyrics: isLightweightMode ? false : options?.includeLyrics !== false,
+      includeBpm: isLightweightMode ? false : options?.includeBpm !== false,
+      includeMqa: isLightweightMode ? false : options?.includeMqa !== false,
+      coverSize: options?.coverSize === 'album-thumbnail' ? 'album-thumbnail' : '',
+      coverMaxDimension: normalizeRequestedCoverDimension(options || {})
     }
   }
 
@@ -5213,7 +5236,9 @@ app.whenReady().then(async () => {
     let coverBytes = 0
     if (requestOptions.includeCover) {
       const compressedMusicMetadataCover = musicMetadataResult?.picture
-        ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataResult.picture))
+        ? await runCoverTask(() =>
+            compressEmbeddedCoverData(musicMetadataResult.picture, requestOptions)
+          )
         : null
       logEmbeddedCoverDebug('local artwork extraction attempt', {
         ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
@@ -5232,10 +5257,16 @@ app.whenReady().then(async () => {
         const jsmediatagsPicture = jsmediatagsCover?.picture || null
         const compressedJsmediatagsCover = jsmediatagsPicture
           ? await runCoverTask(() =>
-              compressEmbeddedCoverData({
-                data: jsmediatagsPicture.data,
-                format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
-              })
+              compressEmbeddedCoverData(
+                {
+                  data: jsmediatagsPicture.data,
+                  format:
+                    jsmediatagsPicture.format ||
+                    jsmediatagsPicture.type ||
+                    jsmediatagsPicture.mimeType
+                },
+                requestOptions
+              )
             )
           : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5269,7 +5300,11 @@ app.whenReady().then(async () => {
         }
       }
       if (!cover) {
-        cover = await runCoverTask(() => findInfoSidecarCoverDataUrl(filePath, infoSidecar))
+        cover = await runCoverTask(() =>
+          findInfoSidecarCoverDataUrl(filePath, infoSidecar, {
+            maxDimension: requestOptions.coverMaxDimension
+          })
+        )
         coverScope = cover ? 'track' : 'album'
         coverSource = cover ? 'sidecar' : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5282,7 +5317,12 @@ app.whenReady().then(async () => {
       }
     }
     if (requestOptions.includeCover && !cover) {
-      cover = await runCoverTask(() => findFolderCoverDataUrl(filePath, { albumName: rawAlbum }))
+      cover = await runCoverTask(() =>
+        findFolderCoverDataUrl(filePath, {
+          albumName: rawAlbum,
+          maxDimension: requestOptions.coverMaxDimension
+        })
+      )
       coverScope = 'album'
       coverSource = cover ? 'folder' : null
       logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5337,7 +5377,9 @@ app.whenReady().then(async () => {
           : null,
         coverBytes,
         coverWidth: 0,
-        coverHeight: 0
+        coverHeight: 0,
+        coverThumbnailOnly: requestOptions.coverSize === 'album-thumbnail',
+        coverMaxDimension: requestOptions.coverMaxDimension
       }
     }
   }
@@ -5645,7 +5687,7 @@ app.whenReady().then(async () => {
           /ogg/i.test(metadata.format?.container || ''))
       if (requestOptions.includeCover) {
         const compressedCover = musicMetadataPicture
-          ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataPicture))
+          ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataPicture, requestOptions))
           : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
@@ -5679,10 +5721,16 @@ app.whenReady().then(async () => {
         jsmediatagsPictureFound = Boolean(jsmediatagsPicture?.data)
         if (jsmediatagsPicture) {
           const compressedCover = await runCoverTask(() =>
-            compressEmbeddedCoverData({
-              data: jsmediatagsPicture.data,
-              format: jsmediatagsPicture.format || jsmediatagsPicture.type || jsmediatagsPicture.mimeType
-            })
+            compressEmbeddedCoverData(
+              {
+                data: jsmediatagsPicture.data,
+                format:
+                  jsmediatagsPicture.format ||
+                  jsmediatagsPicture.type ||
+                  jsmediatagsPicture.mimeType
+              },
+              requestOptions
+            )
           )
           logEmbeddedCoverDebug('local artwork extraction attempt', {
             ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
@@ -5739,7 +5787,9 @@ app.whenReady().then(async () => {
         }
       }
       if (requestOptions.includeCover && !cover && preferFfmpegCover) {
-        const extractedCover = await runCoverTask(() => extractAttachedCoverWithFfmpeg(filePath))
+        const extractedCover = await runCoverTask(() =>
+          extractAttachedCoverWithFfmpeg(filePath, requestOptions)
+        )
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'ffmpeg-attached-cover'),
           embeddedPictureFound: Boolean(extractedCover?.dataUrl),
@@ -5758,7 +5808,11 @@ app.whenReady().then(async () => {
         }
       }
       if (requestOptions.includeCover && !cover) {
-        cover = await runCoverTask(() => findInfoSidecarCoverDataUrl(filePath, infoSidecar))
+        cover = await runCoverTask(() =>
+          findInfoSidecarCoverDataUrl(filePath, infoSidecar, {
+            maxDimension: requestOptions.coverMaxDimension
+          })
+        )
         coverScope = cover ? 'track' : 'album'
         coverSource = cover ? 'sidecar' : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
@@ -5770,7 +5824,10 @@ app.whenReady().then(async () => {
         })
         if (!cover) {
           cover = await runCoverTask(() =>
-            findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
+            findFolderCoverDataUrl(filePath, {
+              albumName: rawAlbumForCover,
+              maxDimension: requestOptions.coverMaxDimension
+            })
           )
           coverScope = 'album'
           coverSource = cover ? 'folder' : null
@@ -5919,7 +5976,9 @@ app.whenReady().then(async () => {
           coverExtractorVersion,
           coverBytes,
           coverWidth,
-          coverHeight
+          coverHeight,
+          coverThumbnailOnly: requestOptions.coverSize === 'album-thumbnail',
+          coverMaxDimension: requestOptions.coverMaxDimension
         }
       }
     } catch (e) {
@@ -5994,7 +6053,7 @@ app.whenReady().then(async () => {
     })
   }
 
-  async function extractAttachedCoverWithFfmpeg(filePath) {
+  async function extractAttachedCoverWithFfmpeg(filePath, options = {}) {
     const tempPath = resolve(app.getPath('temp'), `echo-attached-cover-${process.pid}-${Date.now()}.jpg`)
     try {
       await runFfmpegCommand([
@@ -6015,7 +6074,7 @@ app.whenReady().then(async () => {
       if (!fs.existsSync(tempPath)) return null
       const data = fs.readFileSync(tempPath)
       if (!data.length) return null
-      return compressEmbeddedCoverData({ data, format: 'image/jpeg' })
+      return compressEmbeddedCoverData({ data, format: 'image/jpeg' }, options)
     } catch {
       return null
     } finally {
