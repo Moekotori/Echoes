@@ -264,6 +264,7 @@ import {
   createPlaybackClockAnchor,
   estimatePlaybackClockPosition
 } from '../../shared/playbackClock.mjs'
+import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../shared/embeddedCoverVersion.mjs'
 import { EMBEDDED_LYRICS_EXTRACTOR_VERSION } from '../../shared/embeddedLyricsVersion.mjs'
 import { buildLyricKaraokeState } from '../../shared/lyricsKaraoke.mjs'
 import { getPlaybackSequencePath, resolvePlaybackSequence } from '../../shared/playbackSequence.mjs'
@@ -289,6 +290,7 @@ import {
   createArtistAvatarCacheKey,
   buildTrackMetadataPrefetchPlan,
   buildVisibleRowMetadataRequestOptions,
+  hasCurrentEmbeddedCoverCheck,
   readAlbumCoverCache,
   readArtistAvatarCache,
   readTrackMetaCache,
@@ -8053,13 +8055,14 @@ export default function App() {
       /\.(opus|ogg)$/i.test(filePath) &&
       entry?.coverChecked &&
       typeof entry?.cover === 'string' &&
-      entry.coverExtractorVersion !== 2
+      Number(entry.coverExtractorVersion) !== EMBEDDED_COVER_EXTRACTOR_VERSION
     const hasCurrentEmbeddedLyricsExtraction = (entry) =>
       entry?.lyricsExtractorVersion === EMBEDDED_LYRICS_EXTRACTOR_VERSION
 
     const isCompleteCachedMeta = (entry) =>
       !!(
         entry?.coverChecked &&
+        hasCurrentEmbeddedCoverCheck(entry) &&
         (configRef.current?.autoDetectBpm !== true ||
           (entry?.bpmChecked && entry?.bpmDetectorVersion === BPM_DETECTOR_VERSION)) &&
         entry?.mqaChecked &&
@@ -8366,7 +8369,8 @@ export default function App() {
             discNo: common.discNo ?? null,
             cover: resolvedCover,
             coverScope: common.coverScope || cachedMeta?.coverScope || null,
-            coverExtractorVersion: common.coverExtractorVersion ?? null,
+            coverExtractorVersion:
+              common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
             duration: technical.duration || null,
@@ -15466,8 +15470,11 @@ export default function App() {
     const isVisibleRowHydrateRequirementFullyProbed = (track, requirement) => {
       const path = track?.path
       if (!path || requirement?.source !== 'visible-row') return false
+      const latestEntry = trackMetaMapRef.current?.[path] || trackMetaMap[path] || null
       const coverDone =
-        requirement.needsCover !== true || visibleRowCoverProbePathsRef.current.has(path)
+        requirement.needsCover !== true ||
+        (visibleRowCoverProbePathsRef.current.has(path) &&
+          hasCurrentEmbeddedCoverCheck(latestEntry))
       const artistDone =
         requirement.needsArtist !== true || visibleRowArtistProbePathsRef.current.has(path)
       return coverDone && artistDone
@@ -15530,6 +15537,7 @@ export default function App() {
       const shouldProbeMissingCover =
         entry?.coverChecked === true &&
         !entry?.cover &&
+        !hasCurrentEmbeddedCoverCheck(entry) &&
         entry?.coverMemoryTrimmed !== true &&
         !albumCoverProbePathsRef.current.has(track.path)
       const shouldProbeMissingArtist =
@@ -15562,6 +15570,8 @@ export default function App() {
       cover: null,
       duration: null,
       coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
+      lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
       bpmChecked: true,
       bpmMeasured: true,
       mqaChecked: true,
@@ -15651,7 +15661,11 @@ export default function App() {
         ) {
           return true
         }
-        return !cachedMeta.cover && !albumCoverProbePathsRef.current.has(track.path)
+        return (
+          !cachedMeta.cover &&
+          !hasCurrentEmbeddedCoverCheck(cachedMeta) &&
+          !albumCoverProbePathsRef.current.has(track.path)
+        )
       })
       const uncachedPending = metadataPrefetchParseReady
         ? allUncachedPending
@@ -15743,6 +15757,14 @@ export default function App() {
                 discNo: common.discNo ?? null,
                 cover: common.cover || cachedMeta.cover || null,
                 coverScope: common.coverScope || cachedMeta.coverScope || null,
+                coverExtractorVersion:
+                  common.coverExtractorVersion ??
+                  cachedMeta.coverExtractorVersion ??
+                  EMBEDDED_COVER_EXTRACTOR_VERSION,
+                lyricsExtractorVersion:
+                  common.lyricsExtractorVersion ??
+                  cachedMeta.lyricsExtractorVersion ??
+                  EMBEDDED_LYRICS_EXTRACTOR_VERSION,
                 duration: technical.duration || cachedMeta.duration || null,
                 coverChecked: true,
                 bpmChecked: true,
@@ -15938,7 +15960,7 @@ export default function App() {
           const needsCoverProbe = target.needsCover && !knownEntry?.cover
           const needsArtistProbe = target.needsArtist && !knownHasUsefulArtist
           if (
-            knownEntry?.coverChecked === true &&
+            hasCurrentEmbeddedCoverCheck(knownEntry) &&
             (!needsCoverProbe || coverAlreadyProbed) &&
             (!needsArtistProbe || artistAlreadyProbed)
           ) {

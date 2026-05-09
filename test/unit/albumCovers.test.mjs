@@ -204,18 +204,23 @@ test('track artwork sources do not share generic Music tracks in the same folder
   )
 })
 
-test('visible-row hydrate skips cover parsing when album fallback is available', () => {
+test('visible-row hydrate still probes own cover when album fallback is available', () => {
   const tracks = [
     makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/first', 'Known Artist'),
     makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
   ]
 
-  assert.equal(
+  assert.deepEqual(
     buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
       isLocalTrack: () => true,
       albumTracks: tracks
     }),
-    null
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
   )
 })
 
@@ -275,7 +280,7 @@ test('visible-row hydrate still parses unknown artist when album fallback is ava
       albumTracks: tracks
     }),
     {
-      needsCover: false,
+      needsCover: true,
       needsArtist: true,
       needsAlbum: false,
       source: 'visible-row'

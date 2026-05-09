@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../src/shared/embeddedCoverVersion.mjs'
 import {
   buildAlbumCoverCacheEntries,
   buildPersistableAlbumCoverCacheItems,
@@ -101,7 +102,7 @@ test('cover trim strips only cover fields from track metadata', () => {
     cover: 'data:image/cover',
     coverChecked: true,
     coverScope: 'track',
-    coverExtractorVersion: 2,
+    coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
     coverMemoryTrimmed: true
   })
 
@@ -170,7 +171,7 @@ test('mergeTrackMetaEntryPreservingCover keeps an existing fetched cover', () =>
       title: 'Old title',
       cover: 'https://example.test/cover.jpg',
       coverChecked: true,
-      coverExtractorVersion: 2
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
     },
     {
       title: 'Parsed title',
@@ -184,7 +185,7 @@ test('mergeTrackMetaEntryPreservingCover keeps an existing fetched cover', () =>
   assert.equal(merged.artist, 'Parsed artist')
   assert.equal(merged.cover, 'https://example.test/cover.jpg')
   assert.equal(merged.coverChecked, true)
-  assert.equal(merged.coverExtractorVersion, 2)
+  assert.equal(merged.coverExtractorVersion, EMBEDDED_COVER_EXTRACTOR_VERSION)
 })
 
 test('mergeTrackMetaEntryPreservingCover keeps fetched cover when BPM result writes back', () => {
@@ -325,14 +326,47 @@ test('metadata hydrate requirement only checks requested fields', () => {
   )
 })
 
-test('visible-row hydrate requirement rejects cached metadata missing requested cover', () => {
+test('visible-row hydrate requirement rejects stale cached metadata missing requested cover', () => {
   assert.equal(
     satisfiesMetadataHydrateRequirement(
       {
         artist: 'Known Artist',
-        cover: null
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION - 1
       },
       { needsCover: true, needsArtist: false, needsAlbum: false, source: 'visible-row' }
+    ),
+    false
+  )
+})
+
+test('visible-row hydrate requirement accepts current checked no-cover metadata', () => {
+  assert.equal(
+    satisfiesMetadataHydrateRequirement(
+      {
+        artist: 'Known Artist',
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      },
+      { needsCover: true, needsArtist: false, needsAlbum: false, source: 'visible-row' }
+    ),
+    true
+  )
+})
+
+test('visible-row hydrate requirement still rejects current no-cover metadata with unknown artist', () => {
+  assert.equal(
+    satisfiesMetadataHydrateRequirement(
+      {
+        artist: 'Unknown Artist',
+        albumArtist: '',
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      },
+      { needsCover: true, needsArtist: true, needsAlbum: false, source: 'visible-row' }
     ),
     false
   )
@@ -439,7 +473,35 @@ test('visible-row hydrate requirement ignores album probe guards for missing UI 
   )
 })
 
-test('visible-row hydrate requirement accepts strict album fallback cover', () => {
+test('visible-row hydrate requirement probes own cover when strict album fallback exists', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      album: 'Shared Album',
+      albumArtist: 'Known Artist',
+      artist: 'Known Artist',
+      cover: ''
+    }
+  }
+  const albumKey = getTrackAlbumGroupKey(track)
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(track, {}, {
+      isLocalTrack: () => true,
+      albumCoverMap: {
+        [albumKey]: 'data:image/album-cover'
+      }
+    }),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
+})
+
+test('visible-row hydrate requirement skips current checked no-cover entries despite album fallback', () => {
   const track = {
     path: 'D:/Music/Album/01.flac',
     info: {
@@ -452,13 +514,93 @@ test('visible-row hydrate requirement accepts strict album fallback cover', () =
   const albumKey = getTrackAlbumGroupKey(track)
 
   assert.equal(
-    buildVisibleTrackMetaHydrateRequirement(track, {}, {
-      isLocalTrack: () => true,
-      albumCoverMap: {
-        [albumKey]: 'data:image/album-cover'
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      },
+      {
+        isLocalTrack: () => true,
+        albumCoverMap: {
+          [albumKey]: 'data:image/album-cover'
+        }
       }
-    }),
+    ),
     null
+  )
+})
+
+test('visible-row hydrate requirement skips tracks with their own entry cover', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      album: 'Shared Album',
+      albumArtist: 'Known Artist',
+      artist: 'Known Artist',
+      cover: ''
+    }
+  }
+
+  assert.equal(
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {
+        cover: 'data:image/own-cover',
+        coverChecked: true,
+        coverExtractorVersion: 1
+      },
+      { isLocalTrack: () => true }
+    ),
+    null
+  )
+})
+
+test('visible-row hydrate requirement retries stale checked no-cover entries', () => {
+  const track = {
+    path: 'D:/Music/Album/01.flac',
+    info: {
+      album: 'Shared Album',
+      albumArtist: 'Known Artist',
+      artist: 'Known Artist',
+      cover: ''
+    }
+  }
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {
+        cover: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION - 1
+      },
+      { isLocalTrack: () => true }
+    ),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
+  )
+
+  assert.deepEqual(
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {
+        cover: null,
+        coverChecked: true
+      },
+      { isLocalTrack: () => true }
+    ),
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
+    }
   )
 })
 

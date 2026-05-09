@@ -1,4 +1,5 @@
-import { buildTrackArtworkSources, getTrackAlbumGroupKey } from './trackUtils.js'
+import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../../shared/embeddedCoverVersion.mjs'
+import { getTrackAlbumGroupKey } from './trackUtils.js'
 
 const DB_NAME = 'echo-track-meta-cache'
 const DB_VERSION = 4
@@ -116,7 +117,11 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   const needsAlbum = requirement?.needsAlbum === true
   if (!needsCover && !needsArtist && !needsAlbum) return true
   if (!entry || typeof entry !== 'object') return false
-  if (needsCover && !entry.cover) return false
+  if (needsCover && !entry.cover) {
+    const coverSatisfiedByCurrentNoCover =
+      requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
+    if (!coverSatisfiedByCurrentNoCover) return false
+  }
   if (
     needsArtist &&
     isUnknownMetadataArtistName(entry.albumArtist) &&
@@ -130,15 +135,23 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
 
 export const satisfiesAlbumWallHydrateRequirement = satisfiesMetadataHydrateRequirement
 
-function hasVisibleRowCover(track, entry = null, options = {}) {
-  if (entry?.cover || track?.info?.cover || track?.cover) return true
+function hasOwnTrackCover(track, entry = null, options = {}) {
+  const path = track?.path || ''
+  const ownCoverSources = [
+    path ? options.effectiveTrackMetaMap?.[path]?.cover : '',
+    path ? options.trackMetaMap?.[path]?.cover : '',
+    entry?.cover,
+    track?.info?.cover,
+    track?.cover
+  ]
+  return ownCoverSources.some((source) => typeof source === 'string' && source.trim())
+}
+
+export function hasCurrentEmbeddedCoverCheck(entry = null) {
+  if (entry?.cover) return true
   return (
-    buildTrackArtworkSources(track, {
-      trackMetaMap: options.trackMetaMap,
-      effectiveTrackMetaMap: options.effectiveTrackMetaMap,
-      albumCoverMap: options.albumCoverMap,
-      albumTracks: options.albumTracks
-    }).length > 0
+    entry?.coverChecked === true &&
+    Number(entry?.coverExtractorVersion) === EMBEDDED_COVER_EXTRACTOR_VERSION
   )
 }
 
@@ -167,13 +180,13 @@ export function buildVisibleTrackMetaHydrateRequirement(
   if (!track?.path) return null
   if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) return null
 
-  const needsCover =
-    !hasVisibleRowCover(track, entry, {
-      trackMetaMap,
-      effectiveTrackMetaMap,
-      albumCoverMap,
-      albumTracks
-    })
+  const hasOwnCover = hasOwnTrackCover(track, entry, {
+    trackMetaMap,
+    effectiveTrackMetaMap,
+    albumCoverMap,
+    albumTracks
+  })
+  const needsCover = !hasOwnCover && !hasCurrentEmbeddedCoverCheck(entry)
   const needsArtist = !hasVisibleRowArtist(track, entry)
   if (!needsCover && !needsArtist) return null
 

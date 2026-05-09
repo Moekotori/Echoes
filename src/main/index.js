@@ -141,6 +141,11 @@ import {
 } from './utils/ffmpegProbeAudioInfo.js'
 import { detectBpm } from './utils/detectBpm.js'
 import {
+  buildJsmediatagsPictureDataUrl,
+  normalizeEmbeddedCoverMime,
+  normalizeEmbeddedCoverPicture
+} from './utils/embeddedCover.js'
+import {
   EMBEDDED_LYRICS_EXTRACTOR_VERSION,
   extractEmbeddedLyricsText
 } from './utils/embeddedLyrics.js'
@@ -152,6 +157,7 @@ import {
 import { readWavInfoTags } from './utils/wavInfoTags.js'
 import { getResolvedFfmpegStaticPath } from './utils/resolveFfmpegStaticPath.js'
 import { getCueAudioPath, getCueDuration, parseCueVirtualPath } from '../shared/cueTracks.mjs'
+import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../shared/embeddedCoverVersion.mjs'
 import { repairPossiblyMojibakeSearchQuery } from './utils/mojibakeRepair.js'
 import { parseBilibiliSearchHtml } from './utils/bilibiliSearchHtml.js'
 import { logLine as writeLogLine } from './utils/logLine.js'
@@ -508,20 +514,22 @@ async function fetchImageDataUrl(url) {
 }
 
 function compressEmbeddedCoverData(picture) {
-  if (!picture?.data) {
-    return { dataUrl: null, bytes: 0, width: 0, height: 0 }
+  const normalizedPicture = normalizeEmbeddedCoverPicture(picture)
+  if (!normalizedPicture) {
+    return { dataUrl: null, bytes: 0, width: 0, height: 0, nativeImageEmpty: false }
   }
 
   try {
-    const originalBuffer = Buffer.isBuffer(picture.data) ? picture.data : Buffer.from(picture.data)
-    const originalMime = picture.format?.includes('/') ? picture.format : `image/${picture.format || 'jpeg'}`
+    const originalBuffer = normalizedPicture.buffer
+    const originalMime = normalizedPicture.mime
     let image = nativeImage.createFromBuffer(originalBuffer)
     if (image.isEmpty()) {
       return {
         dataUrl: `data:${originalMime};base64,${originalBuffer.toString('base64')}`,
         bytes: originalBuffer.length,
         width: 0,
-        height: 0
+        height: 0,
+        nativeImageEmpty: true
       }
     }
 
@@ -562,22 +570,59 @@ function compressEmbeddedCoverData(picture) {
       dataUrl: `data:image/jpeg;base64,${encoded.toString('base64')}`,
       bytes: encoded.length,
       width,
-      height
+      height,
+      nativeImageEmpty: false
     }
   } catch {
     try {
-      const fallbackBuffer = Buffer.isBuffer(picture.data) ? picture.data : Buffer.from(picture.data)
-      const fallbackMime = picture.format?.includes('/') ? picture.format : `image/${picture.format || 'jpeg'}`
+      const fallbackBuffer = normalizedPicture.buffer
+      const fallbackMime = normalizedPicture.mime
       return {
         dataUrl: `data:${fallbackMime};base64,${fallbackBuffer.toString('base64')}`,
         bytes: fallbackBuffer.length,
         width: 0,
-        height: 0
+        height: 0,
+        nativeImageEmpty: true
       }
     } catch {
-      return { dataUrl: null, bytes: 0, width: 0, height: 0 }
+      return { dataUrl: null, bytes: 0, width: 0, height: 0, nativeImageEmpty: false }
     }
   }
+}
+
+function logEmbeddedCoverDebug(message, details = {}) {
+  console.debug('[embedded-cover]', message, details)
+}
+
+function logEmbeddedCoverWarn(message, details = {}) {
+  console.warn('[embedded-cover]', message, details)
+}
+
+function isJsmediatagsCoverFallbackPath(filePath) {
+  return /\.(?:mp3|mp2|mpga)(?:#|$)/i.test(String(filePath || ''))
+}
+
+async function readJsmediatagsPicture(filePath) {
+  if (!isJsmediatagsCoverFallbackPath(filePath)) return null
+
+  return await new Promise((resolve) => {
+    let jsmediatags = null
+    try {
+      jsmediatags = require('jsmediatags')
+    } catch (error) {
+      resolve({ picture: null, error: error?.message || String(error || '') })
+      return
+    }
+
+    try {
+      jsmediatags.read(filePath, {
+        onSuccess: (tag) => resolve({ picture: tag?.tags?.picture || null, error: '' }),
+        onError: (error) => resolve({ picture: null, error: error?.info || error?.message || String(error || '') })
+      })
+    } catch (error) {
+      resolve({ picture: null, error: error?.message || String(error || '') })
+    }
+  })
 }
 
 function applyLyricsDesktopLockState(isLocked) {
@@ -5126,11 +5171,65 @@ app.whenReady().then(async () => {
       filenameIdentity.title,
       baseTitle
     )
-    let cover = requestOptions.includeCover ? findInfoSidecarCoverDataUrl(filePath, infoSidecar) : null
-    let coverScope = cover ? 'track' : 'album'
+    let cover = null
+    let coverScope = 'album'
+    let coverBytes = 0
+    if (requestOptions.includeCover) {
+      const jsmediatagsCover = await readJsmediatagsPicture(filePath)
+      const jsmediatagsPicture = jsmediatagsCover?.picture || null
+      const compressedJsmediatagsCover = jsmediatagsPicture
+        ? compressEmbeddedCoverData({
+            data: jsmediatagsPicture.data,
+            format: jsmediatagsPicture.format
+          })
+        : null
+      if (compressedJsmediatagsCover?.dataUrl) {
+        cover = compressedJsmediatagsCover.dataUrl
+        coverScope = 'track'
+        coverBytes = compressedJsmediatagsCover.bytes
+        logEmbeddedCoverDebug('music-metadata fallback recovered ID3 artwork', {
+          ext: ext.toLowerCase(),
+          musicMetadataPictures: 0,
+          jsmediatagsPicture: true,
+          nativeImageEmpty: compressedJsmediatagsCover.nativeImageEmpty === true,
+          coverChecked: true,
+          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        })
+      } else if (jsmediatagsPicture) {
+        logEmbeddedCoverWarn('jsmediatags picture could not be converted during metadata fallback', {
+          ext: ext.toLowerCase(),
+          musicMetadataPictures: 0,
+          jsmediatagsPicture: true,
+          nativeImageEmpty: false,
+          coverChecked: true,
+          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        })
+      } else if (jsmediatagsCover?.error) {
+        logEmbeddedCoverWarn('jsmediatags fallback failed during metadata fallback', {
+          ext: ext.toLowerCase(),
+          error: jsmediatagsCover.error,
+          coverChecked: true,
+          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        })
+      }
+      if (!cover) {
+        cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
+        coverScope = cover ? 'track' : 'album'
+      }
+    }
     if (requestOptions.includeCover && !cover) {
       cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbum })
       coverScope = 'album'
+    }
+    if (requestOptions.includeCover && !cover) {
+      logEmbeddedCoverDebug('no cover found during metadata fallback', {
+        ext: ext.toLowerCase(),
+        musicMetadataPictures: 0,
+        jsmediatagsPicture: false,
+        nativeImageEmpty: null,
+        coverChecked: true,
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+      })
     }
     return {
       success: true,
@@ -5158,7 +5257,13 @@ app.whenReady().then(async () => {
         lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
         cover,
         coverScope,
-        coverExtractorVersion: cover ? 1 : 0
+        coverChecked: requestOptions.includeCover === true,
+        coverExtractorVersion: requestOptions.includeCover
+          ? EMBEDDED_COVER_EXTRACTOR_VERSION
+          : null,
+        coverBytes,
+        coverWidth: 0,
+        coverHeight: 0
       }
     }
   }
@@ -5433,11 +5538,19 @@ app.whenReady().then(async () => {
         ffmpegInfo?.tags?.album
       )
 
+      const musicMetadataPictureCount =
+        requestOptions.includeCover && Array.isArray(metadata.common.picture)
+          ? metadata.common.picture.length
+          : 0
       const picture = requestOptions.includeCover ? selectCover(metadata.common.picture) : null
       let coverBytes = 0
       let coverWidth = 0
       let coverHeight = 0
-      let coverExtractorVersion = 0
+      let coverNativeImageEmpty = false
+      let jsmediatagsPictureFound = false
+      let coverExtractorVersion = requestOptions.includeCover
+        ? EMBEDDED_COVER_EXTRACTOR_VERSION
+        : null
       const preferFfmpegCover =
         requestOptions.includeCover &&
         shouldRunTechnicalProbe &&
@@ -5451,25 +5564,98 @@ app.whenReady().then(async () => {
           coverBytes = extractedCover.bytes
           coverWidth = extractedCover.width
           coverHeight = extractedCover.height
-          coverExtractorVersion = 2
+          coverNativeImageEmpty = extractedCover.nativeImageEmpty === true
         }
       }
       if (picture) {
         const compressedCover = cover ? null : compressEmbeddedCoverData(picture)
-        if (compressedCover) {
+        if (compressedCover?.dataUrl) {
           cover = compressedCover.dataUrl
           coverScope = 'album'
           coverBytes = compressedCover.bytes
           coverWidth = compressedCover.width
           coverHeight = compressedCover.height
-          coverExtractorVersion = 1
+          coverNativeImageEmpty = compressedCover.nativeImageEmpty === true
+        } else if (!cover) {
+          logEmbeddedCoverWarn('music-metadata picture could not be converted', {
+            ext: extLower,
+            musicMetadataPictures: musicMetadataPictureCount,
+            jsmediatagsPicture: false,
+            nativeImageEmpty: false,
+            coverChecked: true,
+            coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+          })
+        }
+      }
+      if (requestOptions.includeCover && !cover) {
+        const jsmediatagsCover = await readJsmediatagsPicture(filePath)
+        const jsmediatagsPicture = jsmediatagsCover?.picture || null
+        jsmediatagsPictureFound = Boolean(jsmediatagsPicture?.data)
+        if (jsmediatagsPicture) {
+          const compressedCover = compressEmbeddedCoverData({
+            data: jsmediatagsPicture.data,
+            format: jsmediatagsPicture.format
+          })
+          if (compressedCover?.dataUrl) {
+            cover = compressedCover.dataUrl
+            coverScope = 'album'
+            coverBytes = compressedCover.bytes
+            coverWidth = compressedCover.width
+            coverHeight = compressedCover.height
+            coverNativeImageEmpty = compressedCover.nativeImageEmpty === true
+            logEmbeddedCoverDebug('jsmediatags fallback recovered ID3 artwork', {
+              ext: extLower,
+              musicMetadataPictures: musicMetadataPictureCount,
+              jsmediatagsPicture: true,
+              nativeImageEmpty: coverNativeImageEmpty,
+              coverChecked: true,
+              coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+            })
+          } else {
+            logEmbeddedCoverWarn('jsmediatags picture could not be converted', {
+              ext: extLower,
+              musicMetadataPictures: musicMetadataPictureCount,
+              jsmediatagsPicture: true,
+              nativeImageEmpty: false,
+              coverChecked: true,
+              coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+            })
+          }
+        } else if (jsmediatagsCover?.error) {
+          logEmbeddedCoverWarn('jsmediatags fallback failed', {
+            ext: extLower,
+            musicMetadataPictures: musicMetadataPictureCount,
+            jsmediatagsPicture: false,
+            error: jsmediatagsCover.error,
+            coverChecked: true,
+            coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+          })
         }
       }
       if (requestOptions.includeCover && !cover) {
         cover = findInfoSidecarCoverDataUrl(filePath, infoSidecar)
         coverScope = cover ? 'track' : 'album'
         if (!cover) cover = findFolderCoverDataUrl(filePath, { albumName: rawAlbumForCover })
-        coverExtractorVersion = cover ? 1 : 0
+      }
+      if (requestOptions.includeCover && coverNativeImageEmpty) {
+        logEmbeddedCoverWarn('nativeImage could not decode embedded cover; keeping raw data URL', {
+          ext: extLower,
+          musicMetadataPictures: musicMetadataPictureCount,
+          jsmediatagsPicture: jsmediatagsPictureFound,
+          nativeImageEmpty: true,
+          coverChecked: true,
+          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        })
+      }
+      if (requestOptions.includeCover && !cover) {
+        logEmbeddedCoverDebug('no embedded cover found', {
+          ext: extLower,
+          musicMetadataPictures: musicMetadataPictureCount,
+          jsmediatagsPicture: jsmediatagsPictureFound,
+          nativeImageEmpty: false,
+          coverChecked: true,
+          coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        })
       }
 
       const codecLabel = shouldRunTechnicalProbe
@@ -5580,6 +5766,7 @@ app.whenReady().then(async () => {
           lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
           cover,
           coverScope,
+          coverChecked: requestOptions.includeCover === true,
           coverExtractorVersion,
           coverBytes,
           coverWidth,
@@ -5652,15 +5839,10 @@ app.whenReady().then(async () => {
   }
 
   function createPictureDataUrl(picture) {
-    if (!picture?.data) return null
-    try {
-      const buffer = Buffer.isBuffer(picture.data) ? picture.data : Buffer.from(picture.data)
-      if (!buffer.length) return null
-      const mime = picture.format?.includes('/') ? picture.format : `image/${picture.format || 'jpeg'}`
-      return `data:${mime};base64,${buffer.toString('base64')}`
-    } catch {
-      return null
-    }
+    return buildJsmediatagsPictureDataUrl({
+      data: picture?.data,
+      format: normalizeEmbeddedCoverMime(picture?.format)
+    })
   }
 
   async function extractAttachedCoverWithFfmpeg(filePath) {
@@ -6071,7 +6253,8 @@ app.whenReady().then(async () => {
             bpm: null,
             lyrics: null,
             cover: info.cover || null,
-            coverExtractorVersion: info.cover ? 1 : 0,
+            coverChecked: Boolean(info.cover),
+            coverExtractorVersion: info.cover ? EMBEDDED_COVER_EXTRACTOR_VERSION : null,
             coverBytes: 0,
             coverWidth: 0,
             coverHeight: 0
