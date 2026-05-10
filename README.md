@@ -2,7 +2,6 @@
 <div align="center">
   <img src="./logo.png" alt="ECHO" width="150" />
 
-
   <h1>ECHO</h1>
 
   <p><strong>为本地音乐收藏设计的桌面播放器</strong></p>
@@ -10,7 +9,6 @@
   <p>
     ECHO 将高保真播放、沉浸歌词、MV、投屏、插件扩展与远程共听收束到同一个桌面工作流中。
   </p>
-
 
   <p>
     <a href="https://github.com/Moekotori/ECHO/releases/latest">Latest Release</a>
@@ -22,7 +20,6 @@
     <a href="./docs/RELEASE_CHECKLIST.md">发布检查</a>
   </p>
 
-
   <p>
     <img src="https://img.shields.io/github/package-json/v/Moekotori/ECHO?style=flat-square" alt="Version" />
     <img src="https://img.shields.io/badge/Electron-31.x-47848f?style=flat-square" alt="Electron 31" />
@@ -33,20 +30,20 @@
 
 </div>
 
----
+***
 
 ## 30 秒看懂 ECHO
 
 ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。项目覆盖 Electron 主进程、React 渲染层、原生音频宿主进程、插件沙箱、WebSocket 共听服务、跨平台打包与发布校验。它的重点不是堆功能，而是把听歌场景里经常被割裂的能力做成一条稳定的桌面端体验链路。
 
-| 方向       | 项目里的实现                                                 |
-| ---------- | ------------------------------------------------------------ |
-| 桌面端工程 | Electron 负责窗口、系统能力、IPC、更新与本地资源管理；React 负责播放器交互、曲库视图与沉浸式界面。 |
-| 音频链路   | 独立 `echo-audio-host` 承担音频输出，支持设备切换、WASAPI Exclusive Mode、实时 EQ 与异常回退。 |
-| 内容体验   | 本地曲库、歌单、收藏、播放队列、逐行/逐词歌词、MV 播放、歌词桌面悬浮窗与分享卡片导出。 |
-| 扩展能力   | 插件通过 `plugin.json` 声明权限与贡献点，可扩展音乐源、歌词源、UI 插槽与设置面板。 |
-| 协作场景   | `Listen Together` 通过独立服务实现房间式同步共听，并保留本地播放器的完整控制体验。 |
-| 发布质量   | 提供单元测试、发布校验脚本、桌面烟测文档与 Windows OTA 构建产物检查。 |
+| 方向    | 项目里的实现                                                                |
+| ----- | --------------------------------------------------------------------- |
+| 桌面端工程 | Electron 负责窗口、系统能力、IPC、更新与本地资源管理；React 负责播放器交互、曲库视图与沉浸式界面。            |
+| 音频链路  | 独立 `echo-audio-host` 承担音频输出，支持设备切换、WASAPI Exclusive Mode、实时 EQ 与异常回退。 |
+| 内容体验  | 本地曲库、歌单、收藏、播放队列、逐行/逐词歌词、MV 播放、歌词桌面悬浮窗与分享卡片导出。                         |
+| 扩展能力  | 插件通过 `plugin.json` 声明权限与贡献点，可扩展音乐源、歌词源、UI 插槽与设置面板。                    |
+| 协作场景  | `Listen Together` 通过独立服务实现房间式同步共听，并保留本地播放器的完整控制体验。                    |
+| 发布质量  | 提供单元测试、发布校验脚本、桌面烟测文档与 Windows OTA 构建产物检查。                             |
 
 ## 项目定位
 
@@ -62,29 +59,29 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 
 ## 核心功能
 
-| 模块       | 说明                                                         |
-| ---------- | ------------------------------------------------------------ |
-| 本地曲库   | 支持本地音乐导入、文件夹扫描、封面聚合、专辑视图、播放历史、收藏与自定义歌单。 |
-| HiFi 播放  | 通过原生音频宿主进程承载播放链路，支持输出设备切换、WASAPI 独占模式、播放速率控制与实时参数均衡。 |
-| 歌词体验   | 支持 LRC 歌词、逐行高亮、逐词卡拉 OK 高亮、歌词点击跳转、网易云歌词检索与日文罗马音转换。 |
-| MV 与视频  | 支持围绕当前曲目匹配 YouTube 与 Bilibili MV，可作为播放背景进入全屏沉浸模式。 |
-| 下载与导入 | 支持从 YouTube、Bilibili、SoundCloud 下载音频，并写入基础元数据与封面信息；支持网易云歌单导入。 |
-| 投屏与共听 | 支持 DLNA 投屏；提供 Listen Together 服务，用于房间式远程同步播放。 |
-| 插件系统   | 插件可扩展音乐源、歌词源、设置项和 UI 区域，并通过权限声明限制访问边界。 |
-| 主题系统   | 基于 CSS 变量实现主题能力，支持主题编辑、导入、导出与一致性检查。 |
-| 桌面集成   | 支持自动更新、Discord Rich Presence、崩溃日志查看、分享卡片导出和多语言界面。 |
+| 模块      | 说明                                                            |
+| ------- | ------------------------------------------------------------- |
+| 本地曲库    | 支持本地音乐导入、文件夹扫描、封面聚合、专辑视图、播放历史、收藏与自定义歌单。                       |
+| HiFi 播放 | 通过原生音频宿主进程承载播放链路，支持输出设备切换、WASAPI 独占模式、播放速率控制与实时参数均衡。          |
+| 歌词体验    | 支持 LRC 歌词、逐行高亮、逐词卡拉 OK 高亮、歌词点击跳转、网易云歌词检索与日文罗马音转换。             |
+| MV 与视频  | 支持围绕当前曲目匹配 YouTube 与 Bilibili MV，可作为播放背景进入全屏沉浸模式。             |
+| 下载与导入   | 支持从 YouTube、Bilibili、SoundCloud 下载音频，并写入基础元数据与封面信息；支持网易云歌单导入。 |
+| 投屏与共听   | 支持 DLNA 投屏；提供 Listen Together 服务，用于房间式远程同步播放。                 |
+| 插件系统    | 插件可扩展音乐源、歌词源、设置项和 UI 区域，并通过权限声明限制访问边界。                        |
+| 主题系统    | 基于 CSS 变量实现主题能力，支持主题编辑、导入、导出与一致性检查。                           |
+| 桌面集成    | 支持自动更新、Discord Rich Presence、崩溃日志查看、分享卡片导出和多语言界面。             |
 
 ## 技术栈
 
-| 层级       | 技术选型                                                     |
-| ---------- | ------------------------------------------------------------ |
-| 桌面运行时 | Electron 31, electron-builder, electron-updater              |
-| 前端界面   | React 18, React DOM, i18next, lucide-react                   |
-| 构建工具   | electron-vite, Vite, ESLint, Prettier                        |
-| 音频处理   | `echo-audio-host`, naudiodon, FFmpeg, music-metadata, jsmediatags |
-| 内容与网络 | axios, ws, youtube-dl-exec, NetEase Cloud Music API          |
-| 插件能力   | Node.js `vm` 沙箱、manifest 权限声明、主进程与渲染进程扩展点 |
-| 发布质量   | node:test, release verify scripts, desktop smoke checklist   |
+| 层级    | 技术选型                                                              |
+| ----- | ----------------------------------------------------------------- |
+| 桌面运行时 | Electron 31, electron-builder, electron-updater                   |
+| 前端界面  | React 18, React DOM, i18next, lucide-react                        |
+| 构建工具  | electron-vite, Vite, ESLint, Prettier                             |
+| 音频处理  | `echo-audio-host`, naudiodon, FFmpeg, music-metadata, jsmediatags |
+| 内容与网络 | axios, ws, youtube-dl-exec, NetEase Cloud Music API               |
+| 插件能力  | Node.js `vm` 沙箱、manifest 权限声明、主进程与渲染进程扩展点                         |
+| 发布质量  | node:test, release verify scripts, desktop smoke checklist        |
 
 ## 架构概览
 
@@ -111,13 +108,40 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 
 ### 环境要求
 
-| 依赖    | 版本                                                      |
-| ------- | --------------------------------------------------------- |
-| Node.js | 18 或更高                                                 |
-| npm     | 9 或更高                                                  |
-| 系统    | Windows 为主要开发与测试平台，macOS 与 Linux 提供构建脚本 |
+| 依赖      | 版本                                      |
+| ------- | --------------------------------------- |
+| Node.js | 18 或更高                                  |
+| npm     | 9 或更高                                   |
+| 系统      | Windows 为主要开发与测试平台，macOS 与 Linux 提供构建脚本 |
 
-推荐使用 Node.js 20 LTS。项目包含原生依赖，安装后会通过 `electron-builder install-app-deps` 自动处理 Electron 运行时依赖。
+推荐使用 Node.js 20 LTS。
+
+### 编译环境
+
+项目包含原生音频依赖（`node-libraop` 等），Windows 平台需要安装编译工具链：
+
+- **推荐使用 Visual Studio 2022**，安装时勾选 **"使用 C++ 的桌面开发"** 工作负载（MSVC 工具集）
+- 也可通过管理员权限运行 `npm install --global windows-build-tools` 安装基础编译工具
+
+### 安装依赖
+
+由于项目中的`@lox-audioserver/node-libraop`组件使用国外源进行`npm install`容易出现错误，推荐使用国内淘宝镜像源进行安装：
+
+```bash
+# 设置淘宝 npm 镜像源
+npm config set registry https://registry.npmmirror.com
+
+# 设置 Electron 二进制包镜像源（可选，加速下载）
+npm config set electron_mirror https://npmmirror.com/mirrors/electron/
+npm config set electron_builder_binaries_mirror https://npmmirror.com/mirrors/electron-builder-binaries/
+
+# 安装依赖
+npm install
+```
+
+> **注意**：`@lox-audioserver/node-libraop` 是可选组件，用于 AirPlay RAOP 接收器功能。如果该组件安装失败，不影响核心播放功能，仅 AirPlay 接收器相关功能不可用。
+
+项目包含原生依赖，安装后会通过 `electron-builder install-app-deps` 自动处理 Electron 运行时依赖。
 
 ### 本地运行
 
@@ -249,7 +273,6 @@ ECHO 的实现参考并使用了以下开源生态：
   </a>
 </p>
 
-
 <p>A modern, feature-rich desktop music player built with Electron and React.</p>
 
 <p>
@@ -276,17 +299,17 @@ ECHO 的实现参考并使用了以下开源生态：
 
 </div>
 
----
+***
 
----
+***
 
----
+***
 
 ## Overview
 
 ECHO is a cross-platform desktop music player focused on audio quality, extensibility, and a clean listening experience. It provides a native audio pipeline for high-fidelity local playback, an integrated lyrics system, MV playback via YouTube and Bilibili, and a plugin architecture for extending core functionality.
 
----
+***
 
 ## Feature Highlights
 
@@ -333,7 +356,7 @@ ECHO is a cross-platform desktop music player focused on audio quality, extensib
   </tr>
 </table>
 
----
+***
 
 ## Additional Features
 
@@ -348,23 +371,23 @@ ECHO is a cross-platform desktop music player focused on audio quality, extensib
 - Crash reporter with in-app log viewer
 - English, Simplified Chinese, and Japanese UI (i18n)
 
----
+***
 
----
+***
 
 ## Requirements
 
-| Dependency | Version |
-|---|---|
-| Node.js | >= 18 |
-| npm | >= 9 |
-| Electron | 31.x (managed by devDependencies) |
+| Dependency | Version                           |
+| ---------- | --------------------------------- |
+| Node.js    | >= 18                             |
+| npm        | >= 9                              |
+| Electron   | 31.x (managed by devDependencies) |
 
 > Windows is the primary development and test target. macOS and Linux builds are supported but not continuously validated.
 >
 > For the smoothest local development experience with native dependencies such as `naudiodon`, use Node.js 20 LTS.
 
----
+***
 
 ## Getting Started
 
@@ -393,7 +416,7 @@ npm run dev
 
 This launches the Electron app with hot-reload via `electron-vite`.
 
----
+***
 
 ## Building
 
@@ -425,7 +448,7 @@ npm run build:mac
 npm run build:linux
 ```
 
----
+***
 
 ## Testing
 
@@ -443,7 +466,7 @@ npm run verify:release
 
 See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the full release gate and smoke flow.
 
----
+***
 
 ## Listen Together Server
 
@@ -457,7 +480,7 @@ PORT=8787 npm start
 
 For production deployment with Nginx reverse proxy and PM2, see [`server/listen-together/DEPLOY_FROM_ZERO_ZH.md`](server/listen-together/DEPLOY_FROM_ZERO_ZH.md).
 
----
+***
 
 ## Plugin Development
 
@@ -467,7 +490,7 @@ For the full API reference and manifest specification, see [`docs/plugin-develop
 
 Example plugins are provided in [`examples/`](examples/).
 
----
+***
 
 ## Project Structure
 
@@ -491,15 +514,16 @@ docs/               # Developer documentation
 examples/           # Example plugins
 ```
 
----
+***
 
 ## Contributors
 
 Thanks to everyone who has contributed to ECHO!
 
 - [Moekotori](https://github.com/Moekotori)
+- [Tkingxiao](https://github.com/Tkingxiao)
 
----
+***
 
 ## Contributing
 
@@ -507,7 +531,7 @@ Thanks to everyone who has contributed to ECHO!
 2. Follow the existing code style (`npm run lint` and `npm run format`).
 3. Open a pull request with a clear description of the change.
 
----
+***
 
 ## Acknowledgements
 
@@ -522,3 +546,5 @@ ECHO uses the following open-source projects:
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [FFmpeg](https://ffmpeg.org/)
 - [lucide-react](https://lucide.dev/)
+- [NCMconverter](等待更新)
+
