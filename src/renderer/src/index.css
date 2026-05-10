@@ -2432,6 +2432,28 @@ body {
   padding: 0 0 2px;
 }
 
+.sidebar-list-stack--album-returning {
+  position: relative;
+}
+
+.sidebar-list-stack--album-returning .library-list-header--album-detail,
+.sidebar-list-stack--album-returning .playlist-virtual-list--album-leaving {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+}
+
+.sidebar-list-stack--album-returning .library-list-header--album-detail {
+  top: 58px;
+}
+
+.sidebar-list-stack--album-returning .playlist-virtual-list--album-leaving {
+  top: 118px;
+  max-height: calc(100% - 132px);
+  overflow: hidden;
+}
+
 .playlist-scroll-shell {
   flex: 1 1 auto;
   min-height: 0;

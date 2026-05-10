@@ -42,6 +42,14 @@ test('album visible range hydrate is delayed and deduped', () => {
 
 test('album overview return keeps scroll memory during restoration', () => {
   assert.match(appSource, /pendingAlbumOverviewRestoreRef\.current = true/)
+  assert.match(
+    appSource,
+    /const albumOverviewRestoring = listMode === 'album' && pendingAlbumOverviewRestoreRef\.current/
+  )
+  assert.match(
+    appSource,
+    /const albumOverviewDisplayActive = albumOverviewActive \|\| albumOverviewRestoring/
+  )
   assert.match(appSource, /nextScrollTop < savedScrollTop - 2/)
   assert.match(
     appSource,
@@ -50,14 +58,68 @@ test('album overview return keeps scroll memory during restoration', () => {
   assert.match(appSource, /playlistElement\.scrollTop = restoreTop/)
 })
 
+test('album detail entry does not reset scroll before the transition lands', () => {
+  const pickStart = appSource.indexOf('const handlePickAlbumFromSidebar = useCallback(')
+  const locateStart = appSource.indexOf('const handleLocateTrackAlbum = useCallback(', pickStart)
+  const backStart = appSource.indexOf('const handleBackToAlbumOverview = useCallback(', locateStart)
+  assert.ok(pickStart > 0)
+  assert.ok(locateStart > pickStart)
+  assert.ok(backStart > locateStart)
+
+  const pickSource = appSource.slice(pickStart, locateStart)
+  const locateSource = appSource.slice(locateStart, backStart)
+
+  assert.match(pickSource, /pendingAlbumDetailScrollResetRef\.current = true/)
+  assert.match(locateSource, /pendingAlbumDetailScrollResetRef\.current = true/)
+  assert.doesNotMatch(pickSource, /resetSidebarPlaylistScrollNow\(\)/)
+  assert.doesNotMatch(locateSource, /resetSidebarPlaylistScrollNow\(\)/)
+})
+
+test('album detail clicks reuse pre-sorted album bucket tracks', () => {
+  const pickStart = appSource.indexOf('const handlePickAlbumFromSidebar = useCallback(')
+  const locateStart = appSource.indexOf('const handleLocateTrackAlbum = useCallback(', pickStart)
+  const backStart = appSource.indexOf('const handleBackToAlbumOverview = useCallback(', locateStart)
+  assert.ok(pickStart > 0)
+  assert.ok(locateStart > pickStart)
+  assert.ok(backStart > locateStart)
+
+  const pickSource = appSource.slice(pickStart, locateStart)
+  const locateSource = appSource.slice(locateStart, backStart)
+
+  assert.match(pickSource, /const albumBucket = getAlbumBucketForKey\(albumKey\)/)
+  assert.match(locateSource, /const albumBucket = getAlbumBucketForKey\(albumKey\)/)
+  assert.match(pickSource, /sortedTracks: albumBucket\?\.tracks \|\| detailTracks/)
+  assert.match(locateSource, /sortedTracks: albumBucket\?\.tracks \|\| detailTracks/)
+})
+
 test('sidebar scroll metrics are coalesced during album wall scrolling', () => {
   assert.match(appSource, /const sidebarScrollMetricsRafRef = useRef\(0\)/)
   assert.match(appSource, /const sidebarScrollMetricsPendingRef = useRef\(null\)/)
   assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*applySidebarScrollMetrics\(next\)/)
   assert.match(
     appSource,
-    /albumOverviewActiveRef\.current &&[\s\S]*!pendingAlbumDetailScrollResetRef\.current &&[\s\S]*albumOverviewScrollTopRef\.current = scrollTop/
+    /albumOverviewDisplayActiveRef\.current &&[\s\S]*!pendingAlbumDetailScrollResetRef\.current &&[\s\S]*albumOverviewScrollTopRef\.current = scrollTop/
   )
+})
+
+test('sidebar scrollbar thumb follows scroll through a DOM transform hot path', () => {
+  assert.match(appSource, /const sidebarScrollbarThumbRef = useRef\(null\)/)
+  assert.match(appSource, /const sidebarScrollThumbRafRef = useRef\(0\)/)
+  assert.match(appSource, /const updateSidebarScrollbarThumb = useCallback/)
+  assert.match(appSource, /thumb\.style\.transform = `translate3d\(0, \$\{thumbTop\}px, 0\)`/)
+  assert.match(appSource, /ref=\{sidebarScrollbarThumbRef\}/)
+  assert.match(
+    appSource,
+    /if \(albumOverviewDisplayActiveRef\.current && !sidebarScrollbarDragRef\.current\) \{[\s\S]*sidebarScrollMetricsPendingRef\.current = nextMetrics[\s\S]*return/
+  )
+
+  const scrollStart = appSource.indexOf('const handleSidebarScroll = useCallback(')
+  const scrollEnd = appSource.indexOf('const sidebarScrollbarMetrics = useMemo', scrollStart)
+  assert.ok(scrollStart > 0)
+  assert.ok(scrollEnd > scrollStart)
+  const scrollSource = appSource.slice(scrollStart, scrollEnd)
+  assert.match(scrollSource, /updateSidebarScrollbarThumb\(nextMetrics\)/)
+  assert.doesNotMatch(scrollSource, /setSidebarScrollTop/)
 })
 
 test('album overview keeps visible cover paths while detail is open', () => {
@@ -101,11 +163,11 @@ test('VirtualAlbumGrid suppresses external scroll restoration while hidden', () 
     virtualGridSource,
     /if \(freezeMeasurements \|\| suppressScrollRestore \|\| !wasFrozen\) return/
   )
-  assert.match(appSource, /scrollElementRef=\{albumOverviewActive \? sidebarPlaylistRef : null\}/)
-  assert.match(appSource, /freezeMeasurements=\{!albumOverviewActive\}/)
+  assert.match(appSource, /scrollElementRef=\{albumOverviewDisplayActive \? sidebarPlaylistRef : null\}/)
+  assert.match(appSource, /freezeMeasurements=\{!albumOverviewDisplayActive\}/)
   assert.match(appSource, /const \[albumOverviewRestoreToken, setAlbumOverviewRestoreToken\]/)
   assert.match(appSource, /const \[albumOverviewRestoreScrollTop, setAlbumOverviewRestoreScrollTop\]/)
-  assert.match(appSource, /const albumOverviewScrollRestoreActive =[\s\S]*albumOverviewActive && pendingAlbumOverviewRestoreRef\.current && albumOverviewRestoreToken > 0/)
+  assert.match(appSource, /const albumOverviewScrollRestoreActive =[\s\S]*albumOverviewDisplayActive &&[\s\S]*pendingAlbumOverviewRestoreRef\.current &&[\s\S]*albumOverviewRestoreToken > 0/)
   assert.match(appSource, /suppressScrollRestore=\{!albumOverviewScrollRestoreActive\}/)
   assert.match(appSource, /initialScrollTop=\{[\s\S]*albumOverviewScrollRestoreActive \? albumOverviewRestoreScrollTop : 0[\s\S]*\}/)
   assert.match(
@@ -129,6 +191,10 @@ test('album overview return restore uses saved scroll state', () => {
     appSource,
     /const restoreTop = Math\.max\([\s\S]*Number\(albumOverviewRestoreScrollTop\) \|\| 0[\s\S]*Number\(albumOverviewScrollTopRef\.current\) \|\| 0[\s\S]*\)/
   )
+  assert.match(
+    appSource,
+    /const restoreScroll = \(\) => \{[\s\S]*window\.requestAnimationFrame\(\(\) => \{[\s\S]*playlistElement\.scrollTop = restoreTop[\s\S]*window\.requestAnimationFrame\(\(\) => \{[\s\S]*applySidebarScrollMetrics/
+  )
 })
 
 test('VirtualAlbumGrid stays passive while album overview is frozen', () => {
@@ -148,9 +214,9 @@ test('VirtualAlbumGrid stays passive while album overview is frozen', () => {
 
 test('album wall virtual range keeps a relaxed recycle window', () => {
   assert.match(virtualGridSource, /const RENDER_RANGE_IDLE_SHRINK_MS = 1600/)
-  assert.match(virtualGridSource, /const MAX_RENDER_ROWS = 60/)
+  assert.match(virtualGridSource, /const MAX_RENDER_ROWS = 72/)
   assert.match(appSource, /const ALBUM_GRID_OVERSCAN_ROWS = 14/)
-  assert.match(appSource, /const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 20/)
+  assert.match(appSource, /const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 28/)
 })
 
 test('album wall hidden layer stays mounted without display none', () => {
@@ -167,10 +233,27 @@ test('album wall hidden layer stays mounted without display none', () => {
   assert.match(match[1], /z-index\s*:\s*-?[\w-]+/)
   assert.match(match[1], /contain\s*:[^;]*(layout|paint)/)
   assert.match(appSource, /className=\{`album-browser no-drag/)
-  assert.match(appSource, /const albumOverviewMounted =[\s\S]*albumOverviewActive \|\| albumDetailLeaving \|\| pendingAlbumOverviewRestoreRef\.current/)
+  assert.match(appSource, /const albumOverviewMounted =[\s\S]*albumOverviewDisplayActive \|\| albumDetailLeaving/)
   assert.match(appSource, /playlist\.length > 0 && listMode === 'album' && albumOverviewMounted/)
-  assert.match(appSource, /aria-hidden=\{!albumOverviewActive\}/)
-  assert.match(appSource, /inert=\{!albumOverviewActive \? '' : undefined\}/)
+  assert.match(appSource, /aria-hidden=\{!albumOverviewDisplayActive\}/)
+  assert.match(appSource, /inert=\{!albumOverviewDisplayActive \? '' : undefined\}/)
+})
+
+test('album detail return layers do not push the restored album wall', () => {
+  assert.match(appSource, /sidebar-list-stack--album-returning/)
+  assert.match(
+    appSource,
+    /albumDetailLeaving \? ' sidebar-list-stack--album-returning' : ''/
+  )
+  assert.match(indexCssSource, /\.sidebar-list-stack--album-returning\s*\{[\s\S]*position\s*:\s*relative/)
+  assert.match(
+    indexCssSource,
+    /\.sidebar-list-stack--album-returning \.library-list-header--album-detail,[\s\S]*\.sidebar-list-stack--album-returning \.playlist-virtual-list--album-leaving\s*\{[\s\S]*position\s*:\s*absolute/
+  )
+  assert.match(
+    indexCssSource,
+    /\.sidebar-list-stack--album-returning \.playlist-virtual-list--album-leaving\s*\{[\s\S]*overflow\s*:\s*hidden/
+  )
 })
 
 test('album detail scroll reset is one-shot', () => {
@@ -195,13 +278,31 @@ test('album detail scroll reset is one-shot', () => {
   assert.match(appSource, /pendingAlbumDetailScrollResetRef\.current = true[\s\S]*resetSidebarPlaylistScrollNow\(\)/)
 })
 
+test('album wall buckets are prewarmed outside the album click frame', () => {
+  assert.match(appSource, /const albumWallBucketCacheRef = useRef\(\{ key: '', buckets: \[\] \}\)/)
+  assert.match(appSource, /const albumWallBucketCacheKey = useMemo/)
+  assert.match(appSource, /const buildAlbumBucketsForCache = useCallback/)
+  assert.match(appSource, /album-detail-track-sort/)
+  assert.match(appSource, /window\.requestIdleCallback\(runPrewarm/)
+  assert.match(appSource, /listMode !== 'songs' && listMode !== 'album'/)
+
+  const bucketStart = appSource.indexOf('const albumBuckets = useMemo(() => {')
+  const bucketEnd = appSource.indexOf('const albumGroups = listMode ===', bucketStart)
+  assert.ok(bucketStart > 0)
+  assert.ok(bucketEnd > bucketStart)
+  const bucketSource = appSource.slice(bucketStart, bucketEnd)
+  assert.match(bucketSource, /const cached = albumWallBucketCacheRef\.current/)
+  assert.match(bucketSource, /cached\?\.key === albumWallBucketCacheKey/)
+  assert.doesNotMatch(bucketSource, /buildAlbumWallBuckets/)
+})
+
 test('album cover backfill waits for album cover cache hydration', () => {
   assert.match(appSource, /const \[albumCoverCacheHydratedKey, setAlbumCoverCacheHydratedKey\]/)
   assert.match(appSource, /const albumCoverCacheHydrated =/)
   assert.match(appSource, /setAlbumCoverCacheHydratedKey\(albumCoverCacheTargetsKey\)/)
   assert.match(
     appSource,
-    /enabled:\s*albumCoverCacheHydrated &&[\s\S]*listMode === 'album' &&[\s\S]*selectedAlbum === 'all'/
+    /enabled:\s*albumCoverCacheHydrated &&[\s\S]*listMode === 'album' &&[\s\S]*albumOverviewDisplayActive/
   )
 })
 
@@ -230,8 +331,8 @@ test('artist bucket grouping does not depend on cover-only maps', () => {
 })
 
 test('album bucket grouping delegates identity metadata resolution', () => {
-  const start = appSource.indexOf('const albumBuckets = useMemo(() => {')
-  const end = appSource.indexOf('const albumGroups = listMode ===', start)
+  const start = appSource.indexOf('const buildAlbumBucketsForCache = useCallback(() => {')
+  const end = appSource.indexOf('const commitAlbumWallBucketCache', start)
   assert.ok(start > 0)
   assert.ok(end > start)
   const source = appSource.slice(start, end)

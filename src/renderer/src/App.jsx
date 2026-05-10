@@ -458,7 +458,7 @@ const ALBUM_GRID_DEFAULT_ROW_HEIGHT = 244
 const ALBUM_GRID_DEFAULT_GAP = 18
 const ALBUM_GRID_MIN_CARD_WIDTH = 160
 const ALBUM_GRID_OVERSCAN_ROWS = 14
-const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 20
+const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 28
 const ALBUM_OVERVIEW_RESTORE_HYDRATION_DELAY_MS = 260
 const RENDERER_PERSIST_DEBOUNCE_MS = 600
 const MV_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
@@ -522,7 +522,7 @@ const ARTIST_AVATAR_LOOKUP_GAP_MS = 1200
 const ARTIST_AVATAR_PROVIDER_GAP_MS = 350
 const ARTIST_AVATAR_TRANSIENT_RETRY_MS = 8 * 60 * 1000
 const LIBRARY_DETAIL_PREFETCH_DELAY_MS = 180
-const ALBUM_DETAIL_RETURN_ANIMATION_MS = 70
+const ALBUM_DETAIL_RETURN_ANIMATION_MS = 24
 const ARTIST_DETAIL_RETURN_ANIMATION_MS = 80
 const MAX_SHARE_CARD_COVER_CHARS = 600000
 const ALBUM_COVER_PERSIST_SIGNATURE_LIMIT = 2400
@@ -2910,6 +2910,9 @@ export default function App() {
   const selectedAlbumTracksRef = useRef({ key: '', name: '', paths: new Set() })
   const albumDetailCacheRef = useRef(new Map())
   const artistDetailCacheRef = useRef(new Map())
+  const albumWallBucketCacheRef = useRef({ key: '', buckets: [] })
+  const albumWallBucketPrewarmTimerRef = useRef(null)
+  const [albumWallBucketCache, setAlbumWallBucketCache] = useState({ key: '', buckets: [] })
   const [albumDetailLeaving, setAlbumDetailLeaving] = useState(false)
   const albumDetailLeaveTimerRef = useRef(null)
   const [artistDetailLeaving, setArtistDetailLeaving] = useState(false)
@@ -6076,9 +6079,18 @@ export default function App() {
   const lyricsInstantScrollUntilRef = useRef(0)
   const activeLyricIndexRef = useRef(activeLyricIndex)
   const sidebarPlaylistRef = useRef(null)
+  const sidebarScrollbarThumbRef = useRef(null)
   const sidebarScrollbarDragRef = useRef(null)
   const sidebarScrollMetricsRafRef = useRef(0)
   const sidebarScrollMetricsPendingRef = useRef(null)
+  const sidebarScrollThumbRafRef = useRef(0)
+  const sidebarScrollLiveMetricsRef = useRef({
+    scrollHeight: 0,
+    viewportHeight: 0,
+    scrollTop: 0,
+    thumbTop: 0,
+    thumbHeight: 0
+  })
   const albumOverviewScrollTopRef = useRef(0)
   const artistOverviewScrollTopRef = useRef(0)
   const albumOverviewGridStateRef = useRef(null)
@@ -14233,9 +14245,25 @@ export default function App() {
     }
   }, [selectedAlbum, selectedAlbumKey])
 
-  /* Build heavyweight library groupings only for the views that need them. */
-  const albumBuckets = useMemo(() => {
-    if (!shouldBuildAlbumBuckets) return []
+  const albumWallBucketCacheKey = useMemo(() => {
+    return [
+      libraryVersion,
+      deferredSearchQuery,
+      albumSortMode,
+      config.mergeAlbumsByCoverAndAlbumArtist === true ? 'merge-cover-artist' : 'split',
+      metadataIdentityVersion,
+      Object.keys(albumCoverMap || {}).length
+    ].join('\u0001')
+  }, [
+    albumCoverMap,
+    albumSortMode,
+    config.mergeAlbumsByCoverAndAlbumArtist,
+    deferredSearchQuery,
+    libraryVersion,
+    metadataIdentityVersion
+  ])
+
+  const buildAlbumBucketsForCache = useCallback(() => {
     return measureLibraryPerf('album-list-build', () => {
       const sortedBuckets = buildAlbumWallBuckets(queryFilteredPlaylist, {
         trackMetaMap: trackMetaMapRef.current || {},
@@ -14273,17 +14301,104 @@ export default function App() {
         sortedBuckets.sort((a, b) => a.name.localeCompare(b.name))
       }
 
-      return sortedBuckets
+      return sortedBuckets.map((bucket) => {
+        if (!Array.isArray(bucket?.tracks) || bucket.tracks.length <= 1) return bucket
+        return {
+          ...bucket,
+          tracks: measureLibraryPerf('album-detail-track-sort', () =>
+            [...bucket.tracks].sort(compareTrackOrder)
+          )
+        }
+      })
     })
   }, [
     albumCoverMap,
     albumSortMode,
     config.mergeAlbumsByCoverAndAlbumArtist,
     displayMetadataOverrides,
-    metadataIdentityVersion,
-    queryFilteredPlaylist,
+    queryFilteredPlaylist
+  ])
+
+  const commitAlbumWallBucketCache = useCallback((entry) => {
+    albumWallBucketCacheRef.current = entry
+    startTransition(() => {
+      setAlbumWallBucketCache(entry)
+    })
+  }, [])
+
+  useEffect(() => {
+    albumWallBucketCacheRef.current = albumWallBucketCache
+  }, [albumWallBucketCache])
+
+  useEffect(() => {
+    if (!libraryStateReady) return undefined
+    if (albumWallBucketCacheRef.current.key === albumWallBucketCacheKey) return undefined
+    if (listMode !== 'songs' && listMode !== 'album') return undefined
+
+    let cancelled = false
+    const runPrewarm = () => {
+      albumWallBucketPrewarmTimerRef.current = null
+      if (cancelled) return
+      const buckets = buildAlbumBucketsForCache()
+      if (cancelled) return
+      commitAlbumWallBucketCache({ key: albumWallBucketCacheKey, buckets })
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      albumWallBucketPrewarmTimerRef.current = window.requestIdleCallback(runPrewarm, {
+        timeout: listMode === 'album' ? 120 : 900
+      })
+    } else {
+      albumWallBucketPrewarmTimerRef.current = window.setTimeout(
+        runPrewarm,
+        listMode === 'album' ? 0 : 120
+      )
+    }
+
+    return () => {
+      cancelled = true
+      if (albumWallBucketPrewarmTimerRef.current) {
+        if (typeof window.cancelIdleCallback === 'function') {
+          window.cancelIdleCallback(albumWallBucketPrewarmTimerRef.current)
+        } else {
+          window.clearTimeout(albumWallBucketPrewarmTimerRef.current)
+        }
+        albumWallBucketPrewarmTimerRef.current = null
+      }
+    }
+  }, [
+    albumWallBucketCacheKey,
+    buildAlbumBucketsForCache,
+    commitAlbumWallBucketCache,
+    libraryStateReady,
+    listMode
+  ])
+
+  /* Build heavyweight library groupings away from the click-to-album render frame. */
+  const albumBuckets = useMemo(() => {
+    const cached = albumWallBucketCacheRef.current
+    if (!shouldBuildAlbumBuckets) return cached?.buckets || []
+    if (cached?.key === albumWallBucketCacheKey) return cached.buckets
+    if (Array.isArray(cached?.buckets) && cached.buckets.length > 0) return cached.buckets
+    return []
+  }, [
+    albumWallBucketCache,
+    albumWallBucketCacheKey,
     shouldBuildAlbumBuckets
-  ]) 
+  ])
+
+  const albumBucketsByKey = useMemo(() => {
+    const map = new Map()
+    for (const bucket of albumBuckets) {
+      if (bucket?.key) map.set(bucket.key, bucket)
+    }
+    return map
+  }, [albumBuckets])
+
+  const getAlbumBucketForKey = useCallback(
+    (albumKey) => albumBucketsByKey.get(albumKey) || null,
+    [albumBucketsByKey]
+  )
 
   const albumGroups = listMode === 'album' ? albumBuckets : []
 
@@ -14354,6 +14469,16 @@ export default function App() {
     )
     const cached = getLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey)
     if (cached?.sortedTracks) return cached.sortedTracks
+    if (selectedAlbumBucket?.tracks?.length > 0) {
+      const bucketTracks = selectedAlbumBucket.tracks
+      setLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey, {
+        ...(cached || {}),
+        tracks: cached?.tracks || selectedAlbumTracks,
+        sortedTracks: bucketTracks,
+        createdAt: cached?.createdAt || Date.now()
+      })
+      return bucketTracks
+    }
     const sortedTracks = measureLibraryPerf('open-album-detail', () =>
       [...selectedAlbumTracks].sort(compareTrackOrder)
     )
@@ -14369,6 +14494,7 @@ export default function App() {
     metadataIdentityVersion,
     selectedAlbum,
     selectedAlbumKey,
+    selectedAlbumBucket,
     selectedAlbumTracks
   ])
 
@@ -15724,21 +15850,25 @@ export default function App() {
     rowHeight: ALBUM_GRID_DEFAULT_ROW_HEIGHT
   })
   const albumOverviewActive = listMode === 'album' && selectedAlbum === 'all'
+  const albumOverviewRestoring = listMode === 'album' && pendingAlbumOverviewRestoreRef.current
+  const albumOverviewDisplayActive = albumOverviewActive || albumOverviewRestoring
   const albumOverviewMounted =
-    albumOverviewActive || albumDetailLeaving || pendingAlbumOverviewRestoreRef.current
+    albumOverviewDisplayActive || albumDetailLeaving
   const albumOverviewScrollRestoreActive =
-    albumOverviewActive && pendingAlbumOverviewRestoreRef.current && albumOverviewRestoreToken > 0
-  const albumOverviewActiveRef = useRef(albumOverviewActive)
+    albumOverviewDisplayActive &&
+    pendingAlbumOverviewRestoreRef.current &&
+    albumOverviewRestoreToken > 0
+  const albumOverviewDisplayActiveRef = useRef(albumOverviewDisplayActive)
 
   useEffect(() => {
-    albumOverviewActiveRef.current = albumOverviewActive
-    if (albumOverviewActive) return undefined
+    albumOverviewDisplayActiveRef.current = albumOverviewDisplayActive
+    if (albumOverviewDisplayActive) return undefined
     if (albumOverviewHydrateTimerRef.current) {
       window.clearTimeout(albumOverviewHydrateTimerRef.current)
       albumOverviewHydrateTimerRef.current = null
     }
     return undefined
-  }, [albumOverviewActive])
+  }, [albumOverviewDisplayActive])
 
   const visibleSidebarRange = useMemo(() => {
     const total = tracksForSidebarListFiltered.length
@@ -15893,15 +16023,71 @@ export default function App() {
     return Array.from(byPath.values())
   }, [metadataContextWarmupSidebarTracks, metadataPrefetchSidebarTracks])
 
+  const updateSidebarScrollbarThumb = useCallback((metrics, { immediate = false } = {}) => {
+    const apply = () => {
+      sidebarScrollThumbRafRef.current = 0
+      const latest = metrics || sidebarScrollLiveMetricsRef.current
+      const viewportHeight = Math.max(0, Number(latest?.viewportHeight) || 0)
+      const scrollHeight = Math.max(0, Number(latest?.scrollHeight) || 0)
+      const scrollTop = Math.max(0, Number(latest?.scrollTop) || 0)
+      const visible = scrollHeight > viewportHeight + 2
+      const trackHeight = Math.max(1, viewportHeight - 24)
+      const thumbHeight = visible
+        ? Math.max(48, Math.round((viewportHeight / scrollHeight) * trackHeight))
+        : 0
+      const maxScrollTop = Math.max(1, scrollHeight - viewportHeight)
+      const maxThumbTop = Math.max(0, trackHeight - thumbHeight)
+      const thumbTop = visible
+        ? Math.round((Math.min(scrollTop, maxScrollTop) / maxScrollTop) * maxThumbTop)
+        : 0
+
+      sidebarScrollLiveMetricsRef.current = {
+        scrollHeight,
+        viewportHeight,
+        scrollTop,
+        thumbTop,
+        thumbHeight
+      }
+
+      const thumb = sidebarScrollbarThumbRef.current
+      if (thumb) {
+        thumb.style.transform = `translate3d(0, ${thumbTop}px, 0)`
+        if (thumbHeight > 0) thumb.style.height = `${thumbHeight}px`
+      }
+    }
+
+    if (immediate) {
+      if (sidebarScrollThumbRafRef.current) {
+        window.cancelAnimationFrame(sidebarScrollThumbRafRef.current)
+        sidebarScrollThumbRafRef.current = 0
+      }
+      apply()
+      return
+    }
+
+    sidebarScrollLiveMetricsRef.current = {
+      ...sidebarScrollLiveMetricsRef.current,
+      ...(metrics || {})
+    }
+    if (sidebarScrollThumbRafRef.current) return
+    sidebarScrollThumbRafRef.current = window.requestAnimationFrame(apply)
+  }, [])
+
   useEffect(() => {
     if (!libraryBrowserVisible) return undefined
     const playlistElement = sidebarPlaylistRef.current
     if (!playlistElement) return undefined
 
     const syncMetrics = () => {
-      setSidebarViewportHeight(playlistElement.clientHeight || 0)
-      setSidebarScrollHeight(playlistElement.scrollHeight || 0)
-      setSidebarScrollTop(playlistElement.scrollTop || 0)
+      const next = {
+        scrollHeight: playlistElement.scrollHeight || 0,
+        viewportHeight: playlistElement.clientHeight || 0,
+        scrollTop: playlistElement.scrollTop || 0
+      }
+      updateSidebarScrollbarThumb(next, { immediate: true })
+      setSidebarViewportHeight(next.viewportHeight)
+      setSidebarScrollHeight(next.scrollHeight)
+      setSidebarScrollTop(next.scrollTop)
     }
 
     syncMetrics()
@@ -15916,16 +16102,23 @@ export default function App() {
     })
     ro.observe(playlistElement)
     return () => ro.disconnect()
-  }, [libraryBrowserVisible, listMode, selectedUserPlaylistId, selectedSmartCollectionId])
+  }, [
+    libraryBrowserVisible,
+    listMode,
+    selectedUserPlaylistId,
+    selectedSmartCollectionId,
+    updateSidebarScrollbarThumb
+  ])
 
   const applySidebarScrollMetrics = useCallback((metrics) => {
     if (!metrics) return
+    updateSidebarScrollbarThumb(metrics, { immediate: true })
     setSidebarScrollHeight((prev) => (prev === metrics.scrollHeight ? prev : metrics.scrollHeight))
     setSidebarViewportHeight((prev) =>
       prev === metrics.viewportHeight ? prev : metrics.viewportHeight
     )
     setSidebarScrollTop((prev) => (prev === metrics.scrollTop ? prev : metrics.scrollTop))
-  }, [])
+  }, [updateSidebarScrollbarThumb])
 
   useEffect(() => {
     return () => {
@@ -15934,6 +16127,10 @@ export default function App() {
         sidebarScrollMetricsRafRef.current = 0
       }
       sidebarScrollMetricsPendingRef.current = null
+      if (sidebarScrollThumbRafRef.current) {
+        window.cancelAnimationFrame(sidebarScrollThumbRafRef.current)
+        sidebarScrollThumbRafRef.current = 0
+      }
     }
   }, [])
 
@@ -15963,17 +16160,27 @@ export default function App() {
       albumDetailScrollResetIgnoreUntilRef.current = 0
     }
     if (
-      albumOverviewActiveRef.current &&
+      albumOverviewDisplayActiveRef.current &&
       !pendingAlbumDetailScrollResetRef.current &&
       !pendingAlbumOverviewRestoreRef.current
     ) {
       albumOverviewScrollTopRef.current = scrollTop
     }
-    sidebarScrollMetricsPendingRef.current = {
+    const nextMetrics = {
       scrollHeight: scrollElement.scrollHeight || 0,
       viewportHeight: scrollElement.clientHeight || 0,
       scrollTop
     }
+    updateSidebarScrollbarThumb(nextMetrics)
+    sidebarScrollLiveMetricsRef.current = {
+      ...sidebarScrollLiveMetricsRef.current,
+      ...nextMetrics
+    }
+    if (albumOverviewDisplayActiveRef.current && !sidebarScrollbarDragRef.current) {
+      sidebarScrollMetricsPendingRef.current = nextMetrics
+      return
+    }
+    sidebarScrollMetricsPendingRef.current = nextMetrics
     if (sidebarScrollMetricsRafRef.current) return
     sidebarScrollMetricsRafRef.current = window.requestAnimationFrame(() => {
       sidebarScrollMetricsRafRef.current = 0
@@ -15981,7 +16188,7 @@ export default function App() {
       sidebarScrollMetricsPendingRef.current = null
       applySidebarScrollMetrics(next)
     })
-  }, [applySidebarScrollMetrics])
+  }, [applySidebarScrollMetrics, updateSidebarScrollbarThumb])
 
   const sidebarScrollbarMetrics = useMemo(() => {
     const viewportHeight = sidebarViewportHeight || 0
@@ -16005,10 +16212,18 @@ export default function App() {
     const playlistElement = sidebarPlaylistRef.current
     if (playlistElement) {
       playlistElement.scrollTop = 0
+      updateSidebarScrollbarThumb(
+        {
+          scrollHeight: playlistElement.scrollHeight || 0,
+          viewportHeight: playlistElement.clientHeight || 0,
+          scrollTop: 0
+        },
+        { immediate: true }
+      )
     }
     setSidebarScrollTop(0)
     setAlbumDetailScrollResetVersion((version) => version + 1)
-  }, [])
+  }, [updateSidebarScrollbarThumb])
 
   const captureAlbumOverviewScrollTop = useCallback(() => {
     const nextScrollTop = Math.max(
@@ -16030,7 +16245,12 @@ export default function App() {
     const nextThumbTop = Math.min(maxThumbTop, Math.max(0, clientY - rect.top - drag.pointerOffset))
     root.scrollTop =
       (nextThumbTop / maxThumbTop) * Math.max(0, root.scrollHeight - root.clientHeight)
-  }, [])
+    updateSidebarScrollbarThumb({
+      scrollHeight: root.scrollHeight || 0,
+      viewportHeight: root.clientHeight || 0,
+      scrollTop: root.scrollTop || 0
+    })
+  }, [updateSidebarScrollbarThumb])
 
   const handleSidebarScrollbarPointerDown = useCallback(
     (event) => {
@@ -16065,7 +16285,15 @@ export default function App() {
   const handleSidebarScrollbarPointerUp = useCallback((event) => {
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     sidebarScrollbarDragRef.current = null
-  }, [])
+    const root = sidebarPlaylistRef.current
+    if (root) {
+      applySidebarScrollMetrics({
+        scrollHeight: root.scrollHeight || 0,
+        viewportHeight: root.clientHeight || 0,
+        scrollTop: root.scrollTop || 0
+      })
+    }
+  }, [applySidebarScrollMetrics])
 
   const handleQueueDragOver = useCallback(
     (e) => {
@@ -16421,7 +16649,7 @@ export default function App() {
     if (
       !libraryBrowserVisible ||
       listMode !== 'album' ||
-      selectedAlbum !== 'all' ||
+      !albumOverviewDisplayActive ||
       !pendingAlbumOverviewRestoreRef.current
     ) {
       return
@@ -16440,17 +16668,31 @@ export default function App() {
       albumOverviewRestoreIdleTimerRef.current = null
     }
     const restoreScroll = () => {
-      playlistElement.scrollTop = restoreTop
-      setSidebarScrollTop(playlistElement.scrollTop || 0)
-      albumOverviewRestoreIdleTimerRef.current = window.setTimeout(() => {
-        pendingAlbumOverviewRestoreRef.current = false
-        albumOverviewRestoreIdleTimerRef.current = null
-        setAlbumOverviewRestorePhase((phase) => phase + 1)
-      }, ALBUM_OVERVIEW_RESTORE_HYDRATION_DELAY_MS)
+      window.requestAnimationFrame(() => {
+        playlistElement.scrollTop = restoreTop
+        updateSidebarScrollbarThumb(
+          {
+            scrollHeight: playlistElement.scrollHeight || 0,
+            viewportHeight: playlistElement.clientHeight || 0,
+            scrollTop: playlistElement.scrollTop || 0
+          },
+          { immediate: true }
+        )
+        window.requestAnimationFrame(() => {
+          applySidebarScrollMetrics({
+            scrollHeight: playlistElement.scrollHeight || 0,
+            viewportHeight: playlistElement.clientHeight || 0,
+            scrollTop: playlistElement.scrollTop || 0
+          })
+          albumOverviewRestoreIdleTimerRef.current = window.setTimeout(() => {
+            pendingAlbumOverviewRestoreRef.current = false
+            albumOverviewRestoreIdleTimerRef.current = null
+            setAlbumOverviewRestorePhase((phase) => phase + 1)
+          }, ALBUM_OVERVIEW_RESTORE_HYDRATION_DELAY_MS)
+        })
+      })
     }
 
-    playlistElement.scrollTop = restoreTop
-    setSidebarScrollTop(playlistElement.scrollTop || 0)
     const rafId = window.requestAnimationFrame(restoreScroll)
     return () => {
       window.cancelAnimationFrame(rafId)
@@ -16463,9 +16705,12 @@ export default function App() {
     albumGroupsFiltered.length,
     albumOverviewRestoreScrollTop,
     albumOverviewRestoreToken,
+    applySidebarScrollMetrics,
     libraryBrowserVisible,
     listMode,
-    selectedAlbum
+    selectedAlbum,
+    albumOverviewDisplayActive,
+    updateSidebarScrollbarThumb
   ])
 
   useEffect(() => {
@@ -16528,7 +16773,7 @@ export default function App() {
   }, [albumGroupsFiltered, visibleAlbumRange])
 
   const handleAlbumGridVisibleRangeChange = useCallback((range) => {
-    if (!albumOverviewActiveRef.current) return
+    if (!albumOverviewDisplayActiveRef.current) return
     const next = {
       startIndex: Math.max(0, Number(range?.startIndex) || 0),
       endIndex: Math.max(0, Number(range?.endIndex) || 0),
@@ -16555,7 +16800,7 @@ export default function App() {
     }
     albumOverviewHydrateTimerRef.current = window.setTimeout(() => {
       albumOverviewHydrateTimerRef.current = null
-      if (!albumOverviewActiveRef.current) return
+      if (!albumOverviewDisplayActiveRef.current) return
       setVisibleAlbumRange((prev) => {
         return prev.startIndex === next.startIndex &&
           prev.endIndex === next.endIndex &&
@@ -16579,7 +16824,7 @@ export default function App() {
       albumGroupsFiltered.length,
       visibleAlbumRange.endIndex + columnCount * ALBUM_META_PREFETCH_AHEAD_ROWS
     )
-    if (listMode === 'album' && selectedAlbum === 'all') {
+    if (listMode === 'album' && albumOverviewDisplayActive) {
       // Reorder so the cards currently in view (and a generous overscan) are
       // parsed first by the metadata worker pool. Otherwise the parse queue
       // walks albums in stored order, the first batch (METADATA_PARSE_BATCH_SIZE
@@ -16592,7 +16837,13 @@ export default function App() {
       return [...visible, ...after, ...before]
     }
     return albumGroupsFiltered.slice(visibleStart, visibleEnd)
-  }, [albumGroupsFiltered, libraryBrowserVisible, listMode, selectedAlbum, visibleAlbumRange])
+  }, [
+    albumGroupsFiltered,
+    albumOverviewDisplayActive,
+    libraryBrowserVisible,
+    listMode,
+    visibleAlbumRange
+  ])
 
   const folderGroupsFiltered = useMemo(() => {
     if (!showLikedOnly || listMode !== 'folders') return folderGroups
@@ -16689,10 +16940,10 @@ export default function App() {
       !isRemoteTrackPath(candidate?.path) &&
       !isStreamingTrackPath(candidate?.path)
 
-    const limit =
-      listMode === 'album' && selectedAlbum === 'all'
-        ? ALBUM_METADATA_PREFETCH_LIMIT
-        : METADATA_PREFETCH_LIMIT
+    const albumWallPrefetchActive = listMode === 'album' && albumOverviewDisplayActive
+    const limit = albumWallPrefetchActive
+      ? ALBUM_METADATA_PREFETCH_LIMIT
+      : METADATA_PREFETCH_LIMIT
     const occupiedPaths = new Set()
     if (currentTrack?.path) occupiedPaths.add(currentTrack.path)
     if (showTrackList && libraryDetailPrefetchAllowed) {
@@ -16705,7 +16956,7 @@ export default function App() {
     }
 
     let albumWallHydrateTargets = []
-    if (listMode === 'album' && selectedAlbum === 'all') {
+    if (albumWallPrefetchActive) {
       albumWallHydrateTargets = buildAlbumWallHydrateTargets(
         metadataPrefetchAlbumGroups.flatMap((album) => album.tracks || []),
         trackMetaMap,
@@ -16741,6 +16992,7 @@ export default function App() {
     albumCoverMap,
     effectiveTrackMetaMap,
     libraryDetailPrefetchAllowed,
+    albumOverviewDisplayActive,
     listMode,
     metadataPrefetchAlbumGroups,
     metadataPrefetchCandidateTracks,
@@ -16759,7 +17011,7 @@ export default function App() {
         albumCoverCacheHydrated &&
         libraryBrowserVisible &&
         listMode === 'album' &&
-        selectedAlbum === 'all',
+        albumOverviewDisplayActive,
       albumGroups: albumGroupsFiltered,
       albumCoverMap,
       failedAlbumCoverKeys,
@@ -16773,6 +17025,7 @@ export default function App() {
     albumGroupsFiltered,
     failedAlbumCoverKeys,
     libraryBrowserVisible,
+    albumOverviewDisplayActive,
     listMode,
     selectedAlbum,
     trackMetaMap
@@ -16810,7 +17063,7 @@ export default function App() {
       for (const track of metadataPrefetchCandidateTracks) pushTrack(track)
     }
 
-    if (listMode === 'album' && selectedAlbum === 'all') {
+    if (listMode === 'album' && albumOverviewDisplayActive) {
       for (const album of visibleAlbumGroups) {
         pushTrack(album.tracks.find((track) => trackMetaMap[track.path]?.cover) || album.tracks[0])
       }
@@ -16825,6 +17078,7 @@ export default function App() {
     return [...new Set(paths)].join('\n')
   }, [
     currentTrack,
+    albumOverviewDisplayActive,
     listMode,
     metadataPrefetchCandidateTracks,
     selectedAlbum,
@@ -16878,7 +17132,7 @@ export default function App() {
       for (const track of visibleSidebarTracks) pushPriorityTrack(track)
       for (const track of metadataPrefetchCandidateTracks) pushPriorityTrack(track)
     }
-    if (listMode === 'album' && selectedAlbum === 'all') {
+    if (listMode === 'album' && albumOverviewDisplayActive) {
       for (const album of visibleAlbumGroups) {
         const albumTracks = album.tracks || []
         pushPriorityTrack(
@@ -17133,6 +17387,7 @@ export default function App() {
     config.autoLoadEmbeddedMetadata,
     config.networkAccessDisabled,
     currentTrack,
+    albumOverviewDisplayActive,
     libraryStateReady,
     libraryDetailPrefetchAllowed,
     listMode,
@@ -17271,7 +17526,7 @@ export default function App() {
     }
 
     const hydrationDelay =
-      listMode === 'album' && selectedAlbum === 'all' && albumOverviewRestorePhase > 0
+      listMode === 'album' && albumOverviewDisplayActive && albumOverviewRestorePhase > 0
         ? ALBUM_OVERVIEW_RESTORE_HYDRATION_DELAY_MS
         : 220
     visibleCoverHydrationTimerRef.current = window.setTimeout(
@@ -17292,6 +17547,7 @@ export default function App() {
   }, [
     libraryStateReady,
     albumOverviewRestorePhase,
+    albumOverviewDisplayActive,
     listMode,
     metadataCoverKeepPathSet,
     metadataHydrateRequirementByPath,
@@ -17303,7 +17559,7 @@ export default function App() {
   useEffect(() => {
     if (
       listMode === 'album' &&
-      selectedAlbum === 'all' &&
+      albumOverviewDisplayActive &&
       pendingAlbumOverviewRestoreRef.current
     ) {
       return undefined
@@ -17384,12 +17640,12 @@ export default function App() {
         !albumCoverProbePathsRef.current.has(track.path)
       const shouldProbeMissingArtist =
         listMode === 'album' &&
-        selectedAlbum === 'all' &&
+        albumOverviewDisplayActive &&
         !hasUsefulArtist &&
         !albumArtistProbePathsRef.current.has(track.path)
       const shouldProbeAlbumCover =
         listMode === 'album' &&
-        selectedAlbum === 'all' &&
+        albumOverviewDisplayActive &&
         !entry?.cover &&
         !albumCoverProbePathsRef.current.has(track.path)
       if (shouldProbeMissingCover) return true
@@ -17503,7 +17759,7 @@ export default function App() {
         )
         if (
           listMode === 'album' &&
-          selectedAlbum === 'all' &&
+          albumOverviewDisplayActive &&
           !cachedHasUsefulArtist &&
           !albumArtistProbePathsRef.current.has(track.path)
         ) {
@@ -17537,7 +17793,7 @@ export default function App() {
               0,
               playbackActive && activePlaybackPath
                 ? PLAYING_METADATA_PARSE_BATCH_SIZE
-                : listMode === 'album' && selectedAlbum === 'all'
+                : listMode === 'album' && albumOverviewDisplayActive
                   ? ALBUM_METADATA_PARSE_BATCH_SIZE
                   : METADATA_PARSE_BATCH_SIZE
             )
@@ -17715,6 +17971,7 @@ export default function App() {
     }
   }, [
     currentTrack?.path,
+    albumOverviewDisplayActive,
     albumOverviewRestorePhase,
     isPlaying,
     listMode,
@@ -18195,7 +18452,6 @@ export default function App() {
       captureAlbumOverviewCoverKeepPaths()
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
-      resetSidebarPlaylistScrollNow()
       const albumTracks = Array.isArray(album.tracks) ? album.tracks : []
       const albumKey = album.key || normalizeAlbumNameKey(album.name)
       const cacheKey = makeLibraryDetailCacheKey(
@@ -18204,8 +18460,9 @@ export default function App() {
         libraryVersion,
         metadataIdentityVersion
       )
+      const albumBucket = getAlbumBucketForKey(albumKey)
       const cachedDetail = getLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey)
-      const detailTracks = cachedDetail?.tracks || albumTracks
+      const detailTracks = cachedDetail?.tracks || albumBucket?.tracks || albumTracks
       selectedAlbumTracksRef.current = {
         key: albumKey,
         name: album.name,
@@ -18217,9 +18474,7 @@ export default function App() {
         setLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey, {
           ...(cachedDetail || {}),
           tracks: detailTracks,
-          sortedTracks:
-            cachedDetail?.sortedTracks ||
-            (detailTracks.length > 1 ? [...detailTracks].sort(compareTrackOrder) : detailTracks),
+          sortedTracks: albumBucket?.tracks || detailTracks,
           displayInfo: cachedDetail?.displayInfo || album,
           createdAt: cachedDetail?.createdAt || Date.now()
         })
@@ -18246,6 +18501,7 @@ export default function App() {
       forceCloseAddToPlaylistMenu,
       captureAlbumOverviewScrollTop,
       captureAlbumOverviewCoverKeepPaths,
+      getAlbumBucketForKey,
       libraryVersion,
       metadataIdentityVersion,
       queryFilteredPlaylist,
@@ -18277,7 +18533,6 @@ export default function App() {
       captureAlbumOverviewCoverKeepPaths()
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
-      resetSidebarPlaylistScrollNow()
       const tracks = albumTracks.length > 0 ? albumTracks : [track].filter(Boolean)
       const cacheKey = makeLibraryDetailCacheKey(
         'album',
@@ -18285,8 +18540,9 @@ export default function App() {
         libraryVersion,
         metadataIdentityVersion
       )
+      const albumBucket = getAlbumBucketForKey(albumKey)
       const cachedDetail = getLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey)
-      const detailTracks = cachedDetail?.tracks || tracks
+      const detailTracks = cachedDetail?.tracks || albumBucket?.tracks || tracks
       selectedAlbumTracksRef.current = {
         key: albumKey,
         name: albumName,
@@ -18298,9 +18554,7 @@ export default function App() {
         setLibraryDetailCacheEntry(albumDetailCacheRef.current, cacheKey, {
           ...(cachedDetail || {}),
           tracks: detailTracks,
-          sortedTracks:
-            cachedDetail?.sortedTracks ||
-            (detailTracks.length > 1 ? [...detailTracks].sort(compareTrackOrder) : detailTracks),
+          sortedTracks: albumBucket?.tracks || detailTracks,
           displayInfo: cachedDetail?.displayInfo || { key: albumKey, name: albumName },
           createdAt: cachedDetail?.createdAt || Date.now()
         })
@@ -18328,6 +18582,7 @@ export default function App() {
       forceCloseAddToPlaylistMenu,
       captureAlbumOverviewScrollTop,
       captureAlbumOverviewCoverKeepPaths,
+      getAlbumBucketForKey,
       libraryVersion,
       metadataIdentityVersion,
       queryFilteredPlaylist,
@@ -18371,7 +18626,7 @@ export default function App() {
   }, [])
 
   const handleAlbumGridScrollStateChange = useCallback((state) => {
-    if (!albumOverviewActiveRef.current) return
+    if (!albumOverviewDisplayActiveRef.current) return
     if (state?.scrollTop != null) {
       const nextScrollTop = Math.max(0, Number(state.scrollTop) || 0)
       const savedScrollTop = Math.max(0, Number(albumOverviewScrollTopRef.current) || 0)
@@ -18386,7 +18641,7 @@ export default function App() {
     albumOverviewGridStateRef.current = state || null
   }, [])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (
       !pendingAlbumDetailScrollResetRef.current ||
       listMode !== 'album' ||
@@ -18395,8 +18650,11 @@ export default function App() {
       return
     }
 
-    pendingAlbumDetailScrollResetRef.current = false
-    resetSidebarPlaylistScrollNow()
+    const rafId = window.requestAnimationFrame(() => {
+      pendingAlbumDetailScrollResetRef.current = false
+      resetSidebarPlaylistScrollNow()
+    })
+    return () => window.cancelAnimationFrame(rafId)
   }, [listMode, resetSidebarPlaylistScrollNow, selectedAlbum])
 
   const handlePickFolderFromSidebar = useCallback((folder) => {
@@ -18486,6 +18744,13 @@ export default function App() {
       }
       if (visibleCoverHydrationTimerRef.current) {
         window.clearTimeout(visibleCoverHydrationTimerRef.current)
+      }
+      if (albumWallBucketPrewarmTimerRef.current) {
+        if (typeof window.cancelIdleCallback === 'function') {
+          window.cancelIdleCallback(albumWallBucketPrewarmTimerRef.current)
+        } else {
+          window.clearTimeout(albumWallBucketPrewarmTimerRef.current)
+        }
       }
     }
   }, [])
@@ -21002,7 +21267,7 @@ export default function App() {
             )}
 
           <div
-            className={`sidebar-list-stack${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' sidebar-list-stack--pl-detail' : ''}`}
+            className={`sidebar-list-stack${listMode === 'playlists' && (selectedUserPlaylistId || selectedSmartCollectionId) ? ' sidebar-list-stack--pl-detail' : ''}${albumDetailLeaving ? ' sidebar-list-stack--album-returning' : ''}`}
           >
             <div className="list-filter-bar no-drag">
               <button
@@ -21813,13 +22078,13 @@ export default function App() {
 
                 {playlist.length > 0 && listMode === 'album' && albumOverviewMounted && (
                   <div
-                    className={`album-browser no-drag${!albumOverviewActive ? ' album-browser--hidden' : ''}`}
-                    aria-hidden={!albumOverviewActive}
-                    inert={!albumOverviewActive ? '' : undefined}
+                    className={`album-browser no-drag${!albumOverviewDisplayActive ? ' album-browser--hidden' : ''}`}
+                    aria-hidden={!albumOverviewDisplayActive}
+                    inert={!albumOverviewDisplayActive ? '' : undefined}
                   >
                     <VirtualAlbumGrid
                       items={albumGroupsFiltered}
-                      scrollElementRef={albumOverviewActive ? sidebarPlaylistRef : null}
+                      scrollElementRef={albumOverviewDisplayActive ? sidebarPlaylistRef : null}
                       className="album-grid-deferred"
                       minCardWidth={ALBUM_GRID_MIN_CARD_WIDTH}
                       minRowHeight={ALBUM_GRID_DEFAULT_ROW_HEIGHT}
@@ -21838,7 +22103,7 @@ export default function App() {
                           : ''
                       }
                       preserveMeasurements={albumOverviewGridStateRef.current}
-                      freezeMeasurements={!albumOverviewActive}
+                      freezeMeasurements={!albumOverviewDisplayActive}
                       suppressScrollRestore={!albumOverviewScrollRestoreActive}
                       onScrollStateChange={handleAlbumGridScrollStateChange}
                       onVisibleRangeChange={handleAlbumGridVisibleRangeChange}
@@ -22315,10 +22580,11 @@ export default function App() {
                   onPointerCancel={handleSidebarScrollbarPointerUp}
                 >
                   <div
+                    ref={sidebarScrollbarThumbRef}
                     className="playlist-scrollbar-thumb"
                     style={{
                       height: sidebarScrollbarMetrics.thumbHeight,
-                      transform: `translateY(${sidebarScrollbarMetrics.thumbTop}px)`
+                      transform: `translate3d(0, ${sidebarScrollbarMetrics.thumbTop}px, 0)`
                     }}
                   />
                 </div>
