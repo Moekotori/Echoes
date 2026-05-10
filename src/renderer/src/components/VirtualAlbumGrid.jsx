@@ -282,6 +282,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   }, [freezeMeasurements, initialScrollTop, measure, scheduleMeasure, scrollElementRef])
 
   useEffect(() => {
+    if (freezeMeasurements) return undefined
     const container = containerRef.current
     if (!container) return undefined
     const externalScrollElement = scrollElementRef?.current || null
@@ -311,7 +312,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
         shrinkTimerRef.current = 0
       }
     }
-  }, [scheduleMeasure, scrollElementRef])
+  }, [freezeMeasurements, scheduleMeasure, scrollElementRef])
 
   useEffect(() => {
     if (freezeMeasurements) return undefined
@@ -352,14 +353,16 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   ])
 
   useEffect(() => {
+    if (freezeMeasurements) return
     if (typeof onVisibleRangeChange !== 'function') return
     const nextRange = { startIndex, endIndex, columnCount, rowHeight }
     if (rangesEqual(lastRangeRef.current, nextRange)) return
     lastRangeRef.current = nextRange
     onVisibleRangeChange(nextRange)
-  }, [columnCount, endIndex, onVisibleRangeChange, rowHeight, startIndex])
+  }, [columnCount, endIndex, freezeMeasurements, onVisibleRangeChange, rowHeight, startIndex])
 
   useEffect(() => {
+    if (freezeMeasurements) return
     if (typeof onScrollStateChange !== 'function') return
     const nextState = {
       scrollTop: metrics.absoluteScrollTop ?? metrics.scrollTop,
@@ -394,6 +397,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   }, [
     columnCount,
     endIndex,
+    freezeMeasurements,
     metrics.absoluteScrollTop,
     metrics.scrollTop,
     metrics.viewportHeight,

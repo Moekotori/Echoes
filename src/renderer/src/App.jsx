@@ -19984,7 +19984,7 @@ export default function App() {
               (listMode === 'artists' && selectedArtist !== 'all') ||
               (listMode === 'album' && selectedAlbum !== 'all')) && (
               <div
-                className={`folder-browser-header library-list-header no-drag${listMode === 'album' && selectedAlbum !== 'all' ? ' library-list-header--album-detail' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' library-list-header--artist-detail' : ''}${albumDetailLeaving || artistDetailLeaving ? ' library-list-header--leaving' : ''}`}
+                className={`folder-browser-header library-list-header no-drag${listMode === 'album' && selectedAlbum !== 'all' ? ' library-list-header--album-detail album-detail-layer' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' library-list-header--artist-detail' : ''}${albumDetailLeaving || artistDetailLeaving ? ' library-list-header--leaving' : ''}`}
               >
                 <div className="library-list-heading">
                   {listMode === 'album' && selectedAlbum !== 'all' && (
@@ -20665,6 +20665,7 @@ export default function App() {
                   <div
                     className={`album-browser no-drag${selectedAlbum !== 'all' ? ' album-browser--hidden' : ''}`}
                     aria-hidden={selectedAlbum !== 'all'}
+                    inert={selectedAlbum !== 'all' ? '' : undefined}
                   >
                     <VirtualAlbumGrid
                       items={albumGroupsFiltered}
@@ -20935,7 +20936,7 @@ export default function App() {
                               ? selectedAlbum
                               : 'sidebar-list'
                         }
-                        className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter' : ''}${albumDetailLeaving ? ' playlist-virtual-list--album-leaving' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
+                        className={`playlist-virtual-list${listMode === 'album' && selectedAlbum !== 'all' ? ' playlist-virtual-list--album-enter album-detail-layer' : ''}${albumDetailLeaving ? ' playlist-virtual-list--album-leaving' : ''}${listMode === 'artists' && selectedArtist !== 'all' ? ' playlist-virtual-list--artist-detail' : ''}${artistDetailLeaving ? ' playlist-virtual-list--artist-leaving' : ''}`}
                       >
                         {visibleSidebarRange.topSpacer > 0 && (
                           <div

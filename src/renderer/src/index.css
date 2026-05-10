@@ -3100,6 +3100,7 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
   display: block;
   padding: 10px;
   box-sizing: border-box;
@@ -3117,6 +3118,8 @@ body {
 }
 
 .playlist.playlist-album-mode {
+  position: relative;
+  isolation: isolate;
   padding-right: 14px;
 }
 
@@ -3127,6 +3130,20 @@ body {
 .playlist-virtual-list {
   position: relative;
   width: 100%;
+  overflow-anchor: none;
+}
+
+.album-detail-layer {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+.playlist-virtual-list.album-detail-layer {
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2)),
+    color-mix(in srgb, var(--surface-elevated) 50%, transparent);
 }
 
 .playlist-virtual-list--album-enter {
@@ -3171,6 +3188,7 @@ body {
 .playlist-spacer {
   width: 100%;
   pointer-events: none;
+  overflow-anchor: none;
 }
 
 @keyframes fadeInList {
@@ -4613,11 +4631,17 @@ body {
 
 .album-browser--hidden {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  z-index: 0;
-  transform: translateZ(0);
+  z-index: -1;
+  overflow: hidden;
+  clip-path: inset(50%);
+  contain: layout paint style;
 }
 
 .album-browser-header {

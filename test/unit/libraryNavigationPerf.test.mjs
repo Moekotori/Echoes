@@ -80,13 +80,48 @@ test('VirtualAlbumGrid freezes render range and restores scroll by signature', (
   assert.match(virtualGridSource, /restoredKeyRef\.current === restoreSignature/)
 })
 
+test('VirtualAlbumGrid stays passive while album overview is frozen', () => {
+  assert.match(
+    virtualGridSource,
+    /useEffect\(\(\) => \{\s*if \(freezeMeasurements\) return undefined[\s\S]*scrollElement\.addEventListener\('scroll', scheduleMeasure/
+  )
+  assert.match(
+    virtualGridSource,
+    /useEffect\(\(\) => \{\s*if \(freezeMeasurements\) return\s*if \(typeof onVisibleRangeChange !== 'function'\) return/
+  )
+  assert.match(
+    virtualGridSource,
+    /useEffect\(\(\) => \{\s*if \(freezeMeasurements\) return\s*if \(typeof onScrollStateChange !== 'function'\) return/
+  )
+})
+
 test('album wall hidden layer stays mounted without display none', () => {
   const match = indexCssSource.match(/\.album-browser--hidden\s*\{([\s\S]*?)\n\}/)
   assert.ok(match, 'album-browser--hidden rule should exist')
   assert.doesNotMatch(match[1], /display\s*:\s*none/i)
   assert.match(match[1], /position\s*:\s*absolute/)
+  assert.doesNotMatch(match[1], /inset\s*:\s*0/i)
+  assert.match(match[1], /width\s*:\s*1px/)
+  assert.match(match[1], /height\s*:\s*1px/)
   assert.match(match[1], /opacity\s*:\s*0/)
+  assert.match(match[1], /visibility\s*:\s*hidden/)
   assert.match(match[1], /pointer-events\s*:\s*none/)
+  assert.match(match[1], /z-index\s*:\s*-?[\w-]+/)
+  assert.match(match[1], /contain\s*:[^;]*(layout|paint)/)
+  assert.match(appSource, /className=\{`album-browser no-drag/)
+  assert.match(appSource, /aria-hidden=\{selectedAlbum !== 'all'\}/)
+  assert.match(appSource, /inert=\{selectedAlbum !== 'all' \? '' : undefined\}/)
+})
+
+test('album detail layer is isolated above the preserved album wall', () => {
+  const match = indexCssSource.match(/\.album-detail-layer\s*\{([\s\S]*?)\n\}/)
+  assert.ok(match, 'album-detail-layer rule should exist')
+  assert.match(match[1], /position\s*:\s*relative/)
+  assert.match(match[1], /z-index\s*:\s*1/)
+  assert.match(match[1], /isolation\s*:\s*isolate/)
+  assert.match(indexCssSource, /\.playlist-virtual-list\.album-detail-layer\s*\{[\s\S]*background\s*:/)
+  assert.match(appSource, /library-list-header--album-detail album-detail-layer/)
+  assert.match(appSource, /playlist-virtual-list--album-enter album-detail-layer/)
 })
 
 test('artist bucket grouping does not depend on cover-only maps', () => {
