@@ -6,6 +6,8 @@ const DEFAULT_ROW_HEIGHT = 244
 const DEFAULT_GAP = 18
 const DEFAULT_OVERSCAN_ROWS = 3
 const DEFAULT_FALLBACK_VIEWPORT_ROWS = 5
+const RENDER_RANGE_IDLE_SHRINK_MS = 700
+const MAX_RENDER_ROWS = 36
 
 function getAlbumItemKey(album, index) {
   return (
@@ -29,8 +31,60 @@ function normalizeScrollState(value = null) {
   return {
     width: Math.max(0, Math.round(Number(value.width) || 0)),
     viewportHeight: Math.max(0, Math.round(Number(value.viewportHeight) || 0)),
-    scrollTop: Math.max(0, Math.round(Number(value.scrollTop) || 0))
+    scrollTop: Math.max(0, Math.round(Number(value.scrollTop) || 0)),
+    relativeScrollTop: Math.max(0, Math.round(Number(value.relativeScrollTop) || 0)),
+    startIndex: Math.max(0, Math.round(Number(value.startIndex) || 0)),
+    endIndex: Math.max(0, Math.round(Number(value.endIndex) || 0)),
+    renderStartIndex: Math.max(0, Math.round(Number(value.renderStartIndex) || 0)),
+    renderEndIndex: Math.max(0, Math.round(Number(value.renderEndIndex) || 0)),
+    columnCount: Math.max(1, Math.round(Number(value.columnCount) || 1)),
+    rowHeight: Math.max(0, Math.round(Number(value.rowHeight) || 0))
   }
+}
+
+function clampRowRangeAroundVisible(range, visibleRange, rowCount, maxRows = MAX_RENDER_ROWS) {
+  const totalRows = Math.max(0, Number(rowCount) || 0)
+  const normalizedMaxRows = Math.max(1, Math.min(totalRows || 1, Number(maxRows) || MAX_RENDER_ROWS))
+  const visibleStart = Math.max(
+    0,
+    Math.min(totalRows, Math.floor(Number(visibleRange?.startRow) || 0))
+  )
+  const visibleEnd = Math.max(
+    visibleStart,
+    Math.min(totalRows, Math.ceil(Number(visibleRange?.endRowExclusive) || visibleStart))
+  )
+  let startRow = Math.max(0, Math.min(totalRows, Math.floor(Number(range?.startRow) || 0)))
+  let endRowExclusive = Math.max(
+    startRow,
+    Math.min(totalRows, Math.ceil(Number(range?.endRowExclusive) || startRow))
+  )
+  if (endRowExclusive - startRow <= normalizedMaxRows) {
+    return { startRow, endRowExclusive }
+  }
+
+  const visibleRows = Math.max(1, visibleEnd - visibleStart)
+  if (visibleRows >= normalizedMaxRows) {
+    return {
+      startRow: visibleStart,
+      endRowExclusive: Math.min(totalRows, visibleStart + normalizedMaxRows)
+    }
+  }
+
+  const availableRows = normalizedMaxRows - visibleRows
+  const beforeRows = Math.max(0, visibleStart - startRow)
+  const afterRows = Math.max(0, endRowExclusive - visibleEnd)
+  let keepBefore = Math.min(beforeRows, Math.floor(availableRows / 2))
+  let keepAfter = Math.min(afterRows, availableRows - keepBefore)
+  const remainingRows = availableRows - keepBefore - keepAfter
+  if (remainingRows > 0) {
+    const extraBefore = Math.min(beforeRows - keepBefore, remainingRows)
+    keepBefore += extraBefore
+    keepAfter += Math.min(afterRows - keepAfter, remainingRows - extraBefore)
+  }
+
+  startRow = Math.max(0, visibleStart - keepBefore)
+  endRowExclusive = Math.min(totalRows, visibleEnd + keepAfter)
+  return { startRow, endRowExclusive }
 }
 
 const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
@@ -47,10 +101,12 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   minRowHeight = DEFAULT_ROW_HEIGHT,
   gap = DEFAULT_GAP,
   overscanRows = DEFAULT_OVERSCAN_ROWS,
+  freezeMeasurements = false,
   onVisibleRangeChange
 }) {
   const containerRef = useRef(null)
   const rafRef = useRef(0)
+  const shrinkTimerRef = useRef(0)
   const lastRangeRef = useRef(null)
   const restoredKeyRef = useRef(null)
   const lastScrollStateRef = useRef(null)
@@ -61,6 +117,14 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     scrollTop: preservedMetrics?.scrollTop || 0,
     absoluteScrollTop: preservedMetrics?.scrollTop || 0
   }))
+  const [renderRange, setRenderRange] = useState(() => {
+    if (!preservedMetrics?.renderEndIndex) return null
+    const columnCount = Math.max(1, preservedMetrics.columnCount || 1)
+    return {
+      startRow: Math.floor((preservedMetrics.renderStartIndex || 0) / columnCount),
+      endRowExclusive: Math.ceil((preservedMetrics.renderEndIndex || 0) / columnCount)
+    }
+  })
 
   const itemCount = Array.isArray(items) ? items.length : 0
   const normalizedGap = Math.max(0, Number(gap) || 0)
@@ -87,24 +151,44 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     metrics.viewportHeight,
     rowStride * DEFAULT_FALLBACK_VIEWPORT_ROWS
   )
-  const startRow = Math.max(
+  const visibleStartRow = Math.max(
     0,
-    Math.floor(Math.max(0, metrics.scrollTop) / Math.max(1, rowStride)) -
-      Math.max(0, Number(overscanRows) || 0)
+    Math.floor(Math.max(0, metrics.scrollTop) / Math.max(1, rowStride))
   )
-  const endRowExclusive = Math.min(
+  const visibleEndRowExclusive = Math.min(
     rowCount,
-    Math.ceil((Math.max(0, metrics.scrollTop) + viewportHeight) / Math.max(1, rowStride)) +
-      Math.max(0, Number(overscanRows) || 0)
+    Math.ceil((Math.max(0, metrics.scrollTop) + viewportHeight) / Math.max(1, rowStride))
   )
-  const startIndex = Math.min(itemCount, startRow * columnCount)
-  const endIndex = Math.min(itemCount, Math.max(startIndex, endRowExclusive * columnCount))
+  const desiredStartRow = Math.max(
+    0,
+    visibleStartRow - Math.max(0, Number(overscanRows) || 0)
+  )
+  const desiredEndRowExclusive = Math.min(
+    rowCount,
+    visibleEndRowExclusive + Math.max(0, Number(overscanRows) || 0)
+  )
+  const startIndex = Math.min(itemCount, visibleStartRow * columnCount)
+  const endIndex = Math.min(
+    itemCount,
+    Math.max(startIndex, visibleEndRowExclusive * columnCount)
+  )
+  const effectiveRenderRange = clampRowRangeAroundVisible(
+    renderRange || { startRow: desiredStartRow, endRowExclusive: desiredEndRowExclusive },
+    { startRow: visibleStartRow, endRowExclusive: visibleEndRowExclusive },
+    rowCount
+  )
+  const renderStartIndex = Math.min(itemCount, effectiveRenderRange.startRow * columnCount)
+  const renderEndIndex = Math.min(
+    itemCount,
+    Math.max(renderStartIndex, effectiveRenderRange.endRowExclusive * columnCount)
+  )
   const visibleItems = useMemo(
-    () => (Array.isArray(items) ? items.slice(startIndex, endIndex) : []),
-    [endIndex, items, startIndex]
+    () => (Array.isArray(items) ? items.slice(renderStartIndex, renderEndIndex) : []),
+    [items, renderEndIndex, renderStartIndex]
   )
 
   const measure = useCallback(() => {
+    if (freezeMeasurements) return
     const container = containerRef.current
     if (!container) return
     const externalScrollElement = scrollElementRef?.current || null
@@ -136,7 +220,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
         ? prev
         : next
     })
-  }, [scrollElementRef])
+  }, [freezeMeasurements, scrollElementRef])
 
   const scheduleMeasure = useCallback(() => {
     if (rafRef.current) return
@@ -147,10 +231,12 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   }, [measure])
 
   useLayoutEffect(() => {
+    if (freezeMeasurements) return
     measure()
-  }, [itemCount, measure])
+  }, [freezeMeasurements, itemCount, measure])
 
   useLayoutEffect(() => {
+    if (freezeMeasurements) return
     const restoreKey = String(scrollRestorationKey || '')
     if (!restoreKey || restoredKeyRef.current === restoreKey) return
     restoredKeyRef.current = restoreKey
@@ -163,7 +249,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     const nextScrollTop = Math.max(0, Number(initialScrollTop) || 0)
     scrollElement.scrollTop = nextScrollTop
     scheduleMeasure()
-  }, [initialScrollTop, scheduleMeasure, scrollElementRef, scrollRestorationKey])
+  }, [freezeMeasurements, initialScrollTop, scheduleMeasure, scrollElementRef, scrollRestorationKey])
 
   useEffect(() => {
     const container = containerRef.current
@@ -190,8 +276,42 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
         window.cancelAnimationFrame(rafRef.current)
         rafRef.current = 0
       }
+      if (shrinkTimerRef.current) {
+        window.clearTimeout(shrinkTimerRef.current)
+        shrinkTimerRef.current = 0
+      }
     }
   }, [scheduleMeasure, scrollElementRef])
+
+  useEffect(() => {
+    const desiredRange = { startRow: desiredStartRow, endRowExclusive: desiredEndRowExclusive }
+    const visibleRange = { startRow: visibleStartRow, endRowExclusive: visibleEndRowExclusive }
+    setRenderRange((prev) => {
+      const expanded = prev
+        ? {
+            startRow: Math.min(prev.startRow, desiredRange.startRow),
+            endRowExclusive: Math.max(prev.endRowExclusive, desiredRange.endRowExclusive)
+          }
+        : desiredRange
+      return clampRowRangeAroundVisible(expanded, visibleRange, rowCount)
+    })
+
+    if (shrinkTimerRef.current) {
+      window.clearTimeout(shrinkTimerRef.current)
+      shrinkTimerRef.current = 0
+    }
+    shrinkTimerRef.current = window.setTimeout(() => {
+      shrinkTimerRef.current = 0
+      setRenderRange(clampRowRangeAroundVisible(desiredRange, visibleRange, rowCount))
+    }, RENDER_RANGE_IDLE_SHRINK_MS)
+
+    return () => {
+      if (shrinkTimerRef.current) {
+        window.clearTimeout(shrinkTimerRef.current)
+        shrinkTimerRef.current = 0
+      }
+    }
+  }, [desiredEndRowExclusive, desiredStartRow, rowCount, visibleEndRowExclusive, visibleStartRow])
 
   useEffect(() => {
     if (typeof onVisibleRangeChange !== 'function') return
@@ -211,7 +331,9 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
       startIndex,
       endIndex,
       columnCount,
-      rowHeight
+      rowHeight,
+      renderStartIndex,
+      renderEndIndex
     }
     const previous = lastScrollStateRef.current
     if (
@@ -223,7 +345,9 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
       previous.startIndex === nextState.startIndex &&
       previous.endIndex === nextState.endIndex &&
       previous.columnCount === nextState.columnCount &&
-      previous.rowHeight === nextState.rowHeight
+      previous.rowHeight === nextState.rowHeight &&
+      previous.renderStartIndex === nextState.renderStartIndex &&
+      previous.renderEndIndex === nextState.renderEndIndex
     ) {
       return
     }
@@ -238,6 +362,8 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     metrics.width,
     onScrollStateChange,
     rowHeight,
+    renderEndIndex,
+    renderStartIndex,
     startIndex
   ])
 
@@ -252,7 +378,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
         aria-hidden={itemCount === 0}
       >
         {visibleItems.map((item, offset) => {
-          const absoluteIndex = startIndex + offset
+          const absoluteIndex = renderStartIndex + offset
           const row = Math.floor(absoluteIndex / columnCount)
           const column = absoluteIndex % columnCount
           return (
