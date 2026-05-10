@@ -577,8 +577,12 @@
 }
 
 .sidebar-list-stack {
-  padding: 16px 28px 24px !important;
+  padding: 16px 28px 0 !important;
   gap: 12px !important;
+}
+
+.app-root--main-mode .sidebar-list-stack > .playlist-scroll-shell {
+  margin-bottom: -20px !important;
 }
 
 .list-filter-bar {
@@ -747,27 +751,42 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) {
-  height: 124px !important;
-  padding: 0 28px !important;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, #fff 88%, transparent),
-    color-mix(in srgb, #fff 76%, transparent)
-  ) !important;
-  border-top: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 8%, transparent) !important;
+  height: 116px !important;
+  padding: 0 28px 6px !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 82%, transparent), transparent 62%),
+    color-mix(in srgb, var(--bg-color, #f8f2f7) 82%, #ffffff 18%) !important;
+  border-top: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
   box-shadow:
-    0 -14px 34px color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent) !important;
+    0 -10px 28px color-mix(in srgb, var(--text-main, #5c4349) 4%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 76%, transparent) !important;
+}
+
+.app-root--main-mode .app-container {
+  padding-bottom: 116px !important;
+}
+
+.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-left {
+  width: clamp(280px, 34vw, 430px) !important;
+  gap: 14px !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-cover,
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-cover-fallback {
   width: 88px !important;
   height: 88px !important;
-  border-radius: 18px !important;
+  border-radius: 16px !important;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, #fff 40%, transparent), transparent 58%),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 16%, var(--bg-color, #f8f2f7)) !important;
   box-shadow:
-    0 16px 34px color-mix(in srgb, var(--text-main, #5c4349) 14%, transparent),
-    0 0 0 1px color-mix(in srgb, #fff 58%, transparent);
+    0 14px 30px color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, #fff 64%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 62%, transparent) !important;
+}
+
+.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-cover {
+  background: transparent !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-title {
@@ -778,38 +797,41 @@
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-center {
   align-self: stretch !important;
   display: grid !important;
-  grid-template-rows: 46px 24px !important;
+  grid-template-rows: 54px 22px !important;
   align-content: center !important;
   justify-items: center !important;
-  gap: 12px !important;
-  padding: 0 clamp(18px, 3.2vw, 54px) !important;
+  gap: 10px !important;
+  padding: 0 clamp(14px, 2.6vw, 42px) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-transport {
-  height: 46px !important;
+  height: 54px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 9px !important;
-  padding: 4px 7px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, #fff 46%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent),
-    0 8px 22px color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
+  gap: 8px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport {
   width: 36px !important;
   height: 36px !important;
   color: color-mix(in srgb, var(--text-soft, #857178) 80%, var(--text-main, #5c4349)) !important;
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  box-shadow: none !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 66%, transparent), color-mix(in srgb, #fff 30%, transparent)),
+    color-mix(in srgb, var(--bg-color, #f8f2f7) 42%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 66%, transparent),
+    0 5px 14px color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent) !important;
   transition:
     background 140ms var(--ease-standard, ease),
     border-color 140ms var(--ease-standard, ease),
+    box-shadow 140ms var(--ease-standard, ease),
     color 140ms var(--ease-standard, ease),
     transform 140ms var(--ease-standard, ease) !important;
 }
@@ -820,12 +842,17 @@
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn--transport:hover {
   color: var(--text-main, #5c4349) !important;
-  background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 13%, #ffffff) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 78%, transparent), color-mix(in srgb, #fff 42%, transparent)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 10%, #ffffff) !important;
   border-color: color-mix(
     in srgb,
     var(--theme-primary, var(--accent-pink)) 18%,
     transparent
   ) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 74%, transparent),
+    0 7px 16px color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
   transform: translateY(-1px) !important;
 }
 
@@ -868,36 +895,36 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn.play-btn {
-  width: 54px !important;
-  height: 54px !important;
+  width: 52px !important;
+  height: 52px !important;
   background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 20%, transparent), transparent 46%),
-    var(--theme-primary, var(--accent-pink)) !important;
-  border: 1px solid color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 16%, #ffffff) !important;
+    linear-gradient(180deg, color-mix(in srgb, #fff 26%, transparent), transparent 54%),
+    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 88%, var(--text-main, #5c4349) 12%) !important;
+  border: 1px solid color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, #ffffff) !important;
   box-shadow:
-    0 10px 22px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, transparent),
-    0 0 0 5px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 9%, transparent) !important;
+    0 9px 20px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 8%, transparent) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .btn.play-btn:hover {
   opacity: 1 !important;
-  transform: translateY(-1px) scale(1.025) !important;
+  transform: translateY(-1px) scale(1.02) !important;
   box-shadow:
-    0 12px 24px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 22%, transparent),
-    0 0 0 5px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent) !important;
+    0 11px 22px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 20%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 11%, transparent) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress {
-  width: min(100%, 940px) !important;
+  width: min(100%, 720px) !important;
   display: grid !important;
-  grid-template-columns: 46px minmax(180px, 1fr) 46px !important;
+  grid-template-columns: 42px minmax(170px, 1fr) 42px !important;
   align-items: center !important;
-  gap: 12px !important;
+  gap: 9px !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-time {
-  min-width: 46px !important;
-  font-size: 12px !important;
+  min-width: 42px !important;
+  font-size: 11.5px !important;
   font-weight: 720 !important;
   line-height: 1 !important;
   color: color-mix(in srgb, var(--text-soft, #857178) 86%, var(--text-main, #5c4349)) !important;
@@ -905,29 +932,43 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-progress .player-progress {
-  height: 18px !important;
+  height: 16px !important;
   min-width: 0 !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-progress
   .player-progress::-webkit-slider-runnable-track {
-  height: 4px !important;
+  height: 3.5px !important;
   background: linear-gradient(
     to right,
     var(--theme-primary, var(--accent-pink)) 0 var(--seek-pct, 0%),
-    color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) var(--seek-pct, 0%) 100%
+    color-mix(in srgb, var(--text-main, #5c4349) 8%, transparent) var(--seek-pct, 0%) 100%
   ) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-progress
   .player-progress::-webkit-slider-thumb {
-  width: 12px !important;
-  height: 12px !important;
-  margin-top: -4px !important;
+  width: 10px !important;
+  height: 10px !important;
+  margin-top: -3.25px !important;
   border: 2px solid #fff !important;
   background: var(--theme-primary, var(--accent-pink)) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 9%, transparent),
+    0 3px 8px color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) !important;
+}
+
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress:hover::-webkit-slider-thumb,
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress.is-dragging::-webkit-slider-thumb {
+  width: 12px !important;
+  height: 12px !important;
+  margin-top: -4.25px !important;
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 13%, transparent),
     0 4px 10px color-mix(in srgb, var(--text-main, #5c4349) 14%, transparent) !important;
@@ -936,27 +977,45 @@
 .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-progress
   .player-progress::-moz-range-track {
-  height: 4px !important;
-  background: color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) !important;
+  height: 3.5px !important;
+  background: color-mix(in srgb, var(--text-main, #5c4349) 8%, transparent) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-progress
   .player-progress::-moz-range-progress {
-  height: 4px !important;
+  height: 3.5px !important;
   background: var(--theme-primary, var(--accent-pink)) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-progress
   .player-progress::-moz-range-thumb {
-  width: 12px !important;
-  height: 12px !important;
+  width: 10px !important;
+  height: 10px !important;
   border: 2px solid #fff !important;
   background: var(--theme-primary, var(--accent-pink)) !important;
   box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 9%, transparent),
+    0 3px 8px color-mix(in srgb, var(--text-main, #5c4349) 10%, transparent) !important;
+}
+
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress:hover::-moz-range-thumb,
+.bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-progress
+  .player-progress.is-dragging::-moz-range-thumb {
+  width: 12px !important;
+  height: 12px !important;
+  box-shadow:
     0 0 0 3px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 13%, transparent),
     0 4px 10px color-mix(in srgb, var(--text-main, #5c4349) 14%, transparent) !important;
+}
+
+.bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-right {
+  width: clamp(160px, 21vw, 260px) !important;
+  gap: 10px !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-right .btn--transport {
@@ -964,24 +1023,24 @@
   height: 38px !important;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, #fff 70%, transparent),
-    color-mix(in srgb, #fff 44%, transparent)
+    color-mix(in srgb, #fff 64%, transparent),
+    color-mix(in srgb, #fff 28%, transparent)
   ) !important;
-  border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #fff 66%, transparent),
-    0 8px 18px color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
+    inset 0 1px 0 color-mix(in srgb, #fff 62%, transparent),
+    0 5px 14px color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent) !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 9px !important;
-  padding: 4px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, #fff 34%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 6%, transparent) !important;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent) !important;
+  gap: 8px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics) .bottom-bar-toolset .btn--transport {
@@ -1010,8 +1069,216 @@
   transform: none !important;
 }
 
+.app-root--main-mode .nav-rail {
+  padding: 6px 10px 14px !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 52%, transparent), transparent 44%),
+    color-mix(in srgb, var(--bg-color, #f8f2f7) 88%, #ffffff 12%) !important;
+  border-right: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, #ffffff 58%, transparent),
+    10px 0 28px color-mix(in srgb, var(--text-main, #5c4349) 3%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-section {
+  gap: 3px !important;
+  padding: 2px 0 0 !important;
+}
+
+.app-root--main-mode .nav-rail-item,
+.app-root--main-mode .nav-rail-icon-btn {
+  position: relative !important;
+  min-height: 34px !important;
+  padding: 8px 11px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  color: color-mix(in srgb, var(--text-soft, #857178) 88%, var(--text-main, #5c4349)) !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  line-height: 1.1 !important;
+  letter-spacing: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transition:
+    background 150ms var(--ease-standard, ease),
+    border-color 150ms var(--ease-standard, ease),
+    box-shadow 150ms var(--ease-standard, ease),
+    color 150ms var(--ease-standard, ease),
+    transform 150ms var(--ease-standard, ease) !important;
+}
+
+.app-root--main-mode .nav-rail-item svg,
+.app-root--main-mode .nav-rail-icon-btn svg {
+  flex: 0 0 auto !important;
+  color: color-mix(in srgb, currentColor 78%, var(--theme-accent, var(--accent-blue))) !important;
+  stroke-width: 1.75 !important;
+}
+
+.app-root--main-mode .nav-rail-item:hover,
+.app-root--main-mode .nav-rail-icon-btn:hover {
+  color: var(--text-main, #5c4349) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 64%, transparent), color-mix(in srgb, #ffffff 24%, transparent)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 7%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 66%, transparent),
+    0 7px 16px color-mix(in srgb, var(--text-main, #5c4349) 4%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-item.active,
+.app-root--main-mode .nav-rail-icon-btn.active {
+  color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 78%, var(--text-main, #5c4349)) !important;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent), transparent 72%),
+    color-mix(in srgb, #ffffff 48%, transparent) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 12%, transparent) !important;
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 72%, var(--theme-accent, var(--accent-blue))),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent),
+    0 8px 18px color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 7%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-item.active svg,
+.app-root--main-mode .nav-rail-icon-btn.active svg {
+  color: currentColor !important;
+}
+
+.app-root--main-mode .nav-rail-collapse {
+  gap: 3px !important;
+}
+
+.app-root--main-mode .nav-rail-caret {
+  color: currentColor !important;
+  opacity: 0.55 !important;
+}
+
+.app-root--main-mode .nav-rail-collapse.is-open .nav-rail-caret {
+  opacity: 0.78 !important;
+}
+
+.app-root--main-mode .nav-rail-sublist {
+  gap: 3px !important;
+  margin: 3px 0 5px 18px !important;
+  padding: 3px 0 3px 10px !important;
+  border-left: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 9%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-subitem {
+  min-height: 28px !important;
+  padding: 5px 9px !important;
+  border: 1px solid transparent !important;
+  border-radius: 7px !important;
+  color: color-mix(in srgb, var(--text-soft, #857178) 86%, var(--text-main, #5c4349)) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0 !important;
+}
+
+.app-root--main-mode .nav-rail-subitem:hover,
+.app-root--main-mode .nav-rail-subitem.active {
+  color: var(--text-main, #5c4349) !important;
+  background: color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 7%, #ffffff 44%) !important;
+  border-color: color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-subempty {
+  padding: 5px 9px !important;
+  color: color-mix(in srgb, var(--text-muted, #9a8790) 88%, transparent) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+}
+
+.app-root--main-mode .imported-folder-rail {
+  margin: 10px 0 8px !important;
+  padding: 9px 0 !important;
+  border-top: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
+}
+
+.app-root--main-mode .imported-folder-rail-title {
+  min-height: 28px !important;
+  padding: 3px 11px !important;
+  border-radius: 7px !important;
+  color: color-mix(in srgb, var(--text-muted, #9a8790) 86%, var(--text-main, #5c4349)) !important;
+  font-size: 11px !important;
+  font-weight: 820 !important;
+  letter-spacing: 0 !important;
+}
+
+.app-root--main-mode .imported-folder-rail-title:hover {
+  color: var(--text-main, #5c4349) !important;
+  background: color-mix(in srgb, #ffffff 42%, transparent) !important;
+}
+
+.app-root--main-mode .imported-folder-rail-list {
+  gap: 3px !important;
+  padding: 0 1px !important;
+}
+
+.app-root--main-mode .imported-folder-rail-item {
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+}
+
+.app-root--main-mode .imported-folder-rail-item:hover,
+.app-root--main-mode .imported-folder-rail-item.active {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 48%, transparent), color-mix(in srgb, #ffffff 18%, transparent)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 8%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-main, #5c4349) 5%, transparent) !important;
+}
+
+.app-root--main-mode .imported-folder-rail-open {
+  padding: 7px 4px 7px 10px !important;
+}
+
+.app-root--main-mode .imported-folder-rail-name {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.app-root--main-mode .imported-folder-rail-count {
+  font-size: 10px !important;
+  font-weight: 780 !important;
+}
+
+.app-root--main-mode .nav-rail-bottom {
+  gap: 3px !important;
+  padding-top: 9px !important;
+  border-top: 1px solid color-mix(in srgb, var(--text-main, #5c4349) 7%, transparent) !important;
+}
+
+.app-root--main-mode .nav-rail-bottom .nav-rail-icon-btn {
+  min-height: 32px !important;
+  padding: 7px 11px !important;
+  font-size: 12.5px !important;
+  font-weight: 650 !important;
+}
+
+.app-root--ultra-small-adaptive
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-cover,
+.app-root--ultra-small-adaptive
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-cover-fallback {
+  width: 88px !important;
+  height: 88px !important;
+}
+
+.app-root--ultra-small-adaptive .bottom-player-bar:not(.bottom-player-bar--lyrics) {
+  height: 116px !important;
+}
+
+.app-root--ultra-small-adaptive
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .btn.play-btn {
+  width: 52px !important;
+  height: 52px !important;
+}
+
 .deck-popover--bottom-tools {
-  bottom: 124px !important;
+  bottom: 116px !important;
   right: 32px !important;
   width: 190px !important;
   min-width: 190px !important;
@@ -1268,8 +1535,6 @@
 .app-container:has(.app-wallpaper-backdrop) .track-like-btn,
 .app-container:has(.app-wallpaper-backdrop) .track-add-pl-btn,
 .app-container:has(.app-wallpaper-backdrop) .track-remove-pl-btn,
-.app-container:has(.app-wallpaper-backdrop) .bottom-bar-transport,
-.app-container:has(.app-wallpaper-backdrop) .bottom-bar-toolset,
 .app-container:has(.app-wallpaper-backdrop) .bottom-bar-right .btn--transport {
   background: color-mix(
     in srgb,
@@ -1313,11 +1578,16 @@
 
 .app-container:has(.app-wallpaper-backdrop) .nav-rail-item.active,
 .app-container:has(.app-wallpaper-backdrop) .nav-rail-subitem.active {
-  background: color-mix(
-    in srgb,
-    var(--glass-bg, rgba(255, 255, 255, 0.6)) 62%,
-    var(--theme-accent, var(--accent-blue)) 22%
-  ) !important;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 13%, transparent), transparent 74%),
+    color-mix(
+      in srgb,
+      var(--glass-bg, rgba(255, 255, 255, 0.6)) 62%,
+      var(--theme-accent, var(--accent-blue)) 14%
+    ) !important;
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 62%, var(--theme-accent, var(--accent-blue))),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 48%, transparent) !important;
 }
 
 /* Settings needs a calmer wallpaper treatment than the library panes. */
@@ -1630,19 +1900,7 @@
 }
 
 .bottom-player-bar:not(.bottom-player-bar--lyrics)::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -42px;
-  height: 42px;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    color-mix(in srgb, var(--bg-base, #f8f2f7) 20%, transparent) 50%,
-    color-mix(in srgb, var(--bg-base, #f8f2f7) 42%, transparent) 100%
-  );
+  content: none !important;
 }
 
 .app-container:has(.app-wallpaper-backdrop) .browser-topbar-actions {
@@ -1668,14 +1926,7 @@
 }
 
 .app-root:has(.app-wallpaper-backdrop) .bottom-player-bar:not(.bottom-player-bar--lyrics)::before {
-  top: -50px;
-  height: 50px;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 24%, transparent) 44%,
-    color-mix(in srgb, var(--glass-bg, rgba(255, 255, 255, 0.6)) 58%, transparent) 100%
-  );
+  content: none !important;
 }
 
 /* Quiet premium pass: calmer active row, system-like tools, clearer type hierarchy. */
@@ -2633,7 +2884,12 @@
   .bottom-bar-transport,
 :root[data-echo-theme-tone='dark']
   .bottom-player-bar:not(.bottom-player-bar--lyrics)
-  .bottom-bar-toolset,
+  .bottom-bar-toolset {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 :root[data-echo-theme-tone='dark']
   .bottom-player-bar:not(.bottom-player-bar--lyrics)
   .bottom-bar-right
@@ -4552,8 +4808,6 @@
 :root[data-echo-theme-tone='dark'] .deck-popover-btn,
 :root[data-echo-theme-tone='dark'] .user-playlist-card-icon-btn,
 :root[data-echo-theme-tone='dark'] .user-playlist-detail-btn,
-:root[data-echo-theme-tone='dark'] .bottom-bar-transport,
-:root[data-echo-theme-tone='dark'] .bottom-bar-toolset,
 :root[data-echo-theme-tone='dark'] .bottom-bar-right .btn--transport {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.022)),
@@ -4600,26 +4854,58 @@
   box-shadow: none !important;
 }
 
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .nav-rail {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 48%),
+    color-mix(in srgb, var(--echo-surface, #151821) 90%, #05070c) !important;
+  border-right-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.035),
+    10px 0 28px rgba(0, 0, 0, 0.12) !important;
+}
+
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item:hover,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn:hover,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem:hover {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.055), transparent 78%) !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.052), rgba(255, 255, 255, 0.018)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 8%, transparent) !important;
+  border-color: rgba(255, 255, 255, 0.055) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 18px rgba(0, 0, 0, 0.11) !important;
 }
 
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-item.active,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-icon-btn.active,
 :root[data-echo-theme-tone='dark'] .nav-rail .nav-rail-subitem.active {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 14%, transparent),
-    transparent 74%
-  ) !important;
-  border-color: transparent !important;
-  box-shadow: inset 3px 0
-    color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--accent-blue)) !important;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, transparent),
+      transparent 74%
+    ),
+    rgba(255, 255, 255, 0.028) !important;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 18%, transparent) !important;
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--theme-primary, var(--accent-pink)) 64%, var(--accent-blue)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.052) !important;
   color: var(--echo-text-primary) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .nav-rail-sublist,
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .imported-folder-rail,
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .nav-rail-bottom {
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .imported-folder-rail-title:hover,
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .imported-folder-rail-item:hover,
+:root[data-echo-theme-tone='dark'] .app-root--main-mode .imported-folder-rail-item.active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.046), rgba(255, 255, 255, 0.014)),
+    color-mix(in srgb, var(--theme-accent, var(--accent-blue)) 8%, transparent) !important;
+  border-color: rgba(255, 255, 255, 0.055) !important;
 }
 
 :root[data-echo-theme-tone='dark'] .bottom-player-bar:not(.bottom-player-bar--lyrics) {
@@ -4630,6 +4916,17 @@
   box-shadow:
     0 -14px 32px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.038) !important;
+}
+
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-transport,
+:root[data-echo-theme-tone='dark']
+  .bottom-player-bar:not(.bottom-player-bar--lyrics)
+  .bottom-bar-toolset {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 
 :root[data-echo-theme-tone='dark'] .track-title,

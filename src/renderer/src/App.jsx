@@ -4473,8 +4473,7 @@ export default function App() {
   const handleCleanupMissingLibraryFromToolbar = useCallback(async () => {
     try {
       const removedCount = await cleanupMissingLibraryPaths({
-        forceScan: true,
-        includeImportedFolderRescan: true
+        forceScan: true
       })
       if (removedCount > 0) {
         alert(
@@ -15957,13 +15956,6 @@ export default function App() {
     }, 0)
   }, [albumCoverMap, albumGroupsFiltered, listMode, selectedAlbum])
 
-  const unknownAlbumArtistCount = useMemo(() => {
-    if (listMode !== 'album' || selectedAlbum !== 'all') return 0
-    return albumGroupsFiltered.reduce((count, album) => {
-      return isUnknownArtistName(album?.artist || album?.cacheArtist || '') ? count + 1 : count
-    }, 0)
-  }, [albumGroupsFiltered, listMode, selectedAlbum])
-
   const albumCoverManualLoadTargets = useMemo(() => {
     if (!libraryBrowserVisible || listMode !== 'album' || selectedAlbum !== 'all') {
       return []
@@ -15978,7 +15970,7 @@ export default function App() {
         maxTargets: ALBUM_COVER_MANUAL_LOAD_LIMIT * 3,
         isLocalTrack: (track) => !isRemoteTrackPath(track?.path)
       }
-    )
+    ).filter((target) => target?.needsCover === true)
   }, [
     albumCoverMap,
     albumGroupsFiltered,
@@ -15987,8 +15979,9 @@ export default function App() {
     selectedAlbum,
     trackMetaMap
   ])
-  const albumCoverManualLoadIssueCount = missingAlbumCoverCount + unknownAlbumArtistCount
-  const albumCoverManualLoadAvailable = albumCoverManualLoadIssueCount > 0 || albumCoverManualLoadTargets.length > 0
+  const albumCoverManualLoadIssueCount = missingAlbumCoverCount
+  const albumCoverManualLoadAvailable =
+    albumCoverManualLoadIssueCount > 0 || albumCoverManualLoadTargets.length > 0
 
   const handleLoadMissingAlbumCovers = useCallback(() => {
     if (albumCoverManualLoadBusy || !albumCoverManualLoadAvailable) return
@@ -16010,23 +16003,18 @@ export default function App() {
     }))
   }, [albumCoverManualLoadAvailable, albumCoverManualLoadBusy, albumCoverManualLoadTargets])
 
-  const albumCoverManualLoadCountLabel =
-    unknownAlbumArtistCount > 0
-      ? `${missingAlbumCoverCount > 99 ? '99+' : missingAlbumCoverCount}/${unknownAlbumArtistCount > 99 ? '99+' : unknownAlbumArtistCount}`
-      : missingAlbumCoverCount > 999
-        ? '999+'
-        : String(missingAlbumCoverCount)
   const albumCoverManualLoadTitle = albumCoverManualLoadBusy
-    ? `\u6b63\u5728\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u7f3a\u5c01\u9762 ${missingAlbumCoverCount}\uff0cUnknown Artist ${unknownAlbumArtistCount}\uff09`
-    : `\u52a0\u8f7d\u4e13\u8f91\u5c01\u9762\u548c\u827a\u4eba\uff08\u7f3a\u5c01\u9762 ${missingAlbumCoverCount}\uff0cUnknown Artist ${unknownAlbumArtistCount}\uff09`
+    ? `\u6b63\u5728\u52a0\u8f7d\u9ed8\u8ba4\u4e13\u8f91\u5c01\u9762\uff08${albumCoverManualLoadIssueCount}\uff09`
+    : `\u52a0\u8f7d\u9ed8\u8ba4\u4e13\u8f91\u5c01\u9762\uff08${albumCoverManualLoadIssueCount}\uff09`
 
   useEffect(() => {
     const targets = albumCoverManualLoadRequest.targets || []
     if (!albumCoverManualLoadRequest.id || targets.length === 0) return undefined
-    if (typeof window.api?.getExtendedMetadataHandler !== 'function') return undefined
+    if (typeof window.api?.readTags !== 'function') return undefined
 
     let cancelled = false
     const protectedPaths = new Set(targets.map((target) => target?.track?.path).filter(Boolean))
+    const resolvedAlbumKeys = new Set()
 
     const applyManualAlbumCoverResults = (entries, covers) => {
       if (cancelled) return
@@ -16046,6 +16034,16 @@ export default function App() {
       }
     }
 
+    const getManualAlbumCoverEntry = (target, entry) => {
+      const coverEntry = collectAlbumCoverFromMeta(target, entry)
+      if (coverEntry?.albumKey) resolvedAlbumKeys.add(coverEntry.albumKey)
+      return coverEntry
+    }
+
+    const shouldSkipResolvedAlbum = (target) => {
+      return Boolean(target?.albumKey && resolvedAlbumKeys.has(target.albumKey))
+    }
+
     const run = async () => {
       setAlbumCoverManualLoadBusy(true)
       try {
@@ -16061,22 +16059,23 @@ export default function App() {
           const path = track?.path
           if (!path) continue
           const cachedMeta = cached?.[path]
+          let coverEntry = null
           if (cachedMeta) {
             cachedEntries[path] = mergeTrackMetaEntryPreservingCover(
               trackMetaMapRef.current[path] || {},
               cachedMeta
             )
-            const coverEntry = collectAlbumCoverFromMeta(target, cachedEntries[path])
+            coverEntry = getManualAlbumCoverEntry(target, cachedEntries[path])
             if (coverEntry) cachedCovers[target.albumKey] = coverEntry
           }
-          if (!satisfiesMetadataHydrateRequirement(cachedMeta, target)) {
+          if (!coverEntry && !satisfiesMetadataHydrateRequirement(cachedMeta, target)) {
             pendingTargets.push(target)
           }
         }
         applyManualAlbumCoverResults(cachedEntries, cachedCovers)
 
-        const parsedEntries = {}
-        const parsedCovers = {}
+        const embeddedEntries = {}
+        const embeddedCovers = {}
         let index = 0
         const workerCount = Math.min(ALBUM_COVER_MANUAL_LOAD_WORKERS, pendingTargets.length)
         const runWorker = async () => {
@@ -16084,30 +16083,32 @@ export default function App() {
             const target = pendingTargets[index++]
             const track = target?.track
             const path = track?.path
-            if (!path) continue
+            if (!path || shouldSkipResolvedAlbum(target)) continue
             try {
-              const meta = await window.api.getExtendedMetadataHandler(
-                path,
-                buildAlbumThumbnailMetadataRequestOptions()
-              )
-              if (cancelled || !meta) continue
-              const currentEntry = trackMetaMapRef.current?.[path] || {}
-              const entry = buildParsedAlbumCoverMetaEntry(track, meta, currentEntry)
-              if (!entry) continue
-              parsedEntries[path] = {
+              const response = await window.api.readTags(path)
+              if (cancelled || response?.error) continue
+              const currentEntry =
+                embeddedEntries[path] ||
+                cachedEntries[path] ||
+                trackMetaMapRef.current?.[path] ||
+                {}
+              const entry = buildEmbeddedMetadataAutoCompleteEntry(response || {}, currentEntry)
+              embeddedEntries[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
                 ...entry,
+                coverChecked: true,
+                coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
                 sizeBytes: track?.sizeBytes,
                 mtimeMs: track?.mtimeMs
-              }
+              })
               albumCoverProbePathsRef.current.add(path)
               albumArtistProbePathsRef.current.add(path)
-              const coverEntry = collectAlbumCoverFromMeta(target, parsedEntries[path])
-              if (coverEntry) parsedCovers[target.albumKey] = coverEntry
-              if (Object.keys(parsedEntries).length % 12 === 0) {
-                applyManualAlbumCoverResults({ ...parsedEntries }, { ...parsedCovers })
+              const coverEntry = getManualAlbumCoverEntry(target, embeddedEntries[path])
+              if (coverEntry) embeddedCovers[target.albumKey] = coverEntry
+              if (Object.keys(embeddedEntries).length % 12 === 0) {
+                applyManualAlbumCoverResults({ ...embeddedEntries }, { ...embeddedCovers })
               }
             } catch (error) {
-              console.warn('Failed to manually load album cover metadata', path, error)
+              console.warn('Failed to manually load embedded album cover metadata', path, error)
             }
           }
         }
@@ -16115,9 +16116,69 @@ export default function App() {
           await Promise.all(Array.from({ length: workerCount }, runWorker))
         }
         if (cancelled) return
-        applyManualAlbumCoverResults(parsedEntries, parsedCovers)
-        if (Object.keys(parsedEntries).length > 0) {
-          writeTrackMetaCache(parsedEntries)
+        applyManualAlbumCoverResults(embeddedEntries, embeddedCovers)
+        if (Object.keys(embeddedEntries).length > 0) {
+          writeTrackMetaCache(embeddedEntries)
+        }
+
+        const networkEnabled = configRef.current?.networkAccessDisabled !== true
+        if (!networkEnabled) return
+
+        const networkTargets = pendingTargets.filter(
+          (target) => target?.track?.path && !shouldSkipResolvedAlbum(target)
+        )
+        const networkEntries = {}
+        const networkCovers = {}
+        let networkIndex = 0
+        const networkWorkerCount = Math.min(
+          METADATA_AUTO_COMPLETE_NETWORK_WORKERS,
+          networkTargets.length
+        )
+        const runNetworkWorker = async () => {
+          while (!cancelled && networkIndex < networkTargets.length) {
+            const target = networkTargets[networkIndex++]
+            const track = target?.track
+            const path = track?.path
+            if (!path || shouldSkipResolvedAlbum(target)) continue
+            const currentEntry =
+              networkEntries[path] ||
+              embeddedEntries[path] ||
+              cachedEntries[path] ||
+              trackMetaMapRef.current?.[path] ||
+              {}
+            const query = buildNetworkMetadataAutoCompleteQuery(track, currentEntry)
+            if (!query.title && !query.album) continue
+            try {
+              const candidate = await loadNetworkMetadataForEditor({
+                ...query,
+                searchNetease: window.api?.neteaseSearch,
+                searchQqMusic: window.api?.qqMusicSearch,
+                fetchImpl: typeof fetch === 'function' ? fetch : null
+              })
+              if (cancelled || !candidate?.coverDataUrl) continue
+              const entry = buildNetworkMetadataAutoCompleteEntry(candidate, currentEntry)
+              networkEntries[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+                ...entry,
+                sizeBytes: track?.sizeBytes,
+                mtimeMs: track?.mtimeMs
+              })
+              const coverEntry = getManualAlbumCoverEntry(target, networkEntries[path])
+              if (coverEntry) networkCovers[target.albumKey] = coverEntry
+              if (Object.keys(networkEntries).length % 8 === 0) {
+                applyManualAlbumCoverResults({ ...networkEntries }, { ...networkCovers })
+              }
+            } catch (error) {
+              console.warn('Failed to manually load network album cover metadata', path, error)
+            }
+          }
+        }
+        if (networkWorkerCount > 0) {
+          await Promise.all(Array.from({ length: networkWorkerCount }, runNetworkWorker))
+        }
+        if (cancelled) return
+        applyManualAlbumCoverResults(networkEntries, networkCovers)
+        if (Object.keys(networkEntries).length > 0) {
+          writeTrackMetaCache(networkEntries)
         }
       } finally {
         if (!cancelled) {
@@ -20436,9 +20497,6 @@ export default function App() {
                   aria-label={albumCoverManualLoadTitle}
                 >
                   <Image size={17} />
-                  <span className="browser-toolbar-badge" aria-hidden="true">
-                    {albumCoverManualLoadCountLabel}
-                  </span>
                 </button>
               )}
               <button
