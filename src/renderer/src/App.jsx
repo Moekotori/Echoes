@@ -165,10 +165,11 @@ import { loadNetworkMetadataForEditor } from './utils/metadataEditorLoaders'
 import {
   METADATA_AUTO_COMPLETE_VERSION,
   buildEmbeddedMetadataAutoCompleteEntry,
+  buildFailedEmbeddedMetadataAutoCompleteEntry,
   buildMetadataAutoCompleteTargets,
   buildNetworkMetadataAutoCompleteEntry,
   buildNetworkMetadataAutoCompleteQuery,
-  hasAutoCompleteEntryPayload,
+  shouldSkipEmbeddedMetadataAutoComplete,
   shouldRunNetworkMetadataAutoComplete
 } from './utils/metadataAutoComplete'
 import {
@@ -486,8 +487,8 @@ const ALBUM_METADATA_PREFETCH_LIMIT = 240
 const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
 const ALBUM_METADATA_PARSE_BATCH_SIZE = 16
-const METADATA_AUTO_COMPLETE_BATCH_SIZE = 96
-const METADATA_AUTO_COMPLETE_EMBEDDED_WORKERS = 8
+const METADATA_AUTO_COMPLETE_BATCH_SIZE = 192
+const METADATA_AUTO_COMPLETE_EMBEDDED_BATCH_SIZE = 48
 const METADATA_AUTO_COMPLETE_NETWORK_WORKERS = 4
 const ALBUM_COVER_MANUAL_LOAD_LIMIT = 10000
 const ALBUM_COVER_MANUAL_LOAD_WORKERS = 2
@@ -2919,6 +2920,7 @@ export default function App() {
   const [albumCoverMap, setAlbumCoverMap] = useState({})
   const [albumCoverCacheHydratedKey, setAlbumCoverCacheHydratedKey] = useState('')
   const [metadataIdentityVersion, setMetadataIdentityVersion] = useState(0)
+  const [metadataAutoCompleteRetryTick, setMetadataAutoCompleteRetryTick] = useState(0)
   const [coverVersion, setCoverVersion] = useState(0)
   const trackMetaVersionSnapshotRef = useRef(trackMetaMap)
   const [failedAlbumCoverKeys, setFailedAlbumCoverKeys] = useState(() => new Set())
@@ -16675,41 +16677,121 @@ export default function App() {
 
   useEffect(() => {
     if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return undefined
-    if (!playlist.length || typeof window.api?.readTags !== 'function') return undefined
+    if (!playlist.length || typeof window.api?.readEmbeddedMetadataBatch !== 'function')
+      return undefined
 
+    const now = Date.now()
     const localTracks = playlist.filter(
       (track) =>
         isLocalAudioFilePath(track?.path) &&
         !isRemoteTrackPath(track.path) &&
         !isStreamingTrackPath(track.path)
     )
-    const targets = buildMetadataAutoCompleteTargets(localTracks, trackMetaMap, {
-      limit: METADATA_AUTO_COMPLETE_BATCH_SIZE,
-      isLocalTrack: () => true
-    }).filter(({ entry }) => {
-      if (entry?.metadataAutoCompleteVersion !== METADATA_AUTO_COMPLETE_VERSION) return true
-      if (entry?.metadataAutoCompleteEmbeddedChecked !== true) return true
-      return (
-        config.autoCompleteNetworkMetadata === true &&
-        config.networkAccessDisabled !== true &&
-        entry?.metadataAutoCompleteNetworkChecked !== true
-      )
-    })
-    if (targets.length === 0) return undefined
+    const priorityTracks = []
+    const priorityPathSet = new Set()
+    const pushPriorityTrack = (track) => {
+      if (
+        !track?.path ||
+        !isLocalAudioFilePath(track.path) ||
+        isRemoteTrackPath(track.path) ||
+        isStreamingTrackPath(track.path) ||
+        priorityPathSet.has(track.path)
+      ) {
+        return
+      }
+      priorityPathSet.add(track.path)
+      priorityTracks.push(track)
+    }
 
+    pushPriorityTrack(currentTrack)
+    if (showTrackList && libraryDetailPrefetchAllowed) {
+      for (const track of visibleSidebarTracks) pushPriorityTrack(track)
+      for (const track of metadataPrefetchCandidateTracks) pushPriorityTrack(track)
+    }
+    if (listMode === 'album' && selectedAlbum === 'all') {
+      for (const album of visibleAlbumGroups) {
+        const albumTracks = album.tracks || []
+        pushPriorityTrack(
+          albumTracks.find((track) => track?.path && !trackMetaMap[track.path]?.cover) ||
+            albumTracks[0]
+        )
+      }
+    }
+
+    const queuedTracks = [
+      ...priorityTracks,
+      ...localTracks.filter((track) => !priorityPathSet.has(track.path))
+    ]
+    const networkEnabled =
+      config.autoCompleteNetworkMetadata === true && config.networkAccessDisabled !== true
+    const embeddedTargets = []
+    for (const track of queuedTracks) {
+      const path = track?.path
+      if (!path) continue
+      const entry = trackMetaMap?.[path] || {}
+      if (shouldSkipEmbeddedMetadataAutoComplete(track, entry, { now })) continue
+      embeddedTargets.push({ track, path, entry })
+      if (embeddedTargets.length >= METADATA_AUTO_COMPLETE_BATCH_SIZE) break
+    }
+    const networkTargets = networkEnabled
+      ? buildMetadataAutoCompleteTargets(queuedTracks, trackMetaMap, {
+          limit: METADATA_AUTO_COMPLETE_BATCH_SIZE,
+          now,
+          isLocalTrack: () => true
+        })
+      : []
+
+    const nextRetryAt = localTracks.reduce((nearest, track) => {
+      const retryAfter = Number(trackMetaMap?.[track?.path]?.metadataAutoCompleteRetryAfter || 0)
+      if (retryAfter <= now) return nearest
+      return nearest ? Math.min(nearest, retryAfter) : retryAfter
+    }, 0)
+    let retryTimer = null
+    const scheduleNextRetry = () => {
+      if (!nextRetryAt) return
+      retryTimer = window.setTimeout(
+        () => setMetadataAutoCompleteRetryTick((value) => value + 1),
+        Math.min(Math.max(nextRetryAt - now, 250), 2 ** 31 - 1)
+      )
+    }
+
+    if (embeddedTargets.length === 0 && networkTargets.length === 0) {
+      scheduleNextRetry()
+      return () => {
+        if (retryTimer !== null) window.clearTimeout(retryTimer)
+      }
+    }
+
+    const buildTargetRunKey = (items) =>
+      items
+        .map(({ path, track, entry }) =>
+          [
+            path,
+            track?.sizeBytes || '',
+            track?.mtimeMs || '',
+            entry?.metadataAutoCompleteVersion || '',
+            entry?.metadataAutoCompleteEmbeddedChecked === true ? 'embedded-done' : '',
+            entry?.metadataAutoCompleteNetworkChecked === true ? 'network-done' : '',
+            entry?.metadataAutoCompleteRetryAfter || ''
+          ].join(':')
+        )
+        .join('\u0001')
     const runKey = [
       config.autoCompleteNetworkMetadata === true ? 'net' : 'local',
-      targets
-        .map(({ path, track }) => `${path}:${track?.sizeBytes || ''}:${track?.mtimeMs || ''}`)
-        .join('\u0001')
+      metadataAutoCompleteRetryTick,
+      buildTargetRunKey(embeddedTargets),
+      buildTargetRunKey(networkTargets)
     ].join('\u0002')
-    if (metadataAutoCompleteRunKeyRef.current === runKey) return undefined
+    if (metadataAutoCompleteRunKeyRef.current === runKey) {
+      scheduleNextRetry()
+      return () => {
+        if (retryTimer !== null) window.clearTimeout(retryTimer)
+      }
+    }
     metadataAutoCompleteRunKeyRef.current = runKey
 
     let cancelled = false
     const updates = {}
-    const networkEnabled =
-      config.autoCompleteNetworkMetadata === true && config.networkAccessDisabled !== true
 
     const mergeUpdates = (entries) => {
       if (cancelled || Object.keys(entries).length === 0) return
@@ -16747,33 +16829,61 @@ export default function App() {
       await Promise.all(Array.from({ length: Math.min(workerCount, items.length) }, () => runNext()))
     }
 
-    const readEmbedded = async ({ path, track }) => {
-      const currentEntry = trackMetaMapRef.current?.[path] || {}
-      if (
-        currentEntry.metadataAutoCompleteVersion === METADATA_AUTO_COMPLETE_VERSION &&
-        currentEntry.metadataAutoCompleteEmbeddedChecked === true
-      ) {
-        return
-      }
-      try {
-        const response = await window.api.readTags(path)
-        const entry = buildEmbeddedMetadataAutoCompleteEntry(response || {}, currentEntry)
-        if (!hasAutoCompleteEntryPayload(entry)) {
-          entry.metadataAutoCompleteVersion = METADATA_AUTO_COMPLETE_VERSION
-          entry.metadataAutoCompleteEmbeddedChecked = true
-          entry.coverChecked = true
+    const readEmbeddedBatch = async (items) => {
+      for (let index = 0; index < items.length && !cancelled; index += METADATA_AUTO_COMPLETE_EMBEDDED_BATCH_SIZE) {
+        const batch = items.slice(index, index + METADATA_AUTO_COMPLETE_EMBEDDED_BATCH_SIZE)
+        const seeds = batch
+          .map(({ track, path }) => ({
+            path,
+            sizeBytes: track?.sizeBytes || track?.info?.sizeBytes || 0,
+            mtimeMs: track?.mtimeMs || track?.info?.mtimeMs || 0
+          }))
+          .filter((seed) => seed.path)
+        if (!seeds.length) continue
+        let result = null
+        try {
+          result = await window.api.readEmbeddedMetadataBatch(seeds, {
+            limit: METADATA_AUTO_COMPLETE_EMBEDDED_BATCH_SIZE
+          })
+        } catch (error) {
+          result = {
+            entries: {},
+            failedPaths: seeds.map((seed) => seed.path),
+            errors: Object.fromEntries(
+              seeds.map((seed) => [seed.path, error?.message || String(error || '')])
+            )
+          }
         }
-        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
-          ...entry,
-          sizeBytes: track?.sizeBytes,
-          mtimeMs: track?.mtimeMs
-        })
-      } catch {
-        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
-          metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
-          metadataAutoCompleteEmbeddedChecked: true,
-          coverChecked: currentEntry.coverChecked === true
-        })
+        if (cancelled) return
+        const entries = result?.entries || {}
+        const failed = new Set(Array.isArray(result?.failedPaths) ? result.failedPaths : [])
+        const batchUpdates = {}
+        for (const { path, track } of batch) {
+          const currentEntry = trackMetaMapRef.current?.[path] || {}
+          const entry = entries[path]
+          if (entry) {
+            batchUpdates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+              ...entry,
+              metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+              metadataAutoCompleteLastError: null,
+              metadataAutoCompleteRetryAfter: null,
+              sizeBytes: track?.sizeBytes,
+              mtimeMs: track?.mtimeMs
+            })
+            continue
+          }
+          if (failed.has(path)) {
+            batchUpdates[path] = buildFailedEmbeddedMetadataAutoCompleteEntry(currentEntry, {
+              error: result?.errors?.[path] || 'metadata_read_failed',
+              sizeBytes: track?.sizeBytes || track?.info?.sizeBytes || 0,
+              mtimeMs: track?.mtimeMs || track?.info?.mtimeMs || 0
+            })
+          }
+        }
+        Object.assign(updates, batchUpdates)
+        applyAlbumCoverUpdates(batchUpdates)
+        mergeUpdates(batchUpdates)
+        await new Promise((resolve) => window.setTimeout(resolve, 0))
       }
     }
 
@@ -16816,35 +16926,47 @@ export default function App() {
     }
 
     const run = async () => {
-      await runConcurrent(targets, METADATA_AUTO_COMPLETE_EMBEDDED_WORKERS, readEmbedded)
+      await readEmbeddedBatch(embeddedTargets)
       if (cancelled) return
       if (networkEnabled) {
-        await runConcurrent(targets, METADATA_AUTO_COMPLETE_NETWORK_WORKERS, readNetwork)
+        await runConcurrent(networkTargets, METADATA_AUTO_COMPLETE_NETWORK_WORKERS, readNetwork)
       }
       if (cancelled) return
-      applyAlbumCoverUpdates(updates)
-      mergeUpdates(updates)
     }
 
     const timer = window.setTimeout(() => {
-      run().catch((error) => {
-        console.warn('[metadata-auto-complete] failed', error)
-      })
+      run()
+        .catch((error) => {
+          console.warn('[metadata-auto-complete] failed', error)
+        })
+        .finally(() => {
+          if (!cancelled) scheduleNextRetry()
+        })
     }, 350)
 
     return () => {
       cancelled = true
       window.clearTimeout(timer)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
   }, [
     config.autoCompleteNetworkMetadata,
     config.autoLoadEmbeddedMetadata,
     config.networkAccessDisabled,
+    currentTrack,
     libraryStateReady,
+    libraryDetailPrefetchAllowed,
+    listMode,
+    metadataPrefetchCandidateTracks,
+    metadataAutoCompleteRetryTick,
     metadataCoverKeepPathSet,
     persistAlbumCoverCacheItems,
     playlist,
-    trackMetaMap
+    selectedAlbum,
+    showTrackList,
+    trackMetaMap,
+    visibleAlbumGroups,
+    visibleSidebarTracks
   ])
 
   const visibleCoverHydrationPlan = useMemo(() => {

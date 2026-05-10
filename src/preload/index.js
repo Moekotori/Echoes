@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('soundcloud:download', url, downloadPath),
   getExtendedMetadataHandler: (path, options) =>
     ipcRenderer.invoke('file:getExtendedMetadata', path, options),
+  readEmbeddedMetadataBatch: (seeds, options) =>
+    ipcRenderer.invoke('metadata:readEmbeddedBatch', seeds, options),
   detectBpmHandler: (path) => ipcRenderer.invoke('file:detectBpm', path),
   updateExtendedMetadataHandler: (payload) =>
     ipcRenderer.invoke('file:updateExtendedMetadata', payload),

@@ -150,6 +150,7 @@ import {
   readInfoSidecarMetadata
 } from './utils/folderCover.js'
 import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
+import { readEmbeddedMetadataBatch } from './utils/embeddedMetadataBatchCache.js'
 import { createLimiter, getCoverConcurrency } from './utils/concurrency.js'
 import { closeMetadataWorkerPool } from './utils/metadataWorkerPool.js'
 import { readWavInfoTags } from './utils/wavInfoTags.js'
@@ -1192,13 +1193,15 @@ const APP_STATE_KEYS = new Set([
   'ltSettings',
   'lyricsDesktopBounds',
   'miniPlayerBounds',
-  'playbackSession'
+  'playbackSession',
+  'startupImportedFolderScanSignature'
 ])
 const APP_STATE_IMMEDIATE_FLUSH_KEYS = new Set([
   'config',
   'playlist',
   'importedFolders',
-  'remoteLibraries'
+  'remoteLibraries',
+  'startupImportedFolderScanSignature'
 ])
 let appStateCache = {}
 let appStateWriteTimer = null
@@ -6642,6 +6645,29 @@ app.whenReady().then(async () => {
       return { success: false, error: 'file_not_found' }
     }
     return await buildExtendedMetadataResponse(filePath, options)
+  })
+
+  ipcMain.handle('metadata:readEmbeddedBatch', async (_, seeds = [], options = {}) => {
+    return await readEmbeddedMetadataBatch({
+      seeds,
+      options,
+      userDataPath: app.getPath('userData'),
+      readMetadata: async (filePath) => {
+        const metadataPath = resolveMetadataFilePath(filePath)
+        if (!existsSync(metadataPath)) {
+          return { success: false, error: 'file_not_found' }
+        }
+        return await buildExtendedMetadataResponse(metadataPath, {
+          mode: 'album-wall',
+          includeCover: true,
+          includeTechnicalProbe: false,
+          includeLyrics: false,
+          includeBpm: false,
+          includeMqa: false,
+          coverSize: 'album-thumbnail'
+        })
+      }
+    })
   })
 
   ipcMain.handle('file:detectBpm', async (_, filePath) => {

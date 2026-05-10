@@ -689,8 +689,22 @@ function normalizeTrackMetaEntry(entry) {
   }
   next.metadataAutoCompleteEmbeddedChecked = entry.metadataAutoCompleteEmbeddedChecked === true
   next.metadataAutoCompleteNetworkChecked = entry.metadataAutoCompleteNetworkChecked === true
-  if (['full', 'visible-row', 'album-wall'].includes(entry.metadataDetailMode)) {
+  if (['full', 'visible-row', 'album-wall', 'embedded-batch'].includes(entry.metadataDetailMode)) {
     next.metadataDetailMode = entry.metadataDetailMode
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, 'metadataAutoCompleteLastError')) {
+    if (typeof entry.metadataAutoCompleteLastError === 'string') {
+      next.metadataAutoCompleteLastError = entry.metadataAutoCompleteLastError
+    } else if (entry.metadataAutoCompleteLastError == null) {
+      next.metadataAutoCompleteLastError = null
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, 'metadataAutoCompleteRetryAfter')) {
+    const value = Number(entry.metadataAutoCompleteRetryAfter)
+    next.metadataAutoCompleteRetryAfter = Number.isFinite(value) && value > 0 ? value : null
+  }
+  if (typeof entry.metadataAutoCompleteSource === 'string') {
+    next.metadataAutoCompleteSource = entry.metadataAutoCompleteSource
   }
   next.bpmChecked = entry.bpmChecked === true
   next.bpmMeasured = entry.bpmMeasured === true

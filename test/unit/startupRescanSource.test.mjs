@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const appSource = fs.readFileSync(new URL('../../src/renderer/src/App.jsx', import.meta.url), 'utf8')
+const mainSource = fs.readFileSync(new URL('../../src/main/index.js', import.meta.url), 'utf8')
 
 test('startup watcher is seeded with existing imported tracks', () => {
   assert.match(
@@ -72,4 +73,16 @@ test('album cover hydrate toolbar button does not render a count badge', () => {
 
   const buttonSource = appSource.slice(buttonStart, buttonStart + 700)
   assert.doesNotMatch(buttonSource, /browser-toolbar-badge/)
+})
+
+test('startup imported-folder scan signature is persisted through appState immediately', () => {
+  assert.match(appSource, /getInitialAppStateValue\('startupImportedFolderScanSignature'\)/)
+  assert.match(
+    mainSource,
+    /APP_STATE_KEYS[\s\S]*'startupImportedFolderScanSignature'[\s\S]*APP_STATE_IMMEDIATE_FLUSH_KEYS/
+  )
+  assert.match(
+    mainSource,
+    /APP_STATE_IMMEDIATE_FLUSH_KEYS[\s\S]*'startupImportedFolderScanSignature'/
+  )
 })

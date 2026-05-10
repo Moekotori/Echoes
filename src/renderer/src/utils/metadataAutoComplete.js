@@ -1,7 +1,7 @@
 import { getMetadataSourcePriority, getTrackMetaFieldSource } from './metadataPriority.js'
 import { isUnknownArtistName, parseTrackInfo } from './trackUtils.js'
 
-export const METADATA_AUTO_COMPLETE_VERSION = 1
+export const METADATA_AUTO_COMPLETE_VERSION = 2
 
 const AUTO_COMPLETE_FIELDS = ['title', 'artist', 'album', 'albumArtist', 'trackNo', 'year', 'genre']
 
@@ -18,7 +18,29 @@ function hasRealCover(entry = {}, track = {}) {
   return Boolean(cleanText(entry?.cover || track?.info?.cover || track?.cover))
 }
 
+function getTrackFingerprintValue(track = {}, field = '') {
+  const value = Number(track?.[field] || track?.info?.[field] || 0)
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+function hasFileFingerprintChanged(track = {}, entry = {}) {
+  const sizeBytes = getTrackFingerprintValue(track, 'sizeBytes')
+  const entrySizeBytes = Number(entry?.sizeBytes || 0)
+  if (sizeBytes > 0 && entrySizeBytes > 0 && sizeBytes !== entrySizeBytes) return true
+
+  const mtimeMs = getTrackFingerprintValue(track, 'mtimeMs')
+  const entryMtimeMs = Number(entry?.mtimeMs || 0)
+  return mtimeMs > 0 && entryMtimeMs > 0 && Math.abs(mtimeMs - entryMtimeMs) > 1
+}
+
+function hasPendingRetryDelay(entry = {}, now = Date.now()) {
+  const retryAfter = Number(entry?.metadataAutoCompleteRetryAfter || 0)
+  return Boolean(entry?.metadataAutoCompleteLastError && retryAfter > now)
+}
+
 function isFieldProtected(entry = {}, field = '') {
+  if (getTrackMetaFieldSource(entry, field) === 'manual') return true
+  if (entry?.metadataSource === 'embedded' && !entry?.fieldSources?.[field]) return false
   return getMetadataSourcePriority(getTrackMetaFieldSource(entry, field)) >=
     getMetadataSourcePriority('embedded')
 }
@@ -30,9 +52,59 @@ function getUsefulArtist(entry = {}, track = {}) {
 export function isMetadataAutoCompleteTarget(track, entry = {}, options = {}) {
   if (!track?.path) return false
   if (typeof options.isLocalTrack === 'function' && !options.isLocalTrack(track)) return false
+  const now = Number(options.now) || Date.now()
+  if (hasFileFingerprintChanged(track, entry)) return true
+  if (hasPendingRetryDelay(entry, now)) return false
+  if (shouldRetryMetadataAutoComplete(entry, options)) return true
   const missingUsefulArtist = isUnknownArtistName(getUsefulArtist(entry, track))
+  const missingTitle = !cleanText(entry?.title || track?.info?.title || track?.title)
+  const missingAlbum = !cleanText(entry?.album || track?.info?.album || track?.album)
   const missingCover = !hasRealCover(entry, track)
-  return missingUsefulArtist || missingCover
+  return missingUsefulArtist || missingCover || missingTitle || missingAlbum
+}
+
+export function shouldRetryMetadataAutoComplete(entry = {}, options = {}) {
+  if (!entry || typeof entry !== 'object') return false
+  if (entry.metadataAutoCompleteVersion !== METADATA_AUTO_COMPLETE_VERSION) return true
+  const retryAfter = Number(entry.metadataAutoCompleteRetryAfter || 0)
+  if (retryAfter > 0 && retryAfter <= (Number(options.now) || Date.now())) return true
+  return false
+}
+
+export function shouldSkipEmbeddedMetadataAutoComplete(track, entry = {}, options = {}) {
+  if (!track?.path) return true
+  const now = Number(options.now) || Date.now()
+  if (hasFileFingerprintChanged(track, entry)) return false
+  if (shouldRetryMetadataAutoComplete(entry, options)) return false
+  if (hasPendingRetryDelay(entry, now)) return true
+  if (entry?.metadataAutoCompleteEmbeddedChecked !== true) return false
+  if (entry?.metadataAutoCompleteSource === 'embedded-batch') return true
+  return !isMetadataAutoCompleteTarget(track, entry, {
+    ...options,
+    now,
+    isLocalTrack: () => true
+  })
+}
+
+export function buildFailedEmbeddedMetadataAutoCompleteEntry(
+  existingEntry = {},
+  {
+    error = '',
+    now = Date.now(),
+    retryDelayMs = 10 * 60 * 1000,
+    sizeBytes = existingEntry?.sizeBytes,
+    mtimeMs = existingEntry?.mtimeMs
+  } = {}
+) {
+  return {
+    ...existingEntry,
+    metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+    metadataAutoCompleteEmbeddedChecked: false,
+    metadataAutoCompleteLastError: String(error || 'metadata_read_failed'),
+    metadataAutoCompleteRetryAfter: now + Math.max(30 * 1000, Number(retryDelayMs) || 0),
+    sizeBytes,
+    mtimeMs
+  }
 }
 
 export function buildMetadataAutoCompleteTargets(tracks = [], trackMetaMap = {}, options = {}) {
