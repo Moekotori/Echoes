@@ -16,6 +16,14 @@ const virtualGridSource = fs.readFileSync(
   new URL('../../src/renderer/src/components/VirtualAlbumGrid.jsx', import.meta.url),
   'utf8'
 )
+const trackUtilsSource = fs.readFileSync(
+  new URL('../../src/renderer/src/utils/trackUtils.js', import.meta.url),
+  'utf8'
+)
+const indexCssSource = fs.readFileSync(
+  new URL('../../src/renderer/src/index.css', import.meta.url),
+  'utf8'
+)
 
 test('VirtualAlbumGrid exposes scroll restoration state hooks', () => {
   assert.match(virtualGridSource, /initialScrollTop = 0/)
@@ -39,8 +47,46 @@ test('album overview return keeps scroll memory during restoration', () => {
 
 test('album overview keeps visible cover paths while detail is open', () => {
   assert.match(appSource, /albumOverviewVisibleCoverKeepPathsRef/)
-  assert.match(appSource, /albumOverviewVisibleCoverKeepPathsRef\.current = keepPaths/)
+  assert.match(appSource, /collectAlbumOverviewCoverKeepPaths/)
   assert.match(appSource, /for \(const path of albumOverviewVisibleCoverKeepPathsRef\.current/)
+})
+
+test('VirtualAlbumGrid restores from relative scroll state with row clamps', () => {
+  assert.match(virtualGridSource, /const scrollTop = Math\.max\(0, Math\.round\(Number\(value\.scrollTop\) \|\| 0\)\)/)
+  assert.match(virtualGridSource, /value\.relativeScrollTop == null\s*\?\s*scrollTop/)
+  assert.match(
+    virtualGridSource,
+    /scrollTop: preservedMetrics\?\.relativeScrollTop \?\? preservedMetrics\?\.scrollTop \?\? 0/
+  )
+  assert.match(
+    virtualGridSource,
+    /absoluteScrollTop: preservedMetrics\?\.scrollTop \?\? preservedMetrics\?\.relativeScrollTop \?\? 0/
+  )
+  assert.match(virtualGridSource, /const rawVisibleStartRow = Math\.max/)
+  assert.match(virtualGridSource, /Math\.min\(rowCount - 1, rawVisibleStartRow\)/)
+  assert.match(virtualGridSource, /Math\.max\(visibleStartRow \+ 1, Math\.min\(rowCount, rawVisibleEndRowExclusive\)\)/)
+})
+
+test('VirtualAlbumGrid freezes render range and restores scroll by signature', () => {
+  assert.match(virtualGridSource, /const wasFrozenRef = useRef\(freezeMeasurements\)/)
+  assert.match(virtualGridSource, /if \(freezeMeasurements\) return undefined/)
+  assert.match(virtualGridSource, /const wasFrozen = wasFrozenRef\.current/)
+  assert.match(virtualGridSource, /scrollElement\.scrollTop = Math\.max\(0, Number\(initialScrollTop\) \|\| 0\)/)
+  assert.match(virtualGridSource, /measure\(\)\s*scheduleMeasure\(\)/)
+  assert.match(
+    virtualGridSource,
+    /const restoreSignature = `\$\{restoreKey\}\\u0001\$\{Math\.round\(Number\(initialScrollTop\) \|\| 0\)\}`/
+  )
+  assert.match(virtualGridSource, /restoredKeyRef\.current === restoreSignature/)
+})
+
+test('album wall hidden layer stays mounted without display none', () => {
+  const match = indexCssSource.match(/\.album-browser--hidden\s*\{([\s\S]*?)\n\}/)
+  assert.ok(match, 'album-browser--hidden rule should exist')
+  assert.doesNotMatch(match[1], /display\s*:\s*none/i)
+  assert.match(match[1], /position\s*:\s*absolute/)
+  assert.match(match[1], /opacity\s*:\s*0/)
+  assert.match(match[1], /pointer-events\s*:\s*none/)
 })
 
 test('artist bucket grouping does not depend on cover-only maps', () => {
@@ -56,7 +102,7 @@ test('artist bucket grouping does not depend on cover-only maps', () => {
   assert.match(source, /buildArtistBucketsWithAvatars/)
 })
 
-test('album bucket grouping reads identity metadata without cover-only dependencies', () => {
+test('album bucket grouping delegates identity metadata resolution', () => {
   const start = appSource.indexOf('const albumBuckets = useMemo(() => {')
   const end = appSource.indexOf('const albumGroups = listMode ===', start)
   assert.ok(start > 0)
@@ -64,11 +110,17 @@ test('album bucket grouping reads identity metadata without cover-only dependenc
   const source = appSource.slice(start, end)
 
   assert.match(source, /trackMetaMapRef\.current/)
-  assert.match(source, /parseTrackInfo\(track, identityMeta\)/)
   assert.match(source, /displayMetadataOverrides/)
-  assert.match(source, /folderAlbumIdentities/)
-  assert.match(source, /getTrackAlbumFolderKey/)
-  assert.doesNotMatch(source.slice(source.lastIndexOf('}, [')), /albumCoverMap/)
+  assert.match(source, /buildAlbumWallBuckets/)
+
+  const helperStart = trackUtilsSource.indexOf('export function buildAlbumWallBuckets(')
+  const helperEnd = trackUtilsSource.indexOf('function resolvePriorityField', helperStart)
+  assert.ok(helperStart > 0)
+  assert.ok(helperEnd > helperStart)
+  const helperSource = trackUtilsSource.slice(helperStart, helperEnd)
+  assert.match(helperSource, /parseTrackInfo\(track, identityMeta\)/)
+  assert.match(helperSource, /folderAlbumIdentities/)
+  assert.match(helperSource, /getTrackAlbumFolderKey/)
 })
 
 test('album detail cache hits under the same library metadata versions', () => {
