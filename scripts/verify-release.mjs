@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import path from 'node:path'
 
 const rootDir = process.cwd()
@@ -28,6 +29,21 @@ function assertFileExists(relativePath) {
   }
   pass(`found ${relativePath}`)
   return fullPath
+}
+
+function parseLatestYml(content) {
+  const pathMatch = content.match(/^path:\s*(.+)$/m)
+  const sha512Match = content.match(/^sha512:\s*(.+)$/m)
+  const sizeMatch = content.match(/^\s*size:\s*(\d+)$/m)
+  return {
+    artifactPath: pathMatch?.[1]?.trim() || '',
+    sha512: sha512Match?.[1]?.trim() || '',
+    size: sizeMatch ? Number(sizeMatch[1]) : null
+  }
+}
+
+function sha512Base64(filePath) {
+  return crypto.createHash('sha512').update(fs.readFileSync(filePath)).digest('base64')
 }
 
 const packageJsonPath = assertFileExists('package.json')
@@ -83,6 +99,38 @@ const existingReleaseMetadata = releaseMetadataCandidates.find((candidate) =>
 )
 if (existingReleaseMetadata) {
   pass(`found OTA metadata: ${existingReleaseMetadata}`)
+  const metadataPath = path.join(rootDir, existingReleaseMetadata)
+  const metadataDir = path.dirname(metadataPath)
+  const metadata = parseLatestYml(fs.readFileSync(metadataPath, 'utf8'))
+  if (!metadata.artifactPath) {
+    fail(`${existingReleaseMetadata} is missing path`)
+  } else {
+    const artifactPath = path.join(metadataDir, metadata.artifactPath)
+    const relativeArtifactPath = path.relative(rootDir, artifactPath)
+    if (!fs.existsSync(artifactPath)) {
+      fail(`${existingReleaseMetadata} points to missing artifact: ${relativeArtifactPath}`)
+    } else {
+      pass(`${existingReleaseMetadata} artifact exists: ${relativeArtifactPath}`)
+      const stat = fs.statSync(artifactPath)
+      if (metadata.size == null) {
+        fail(`${existingReleaseMetadata} is missing artifact size`)
+      } else if (stat.size === metadata.size) {
+        pass(`${existingReleaseMetadata} artifact size matches`)
+      } else {
+        fail(`${existingReleaseMetadata} artifact size mismatch: expected ${metadata.size}, got ${stat.size}`)
+      }
+      if (!metadata.sha512) {
+        fail(`${existingReleaseMetadata} is missing sha512`)
+      } else {
+        const actualSha512 = sha512Base64(artifactPath)
+        if (actualSha512 === metadata.sha512) {
+          pass(`${existingReleaseMetadata} artifact sha512 matches`)
+        } else {
+          fail(`${existingReleaseMetadata} artifact sha512 mismatch`)
+        }
+      }
+    }
+  }
 } else {
   warn('no latest.yml found yet; run build:win:release before final OTA validation')
 }

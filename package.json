@@ -85,6 +85,7 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "installerIcon": "electron-app/build/software.ico",
       "uninstallerIcon": "electron-app/build/software.ico",
       "createDesktopShortcut": "always",

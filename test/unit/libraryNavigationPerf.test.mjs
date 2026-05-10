@@ -89,11 +89,31 @@ test('VirtualAlbumGrid suppresses external scroll restoration while hidden', () 
   )
   assert.match(appSource, /scrollElementRef=\{albumOverviewActive \? sidebarPlaylistRef : null\}/)
   assert.match(appSource, /freezeMeasurements=\{!albumOverviewActive\}/)
-  assert.match(appSource, /const albumOverviewScrollRestoreActive =[\s\S]*albumOverviewActive && pendingAlbumOverviewRestoreRef\.current/)
+  assert.match(appSource, /const \[albumOverviewRestoreToken, setAlbumOverviewRestoreToken\]/)
+  assert.match(appSource, /const \[albumOverviewRestoreScrollTop, setAlbumOverviewRestoreScrollTop\]/)
+  assert.match(appSource, /const albumOverviewScrollRestoreActive =[\s\S]*albumOverviewActive && pendingAlbumOverviewRestoreRef\.current && albumOverviewRestoreToken > 0/)
   assert.match(appSource, /suppressScrollRestore=\{!albumOverviewScrollRestoreActive\}/)
+  assert.match(appSource, /initialScrollTop=\{[\s\S]*albumOverviewScrollRestoreActive \? albumOverviewRestoreScrollTop : 0[\s\S]*\}/)
   assert.match(
     appSource,
-    /scrollRestorationKey=\{[\s\S]*albumOverviewScrollRestoreActive[\s\S]*\? `albums-\$\{metadataIdentityVersion\}-\$\{albumGroupsFiltered\.length\}`[\s\S]*: ''[\s\S]*\}/
+    /scrollRestorationKey=\{[\s\S]*albumOverviewScrollRestoreActive[\s\S]*\? `albums-\$\{metadataIdentityVersion\}-\$\{albumGroupsFiltered\.length\}-\$\{albumOverviewRestoreToken\}`[\s\S]*: ''[\s\S]*\}/
+  )
+})
+
+test('album overview return restore uses saved scroll state', () => {
+  assert.match(appSource, /const captureAlbumOverviewScrollTop = useCallback/)
+  assert.match(
+    appSource,
+    /albumOverviewScrollTopRef\.current = nextScrollTop[\s\S]*setAlbumOverviewRestoreScrollTop\(nextScrollTop\)/
+  )
+  assert.match(appSource, /captureAlbumOverviewScrollTop\(\)[\s\S]*pendingAlbumDetailScrollResetRef\.current = true/)
+  assert.match(
+    appSource,
+    /setAlbumOverviewRestoreScrollTop\(Math\.max\(0, Number\(albumOverviewScrollTopRef\.current\) \|\| 0\)\)[\s\S]*setAlbumOverviewRestoreToken\(\(token\) => token \+ 1\)[\s\S]*pendingAlbumOverviewRestoreRef\.current = true/
+  )
+  assert.match(
+    appSource,
+    /const restoreTop = Math\.max\([\s\S]*Number\(albumOverviewRestoreScrollTop\) \|\| 0[\s\S]*Number\(albumOverviewScrollTopRef\.current\) \|\| 0[\s\S]*\)/
   )
 })
 
