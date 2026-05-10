@@ -81,12 +81,7 @@ import {
   parseJellyfinTrackPath
 } from './remote/JellyfinClient.js'
 import { PhoneRemoteServer } from './remote/PhoneRemoteServer.js'
-import {
-  initCrashReporter,
-  logError,
-  getCrashDir,
-  recordRendererEvent
-} from './CrashReporter'
+import { initCrashReporter, logError, getCrashDir, recordRendererEvent } from './CrashReporter'
 import MediaDownloader from './MediaDownloader'
 import { importPlaylistFromLink } from './playlistLinkImport.js'
 import { importSharedPlaylists } from './playlistShareImport.js'
@@ -227,16 +222,14 @@ let neteaseCloudSearchCooldownUntil = 0
 let neteaseCloudSearchLastWarnAt = 0
 
 function buildNeteaseCloudSearchCacheKey(kind, keywords) {
-  return `${kind}:${String(keywords || '').trim().toLowerCase()}`
+  return `${kind}:${String(keywords || '')
+    .trim()
+    .toLowerCase()}`
 }
 
 function getNeteaseErrorText(payload) {
   return repairPossiblyMojibakeText(
-    payload?.body?.message ||
-      payload?.body?.msg ||
-      payload?.message ||
-      payload?.body?.code ||
-      ''
+    payload?.body?.message || payload?.body?.msg || payload?.message || payload?.body?.code || ''
   )
 }
 
@@ -479,10 +472,13 @@ async function fetchImageDataUrl(url) {
         }
       })
     } catch (error) {
-      return buildArtistAvatarImageFailure(error?.name === 'AbortError' ? 'timeout' : 'network_error', {
-        transient: true,
-        message: error?.message || String(error || '')
-      })
+      return buildArtistAvatarImageFailure(
+        error?.name === 'AbortError' ? 'timeout' : 'network_error',
+        {
+          transient: true,
+          message: error?.message || String(error || '')
+        }
+      )
     } finally {
       clearTimeout(timeout)
     }
@@ -654,7 +650,8 @@ async function readJsmediatagsPicture(filePath) {
     try {
       jsmediatags.read(filePath, {
         onSuccess: (tag) => resolve({ picture: tag?.tags?.picture || null, error: '' }),
-        onError: (error) => resolve({ picture: null, error: error?.info || error?.message || String(error || '') })
+        onError: (error) =>
+          resolve({ picture: null, error: error?.info || error?.message || String(error || '') })
       })
     } catch (error) {
       resolve({ picture: null, error: error?.message || String(error || '') })
@@ -1423,7 +1420,9 @@ function getDefaultRemoteSourceName(value) {
 
 function isCredentialRemoteSourceType(value) {
   const sourceType = normalizeRemoteSourceType(value)
-  return sourceType === 'subsonic' || sourceType === 'webdav' || isJellyfinLikeSourceType(sourceType)
+  return (
+    sourceType === 'subsonic' || sourceType === 'webdav' || isJellyfinLikeSourceType(sourceType)
+  )
 }
 
 function normalizeRemoteServerUrl(value, type = 'subsonic') {
@@ -1480,7 +1479,7 @@ function getRemoteLibraryState() {
 }
 
 function getRemoteSourcesSafe() {
-  return getRemoteLibraryState().sources.map(source => ({
+  return getRemoteLibraryState().sources.map((source) => ({
     id: source.id,
     type: normalizeRemoteSourceType(source.type),
     name: source.name || getDefaultRemoteSourceName(source.type),
@@ -1495,7 +1494,7 @@ function getRemoteSourcesSafe() {
 }
 
 function findRemoteSource(sourceId) {
-  return getRemoteLibraryState().sources.find(source => source.id === sourceId) || null
+  return getRemoteLibraryState().sources.find((source) => source.id === sourceId) || null
 }
 
 function createSubsonicClientForSource(source, passwordOverride) {
@@ -1599,7 +1598,7 @@ async function ensureWebDavProxyServer() {
         responseType: req.method === 'HEAD' ? 'text' : 'stream',
         timeout: 30000,
         headers,
-        validateStatus: status => status >= 200 && status < 500
+        validateStatus: (status) => status >= 200 && status < 500
       })
 
       const responseHeaders = {}
@@ -1752,7 +1751,7 @@ async function collectNetworkFolderTracks(source) {
   if (!stats.isDirectory()) throw new Error('Network folder path is not a directory')
   const entries = []
   await collectAudioFilesRecursive(source.folderPath, entries)
-  return entries.map(entry => mapNetworkFolderAudioEntry(source, entry))
+  return entries.map((entry) => mapNetworkFolderAudioEntry(source, entry))
 }
 
 async function resolveRemotePlaybackPath(filePath) {
@@ -1938,9 +1937,8 @@ function toNetscapeCookieLine(cookie) {
   if (!cookie?.name || typeof cookie.value !== 'string') return ''
   const rawDomain = String(cookie.domain || '').trim()
   if (!rawDomain) return ''
-  const domain = cookie.httpOnly && !rawDomain.startsWith('#HttpOnly_')
-    ? `#HttpOnly_${rawDomain}`
-    : rawDomain
+  const domain =
+    cookie.httpOnly && !rawDomain.startsWith('#HttpOnly_') ? `#HttpOnly_${rawDomain}` : rawDomain
   const includeSubdomains = rawDomain.startsWith('.') ? 'TRUE' : 'FALSE'
   const pathValue = cookie.path || '/'
   const secure = cookie.secure ? 'TRUE' : 'FALSE'
@@ -1949,7 +1947,9 @@ function toNetscapeCookieLine(cookie) {
     : Number.isFinite(cookie.expirationDate)
       ? Math.max(0, Math.trunc(cookie.expirationDate))
       : 0
-  return [domain, includeSubdomains, pathValue, secure, expires, cookie.name, cookie.value].join('\t')
+  return [domain, includeSubdomains, pathValue, secure, expires, cookie.name, cookie.value].join(
+    '\t'
+  )
 }
 
 function writeNetscapeCookiesFile(cookies, filePath) {
@@ -2774,11 +2774,7 @@ async function createWindow() {
       if (errorCode === -3) return
       if (mainWindow.isDestroyed()) return
       if (mainWindowReloadAttempts >= MAIN_WINDOW_MAX_RELOADS) {
-        console.error(
-          '[Window] did-fail-load gave up after retries:',
-          errorCode,
-          errorDescription
-        )
+        console.error('[Window] did-fail-load gave up after retries:', errorCode, errorDescription)
         return
       }
       mainWindowReloadAttempts += 1
@@ -2998,7 +2994,11 @@ async function resolveRpcCoverUrl(activity = {}) {
   }
 }
 
-async function applyRpcActivity(activity, fallbackToDefault = false, expectedRevision = rpcActivityRevision) {
+async function applyRpcActivity(
+  activity,
+  fallbackToDefault = false,
+  expectedRevision = rpcActivityRevision
+) {
   if (discordRpcQuitting || !rpcClient || !rpcReady) return false
   const client = rpcClient
   const isStaleActivity = () => expectedRevision !== rpcActivityRevision
@@ -3018,7 +3018,8 @@ async function applyRpcActivity(activity, fallbackToDefault = false, expectedRev
       const candidates = getDiscordImageKeyCandidates(resolvedCoverUrl)
 
       for (const imageKey of candidates) {
-        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
+        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity())
+          return false
         try {
           await client.setActivity({
             ...payload,
@@ -3051,7 +3052,8 @@ async function applyRpcActivity(activity, fallbackToDefault = false, expectedRev
   } catch (e) {
     if (fallbackToDefault) {
       try {
-        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity()) return false
+        if (discordRpcQuitting || !rpcReady || rpcClient !== client || isStaleActivity())
+          return false
         await client.setActivity(DEFAULT_RPC_ACTIVITY)
         return true
       } catch (_) {}
@@ -3324,8 +3326,7 @@ app.whenReady().then(async () => {
             title: webContents.getTitle(),
             isLoading: webContents.isLoading(),
             isWaitingForResponse: webContents.isWaitingForResponse(),
-            isCrashed:
-              typeof webContents.isCrashed === 'function' ? webContents.isCrashed() : null,
+            isCrashed: typeof webContents.isCrashed === 'function' ? webContents.isCrashed() : null,
             osProcessId:
               typeof webContents.getOSProcessId === 'function' ? webContents.getOSProcessId() : null
           }
@@ -3401,37 +3402,30 @@ app.whenReady().then(async () => {
       const state = getRemoteLibraryState()
       const now = new Date().toISOString()
       const id = payload.id || createRemoteSourceId()
-      const existingIndex = state.sources.findIndex(source => source.id === id)
+      const existingIndex = state.sources.findIndex((source) => source.id === id)
       const existing = existingIndex >= 0 ? state.sources[existingIndex] : null
       const sourceType = normalizeRemoteSourceType(payload.type || existing?.type)
       const passwordProvided = typeof payload.password === 'string' && payload.password.length > 0
-      const encryptedPassword =
-        isCredentialRemoteSourceType(sourceType)
-          ? passwordProvided
-            ? encryptRemotePassword(payload.password)
-            : existing?.password || null
-          : null
+      const encryptedPassword = isCredentialRemoteSourceType(sourceType)
+        ? passwordProvided
+          ? encryptRemotePassword(payload.password)
+          : existing?.password || null
+        : null
       const source = {
         id,
         type: sourceType,
         name:
-          String(
-            payload.name ||
-              existing?.name ||
-              getDefaultRemoteSourceName(sourceType)
-          ).trim() || getDefaultRemoteSourceName(sourceType),
-        serverUrl:
-          isCredentialRemoteSourceType(sourceType)
-            ? normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || '', sourceType)
-            : '',
-        folderPath:
-          isFileBackedRemoteSourceType(sourceType)
-            ? String(payload.folderPath || existing?.folderPath || '').trim()
-            : '',
-        username:
-          isCredentialRemoteSourceType(sourceType)
-            ? String(payload.username || existing?.username || '').trim()
-            : '',
+          String(payload.name || existing?.name || getDefaultRemoteSourceName(sourceType)).trim() ||
+          getDefaultRemoteSourceName(sourceType),
+        serverUrl: isCredentialRemoteSourceType(sourceType)
+          ? normalizeRemoteServerUrl(payload.serverUrl || existing?.serverUrl || '', sourceType)
+          : '',
+        folderPath: isFileBackedRemoteSourceType(sourceType)
+          ? String(payload.folderPath || existing?.folderPath || '').trim()
+          : '',
+        username: isCredentialRemoteSourceType(sourceType)
+          ? String(payload.username || existing?.username || '').trim()
+          : '',
         password: encryptedPassword,
         createdAt: existing?.createdAt || now,
         updatedAt: now
@@ -3494,7 +3488,7 @@ app.whenReady().then(async () => {
         state.sources.push(source)
       }
       flushAppStateCacheSync()
-      return { ok: true, source: getRemoteSourcesSafe().find(item => item.id === id) }
+      return { ok: true, source: getRemoteSourcesSafe().find((item) => item.id === id) }
     } catch (error) {
       return { ok: false, error: error?.message || String(error) }
     }
@@ -3503,7 +3497,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('remoteLibrary:removeSource', async (_, sourceId) => {
     const state = getRemoteLibraryState()
     const before = state.sources.length
-    state.sources = state.sources.filter(source => source.id !== sourceId)
+    state.sources = state.sources.filter((source) => source.id !== sourceId)
     if (state.sources.length !== before) {
       flushAppStateCacheSync()
     }
@@ -3583,7 +3577,9 @@ app.whenReady().then(async () => {
               password: existing?.password || null
             }
       const passwordOverride =
-        typeof payload.password === 'string' && payload.password.length > 0 ? payload.password : undefined
+        typeof payload.password === 'string' && payload.password.length > 0
+          ? payload.password
+          : undefined
       const client = createSubsonicClientForSource(source, passwordOverride)
       await client.ping()
       return { ok: true }
@@ -3616,8 +3612,8 @@ app.whenReady().then(async () => {
         const client = createWebDavClientForSource(source)
         const entries = await client.list('/')
         const folders = entries
-          .filter(entry => entry.isDirectory)
-          .map(entry => ({
+          .filter((entry) => entry.isDirectory)
+          .map((entry) => ({
             id: entry.path,
             name: entry.name || basename(entry.path) || source.name || 'WebDAV',
             albumCount: 0
@@ -3648,7 +3644,7 @@ app.whenReady().then(async () => {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
         const tracks = (await collectNetworkFolderTracks(source)).filter(
-          track => track.folder === artistId
+          (track) => track.folder === artistId
         )
         return {
           ok: true,
@@ -3671,14 +3667,14 @@ app.whenReady().then(async () => {
       if (normalizeRemoteSourceType(source?.type) === 'webdav') {
         const client = createWebDavClientForSource(source)
         const entries = await client.list(artistId || '/')
-        const folders = entries.filter(entry => entry.isDirectory)
+        const folders = entries.filter((entry) => entry.isDirectory)
         return {
           ok: true,
           artist: {
             id: artistId || '/',
             name: basename(artistId || '/') || source.name || 'WebDAV',
             albums: folders.length
-              ? folders.map(folder => ({
+              ? folders.map((folder) => ({
                   id: folder.path,
                   name: folder.name,
                   title: folder.name,
@@ -3692,7 +3688,9 @@ app.whenReady().then(async () => {
                     name: basename(artistId || '/') || source.name || 'WebDAV',
                     title: basename(artistId || '/') || source.name || 'WebDAV',
                     artist: source.name || 'WebDAV',
-                    songCount: entries.filter(entry => !entry.isDirectory && isRemoteAudioFilePath(entry.path)).length,
+                    songCount: entries.filter(
+                      (entry) => !entry.isDirectory && isRemoteAudioFilePath(entry.path)
+                    ).length,
                     duration: 0
                   }
                 ]
@@ -3717,7 +3715,9 @@ app.whenReady().then(async () => {
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
-        const songs = (await collectNetworkFolderTracks(source)).filter(track => track.folder === albumId)
+        const songs = (await collectNetworkFolderTracks(source)).filter(
+          (track) => track.folder === albumId
+        )
         return {
           ok: true,
           album: {
@@ -3735,8 +3735,8 @@ app.whenReady().then(async () => {
         const client = createWebDavClientForSource(source)
         const entries = await client.list(albumId || '/')
         const songs = entries
-          .filter(entry => !entry.isDirectory && isRemoteAudioFilePath(entry.path))
-          .map(entry => mapWebDavFile(source, entry, client))
+          .filter((entry) => !entry.isDirectory && isRemoteAudioFilePath(entry.path))
+          .map((entry) => mapWebDavFile(source, entry, client))
         return {
           ok: true,
           album: {
@@ -3768,16 +3768,13 @@ app.whenReady().then(async () => {
     try {
       const source = findRemoteSource(sourceId)
       if (isFileBackedRemoteSourceType(source?.type)) {
-        const needle = String(query || '').trim().toLowerCase()
+        const needle = String(query || '')
+          .trim()
+          .toLowerCase()
         const allTracks = await collectNetworkFolderTracks(source)
         const songs = needle
-          ? allTracks.filter(track => {
-              const haystack = [
-                track.title,
-                track.artist,
-                track.album,
-                track.remoteActualPath
-              ]
+          ? allTracks.filter((track) => {
+              const haystack = [track.title, track.artist, track.album, track.remoteActualPath]
                 .filter(Boolean)
                 .join('\n')
                 .toLowerCase()
@@ -4334,7 +4331,8 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('lyrics:neteaseFetch', async (_, payload) => {
-    if (isNetworkAccessDisabled()) return { ok: false, lrc: '', confidence: null, error: 'network_disabled' }
+    if (isNetworkAccessDisabled())
+      return { ok: false, lrc: '', confidence: null, error: 'network_disabled' }
     try {
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
       const result = await fetchNeteaseLrcText({
@@ -4430,18 +4428,25 @@ app.whenReady().then(async () => {
       const artist = String(payload?.artist || '').trim()
       if (!albumName && !artist) return []
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
-      const res = await cachedNeteaseCloudSearch('searchAlbum', {
-        keywords: `${albumName} ${artist}`.trim(),
-        type: 10,
-        limit: 8
-      }, auth.valid ? auth.cookie : '')
+      const res = await cachedNeteaseCloudSearch(
+        'searchAlbum',
+        {
+          keywords: `${albumName} ${artist}`.trim(),
+          type: 10,
+          limit: 8
+        },
+        auth.valid ? auth.cookie : ''
+      )
       const albums = res?.body?.result?.albums
       if (!Array.isArray(albums)) return []
       return albums.map((album) => ({
         id: album.id,
         name: album.name || '',
         artist:
-          (album.artists || album.ar || []).map((item) => item?.name).filter(Boolean).join(' / ') ||
+          (album.artists || album.ar || [])
+            .map((item) => item?.name)
+            .filter(Boolean)
+            .join(' / ') ||
           album.artist?.name ||
           '',
         picUrl: album.picUrl || album.blurPicUrl || '',
@@ -4458,11 +4463,15 @@ app.whenReady().then(async () => {
       const artistName = String(payload?.artist || '').trim()
       if (!artistName) return { ok: true, artists: [] }
       const auth = await resolveNeteaseAuthState(payload?.cookie || '')
-      const res = await cachedNeteaseCloudSearch('searchArtist', {
-        keywords: artistName,
-        type: 100,
-        limit: 8
-      }, auth.valid ? auth.cookie : '')
+      const res = await cachedNeteaseCloudSearch(
+        'searchArtist',
+        {
+          keywords: artistName,
+          type: 100,
+          limit: 8
+        },
+        auth.valid ? auth.cookie : ''
+      )
       const artists = res?.body?.result?.artists
       if (!res) {
         return {
@@ -4529,7 +4538,10 @@ app.whenReady().then(async () => {
       return songs.map((track) => ({
         id: track.id,
         name: track.name || '',
-        artist: (track.ar || track.artists || []).map((item) => item?.name).filter(Boolean).join(' / '),
+        artist: (track.ar || track.artists || [])
+          .map((item) => item?.name)
+          .filter(Boolean)
+          .join(' / '),
         duration: track.dt || track.duration || 0,
         fee: track.fee || 0
       }))
@@ -4560,13 +4572,16 @@ app.whenReady().then(async () => {
     })
   })
 
-  ipcMain.handle('qqMusic:getSongUrl', async (_, song, qualityPreset = 'auto', preferredCookie = '') => {
-    const auth = await resolveQqMusicAuthState(preferredCookie)
-    return await getQqMusicSongDirectUrl(song, {
-      qualityPreset,
-      cookie: auth.cookie || ''
-    })
-  })
+  ipcMain.handle(
+    'qqMusic:getSongUrl',
+    async (_, song, qualityPreset = 'auto', preferredCookie = '') => {
+      const auth = await resolveQqMusicAuthState(preferredCookie)
+      return await getQqMusicSongDirectUrl(song, {
+        qualityPreset,
+        cookie: auth.cookie || ''
+      })
+    }
+  )
 
   ipcMain.handle('streaming:search', async (_, payload = {}) => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
@@ -4674,7 +4689,9 @@ app.whenReady().then(async () => {
     if (isNetworkAccessDisabled()) return buildNetworkDisabledResult()
     const { url, targetFolder, filename, headers } = opts || {}
     if (!url || !targetFolder || !filename) throw new Error('Missing required parameters')
-    return await MediaDownloader.downloadFromUrl(url, targetFolder, filename, event.sender, { headers })
+    return await MediaDownloader.downloadFromUrl(url, targetFolder, filename, event.sender, {
+      headers
+    })
   })
 
   ipcMain.handle('media:renameDownloadedMedia', async (_, filePath, desiredStem) => {
@@ -4711,7 +4728,8 @@ app.whenReady().then(async () => {
         downloadProvider: downloadProvider === 'qq' ? 'qq' : 'netease',
         qualityPreset: audioQualityPreset || 'auto',
         youtubeCookieBrowser,
-        youtubeCookieFile: withResolvedYoutubeCookieOptions({ youtubeCookieFile }).youtubeCookieFile,
+        youtubeCookieFile: withResolvedYoutubeCookieOptions({ youtubeCookieFile })
+          .youtubeCookieFile,
         quickMode: quickMode === true
       }
     )
@@ -4795,7 +4813,8 @@ app.whenReady().then(async () => {
   function parseYouTubeSearchItems(html = '') {
     const items = []
     const seen = new Set()
-    const rendererRegex = /"videoRenderer":\{([\s\S]*?)\}(?=,"(?:radioRenderer|playlistRenderer|reelShelfRenderer|channelRenderer|shelfRenderer|continuationItemRenderer|richItemRenderer)"|],"|}$)/g
+    const rendererRegex =
+      /"videoRenderer":\{([\s\S]*?)\}(?=,"(?:radioRenderer|playlistRenderer|reelShelfRenderer|channelRenderer|shelfRenderer|continuationItemRenderer|richItemRenderer)"|],"|}$)/g
     for (const match of html.matchAll(rendererRegex)) {
       const block = match[1] || ''
       const idMatch = block.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)
@@ -4805,7 +4824,9 @@ app.whenReady().then(async () => {
       const ownerMatch =
         block.match(/"ownerText":\{"runs":\[\{"text":"([^"]+)"/) ||
         block.match(/"longBylineText":\{"runs":\[\{"text":"([^"]+)"/)
-      const durationMatch = block.match(/"lengthText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/)
+      const durationMatch = block.match(
+        /"lengthText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/
+      )
       const viewCountMatch =
         block.match(/"viewCountText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/) ||
         block.match(/"shortViewCountText":\{"(?:simpleText":"([^"]+)"|runs":\[\{"text":"([^"]+)")/)
@@ -4823,7 +4844,13 @@ app.whenReady().then(async () => {
     return items
   }
 
-  function buildBilibiliMvSearchPayload(videoResults, normalizedQuery, searchContext, mode, startedAt) {
+  function buildBilibiliMvSearchPayload(
+    videoResults,
+    normalizedQuery,
+    searchContext,
+    mode,
+    startedAt
+  ) {
     if (!Array.isArray(videoResults) || videoResults.length === 0) return null
     const scored = rankBilibiliVideoResults(videoResults, normalizedQuery, searchContext)
     const items = scored.map(({ originalIndex, ...item }) => item)
@@ -4859,7 +4886,10 @@ app.whenReady().then(async () => {
   }
 
   ipcMain.handle('api:searchMV', async (_, query, source = 'youtube', options = {}) => {
-    const normalizedSource = String(source || 'youtube').trim().toLowerCase() || 'youtube'
+    const normalizedSource =
+      String(source || 'youtube')
+        .trim()
+        .toLowerCase() || 'youtube'
     const rawQuery = String(query || '').trim()
     const normalizedQuery = repairPossiblyMojibakeSearchQuery(rawQuery)
     const rawOptions = options && typeof options === 'object' ? options : {}
@@ -4879,100 +4909,106 @@ app.whenReady().then(async () => {
     }
     const pending = mvSearchPending.get(cacheKey)
     if (pending) {
-      writeLogLine(`[MV Search] awaiting in-flight request: ${normalizedSource} "${normalizedQuery}"`)
+      writeLogLine(
+        `[MV Search] awaiting in-flight request: ${normalizedSource} "${normalizedQuery}"`
+      )
       return pending
     }
 
     const startedAt = Date.now()
     const task = (async () => {
-    try {
-      if (normalizedSource === 'bilibili') {
-        let apiError = null
-        if (Date.now() >= bilibiliSearchApiBackoffUntil) {
-          try {
-            const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(normalizedQuery)}`
-            const resp = await net.fetch(url, {
-              headers: {
-                'User-Agent': standardUA,
-                Accept: 'application/json,text/plain,*/*',
-                Referer: 'https://www.bilibili.com/'
+      try {
+        if (normalizedSource === 'bilibili') {
+          let apiError = null
+          if (Date.now() >= bilibiliSearchApiBackoffUntil) {
+            try {
+              const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(normalizedQuery)}`
+              const resp = await net.fetch(url, {
+                headers: {
+                  'User-Agent': standardUA,
+                  Accept: 'application/json,text/plain,*/*',
+                  Referer: 'https://www.bilibili.com/'
+                }
+              })
+              const bodyText = await resp.text()
+              if (!resp.ok) {
+                throw new Error(`http_${resp.status}`)
               }
-            })
-            const bodyText = await resp.text()
-            if (!resp.ok) {
-              throw new Error(`http_${resp.status}`)
+              const data = parseBilibiliApiJson(bodyText)
+              if (Number(data?.code || 0) !== 0) {
+                throw new Error(`code_${data?.code || 'unknown'}`)
+              }
+              const payload = buildBilibiliMvSearchPayload(
+                data?.data?.result || [],
+                normalizedQuery,
+                searchContext,
+                'api',
+                startedAt
+              )
+              if (payload) return writeTimedCache(mvSearchCache, cacheKey, payload)
+            } catch (error) {
+              apiError = error
+              bilibiliSearchApiBackoffUntil = Date.now() + BILI_SEARCH_API_BACKOFF_MS
+              writeLogLine(
+                `[MV Search] Bilibili API fallback: "${normalizedQuery}" -> ${error?.message || error}`
+              )
             }
-            const data = parseBilibiliApiJson(bodyText)
-            if (Number(data?.code || 0) !== 0) {
-              throw new Error(`code_${data?.code || 'unknown'}`)
-            }
-            const payload = buildBilibiliMvSearchPayload(
-              data?.data?.result || [],
-              normalizedQuery,
-              searchContext,
-              'api',
-              startedAt
-            )
-            if (payload) return writeTimedCache(mvSearchCache, cacheKey, payload)
-          } catch (error) {
-            apiError = error
-            bilibiliSearchApiBackoffUntil = Date.now() + BILI_SEARCH_API_BACKOFF_MS
-            writeLogLine(
-              `[MV Search] Bilibili API fallback: "${normalizedQuery}" -> ${error?.message || error}`
-            )
           }
-        }
 
-        const webUrl = `https://search.bilibili.com/video?keyword=${encodeURIComponent(normalizedQuery)}`
-        const webResp = await net.fetch(webUrl, {
-          headers: {
-            'User-Agent': standardUA,
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            Referer: 'https://www.bilibili.com/'
-          }
-        })
-        const webHtml = await webResp.text()
-        const webResults = parseBilibiliSearchHtml(webHtml, 15)
-        const payload = buildBilibiliMvSearchPayload(
-          webResults,
-          normalizedQuery,
-          searchContext,
-          apiError ? 'web-fallback' : 'web',
-          startedAt
-        )
-        if (payload) {
-          return writeTimedCache(mvSearchCache, cacheKey, payload)
-        }
-      } else {
-        const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(normalizedQuery)}`
-        const { data } = await axios.get(url, {
-          headers: { 'User-Agent': standardUA }
-        })
-        const scored = rankYoutubeVideoResults(parseYouTubeSearchItems(data), normalizedQuery, searchContext)
-        const items = scored.map(({ originalIndex, ...item }) => item)
-        const hit = items.find((item) => item.autoAccepted) || items[0]
-        if (hit?.id) {
-          writeLogLine(
-            `[MV Search] YouTube: "${normalizedQuery}" -> items=${items.length} id=${hit.id} auto=${hit.autoAccepted === true ? 'yes' : hit.autoRejectReason || 'no'} | total=${Date.now() - startedAt}ms`
-          )
-          return writeTimedCache(mvSearchCache, cacheKey, {
-            id: hit.id,
-            title: hit.title,
-            source: 'youtube',
-            author: hit.author,
-            duration: hit.duration,
-            ...(hit.viewCount > 0 ? { viewCount: hit.viewCount } : {}),
-            score: hit.score,
-            autoAccepted: hit.autoAccepted === true,
-            autoRejectReason: hit.autoRejectReason || '',
-            items
+          const webUrl = `https://search.bilibili.com/video?keyword=${encodeURIComponent(normalizedQuery)}`
+          const webResp = await net.fetch(webUrl, {
+            headers: {
+              'User-Agent': standardUA,
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              Referer: 'https://www.bilibili.com/'
+            }
           })
+          const webHtml = await webResp.text()
+          const webResults = parseBilibiliSearchHtml(webHtml, 15)
+          const payload = buildBilibiliMvSearchPayload(
+            webResults,
+            normalizedQuery,
+            searchContext,
+            apiError ? 'web-fallback' : 'web',
+            startedAt
+          )
+          if (payload) {
+            return writeTimedCache(mvSearchCache, cacheKey, payload)
+          }
+        } else {
+          const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(normalizedQuery)}`
+          const { data } = await axios.get(url, {
+            headers: { 'User-Agent': standardUA }
+          })
+          const scored = rankYoutubeVideoResults(
+            parseYouTubeSearchItems(data),
+            normalizedQuery,
+            searchContext
+          )
+          const items = scored.map(({ originalIndex, ...item }) => item)
+          const hit = items.find((item) => item.autoAccepted) || items[0]
+          if (hit?.id) {
+            writeLogLine(
+              `[MV Search] YouTube: "${normalizedQuery}" -> items=${items.length} id=${hit.id} auto=${hit.autoAccepted === true ? 'yes' : hit.autoRejectReason || 'no'} | total=${Date.now() - startedAt}ms`
+            )
+            return writeTimedCache(mvSearchCache, cacheKey, {
+              id: hit.id,
+              title: hit.title,
+              source: 'youtube',
+              author: hit.author,
+              duration: hit.duration,
+              ...(hit.viewCount > 0 ? { viewCount: hit.viewCount } : {}),
+              score: hit.score,
+              autoAccepted: hit.autoAccepted === true,
+              autoRejectReason: hit.autoRejectReason || '',
+              items
+            })
+          }
         }
+      } catch (e) {
+        writeLogLine(`[MV Search] Error: ${e.message}`)
       }
-    } catch (e) {
-      writeLogLine(`[MV Search] Error: ${e.message}`)
-    }
-    return null
+      return null
     })()
 
     mvSearchPending.set(cacheKey, task)
@@ -5037,15 +5073,26 @@ app.whenReady().then(async () => {
 
     try {
       const soundCloudCookieFile = await writeSoundCloudCookiesFromSession()
-      const metadata = await MediaDownloader.getMetadata(url, { soundCloudCookieFile }).catch((error) => {
-        console.warn('[SoundCloud] yt-dlp metadata failed, continuing with fallback title:', error)
-        return null
-      })
+      const metadata = await MediaDownloader.getMetadata(url, { soundCloudCookieFile }).catch(
+        (error) => {
+          console.warn(
+            '[SoundCloud] yt-dlp metadata failed, continuing with fallback title:',
+            error
+          )
+          return null
+        }
+      )
       const title = MediaDownloader.sanitizeFilenameStem(metadata?.title || 'SoundCloud Track')
-      const filePath = await MediaDownloader.downloadAudioWithBasename(url, targetDir, title, event.sender, {
-        audioQualityPreset: 'auto',
-        soundCloudCookieFile
-      })
+      const filePath = await MediaDownloader.downloadAudioWithBasename(
+        url,
+        targetDir,
+        title,
+        event.sender,
+        {
+          audioQualityPreset: 'auto',
+          soundCloudCookieFile
+        }
+      )
       const renamedPath = MediaDownloader.renameDownloadedMedia(filePath, title)
       return {
         success: true,
@@ -5208,27 +5255,44 @@ app.whenReady().then(async () => {
     const ffmpegInfo = requestOptions.includeTechnicalProbe
       ? await getFfmpegAudioInfo(filePath).catch(() => null)
       : null
-    const rawAlbum = firstReadableMetadataText(musicMetadata.album, ffmpegInfo?.tags?.album)
-    const rawAlbumArtist = firstReadableMetadataText(
-      musicMetadata.albumArtist,
-      ffmpegInfo?.tags?.albumArtist
+    const albumCandidate = firstReadableMetadataCandidate(
+      { value: musicMetadata.album, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.album, source: 'embedded' }
     )
-    const rawArtist = firstReadableMetadataText(
-      filenameIdentity.artist,
-      musicMetadata.artist,
-      ffmpegInfo?.tags?.artist,
-      ffmpegInfo?.tags?.artists,
-      ffmpegInfo?.tags?.author,
-      ffmpegInfo?.tags?.performer,
-      rawAlbumArtist,
-      'Unknown Artist'
+    const rawAlbum = albumCandidate.value
+    const albumArtistCandidate = firstReadableMetadataCandidate(
+      { value: musicMetadata.albumArtist, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.albumArtist, source: 'embedded' }
     )
-    const rawTitle = firstReadableMetadataText(
-      musicMetadata.title,
-      ffmpegInfo?.tags?.title,
-      getReadableInfoSidecarName(infoSidecar),
-      filenameIdentity.title,
-      baseTitle
+    const rawAlbumArtist = albumArtistCandidate.value
+    const artistCandidate = firstReadableMetadataCandidate(
+      { value: musicMetadata.artist, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.artist, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.artists, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.author, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.performer, source: 'embedded' },
+      { value: rawAlbumArtist, source: albumArtistCandidate.source },
+      { value: filenameIdentity.artist, source: 'filename' },
+      { value: 'Unknown Artist', source: 'fallback' }
+    )
+    const rawArtist = artistCandidate.value
+    const titleCandidate = firstReadableMetadataCandidate(
+      { value: musicMetadata.title, source: 'embedded' },
+      { value: ffmpegInfo?.tags?.title, source: 'embedded' },
+      { value: getReadableInfoSidecarName(infoSidecar), source: 'sidecar' },
+      { value: filenameIdentity.title, source: 'filename' },
+      { value: baseTitle, source: 'filename' }
+    )
+    const rawTitle = titleCandidate.value
+    const fieldSources = {}
+    assignMetadataFieldSource(fieldSources, 'title', titleCandidate.source, rawTitle)
+    assignMetadataFieldSource(fieldSources, 'artist', artistCandidate.source, rawArtist)
+    assignMetadataFieldSource(fieldSources, 'album', albumCandidate.source, rawAlbum)
+    assignMetadataFieldSource(
+      fieldSources,
+      'albumArtist',
+      albumArtistCandidate.source,
+      rawAlbumArtist
     )
     let cover = null
     let coverScope = 'album'
@@ -5282,13 +5346,16 @@ app.whenReady().then(async () => {
           coverSource = 'embedded'
           coverBytes = compressedJsmediatagsCover.bytes
         } else if (jsmediatagsPicture) {
-          logEmbeddedCoverWarn('jsmediatags picture could not be converted during metadata fallback', {
-            ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
-            embeddedPictureFound: true,
-            compressionSucceeded: false,
-            coverBytes: 0,
-            error: ''
-          })
+          logEmbeddedCoverWarn(
+            'jsmediatags picture could not be converted during metadata fallback',
+            {
+              ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
+              embeddedPictureFound: true,
+              compressionSucceeded: false,
+              coverBytes: 0,
+              error: ''
+            }
+          )
         } else if (jsmediatagsCover?.error) {
           logEmbeddedCoverWarn('jsmediatags fallback failed during metadata fallback', {
             ...getEmbeddedCoverLogContext(filePath, 'jsmediatags'),
@@ -5371,6 +5438,11 @@ app.whenReady().then(async () => {
         cover,
         coverScope,
         coverSource,
+        metadataSource: Object.values(fieldSources).includes('embedded') ? 'embedded' : 'fallback',
+        fieldSources: {
+          ...fieldSources,
+          ...(coverSource ? { cover: coverSource } : {})
+        },
         coverChecked: requestOptions.includeCover === true,
         coverExtractorVersion: requestOptions.includeCover
           ? EMBEDDED_COVER_EXTRACTOR_VERSION
@@ -5389,7 +5461,9 @@ app.whenReady().then(async () => {
     for (const item of candidates) {
       if (item === null || item === undefined || item === '') continue
       const raw = typeof item === 'object' && item !== null && 'value' in item ? item.value : item
-      const match = String(raw).replace(',', '.').match(/\d+(?:\.\d+)?/)
+      const match = String(raw)
+        .replace(',', '.')
+        .match(/\d+(?:\.\d+)?/)
       if (!match) continue
       const parsed = Number.parseFloat(match[0])
       if (Number.isFinite(parsed) && parsed >= 40 && parsed <= 260) {
@@ -5451,7 +5525,12 @@ app.whenReady().then(async () => {
     }
   }
 
-  function normalizeResolvedAudioCodec(metadata, filePath, probedInfo = null, preferProbed = false) {
+  function normalizeResolvedAudioCodec(
+    metadata,
+    filePath,
+    probedInfo = null,
+    preferProbed = false
+  ) {
     return normalizeResolvedAudioCodecLabel({
       codecLabel: resolveAudioCodecLabel(metadata, filePath),
       filePath,
@@ -5496,13 +5575,39 @@ app.whenReady().then(async () => {
     return ''
   }
 
+  function firstReadableMetadataCandidate(...candidates) {
+    for (const candidate of candidates) {
+      const text = sanitizeMetadataText(candidate?.value)
+      if (isReadableMetadataText(text)) {
+        return {
+          value: text,
+          source: candidate?.source || ''
+        }
+      }
+    }
+    return { value: '', source: '' }
+  }
+
+  function assignMetadataFieldSource(fieldSources, field, source, value) {
+    if (value === null || value === undefined) return
+    if (typeof value === 'string' && !value.trim()) return
+    if (typeof value === 'number' && (!Number.isFinite(value) || value <= 0)) return
+    if (!source) return
+    fieldSources[field] = source
+  }
+
   function normalizeMetadataTextList(value) {
     if (!Array.isArray(value)) return sanitizeMetadataText(value)
-    return value.map((item) => sanitizeMetadataText(item)).filter(Boolean).join(' / ')
+    return value
+      .map((item) => sanitizeMetadataText(item))
+      .filter(Boolean)
+      .join(' / ')
   }
 
   function normalizeNativeMetadataKey(value) {
-    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
   }
 
   function firstNativeMetadataText(metadata, keys = []) {
@@ -5528,11 +5633,7 @@ app.whenReady().then(async () => {
   }
 
   function normalizeIdentityCompareText(value) {
-    return stripTrackNumberPrefix(value)
-      .normalize('NFKC')
-      .toLowerCase()
-      .replace(/\s+/g, '')
-      .trim()
+    return stripTrackNumberPrefix(value).normalize('NFKC').toLowerCase().replace(/\s+/g, '').trim()
   }
 
   function splitFilenameOutsideBrackets(value, separators = []) {
@@ -5659,12 +5760,13 @@ app.whenReady().then(async () => {
         const probed = await getMediaDurationSeconds(filePath)
         if (probed > 0) durationSec = probed
       }
-      const rawAlbumForCover = firstReadableMetadataText(
-        cueTrack?.albumTitle,
-        wavInfoTags.album,
-        metadata.common.album,
-        ffmpegInfo?.tags?.album
+      const albumForCoverCandidate = firstReadableMetadataCandidate(
+        { value: cueTrack?.albumTitle, source: 'embedded-cue' },
+        { value: wavInfoTags.album, source: 'embedded' },
+        { value: metadata.common.album, source: 'embedded' },
+        { value: ffmpegInfo?.tags?.album, source: 'embedded' }
       )
+      const rawAlbumForCover = albumForCoverCandidate.value
 
       const musicMetadataPictureCount =
         requestOptions.includeCover && Array.isArray(metadata.common.picture)
@@ -5687,7 +5789,9 @@ app.whenReady().then(async () => {
           /ogg/i.test(metadata.format?.container || ''))
       if (requestOptions.includeCover) {
         const compressedCover = musicMetadataPicture
-          ? await runCoverTask(() => compressEmbeddedCoverData(musicMetadataPicture, requestOptions))
+          ? await runCoverTask(() =>
+              compressEmbeddedCoverData(musicMetadataPicture, requestOptions)
+            )
           : null
         logEmbeddedCoverDebug('local artwork extraction attempt', {
           ...getEmbeddedCoverLogContext(filePath, 'music-metadata'),
@@ -5888,54 +5992,95 @@ app.whenReady().then(async () => {
           ? ffmpegInfo?.bitDepth || metadata.format.bitsPerSample || null
           : metadata.format.bitsPerSample || ffmpegInfo?.bitDepth || null
         : null
-      const displayDuration = getCueDuration(requestedPath, durationSec || infoSidecar?.duration || 0)
-      const rawTitle = firstReadableMetadataText(
-        cueTrack?.title,
-        wavInfoTags.title,
-        metadata.common.title,
-        ffmpegInfo?.tags?.title,
-        getReadableInfoSidecarName(infoSidecar),
-        basename(filePath, extname(filePath))
+      const displayDuration = getCueDuration(
+        requestedPath,
+        durationSec || infoSidecar?.duration || 0
       )
-      const titleFromFilename = matchesLocalFilenameStem(rawTitle, filePath)
-        ? filenameIdentity.title || rawTitle
-        : rawTitle
-      const artistFromFilename = matchesLocalFilenameStem(rawTitle, filePath)
-        ? filenameIdentity.artist || ''
-        : ''
-      const rawArtist = firstReadableMetadataText(
-        cueTrack?.artist,
-        artistFromFilename,
-        wavInfoTags.artist,
-        metadata.common.artist,
-        normalizeMetadataTextList(metadata.common.artists),
-        firstNativeMetadataText(metadata, [
-          'artist',
-          'artists',
-          'author',
-          'authors',
-          'performer',
-          'WM/Artist',
-          'TPE1'
-        ]),
-        ffmpegInfo?.tags?.artist,
-        ffmpegInfo?.tags?.artists,
-        ffmpegInfo?.tags?.author,
-        ffmpegInfo?.tags?.performer,
-        metadata.common.albumartist,
-        metadata.common.albumArtist,
-        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2']),
-        ffmpegInfo?.tags?.albumArtist,
-        'Unknown Artist'
+      const titleCandidate = firstReadableMetadataCandidate(
+        { value: cueTrack?.title, source: 'embedded-cue' },
+        { value: wavInfoTags.title, source: 'embedded' },
+        { value: metadata.common.title, source: 'embedded' },
+        { value: ffmpegInfo?.tags?.title, source: 'embedded' },
+        { value: getReadableInfoSidecarName(infoSidecar), source: 'sidecar' },
+        { value: filenameIdentity.title, source: 'filename' },
+        { value: basename(filePath, extname(filePath)), source: 'filename' }
       )
-      const rawAlbum = firstReadableMetadataText(
-        rawAlbumForCover
+      const rawTitle = titleCandidate.value
+      const albumArtistCandidate = firstReadableMetadataCandidate(
+        { value: metadata.common.albumartist, source: 'embedded' },
+        { value: metadata.common.albumArtist, source: 'embedded' },
+        {
+          value: firstNativeMetadataText(metadata, [
+            'albumartist',
+            'album artist',
+            'WM/AlbumArtist',
+            'TPE2'
+          ]),
+          source: 'embedded'
+        },
+        { value: ffmpegInfo?.tags?.albumArtist, source: 'embedded' }
       )
-      const rawAlbumArtist = firstReadableMetadataText(
-        metadata.common.albumartist,
-        metadata.common.albumArtist,
-        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2']),
-        ffmpegInfo?.tags?.albumArtist
+      const rawAlbumArtist = albumArtistCandidate.value
+      const artistCandidate = firstReadableMetadataCandidate(
+        { value: cueTrack?.artist, source: 'embedded-cue' },
+        { value: wavInfoTags.artist, source: 'embedded' },
+        { value: metadata.common.artist, source: 'embedded' },
+        { value: normalizeMetadataTextList(metadata.common.artists), source: 'embedded' },
+        {
+          value: firstNativeMetadataText(metadata, [
+            'artist',
+            'artists',
+            'author',
+            'authors',
+            'performer',
+            'WM/Artist',
+            'TPE1'
+          ]),
+          source: 'embedded'
+        },
+        { value: ffmpegInfo?.tags?.artist, source: 'embedded' },
+        { value: ffmpegInfo?.tags?.artists, source: 'embedded' },
+        { value: ffmpegInfo?.tags?.author, source: 'embedded' },
+        { value: ffmpegInfo?.tags?.performer, source: 'embedded' },
+        { value: rawAlbumArtist, source: albumArtistCandidate.source },
+        { value: filenameIdentity.artist, source: 'filename' },
+        { value: 'Unknown Artist', source: 'fallback' }
+      )
+      const rawArtist = artistCandidate.value
+      const rawAlbum = rawAlbumForCover
+      const fieldSources = {}
+      assignMetadataFieldSource(fieldSources, 'title', titleCandidate.source, rawTitle)
+      assignMetadataFieldSource(fieldSources, 'artist', artistCandidate.source, rawArtist)
+      assignMetadataFieldSource(fieldSources, 'album', albumForCoverCandidate.source, rawAlbum)
+      assignMetadataFieldSource(
+        fieldSources,
+        'albumArtist',
+        albumArtistCandidate.source,
+        rawAlbumArtist
+      )
+      assignMetadataFieldSource(
+        fieldSources,
+        'trackNo',
+        cueTrack?.trackNo ? 'embedded-cue' : metadata.common.track?.no ? 'embedded' : '',
+        cueTrack?.trackNo || metadata.common.track?.no
+      )
+      assignMetadataFieldSource(
+        fieldSources,
+        'discNo',
+        metadata.common.disk?.no ? 'embedded' : '',
+        metadata.common.disk?.no
+      )
+      assignMetadataFieldSource(
+        fieldSources,
+        'duration',
+        displayDuration ? 'embedded' : '',
+        displayDuration
+      )
+      assignMetadataFieldSource(
+        fieldSources,
+        'genre',
+        metadata.common.genre ? 'embedded' : '',
+        normalizeMetadataGenre(metadata.common.genre)
       )
 
       return {
@@ -5957,12 +6102,13 @@ app.whenReady().then(async () => {
               metadata.format.container?.toLowerCase() === 'wav')
         },
         common: {
-          title: titleFromFilename || basename(filePath, extname(filePath)),
+          title: rawTitle || basename(filePath, extname(filePath)),
           artist: rawArtist || 'Unknown Artist',
           album: rawAlbum || null,
           albumArtist: rawAlbumArtist || null,
-          trackNo: metadata.common.track?.no ?? null,
+          trackNo: cueTrack?.trackNo || metadata.common.track?.no || null,
           discNo: metadata.common.disk?.no ?? null,
+          genre: normalizeMetadataGenre(metadata.common.genre) || null,
           bpm:
             requestOptions.includeBpm === false
               ? null
@@ -5972,6 +6118,15 @@ app.whenReady().then(async () => {
           cover,
           coverScope,
           coverSource,
+          metadataSource: Object.values(fieldSources).some((source) =>
+            ['embedded', 'embedded-cue'].includes(source)
+          )
+            ? 'embedded'
+            : 'fallback',
+          fieldSources: {
+            ...fieldSources,
+            ...(coverSource ? { cover: coverSource } : {})
+          },
           coverChecked: requestOptions.includeCover === true,
           coverExtractorVersion,
           coverBytes,
@@ -6054,7 +6209,10 @@ app.whenReady().then(async () => {
   }
 
   async function extractAttachedCoverWithFfmpeg(filePath, options = {}) {
-    const tempPath = resolve(app.getPath('temp'), `echo-attached-cover-${process.pid}-${Date.now()}.jpg`)
+    const tempPath = resolve(
+      app.getPath('temp'),
+      `echo-attached-cover-${process.pid}-${Date.now()}.jpg`
+    )
     try {
       await runFfmpegCommand([
         '-y',
@@ -6244,7 +6402,8 @@ app.whenReady().then(async () => {
     const rawCoverPath =
       typeof explicitCoverPath === 'string' ? explicitCoverPath : payload?.coverPath || ''
     const coverPath = typeof rawCoverPath === 'string' ? rawCoverPath.trim() : ''
-    if (coverPath && !fs.existsSync(coverPath)) throw new Error('Selected cover image was not found')
+    if (coverPath && !fs.existsSync(coverPath))
+      throw new Error('Selected cover image was not found')
 
     const title = normalizeMetadataText(payload?.title)
     const artist = normalizeMetadataText(payload?.artist)
@@ -6259,7 +6418,10 @@ app.whenReady().then(async () => {
     const tempPath =
       typeof explicitTempPath === 'string' && explicitTempPath.trim()
         ? explicitTempPath.trim()
-        : resolve(dirname(filePath), `.${basename(filePath)}.echo-tags-${process.pid}-${Date.now()}${extension}`)
+        : resolve(
+            dirname(filePath),
+            `.${basename(filePath)}.echo-tags-${process.pid}-${Date.now()}${extension}`
+          )
     const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y', '-i', filePath]
 
     if (coverPath) {
@@ -6511,17 +6673,12 @@ app.whenReady().then(async () => {
       const { parseFile, selectCover } = await import('music-metadata')
       const metadata = await parseFile(resolvedPath)
       const wavInfoTags = readWavInfoTags(resolvedPath)
-      const filenameIdentity = parseLocalFilenameIdentitySafe(resolvedPath)
-      const rawTitle = firstReadableMetadataText(
+      const title = firstReadableMetadataText(
         wavInfoTags.title,
         metadata.common.title,
-        basename(resolvedPath, extname(resolvedPath))
+        firstNativeMetadataText(metadata, ['title', 'TIT2', 'TITLE'])
       )
-      const title = matchesLocalFilenameStem(rawTitle, resolvedPath)
-        ? filenameIdentity.title || rawTitle
-        : rawTitle
       const artist = firstReadableMetadataText(
-        matchesLocalFilenameStem(rawTitle, resolvedPath) ? filenameIdentity.artist : '',
         wavInfoTags.artist,
         metadata.common.artist,
         normalizeMetadataTextList(metadata.common.artists),
@@ -6533,10 +6690,7 @@ app.whenReady().then(async () => {
           'performer',
           'WM/Artist',
           'TPE1'
-        ]),
-        metadata.common.albumartist,
-        metadata.common.albumArtist,
-        firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2'])
+        ])
       )
       const cover = selectCover(metadata.common.picture)
       return {
@@ -6545,7 +6699,12 @@ app.whenReady().then(async () => {
         albumArtist: firstReadableMetadataText(
           metadata.common.albumartist,
           metadata.common.albumArtist,
-          firstNativeMetadataText(metadata, ['albumartist', 'album artist', 'WM/AlbumArtist', 'TPE2'])
+          firstNativeMetadataText(metadata, [
+            'albumartist',
+            'album artist',
+            'WM/AlbumArtist',
+            'TPE2'
+          ])
         ),
         album: firstReadableMetadataText(wavInfoTags.album, metadata.common.album),
         trackNumber: metadata.common.track?.no ? String(metadata.common.track.no) : '',
@@ -6833,7 +6992,9 @@ app.whenReady().then(async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const now = Date.now()
     const status = audioEngine.getStatus()
-    if (shouldBroadcastAudioStatus(lastBroadcastAudioStatus, status, now, lastBroadcastAudioStatusAt)) {
+    if (
+      shouldBroadcastAudioStatus(lastBroadcastAudioStatus, status, now, lastBroadcastAudioStatusAt)
+    ) {
       broadcastAudioStatus(status)
       lastBroadcastAudioStatus = status
       lastBroadcastAudioStatusAt = now
@@ -7001,7 +7162,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('lyricsDesktop:updateData', async (_, payload = null) => {
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid_payload' }
-    if (!lyricsDesktopWindow || lyricsDesktopWindow.isDestroyed()) return { ok: false, error: 'no_window' }
+    if (!lyricsDesktopWindow || lyricsDesktopWindow.isDestroyed())
+      return { ok: false, error: 'no_window' }
     const payloadSignature = JSON.stringify(payload)
     if (payloadSignature === lyricsDesktopLastPayloadSignature) return { ok: true, deduped: true }
     lyricsDesktopLastPayloadSignature = payloadSignature
@@ -7206,7 +7368,9 @@ app.whenReady().then(async () => {
     clients: phoneRemoteServer.listClients()
   }))
   ipcMain.handle('remote:kickClient', async (_, clientId) => phoneRemoteServer.kickClient(clientId))
-  ipcMain.handle('remote:updateState', async (_, snapshot) => phoneRemoteServer.updateState(snapshot))
+  ipcMain.handle('remote:updateState', async (_, snapshot) =>
+    phoneRemoteServer.updateState(snapshot)
+  )
 
   // === 手机投流到本机（DLNA MediaRenderer???==
   ipcMain.handle('cast:dlnaStart', async (_, opts) => {
@@ -7285,11 +7449,15 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('castSend:seek', async (_, payload = {}) => {
-    return upnpSender.safeCall(() => upnpSender.seek(payload?.seconds || 0, payload?.deviceId || ''))
+    return upnpSender.safeCall(() =>
+      upnpSender.seek(payload?.seconds || 0, payload?.deviceId || '')
+    )
   })
 
   ipcMain.handle('castSend:setVolume', async (_, payload = {}) => {
-    return upnpSender.safeCall(() => upnpSender.setVolume(payload?.volume ?? 0.7, payload?.deviceId || ''))
+    return upnpSender.safeCall(() =>
+      upnpSender.setVolume(payload?.volume ?? 0.7, payload?.deviceId || '')
+    )
   })
 
   // 获取崩溃报告目录
@@ -7332,8 +7500,7 @@ app.whenReady().then(async () => {
         id: sender.id,
         url: sender.getURL(),
         title: sender.getTitle(),
-        osProcessId:
-          typeof sender.getOSProcessId === 'function' ? sender.getOSProcessId() : null
+        osProcessId: typeof sender.getOSProcessId === 'function' ? sender.getOSProcessId() : null
       }
     })
   })
@@ -7354,7 +7521,8 @@ app.whenReady().then(async () => {
     }
 
     if (action === 'reload') {
-      if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'main_window_missing' }
+      if (!mainWindow || mainWindow.isDestroyed())
+        return { ok: false, error: 'main_window_missing' }
       mainWindow.loadURL(await getMainRendererUrl())
       return { ok: true }
     }
@@ -7499,7 +7667,10 @@ app.whenReady().then(async () => {
     try {
       const executable = resolveYoutubeBrowserExecutable(normalizedBrowser)
       if (!executable) {
-        return { ok: false, error: normalizedBrowser === 'chrome' ? 'chrome_not_found' : 'edge_not_found' }
+        return {
+          ok: false,
+          error: normalizedBrowser === 'chrome' ? 'chrome_not_found' : 'edge_not_found'
+        }
       }
       const userDataDir = getYoutubeSystemProfileRoot(normalizedBrowser)
       fs.mkdirSync(userDataDir, { recursive: true })
@@ -7640,7 +7811,10 @@ app.whenReady().then(async () => {
       }
       const executable = resolveYoutubeBrowserExecutable(normalizedBrowser)
       if (!executable) {
-        return { ok: false, error: normalizedBrowser === 'chrome' ? 'chrome_not_found' : 'edge_not_found' }
+        return {
+          ok: false,
+          error: normalizedBrowser === 'chrome' ? 'chrome_not_found' : 'edge_not_found'
+        }
       }
       const userDataDir = getSystemLoginProfileRoot('soundcloud', normalizedBrowser)
       fs.mkdirSync(userDataDir, { recursive: true })
@@ -7762,9 +7936,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('signin:checkStatus', async () => {
     const ses = await getMainWindowSession()
     const ytCookies = await ses.cookies.get({ domain: '.youtube.com' })
-    const ytSignedIn = ytCookies.some(
-      (c) => c.name === 'SID' || c.name === 'SSID' || c.name === 'LOGIN_INFO'
-    ) || existsSync(getInternalYoutubeCookieFile())
+    const ytSignedIn =
+      ytCookies.some((c) => c.name === 'SID' || c.name === 'SSID' || c.name === 'LOGIN_INFO') ||
+      existsSync(getInternalYoutubeCookieFile())
     const biliCookies = await ses.cookies.get({ domain: '.bilibili.com' })
     const biliSignedIn = biliCookies.some((c) => c.name === 'DedeUserID' || c.name === 'SESSDATA')
     const soundCloudCookies = await ses.cookies.get({ domain: '.soundcloud.com' })

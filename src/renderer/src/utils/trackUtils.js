@@ -1,3 +1,9 @@
+import {
+  getMetadataSourcePriority,
+  getTrackMetaFieldSource,
+  withManualMetadataSources
+} from './metadataPriority.js'
+
 export const stripExtension = (name = '') => name.replace(/\.[^/.]+$/, '')
 
 export function cleanMetadataText(value = '') {
@@ -86,12 +92,19 @@ export const parseArtistTitleFromName = (name = '') => {
   return null
 }
 
-function normalizeIdentityText(value = '') {
-  return String(value || '')
+export function normalizeTitleIdentity(value = '') {
+  return cleanMetadataText(value)
+    .normalize('NFKC')
     .toLowerCase()
-    .replace(/[‐-―−]/g, '-')
+    .replace(/[‐-―−－–—]/g, '-')
     .replace(/\s+/g, '')
     .trim()
+}
+
+export function canUseFilenameArtistForEmbeddedTitle(parsedFileTitle, embeddedTitle) {
+  const parsedIdentity = normalizeTitleIdentity(parsedFileTitle)
+  const embeddedIdentity = normalizeTitleIdentity(embeddedTitle)
+  return !!parsedIdentity && parsedIdentity === embeddedIdentity
 }
 
 export function isUnknownArtistName(value = '') {
@@ -193,6 +206,14 @@ function normalizeAlbumFolderKey(value = '') {
     .trim()
 }
 
+export function getTrackAlbumFolderKey(track) {
+  const parentDirectory = getTrackParentDirectory(track)
+  const albumDirectory = looksLikeDiscSubdirectoryName(getPathBasename(parentDirectory))
+    ? getPathParentDirectory(parentDirectory)
+    : parentDirectory
+  return normalizeAlbumFolderKey(albumDirectory)
+}
+
 export function getTrackAlbumArtist(track) {
   const albumArtist =
     cleanArtistCandidate(track?.info?.albumArtist) || cleanArtistCandidate(track?.albumArtist)
@@ -212,34 +233,38 @@ export function getTrackAlbumGroupKey(track) {
   const albumKey = normalizeAlbumNameKey(getTrackAlbumName(track))
   if (!albumKey) return ''
 
-  const parentDirectory = getTrackParentDirectory(track)
-  const albumDirectory = looksLikeDiscSubdirectoryName(getPathBasename(parentDirectory))
-    ? getPathParentDirectory(parentDirectory)
-    : parentDirectory
-  const folderKey = normalizeAlbumFolderKey(albumDirectory)
+  const folderKey = getTrackAlbumFolderKey(track)
+  const albumSourcePriority = getMetadataSourcePriority(
+    getTrackMetaFieldSource(track?.info, 'album')
+  )
+  const albumArtistSourcePriority = getMetadataSourcePriority(
+    getTrackMetaFieldSource(track?.info, 'albumArtist')
+  )
+  const artistSourcePriority = getMetadataSourcePriority(
+    getTrackMetaFieldSource(track?.info, 'artist')
+  )
+  const albumIsEmbeddedOrBetter = albumSourcePriority >= getMetadataSourcePriority('embedded-cue')
+  const artistIsReliable =
+    albumArtistSourcePriority >= getMetadataSourcePriority('embedded-cue') ||
+    artistSourcePriority >= getMetadataSourcePriority('embedded-cue')
+  const artistKey = normalizeArtistNameKey(
+    getTrackExplicitAlbumArtist(track) || getTrackAlbumArtist(track)
+  )
+
+  if (
+    albumIsEmbeddedOrBetter &&
+    artistIsReliable &&
+    artistKey &&
+    !isGenericAlbumFallbackName(albumKey)
+  ) {
+    return `${albumKey}\u0001artist:${artistKey}`
+  }
+
   if (folderKey) return `${albumKey}\u0001folder:${folderKey}`
 
-  const artistKey = normalizeArtistNameKey(getTrackExplicitAlbumArtist(track))
   if (artistKey) return `${albumKey}\u0001artist:${artistKey}`
 
   return `${albumKey}\u0001folder:unknown`
-}
-
-function looksLikeTrailingDashTitleFragment(metaTitle = '', fileTitle = '') {
-  const title = String(metaTitle || '').trim()
-  const parsedTitle = String(fileTitle || '').trim()
-  if (!title || !parsedTitle) return false
-
-  const normalizedTitle = normalizeIdentityText(title)
-  const normalizedParsedTitle = normalizeIdentityText(parsedTitle)
-  if (!normalizedTitle || !normalizedParsedTitle) return false
-  if (normalizedTitle.length >= normalizedParsedTitle.length) return false
-  if (!normalizedParsedTitle.endsWith(normalizedTitle)) return false
-
-  const prefix = normalizedParsedTitle.slice(0, -normalizedTitle.length)
-  if (!prefix.endsWith('-')) return false
-
-  return /-$/.test(title) || normalizedTitle.length <= 18
 }
 
 export function resolveTrackIdentityFromMetadata({
@@ -250,39 +275,50 @@ export function resolveTrackIdentityFromMetadata({
 } = {}) {
   const strippedFileName = stripExtension(fileName || '')
   const displayFileName = stripAudioQualityTitleSuffix(strippedFileName)
-  const displayTitle = stripAudioQualityTitleSuffix(title)
+  const embeddedTitle = cleanMetadataText(title)
   const parsedFromFile = parseArtistTitleFromName(displayFileName)
-  const parsedFromMetaTitle = displayTitle ? parseArtistTitleFromName(displayTitle) : null
 
   const validMetaArtist = cleanArtistCandidate(artist)
   const validAlbumArtist = cleanArtistCandidate(albumArtist)
-  const parsedMetaArtist = cleanArtistCandidate(parsedFromMetaTitle?.artist)
   const parsedFileArtist = cleanArtistCandidate(parsedFromFile?.artist)
-  const resolvedTitle =
-    parsedFromMetaTitle?.title || displayTitle || parsedFromFile?.title || displayFileName
-  const resolvedArtist =
-    validMetaArtist || validAlbumArtist || parsedMetaArtist || parsedFileArtist || 'Unknown Artist'
 
-  if (
-    parsedFromFile?.title &&
-    parsedFileArtist &&
-    looksLikeTrailingDashTitleFragment(title, parsedFromFile.title)
-  ) {
-    const normalizedArtist = normalizeIdentityText(validMetaArtist || validAlbumArtist)
-    const normalizedFileArtist = normalizeIdentityText(parsedFileArtist)
-    const keepMetaArtist = normalizedArtist && normalizedArtist === normalizedFileArtist
-
+  if (embeddedTitle) {
+    let resolvedArtist = validMetaArtist || validAlbumArtist || ''
+    if (
+      !resolvedArtist &&
+      parsedFileArtist &&
+      parsedFromFile?.title &&
+      canUseFilenameArtistForEmbeddedTitle(parsedFromFile.title, embeddedTitle)
+    ) {
+      resolvedArtist = parsedFileArtist
+    }
     return {
-      title: parsedFromFile.title,
-      artist: keepMetaArtist ? validMetaArtist || validAlbumArtist : parsedFileArtist,
+      title: stripAudioQualityTitleSuffix(embeddedTitle) || embeddedTitle,
+      artist: resolvedArtist || 'Unknown Artist',
+      source: 'metadata'
+    }
+  }
+
+  if (validMetaArtist || validAlbumArtist) {
+    return {
+      title: parsedFromFile?.title || displayFileName || 'Unknown Track',
+      artist: validMetaArtist || validAlbumArtist,
+      source: 'metadata'
+    }
+  }
+
+  if (parsedFromFile?.title || parsedFromFile?.artist) {
+    return {
+      title: parsedFromFile?.title || displayFileName || 'Unknown Track',
+      artist: parsedFileArtist || 'Unknown Artist',
       source: 'filename'
     }
   }
 
   return {
-    title: resolvedTitle,
-    artist: resolvedArtist,
-    source: title || validMetaArtist || validAlbumArtist ? 'metadata' : 'filename'
+    title: displayFileName || 'Unknown Track',
+    artist: 'Unknown Artist',
+    source: 'filename'
   }
 }
 
@@ -440,6 +476,10 @@ function isLocalAlbumWallTrack(track, isLocalTrack) {
 export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
   const entry = track?.path ? trackMetaMap?.[track.path] || null : null
   const info = parseTrackInfo(track, entry)
+  const fieldSources = {
+    ...(info.fieldSources && typeof info.fieldSources === 'object' ? info.fieldSources : {}),
+    ...(entry?.fieldSources && typeof entry.fieldSources === 'object' ? entry.fieldSources : {})
+  }
   return {
     ...(entry || {}),
     title: entry?.title || info.title || null,
@@ -449,7 +489,9 @@ export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
     cover: entry?.cover || track?.info?.cover || track?.cover || null,
     duration: entry?.duration || info.duration || null,
     trackNo: entry?.trackNo ?? info.trackNo ?? null,
-    discNo: entry?.discNo ?? info.discNo ?? null
+    discNo: entry?.discNo ?? info.discNo ?? null,
+    metadataSource: entry?.metadataSource || info.metadataSource || null,
+    fieldSources: Object.keys(fieldSources).length > 0 ? fieldSources : null
   }
 }
 
@@ -499,12 +541,19 @@ export function hasUsefulAlbumWallMeta(track, trackMetaMap = {}, options = {}) {
   if (!track?.path) return false
   const meta = resolveAlbumWallTrackMeta(track, trackMetaMap)
   const album = String(meta.album || '').trim()
+  const albumSourcePriority = getMetadataSourcePriority(getTrackMetaFieldSource(meta, 'album'))
   const artist = meta.albumArtist || meta.artist || ''
   const cover =
     meta.cover ||
     (options.albumKey ? options.albumCoverMap?.[options.albumKey] : null) ||
     (album ? options.albumCoverMap?.[album] : null)
-  return Boolean(album && artist && !isUnknownArtistDisplay(artist) && cover)
+  return Boolean(
+    album &&
+      albumSourcePriority >= getMetadataSourcePriority('embedded-cue') &&
+      artist &&
+      !isUnknownArtistDisplay(artist) &&
+      cover
+  )
 }
 
 function scoreAlbumWallHydrateTrack(track, trackMetaMap = {}) {
@@ -570,9 +619,11 @@ export function buildAlbumWallHydrateTargets(
       }
       const meta = resolveAlbumWallTrackMeta(track, trackMetaMap)
       const artist = meta.albumArtist || meta.artist || ''
+      const albumSourcePriority = getMetadataSourcePriority(getTrackMetaFieldSource(meta, 'album'))
       const needsCover = !display.cover && !meta.cover
       const needsArtist = !artist || isUnknownArtistDisplay(artist)
-      const needsAlbum = !meta.album
+      const needsAlbum =
+        !meta.album || albumSourcePriority < getMetadataSourcePriority('embedded-cue')
       const coverProbeDone =
         needsCover && meta.coverChecked === true && albumCoverProbePaths.has(track.path)
       const artistProbeDone = needsArtist && albumArtistProbePaths.has(track.path)
@@ -615,18 +666,16 @@ export const parseTrackInfo = (track, meta) => {
     ? fileName.slice(discTrackPrefix[0].length).trim()
     : fileName.replace(/^\s*\d+[.)\-\s_]+/, '').trim()
   const normalized = noTrackNo || fileName
-  const parsedFromMeta = meta?.title ? parseArtistTitleFromName(meta.title) : null
-  /** Slash+cover 启发式时只返回 title，不把左侧当歌手 */
-  const metaTitleForUi =
-    parsedFromMeta && parsedFromMeta.artist === undefined && parsedFromMeta.title
-      ? parsedFromMeta.title
-      : null
-
+  const metaTitle = cleanMetadataText(meta?.title || '')
+  const metaArtist = cleanMetadataText(meta?.artist || '')
+  const metaAlbumArtist = cleanMetadataText(meta?.albumArtist || '')
+  const metaAlbum = cleanMetadataText(meta?.album || '')
+  const trackAlbum = cleanMetadataText(track?.album || '')
   const resolvedIdentity = resolveTrackIdentityFromMetadata({
     fileName: normalized,
-    title: cleanMetadataText(metaTitleForUi || meta?.title || ''),
-    artist: cleanMetadataText(meta?.artist || ''),
-    albumArtist: cleanMetadataText(meta?.albumArtist || '')
+    title: metaTitle,
+    artist: metaArtist,
+    albumArtist: metaAlbumArtist
   })
   const artist = resolvedIdentity.artist || 'Unknown Artist'
   const fallbackFromFileName = stripAudioQualityTitleSuffix(normalized) || normalized
@@ -635,18 +684,45 @@ export const parseTrackInfo = (track, meta) => {
       ? fallbackFromFileName
       : resolvedIdentity.title
   const title = repairedTechnicalFragmentTitle || fallbackFromFileName || 'Unknown Track'
+  const album = normalizeAlbumDisplayName(metaAlbum || trackAlbum || folderAlbum) || 'Unknown Album'
+  const fieldSources = {
+    ...(meta?.fieldSources && typeof meta.fieldSources === 'object' ? meta.fieldSources : {})
+  }
+  if (!fieldSources.title) {
+    fieldSources.title = metaTitle ? getTrackMetaFieldSource(meta, 'title') || 'unknown' : 'filename'
+  }
+  if (!fieldSources.artist) {
+    fieldSources.artist =
+      metaArtist || metaAlbumArtist ? getTrackMetaFieldSource(meta, 'artist') || 'unknown' : 'filename'
+  }
+  if (!fieldSources.albumArtist && metaAlbumArtist) {
+    fieldSources.albumArtist = getTrackMetaFieldSource(meta, 'albumArtist') || 'unknown'
+  }
+  if (!fieldSources.album) {
+    fieldSources.album = metaAlbum
+      ? getTrackMetaFieldSource(meta, 'album') || 'unknown'
+      : trackAlbum
+        ? 'folder'
+        : 'folder'
+  }
+  if (!fieldSources.trackNo) {
+    fieldSources.trackNo = meta?.trackNo != null ? getTrackMetaFieldSource(meta, 'trackNo') || 'unknown' : 'filename'
+  }
 
   return {
     fileName,
     title,
     artist,
     albumArtist: cleanMetadataText(meta?.albumArtist || track?.albumArtist || ''),
-    album: normalizeAlbumDisplayName(meta?.album || track?.album || folderAlbum) || 'Unknown Album',
+    album,
     cover: meta?.cover || null,
     trackNo: meta?.trackNo ?? (trackNoFromName ? Number(trackNoFromName) : null),
     discNo: meta?.discNo ?? null,
     duration: meta?.duration || 0,
-    sizeBytes: track?.sizeBytes || 0
+    sizeBytes: track?.sizeBytes || 0,
+    metadataSource: meta?.metadataSource || null,
+    coverSource: meta?.coverSource || null,
+    fieldSources
   }
 }
 
@@ -654,10 +730,11 @@ export function getEffectiveTrackMeta(trackMetaMap = {}, displayMetadataOverride
   const baseMeta = path ? trackMetaMap?.[path] || null : null
   const override = path ? displayMetadataOverrides?.[path] || null : null
   if (!override) return baseMeta
+  const manualOverride = withManualMetadataSources(override)
   return {
     ...(baseMeta || {}),
-    ...override,
-    cover: override?.cover || baseMeta?.cover || null
+    ...manualOverride,
+    cover: manualOverride?.cover || baseMeta?.cover || null
   }
 }
 
@@ -691,11 +768,12 @@ export function buildParsedPlaylistWithCache(
       return previous.item
     }
 
-    const meta = override
+    const manualOverride = override ? withManualMetadataSources(override) : null
+    const meta = manualOverride
       ? {
           ...(baseMeta || {}),
-          ...override,
-          cover: override?.cover || baseMeta?.cover || null
+          ...manualOverride,
+          cover: manualOverride?.cover || baseMeta?.cover || null
         }
       : baseMeta
     const item = {

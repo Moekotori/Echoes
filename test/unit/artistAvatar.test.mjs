@@ -81,6 +81,27 @@ test('artist buckets merge artist names that only differ by case', () => {
   assert.equal(buckets[0].tracks.length, 3)
 })
 
+test('artist buckets prefer embedded artist metadata over scanned Unknown Artist', () => {
+  const track = makeTrack('song-a', 'Unknown Artist', 'Music', '')
+  const buckets = buildArtistBucketsWithAvatars([track], {
+    trackMetaMap: {
+      [track.path]: {
+        artist: 'Smashing Pumpkins',
+        album: 'The Diving Bell',
+        metadataSource: 'embedded',
+        fieldSources: {
+          artist: 'embedded',
+          album: 'embedded'
+        }
+      }
+    }
+  })
+
+  assert.equal(buckets.length, 1)
+  assert.equal(buckets[0].name, 'Smashing Pumpkins')
+  assert.equal(buckets[0].tracks.length, 1)
+})
+
 test('artist avatar does not reuse a shared compilation cover across artists', () => {
   const buckets = buildArtistBucketsWithAvatars([
     makeTrack('song-a', 'Artist A', 'Shared Album', 'data:image/shared'),

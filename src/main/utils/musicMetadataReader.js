@@ -1,7 +1,11 @@
 import { normalizeEmbeddedCoverPicture } from './embeddedCover.js'
 
 function normalizeText(value) {
-  if (Array.isArray(value)) return value.map((item) => normalizeText(item)).filter(Boolean).join(' / ')
+  if (Array.isArray(value))
+    return value
+      .map((item) => normalizeText(item))
+      .filter(Boolean)
+      .join(' / ')
   return String(value || '').trim()
 }
 
@@ -15,6 +19,12 @@ function normalizeTrackPart(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function assignEmbeddedFieldSource(fieldSources, field, value) {
+  if (value === null || value === undefined) return
+  if (typeof value === 'string' && !value.trim()) return
+  fieldSources[field] = 'embedded'
+}
+
 export function normalizeMusicMetadataPicture(rawPicture = null) {
   if (!rawPicture) return null
   return normalizeEmbeddedCoverPicture({
@@ -26,26 +36,57 @@ export function normalizeMusicMetadataPicture(rawPicture = null) {
 export function buildMusicMetadataReaderPayload(metadata = {}, picture = null, error = '') {
   const common = metadata?.common || {}
   const format = metadata?.format || {}
+  const normalized = {
+    title: normalizeText(common.title),
+    artist: normalizeText(common.artist || common.artists),
+    album: normalizeText(common.album),
+    albumArtist: normalizeText(common.albumartist || common.albumArtist),
+    year: normalizeTrackPart(common.year),
+    genre: normalizeText(common.genre),
+    trackNo: normalizeTrackPart(common.track?.no),
+    trackTotal: normalizeTrackPart(common.track?.of),
+    discNo: normalizeTrackPart(common.disk?.no),
+    discTotal: normalizeTrackPart(common.disk?.of),
+    duration: normalizeNumber(format.duration),
+    codec: normalizeText(format.codec),
+    container: normalizeText(format.container),
+    lossless: format.lossless === true,
+    bitrate: normalizeNumber(format.bitrate),
+    sampleRate: normalizeNumber(format.sampleRate),
+    bitDepth: normalizeNumber(format.bitsPerSample),
+    channels: normalizeNumber(format.numberOfChannels)
+  }
+  const fieldSources = {}
+  for (const field of [
+    'title',
+    'artist',
+    'album',
+    'albumArtist',
+    'year',
+    'genre',
+    'trackNo',
+    'trackTotal',
+    'discNo',
+    'discTotal',
+    'duration',
+    'codec',
+    'container',
+    'bitrate',
+    'sampleRate',
+    'bitDepth',
+    'channels'
+  ]) {
+    assignEmbeddedFieldSource(fieldSources, field, normalized[field])
+  }
+  if (normalized.lossless === true) fieldSources.lossless = 'embedded'
+  if (picture) fieldSources.cover = 'embedded'
   return {
     metadata: {
-      title: normalizeText(common.title),
-      artist: normalizeText(common.artist || common.artists),
-      album: normalizeText(common.album),
-      albumArtist: normalizeText(common.albumartist || common.albumArtist),
-      year: normalizeTrackPart(common.year),
-      genre: normalizeText(common.genre),
-      trackNo: normalizeTrackPart(common.track?.no),
-      trackTotal: normalizeTrackPart(common.track?.of),
-      discNo: normalizeTrackPart(common.disk?.no),
-      discTotal: normalizeTrackPart(common.disk?.of),
-      duration: normalizeNumber(format.duration),
-      codec: normalizeText(format.codec),
-      container: normalizeText(format.container),
-      lossless: format.lossless === true,
-      bitrate: normalizeNumber(format.bitrate),
-      sampleRate: normalizeNumber(format.sampleRate),
-      bitDepth: normalizeNumber(format.bitsPerSample),
-      channels: normalizeNumber(format.numberOfChannels)
+      ...normalized,
+      cover: picture || null,
+      coverSource: picture ? 'embedded' : null,
+      metadataSource: Object.keys(fieldSources).length > 0 ? 'embedded' : null,
+      fieldSources
     },
     picture,
     error: String(error || ''),
@@ -93,7 +134,11 @@ export async function readMusicMetadataForLocalFile(filePath, options = {}) {
       const { getMetadataWorkerPool } = await import('./metadataWorkerPool.js')
       const result = await getMetadataWorkerPool().read(filePath)
       if (!result?.success) {
-        return buildMusicMetadataReaderPayload(null, null, result?.error || 'metadata worker failed')
+        return buildMusicMetadataReaderPayload(
+          null,
+          null,
+          result?.error || 'metadata worker failed'
+        )
       }
       return buildMusicMetadataReaderPayload(
         buildRawMetadataFromLightweight(result.metadata),

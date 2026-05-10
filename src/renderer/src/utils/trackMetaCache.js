@@ -1,4 +1,9 @@
 import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../../shared/embeddedCoverVersion.mjs'
+import {
+  METADATA_PRIORITY_VERSION,
+  mergeTrackMetaWithPriority,
+  normalizeMetadataSource
+} from './metadataPriority.js'
 import { getTrackAlbumGroupKey } from './trackUtils.js'
 
 const DB_NAME = 'echo-track-meta-cache'
@@ -152,10 +157,22 @@ function isLocalCoverUrl(value = '') {
 }
 
 function normalizeCoverSource(value = '') {
-  const source = String(value || '')
-    .trim()
-    .toLowerCase()
-  if (['embedded', 'sidecar', 'folder', 'local', 'network'].includes(source)) return source
+  const source = normalizeMetadataSource(value)
+  if (
+    [
+      'manual',
+      'embedded',
+      'embedded-cue',
+      'sidecar',
+      'download-sidecar',
+      'local-folder-cover',
+      'folder',
+      'local',
+      'network'
+    ].includes(source)
+  ) {
+    return source === 'local-folder-cover' ? 'folder' : source
+  }
   return ''
 }
 
@@ -165,17 +182,6 @@ export function isLocalCoverEntry(entry = {}) {
   if (source && source !== 'network') return true
   if (source === 'network') return false
   return isLocalCoverUrl(entry.cover) || !isNetworkCoverUrl(entry.cover)
-}
-
-function getCoverPriority(entry = {}, cover = '') {
-  if (!cover) return 0
-  const source = normalizeCoverSource(entry?.coverSource)
-  if (source === 'embedded') return 5
-  if (source === 'sidecar' || source === 'folder' || source === 'local') return 4
-  if (source === 'network') return 1
-  if (isLocalCoverUrl(cover)) return 3
-  if (isNetworkCoverUrl(cover)) return 1
-  return 2
 }
 
 function hasOwnTrackCover(track, entry = null, options = {}) {
@@ -500,26 +506,10 @@ export function stripCoverFieldsFromTrackMeta(meta) {
 }
 
 export function mergeTrackMetaEntryPreservingCover(existing = {}, incoming = {}) {
-  const next = { ...(existing || {}), ...(incoming || {}) }
-  const incomingCover = typeof incoming?.cover === 'string' && incoming.cover ? incoming.cover : ''
+  const next = mergeTrackMetaWithPriority(existing || {}, incoming || {})
   const existingCover = typeof existing?.cover === 'string' && existing.cover ? existing.cover : ''
-  const shouldPreserveExistingCover =
-    existingCover &&
-    (!incomingCover ||
-      getCoverPriority(existing, existingCover) > getCoverPriority(incoming, incomingCover))
-  if (shouldPreserveExistingCover) {
-    next.cover = existingCover
-    next.coverChecked = true
-    if (existing.coverScope != null) next.coverScope = existing.coverScope
-    if (existing.coverSource != null) next.coverSource = existing.coverSource
-    if (existing.coverThumbnailOnly != null) next.coverThumbnailOnly = existing.coverThumbnailOnly
-    if (existing.coverMaxDimension != null) next.coverMaxDimension = existing.coverMaxDimension
-    if (existing.coverExtractorVersion != null && next.coverExtractorVersion == null) {
-      next.coverExtractorVersion = existing.coverExtractorVersion
-    }
-    if (existing.coverMemoryTrimmed === true) {
-      delete next.coverMemoryTrimmed
-    }
+  if (existingCover && next.cover === existingCover && existing.coverMemoryTrimmed === true) {
+    delete next.coverMemoryTrimmed
   }
   return next
 }
@@ -606,6 +596,7 @@ function normalizeTrackMetaEntry(entry) {
     'albumArtist',
     'cover',
     'codec',
+    'container',
     'lyrics',
     'genre'
   ]) {
@@ -618,11 +609,37 @@ function normalizeTrackMetaEntry(entry) {
     const source = normalizeCoverSource(entry.coverSource)
     if (source) next.coverSource = source
   }
+  {
+    const source = normalizeMetadataSource(entry.metadataSource)
+    if (source) next.metadataSource = source
+  }
+  if (entry.fieldSources && typeof entry.fieldSources === 'object') {
+    const fieldSources = {}
+    for (const [field, source] of Object.entries(entry.fieldSources)) {
+      const normalized = normalizeMetadataSource(source)
+      if (normalized) fieldSources[field] = normalized
+    }
+    if (Object.keys(fieldSources).length > 0) next.fieldSources = fieldSources
+  }
+  {
+    const value = Number(entry.metadataPriorityVersion)
+    next.metadataPriorityVersion =
+      Number.isFinite(value) && value > 0
+        ? value
+        : entry.fieldSources
+          ? METADATA_PRIORITY_VERSION
+          : null
+  }
   for (const key of [
     'trackNo',
+    'trackTotal',
     'discNo',
+    'discTotal',
+    'year',
     'duration',
+    'bitrate',
     'bitrateKbps',
+    'sampleRate',
     'sampleRateHz',
     'bitDepth',
     'channels',
@@ -649,6 +666,7 @@ function normalizeTrackMetaEntry(entry) {
   next.bpmMeasured = entry.bpmMeasured === true
   next.mqaChecked = entry.mqaChecked === true
   next.isMqa = entry.isMqa === true
+  next.lossless = entry.lossless === true
   return next
 }
 
@@ -801,12 +819,14 @@ export async function writeTrackMetaCache(entries = {}) {
       if (!meta) continue
       const fingerprint = buildTrackMetaCacheFingerprint({ path, ...(entry || {}) })
       const putRecord = (existingRecord = null) => {
+        const existingMeta = normalizeTrackMetaEntry(existingRecord?.meta) || {}
+        const mergedMeta = mergeTrackMetaEntryPreservingCover(existingMeta, meta)
         store.put({
           path,
-          meta,
+          meta: mergedMeta,
           fingerprint: fingerprint || existingRecord?.fingerprint || null,
           updatedAt,
-          hasCover: hasCachedTrackCoverRecord({ meta }) ? 1 : 0
+          hasCover: hasCachedTrackCoverRecord({ meta: mergedMeta }) ? 1 : 0
         })
       }
       const getRequest = store.get(path)

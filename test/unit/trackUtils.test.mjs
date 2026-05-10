@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   buildParsedPlaylistWithCache,
   compareTrackFrequent,
   compareTrackRandom,
+  getTrackAlbumGroupKey,
   getTrackAlbumName,
   normalizeAlbumNameKey,
   parseTrackInfo,
@@ -176,32 +178,68 @@ test('buildParsedPlaylistWithCache reuses unchanged parsed track objects', () =>
   assert.equal(second.items[1].info.title, 'Beta updated')
 })
 
-test('repairs truncated dash-suffix title metadata from the filename', () => {
+test('embedded title with dash is not split as artist title text', () => {
   const identity = resolveTrackIdentityFromMetadata({
-    fileName: 'Lyn - Beneath the Mask -rain-.flac',
-    title: 'rain-',
-    artist: 'Lyn - Beneath the Mask'
+    fileName: '09.\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-.flac',
+    title: '\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-',
+    artist: '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3'
   })
 
-  assert.equal(identity.title, 'Beneath the Mask -rain-')
-  assert.equal(identity.artist, 'Lyn')
-  assert.equal(identity.source, 'filename')
+  assert.equal(identity.title, '\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-')
+  assert.equal(identity.artist, '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3')
+  assert.equal(identity.source, 'metadata')
 })
 
-test('parseTrackInfo uses filename identity when tag title is only a trailing version fragment', () => {
+test('embedded title with dash and missing artist is not split into artist', () => {
   const info = parseTrackInfo(
     {
-      path: 'D:/Music/Persona 5/Lyn - Beneath the Mask -rain-.flac',
-      name: 'Lyn - Beneath the Mask -rain-.flac'
+      path: 'D:/Music/Sakanaction/09.\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-.flac',
+      name: '09.\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-.flac'
     },
     {
-      title: 'rain-',
-      artist: 'Lyn - Beneath the Mask'
+      title: '\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-',
+      artist: ''
     }
   )
 
-  assert.equal(info.title, 'Beneath the Mask -rain-')
-  assert.equal(info.artist, 'Lyn')
+  assert.equal(info.title, '\u30bb\u30d7\u30c6\u30f3\u30d0\u30fc -\u6771\u4eac version-')
+  assert.equal(info.artist, 'Unknown Artist')
+})
+
+test('filename artist-title fallback still works when metadata title is missing', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3 - \u65b0\u5b9d\u5cf6.flac',
+    title: '',
+    artist: ''
+  })
+
+  assert.equal(identity.title, '\u65b0\u5b9d\u5cf6')
+  assert.equal(identity.artist, '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3')
+  assert.equal(identity.source, 'filename')
+})
+
+test('embedded title can safely borrow filename artist only when parsed title matches', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3 - \u65b0\u5b9d\u5cf6.flac',
+    title: '\u65b0\u5b9d\u5cf6',
+    artist: ''
+  })
+
+  assert.equal(identity.title, '\u65b0\u5b9d\u5cf6')
+  assert.equal(identity.artist, '\u30b5\u30ab\u30ca\u30af\u30b7\u30e7\u30f3')
+  assert.equal(identity.source, 'metadata')
+})
+
+test('embedded title beats mismatched filename identity', () => {
+  const identity = resolveTrackIdentityFromMetadata({
+    fileName: 'Wrong Artist - Wrong Title.flac',
+    title: 'A - B',
+    artist: 'Real Artist'
+  })
+
+  assert.equal(identity.title, 'A - B')
+  assert.equal(identity.artist, 'Real Artist')
+  assert.equal(identity.source, 'metadata')
 })
 
 test('keeps normal metadata when it is not a truncated filename suffix', () => {
@@ -254,12 +292,56 @@ test('metadata title track numbers are not promoted to artist names', () => {
     artist: ''
   })
 
-  assert.equal(identity.title, 'Epitaph')
+  assert.equal(identity.title, '2-4 - Epitaph')
   assert.equal(identity.artist, 'Unknown Artist')
 })
 
+test('album group key uses embedded album and album artist identity', () => {
+  const track = {
+    path: 'D:/Folder Name/Wrong Artist - Wrong Title.flac',
+    name: 'Wrong Artist - Wrong Title.flac',
+    info: {
+      title: 'Right Title',
+      artist: 'Guest Singer',
+      album: 'Real Album',
+      albumArtist: 'Band A',
+      metadataSource: 'embedded',
+      fieldSources: {
+        title: 'embedded',
+        artist: 'embedded',
+        album: 'embedded',
+        albumArtist: 'embedded'
+      }
+    }
+  }
+
+  assert.equal(getTrackAlbumGroupKey(track), 'real album\u0001artist:banda')
+})
+
+test('metadata editor initialization avoids parsed track info fallbacks', () => {
+  const appSource = readFileSync(new URL('../../src/renderer/src/App.jsx', import.meta.url), 'utf8')
+  const drawerSource = readFileSync(
+    new URL('../../src/renderer/src/components/MetadataEditorDrawer.jsx', import.meta.url),
+    'utf8'
+  )
+  const drawerMountStart = appSource.indexOf('<MetadataEditorDrawer')
+  const drawerMount = appSource.slice(
+    drawerMountStart,
+    appSource.indexOf('<CastReceiveDrawer', drawerMountStart)
+  )
+
+  assert.ok(drawerMount.includes('initialMetadata='))
+  assert.equal(drawerMount.includes('parseTrackInfo'), false)
+  assert.equal(drawerMount.includes('stripExtension(metadataEditorTrack.name'), false)
+  assert.equal(drawerSource.includes('setTitle(String(response.title || initialMetadata'), false)
+  assert.equal(drawerSource.includes('setArtist(String(response.artist || initialMetadata'), false)
+})
+
 test('album names strip folder-style leading years for grouping', () => {
-  assert.equal(getTrackAlbumName({ info: { album: '2004 - 在动物园散步才是正经事' } }), '在动物园散步才是正经事')
+  assert.equal(
+    getTrackAlbumName({ info: { album: '2004 - 在动物园散步才是正经事' } }),
+    '在动物园散步才是正经事'
+  )
   assert.equal(
     normalizeAlbumNameKey('2004 - 在动物园散步才是正经事'),
     normalizeAlbumNameKey('在动物园散步才是正经事')

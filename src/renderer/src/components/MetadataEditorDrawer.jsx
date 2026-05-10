@@ -21,13 +21,7 @@ async function readImageAsDataUrl(filePath) {
   })
 }
 
-export default function MetadataEditorDrawer({
-  open,
-  onClose,
-  track,
-  initialMetadata,
-  onSave
-}) {
+export default function MetadataEditorDrawer({ open, onClose, track, initialMetadata, onSave }) {
   const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -84,13 +78,13 @@ export default function MetadataEditorDrawer({
         if (!response || response.error) {
           throw new Error(response?.error || 'Failed to read tags')
         }
-        setTitle(String(response.title || initialMetadata?.title || ''))
-        setArtist(String(response.artist || initialMetadata?.artist || ''))
-        setAlbum(String(response.album || initialMetadata?.album || ''))
-        setAlbumArtist(String(response.albumArtist || initialMetadata?.albumArtist || ''))
-        setTrackNo(normalizeNumberDraft(response.trackNumber || initialMetadata?.trackNo))
-        setYear(normalizeNumberDraft(response.year || initialMetadata?.year))
-        setGenre(String(response.genre || initialMetadata?.genre || ''))
+        setTitle(String(response.title || ''))
+        setArtist(String(response.artist || ''))
+        setAlbum(String(response.album || ''))
+        setAlbumArtist(String(response.albumArtist || ''))
+        setTrackNo(normalizeNumberDraft(response.trackNumber))
+        setYear(normalizeNumberDraft(response.year))
+        setGenre(String(response.genre || ''))
         setCoverPreview(String(response.coverDataUrl || initialMetadata?.cover || ''))
       } catch (err) {
         if (!cancelled) {
@@ -171,7 +165,10 @@ export default function MetadataEditorDrawer({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="lyrics-drawer-header">
-          <h2 className="lyrics-drawer-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2
+            className="lyrics-drawer-title"
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
             <Tag size={18} />
             {t('drawer.metadataEditorTitle', 'Edit tags')}
           </h2>
@@ -308,7 +305,12 @@ export default function MetadataEditorDrawer({
           </p>
 
           <div className="metadata-drawer-actions">
-            <button type="button" className="export-btn secondary" onClick={onClose} disabled={busy}>
+            <button
+              type="button"
+              className="export-btn secondary"
+              onClick={onClose}
+              disabled={busy}
+            >
               {t('metadataEditor.cancel', 'Cancel')}
             </button>
             <button
@@ -318,7 +320,9 @@ export default function MetadataEditorDrawer({
               disabled={busy || loading}
             >
               {busy ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}
-              {busy ? t('metadataEditor.saving', 'Saving...') : t('metadataEditor.save', 'Save tags')}
+              {busy
+                ? t('metadataEditor.saving', 'Saving...')
+                : t('metadataEditor.save', 'Save tags')}
             </button>
           </div>
         </div>

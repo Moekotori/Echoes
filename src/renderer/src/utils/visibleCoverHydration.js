@@ -50,6 +50,10 @@ export function buildVisibleCoverEntry(data, cachedMeta = {}) {
   if (!data?.success) return buildEmptyVisibleCoverEntry()
   const common = data.common || {}
   const technical = data.technical || {}
+  const fieldSources = {
+    ...(cachedMeta.fieldSources || {}),
+    ...(common.fieldSources || {})
+  }
   return {
     title: common.title || cachedMeta.title || null,
     artist: common.artist || cachedMeta.artist || null,
@@ -60,6 +64,10 @@ export function buildVisibleCoverEntry(data, cachedMeta = {}) {
     cover: common.cover || cachedMeta.cover || null,
     coverScope: common.coverScope || cachedMeta.coverScope || null,
     coverSource: common.coverSource || cachedMeta.coverSource || null,
+    ...(common.metadataSource || cachedMeta.metadataSource
+      ? { metadataSource: common.metadataSource || cachedMeta.metadataSource }
+      : {}),
+    ...(Object.keys(fieldSources).length > 0 ? { fieldSources } : {}),
     ...(common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true
       ? { coverThumbnailOnly: true }
       : {}),

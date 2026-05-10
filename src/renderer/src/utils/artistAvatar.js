@@ -193,7 +193,8 @@ export function buildArtistBucketsWithAvatars(
   const coverArtistSets = new Map()
 
   for (const track of Array.isArray(tracks) ? tracks : []) {
-    const artistName = track?.info?.artist || unknownArtist
+    const meta = trackMetaMap[track?.path] || {}
+    const artistName = meta.artist || track?.info?.artist || unknownArtist
     const artistToken = normalizeArtistToken(artistName)
     const unknown = artistName === unknownArtist || isGenericAlbumArtist(artistName)
     const groupKey = unknown ? `unknown:${normalizeArtistToken(unknownArtist)}` : artistToken || artistName
@@ -211,7 +212,7 @@ export function buildArtistBucketsWithAvatars(
     group.name = choosePreferredArtistName(group.name, artistName, previousCount, nextCount)
     group.tracks.push(track)
 
-    const albumKey = normalizeAlbumKey(track?.info?.album || 'Singles')
+    const albumKey = normalizeAlbumKey(meta.album || track?.info?.album || 'Singles')
     if (!albumArtistSets.has(albumKey)) albumArtistSets.set(albumKey, new Set())
     if (artistToken && !unknown) albumArtistSets.get(albumKey).add(artistToken)
 

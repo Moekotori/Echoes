@@ -10,6 +10,7 @@ import {
   getTrackAlbumArtist,
   isGenericAlbumFallbackName,
   getTrackAlbumName,
+  parseTrackInfo,
   resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
 import {
@@ -17,6 +18,7 @@ import {
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey
 } from '../../src/renderer/src/utils/trackMetaCache.js'
+import { mergeTrackMetaWithPriority } from '../../src/renderer/src/utils/metadataPriority.js'
 import {
   buildAlbumCoverCacheHydrationEntries,
   buildAlbumCoverCacheTargetIndex,
@@ -154,7 +156,12 @@ test('track artwork sources do not use loose album name cover', () => {
 })
 
 test('track artwork sources do not share same album name across folders', () => {
-  const first = makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', 'data:image/anime', 'Known Artist')
+  const first = makeTrack(
+    'D:/Music/Anime/Album A/01.flac',
+    'Album A',
+    'data:image/anime',
+    'Known Artist'
+  )
   const second = makeTrack('D:/Music/Gym/Album A/01.flac', 'Album A', '', 'Known Artist')
 
   assert.notEqual(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
@@ -211,10 +218,14 @@ test('visible-row hydrate still probes own cover when album fallback is availabl
   ]
 
   assert.deepEqual(
-    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
-      isLocalTrack: () => true,
-      albumTracks: tracks
-    }),
+    buildVisibleTrackMetaHydrateRequirement(
+      tracks[1],
+      {},
+      {
+        isLocalTrack: () => true,
+        albumTracks: tracks
+      }
+    ),
     {
       needsCover: true,
       needsArtist: false,
@@ -232,13 +243,17 @@ test('visible-row hydrate ignores generic album group artwork fallback', () => {
   const albumKey = getTrackAlbumGroupKey(tracks[1])
 
   assert.deepEqual(
-    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
-      isLocalTrack: () => true,
-      albumCoverMap: {
-        [albumKey]: 'data:image/group-cover'
-      },
-      albumTracks: tracks
-    }),
+    buildVisibleTrackMetaHydrateRequirement(
+      tracks[1],
+      {},
+      {
+        isLocalTrack: () => true,
+        albumCoverMap: {
+          [albumKey]: 'data:image/group-cover'
+        },
+        albumTracks: tracks
+      }
+    ),
     {
       needsCover: true,
       needsArtist: false,
@@ -252,13 +267,17 @@ test('visible-row hydrate ignores loose album name artwork fallback', () => {
   const track = makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Known Artist')
 
   assert.deepEqual(
-    buildVisibleTrackMetaHydrateRequirement(track, {}, {
-      isLocalTrack: () => true,
-      albumCoverMap: {
-        'Album A': 'data:image/loose-name'
-      },
-      albumTracks: [track]
-    }),
+    buildVisibleTrackMetaHydrateRequirement(
+      track,
+      {},
+      {
+        isLocalTrack: () => true,
+        albumCoverMap: {
+          'Album A': 'data:image/loose-name'
+        },
+        albumTracks: [track]
+      }
+    ),
     {
       needsCover: true,
       needsArtist: false,
@@ -275,10 +294,14 @@ test('visible-row hydrate still parses unknown artist when album fallback is ava
   ]
 
   assert.deepEqual(
-    buildVisibleTrackMetaHydrateRequirement(tracks[1], {}, {
-      isLocalTrack: () => true,
-      albumTracks: tracks
-    }),
+    buildVisibleTrackMetaHydrateRequirement(
+      tracks[1],
+      {},
+      {
+        isLocalTrack: () => true,
+        albumTracks: tracks
+      }
+    ),
     {
       needsCover: true,
       needsArtist: true,
@@ -416,11 +439,16 @@ test('album cover candidates include top-level track covers', () => {
     }
   ]
 
-  assert.deepEqual(getAlbumCoverCandidates(tracks, { albumName: 'Album A' }), ['data:image/top-level'])
+  assert.deepEqual(getAlbumCoverCandidates(tracks, { albumName: 'Album A' }), [
+    'data:image/top-level'
+  ])
 })
 
 test('best album cover falls back to another song in the same album', () => {
-  const tracks = [makeTrack('missing.flac', 'Album A', ''), makeTrack('with-cover.flac', 'Album A', 'data:image/album')]
+  const tracks = [
+    makeTrack('missing.flac', 'Album A', ''),
+    makeTrack('with-cover.flac', 'Album A', 'data:image/album')
+  ]
 
   assert.equal(getBestAlbumCover(tracks, { albumName: 'Album A' }), 'data:image/album')
 })
@@ -448,8 +476,18 @@ test('album group keys stay stable when only some tracks have album artist metad
 })
 
 test('album group keys keep same-folder compilation tracks together without album artist', () => {
-  const first = makeTrack('D:/Music/D4DJ Cover Tracks Vol.8/01.flac', 'D4DJ Groovy Mix Cover Tracks Vol.8', '', 'Happy Around!')
-  const second = makeTrack('D:/Music/D4DJ Cover Tracks Vol.8/02.flac', 'D4DJ Groovy Mix Cover Tracks Vol.8', '', 'Peaky P-key')
+  const first = makeTrack(
+    'D:/Music/D4DJ Cover Tracks Vol.8/01.flac',
+    'D4DJ Groovy Mix Cover Tracks Vol.8',
+    '',
+    'Happy Around!'
+  )
+  const second = makeTrack(
+    'D:/Music/D4DJ Cover Tracks Vol.8/02.flac',
+    'D4DJ Groovy Mix Cover Tracks Vol.8',
+    '',
+    'Peaky P-key'
+  )
 
   assert.equal(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
 })
@@ -779,5 +817,244 @@ test('album cover cache restore still applies exact album keys', () => {
 test('track album name normalizes empty metadata to Singles', () => {
   assert.equal(getTrackAlbumName(makeTrack('a.flac', '')), 'Singles')
   assert.equal(getTrackAlbumName({ album: 'Raw Album' }), 'Raw Album')
-  assert.equal(getTrackAlbumName(makeTrack('a.flac', '1970 - Atom Heart Mother')), 'Atom Heart Mother')
+  assert.equal(
+    getTrackAlbumName(makeTrack('a.flac', '1970 - Atom Heart Mother')),
+    'Atom Heart Mother'
+  )
+})
+
+test('metadata priority: embedded title and artist beat filename parsing', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'D:/Music/Wrong Artist - Wrong Title.flac',
+      name: 'Wrong Artist - Wrong Title.flac'
+    },
+    {
+      title: 'Right Title',
+      artist: 'Right Artist',
+      metadataSource: 'embedded',
+      fieldSources: {
+        title: 'embedded',
+        artist: 'embedded'
+      }
+    }
+  )
+
+  assert.equal(info.title, 'Right Title')
+  assert.equal(info.artist, 'Right Artist')
+})
+
+test('metadata priority: embedded album beats folder fallback', () => {
+  const info = parseTrackInfo(
+    {
+      path: 'D:/Some Folder/01.flac',
+      name: '01.flac'
+    },
+    {
+      album: 'Real Album',
+      metadataSource: 'embedded',
+      fieldSources: {
+        album: 'embedded'
+      }
+    }
+  )
+
+  assert.equal(info.album, 'Real Album')
+})
+
+test('metadata priority: folder album remains a low-priority fallback', () => {
+  const track = {
+    path: 'D:/Music/01.flac',
+    name: '01.flac'
+  }
+  const info = parseTrackInfo(track, null)
+
+  assert.equal(info.album, 'Music')
+  assert.equal(info.fieldSources.album, 'folder')
+
+  const targets = buildAlbumWallHydrateTargets(
+    [{ ...track, info }],
+    {},
+    {},
+    {
+      maxTracksPerAlbum: 1,
+      maxAlbums: 1,
+      maxTargets: 1
+    }
+  )
+
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0].needsAlbum, true)
+})
+
+test('metadata priority: album wall display uses embedded album over folder fallback', () => {
+  const track = {
+    path: 'D:/Music/01.flac',
+    name: '01.flac'
+  }
+  const parsedTrack = {
+    ...track,
+    info: parseTrackInfo(track, null)
+  }
+  const display = resolveAlbumWallDisplayInfo([parsedTrack], {
+    albumName: parsedTrack.info.album,
+    albumKey: getTrackAlbumGroupKey(parsedTrack),
+    trackMetaMap: {
+      [track.path]: {
+        album: 'The Diving Bell',
+        albumArtist: 'Smashing Pumpkins',
+        artist: 'Smashing Pumpkins',
+        metadataSource: 'embedded',
+        fieldSources: {
+          album: 'embedded',
+          albumArtist: 'embedded',
+          artist: 'embedded'
+        }
+      }
+    }
+  })
+
+  assert.equal(display.name, 'The Diving Bell')
+  assert.equal(display.artist, 'Smashing Pumpkins')
+})
+
+test('metadata priority: embedded album artist drives album group artist key', () => {
+  const track = {
+    path: 'D:/Music/One/01.flac',
+    name: '01.flac',
+    info: {
+      album: 'Real Album',
+      artist: 'Guest Singer',
+      albumArtist: 'Band A',
+      metadataSource: 'embedded',
+      fieldSources: {
+        album: 'embedded',
+        artist: 'embedded',
+        albumArtist: 'embedded'
+      }
+    }
+  }
+
+  assert.equal(getTrackAlbumGroupKey(track), 'real album\u0001artist:banda')
+})
+
+test('metadata priority: network does not overwrite embedded album', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      album: 'Real Album',
+      fieldSources: { album: 'embedded' },
+      metadataSource: 'embedded'
+    },
+    {
+      album: 'Cloud Album',
+      fieldSources: { album: 'network' },
+      metadataSource: 'network'
+    }
+  )
+
+  assert.equal(merged.album, 'Real Album')
+})
+
+test('metadata priority: sidecar does not overwrite embedded title', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      title: 'Real Title',
+      fieldSources: { title: 'embedded' },
+      metadataSource: 'embedded'
+    },
+    {
+      title: 'Downloaded Title',
+      fieldSources: { title: 'sidecar' },
+      metadataSource: 'sidecar'
+    }
+  )
+
+  assert.equal(merged.title, 'Real Title')
+})
+
+test('metadata priority: embedded cover beats folder and network covers', () => {
+  const embedded = {
+    cover: 'data:image/embedded',
+    coverSource: 'embedded',
+    fieldSources: { cover: 'embedded' }
+  }
+
+  assert.equal(
+    mergeTrackMetaWithPriority(embedded, {
+      cover: 'data:image/folder',
+      coverSource: 'folder',
+      fieldSources: { cover: 'folder' }
+    }).cover,
+    'data:image/embedded'
+  )
+  assert.equal(
+    mergeTrackMetaWithPriority(embedded, {
+      cover: 'https://example.test/network.jpg',
+      coverSource: 'network',
+      fieldSources: { cover: 'network' }
+    }).cover,
+    'data:image/embedded'
+  )
+})
+
+test('metadata priority: old cache without sources can be refreshed by embedded metadata', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      album: 'Folder Album'
+    },
+    {
+      album: 'Real Album',
+      fieldSources: { album: 'embedded' },
+      metadataSource: 'embedded'
+    }
+  )
+
+  assert.equal(merged.album, 'Real Album')
+})
+
+test('metadata priority: manual override beats embedded metadata', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      title: 'User Title',
+      fieldSources: { title: 'manual' },
+      metadataSource: 'manual'
+    },
+    {
+      title: 'Real Title',
+      fieldSources: { title: 'embedded' },
+      metadataSource: 'embedded'
+    }
+  )
+
+  assert.equal(merged.title, 'User Title')
+})
+
+test('metadata priority: same embedded album and album artist group across folders', () => {
+  const first = makeTrack('D:/A/Album/01.flac', 'Real Album', '', 'Guest A', 'Band A')
+  const second = makeTrack('D:/B/Album/02.flac', 'Real Album', '', 'Guest B', 'Band A')
+  for (const track of [first, second]) {
+    track.info.metadataSource = 'embedded'
+    track.info.fieldSources = {
+      album: 'embedded',
+      artist: 'embedded',
+      albumArtist: 'embedded'
+    }
+  }
+
+  assert.equal(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
+})
+
+test('metadata priority: same embedded album with different album artists gets separate groups', () => {
+  const first = makeTrack('D:/A/Album/01.flac', 'Real Album', '', 'Guest A', 'Band A')
+  const second = makeTrack('D:/B/Album/02.flac', 'Real Album', '', 'Guest B', 'Band B')
+  for (const track of [first, second]) {
+    track.info.metadataSource = 'embedded'
+    track.info.fieldSources = {
+      album: 'embedded',
+      artist: 'embedded',
+      albumArtist: 'embedded'
+    }
+  }
+
+  assert.notEqual(getTrackAlbumGroupKey(first), getTrackAlbumGroupKey(second))
 })

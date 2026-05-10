@@ -24,11 +24,24 @@ function rangesEqual(a, b) {
   )
 }
 
+function normalizeScrollState(value = null) {
+  if (!value || typeof value !== 'object') return null
+  return {
+    width: Math.max(0, Math.round(Number(value.width) || 0)),
+    viewportHeight: Math.max(0, Math.round(Number(value.viewportHeight) || 0)),
+    scrollTop: Math.max(0, Math.round(Number(value.scrollTop) || 0))
+  }
+}
+
 const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   items = [],
   renderItem,
   getItemKey = getAlbumItemKey,
   scrollElementRef = null,
+  initialScrollTop = 0,
+  scrollRestorationKey = '',
+  onScrollStateChange,
+  preserveMeasurements = null,
   className = '',
   minCardWidth = DEFAULT_MIN_CARD_WIDTH,
   minRowHeight = DEFAULT_ROW_HEIGHT,
@@ -39,11 +52,15 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   const containerRef = useRef(null)
   const rafRef = useRef(0)
   const lastRangeRef = useRef(null)
-  const [metrics, setMetrics] = useState({
-    width: 0,
-    viewportHeight: 0,
-    scrollTop: 0
-  })
+  const restoredKeyRef = useRef(null)
+  const lastScrollStateRef = useRef(null)
+  const preservedMetrics = normalizeScrollState(preserveMeasurements)
+  const [metrics, setMetrics] = useState(() => ({
+    width: preservedMetrics?.width || 0,
+    viewportHeight: preservedMetrics?.viewportHeight || 0,
+    scrollTop: preservedMetrics?.scrollTop || 0,
+    absoluteScrollTop: preservedMetrics?.scrollTop || 0
+  }))
 
   const itemCount = Array.isArray(items) ? items.length : 0
   const normalizedGap = Math.max(0, Number(gap) || 0)
@@ -94,9 +111,12 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     const scrollElement = externalScrollElement || container
     const containerRect = container.getBoundingClientRect()
     const scrollRect = scrollElement.getBoundingClientRect?.() || containerRect
-    const scrollTop = externalScrollElement
+    const relativeScrollTop = externalScrollElement
       ? Math.max(0, scrollRect.top - containerRect.top)
       : scrollElement.scrollTop || 0
+    const absoluteScrollTop = externalScrollElement
+      ? scrollElement.scrollTop || 0
+      : relativeScrollTop
     const viewportHeight = externalScrollElement
       ? Math.max(0, scrollRect.bottom - Math.max(containerRect.top, scrollRect.top))
       : scrollElement.clientHeight || containerRect.height || 0
@@ -106,11 +126,13 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
       const next = {
         width: Math.round(width),
         viewportHeight: Math.round(viewportHeight),
-        scrollTop: Math.round(scrollTop)
+        scrollTop: Math.round(relativeScrollTop),
+        absoluteScrollTop: Math.round(absoluteScrollTop)
       }
       return prev.width === next.width &&
         prev.viewportHeight === next.viewportHeight &&
-        prev.scrollTop === next.scrollTop
+        prev.scrollTop === next.scrollTop &&
+        prev.absoluteScrollTop === next.absoluteScrollTop
         ? prev
         : next
     })
@@ -127,6 +149,21 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   useLayoutEffect(() => {
     measure()
   }, [itemCount, measure])
+
+  useLayoutEffect(() => {
+    const restoreKey = String(scrollRestorationKey || '')
+    if (!restoreKey || restoredKeyRef.current === restoreKey) return
+    restoredKeyRef.current = restoreKey
+
+    const container = containerRef.current
+    const externalScrollElement = scrollElementRef?.current || null
+    const scrollElement = externalScrollElement || container
+    if (!scrollElement) return
+
+    const nextScrollTop = Math.max(0, Number(initialScrollTop) || 0)
+    scrollElement.scrollTop = nextScrollTop
+    scheduleMeasure()
+  }, [initialScrollTop, scheduleMeasure, scrollElementRef, scrollRestorationKey])
 
   useEffect(() => {
     const container = containerRef.current
@@ -163,6 +200,46 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     lastRangeRef.current = nextRange
     onVisibleRangeChange(nextRange)
   }, [columnCount, endIndex, onVisibleRangeChange, rowHeight, startIndex])
+
+  useEffect(() => {
+    if (typeof onScrollStateChange !== 'function') return
+    const nextState = {
+      scrollTop: metrics.absoluteScrollTop ?? metrics.scrollTop,
+      relativeScrollTop: metrics.scrollTop,
+      width: metrics.width,
+      viewportHeight: metrics.viewportHeight,
+      startIndex,
+      endIndex,
+      columnCount,
+      rowHeight
+    }
+    const previous = lastScrollStateRef.current
+    if (
+      previous &&
+      previous.scrollTop === nextState.scrollTop &&
+      previous.relativeScrollTop === nextState.relativeScrollTop &&
+      previous.width === nextState.width &&
+      previous.viewportHeight === nextState.viewportHeight &&
+      previous.startIndex === nextState.startIndex &&
+      previous.endIndex === nextState.endIndex &&
+      previous.columnCount === nextState.columnCount &&
+      previous.rowHeight === nextState.rowHeight
+    ) {
+      return
+    }
+    lastScrollStateRef.current = nextState
+    onScrollStateChange(nextState)
+  }, [
+    columnCount,
+    endIndex,
+    metrics.absoluteScrollTop,
+    metrics.scrollTop,
+    metrics.viewportHeight,
+    metrics.width,
+    onScrollStateChange,
+    rowHeight,
+    startIndex
+  ])
 
   return (
     <div
