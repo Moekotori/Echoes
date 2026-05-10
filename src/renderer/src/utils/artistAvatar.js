@@ -19,12 +19,10 @@ function choosePreferredArtistName(currentName, candidateName, currentCount, can
   return currentName
 }
 
-const NETEASE_DEFAULT_ARTIST_AVATAR_IDS = new Set([
-  '5639395138885805',
-  '109951168529049969'
-])
+const NETEASE_DEFAULT_ARTIST_AVATAR_IDS = new Set(['5639395138885805', '109951168529049969'])
 
-const QQ_DEFAULT_ARTIST_AVATAR_RE = /\/music\/photo_new\/T001R\d+x\d+M0000+(?:\.(?:jpg|jpeg|png|webp))?$/i
+const QQ_DEFAULT_ARTIST_AVATAR_RE =
+  /\/music\/photo_new\/T001R\d+x\d+M0000+(?:\.(?:jpg|jpeg|png|webp))?$/i
 
 export function isNeteaseDefaultArtistAvatarUrl(url) {
   const value = String(url || '').trim()
@@ -91,12 +89,7 @@ export function normalizeArtistAvatarSearchResponse(response) {
   }
 
   const candidates =
-    response.artists ||
-    response.items ||
-    response.result ||
-    response.results ||
-    response.data ||
-    []
+    response.artists || response.items || response.result || response.results || response.data || []
 
   return {
     candidates: Array.isArray(candidates) ? candidates : [],
@@ -197,7 +190,9 @@ export function buildArtistBucketsWithAvatars(
     const artistName = meta.artist || track?.info?.artist || unknownArtist
     const artistToken = normalizeArtistToken(artistName)
     const unknown = artistName === unknownArtist || isGenericAlbumArtist(artistName)
-    const groupKey = unknown ? `unknown:${normalizeArtistToken(unknownArtist)}` : artistToken || artistName
+    const groupKey = unknown
+      ? `unknown:${normalizeArtistToken(unknownArtist)}`
+      : artistToken || artistName
     if (!groups.has(groupKey)) {
       groups.set(groupKey, {
         name: artistName,
@@ -249,11 +244,7 @@ export function buildArtistBucketsWithAvatars(
 
       const score =
         ownershipScore +
-        (coverCandidate.source === 'trackMeta'
-          ? 12
-          : coverCandidate.source === 'trackInfo'
-            ? 8
-            : 4)
+        (coverCandidate.source === 'trackMeta' ? 12 : coverCandidate.source === 'trackInfo' ? 8 : 4)
       if (!best || score > best.score) {
         best = { cover: coverCandidate.cover, source: coverCandidate.source, score }
       }
@@ -276,13 +267,12 @@ export function buildArtistBucketsWithAvatars(
           : 'initials',
       hasLocalCover: !!fallbackCover,
       hasRemoteAvatar: !!usableRemoteAvatar,
-      isUnknownArtist: artistBucket.name === unknownArtist || isGenericAlbumArtist(artistBucket.name),
+      isUnknownArtist:
+        artistBucket.name === unknownArtist || isGenericAlbumArtist(artistBucket.name),
       avatarInitials: getArtistAvatarInitials(artistBucket.name),
       avatarHue: getArtistAvatarHue(artistBucket.name)
     }
   })
 
-  return buckets.sort(
-    (a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name)
-  )
+  return buckets.sort((a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name))
 }

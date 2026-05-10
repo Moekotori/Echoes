@@ -176,6 +176,7 @@ import {
   buildAlbumWallHydrateTargets,
   isGenericAlbumFallbackName,
   isUnknownArtistName,
+  mergeAlbumBucketsByCoverAndArtist,
   normalizeAlbumNameKey,
   normalizeArtistNameKey,
   resolveAlbumWallDisplayInfo,
@@ -303,6 +304,7 @@ import {
   buildTrackMetadataPrefetchPlan,
   buildVisibleRowMetadataRequestOptions,
   buildAlbumThumbnailMetadataRequestOptions,
+  buildPlaybackMetadataRequestOptions,
   hasCurrentEmbeddedCoverCheck,
   readAlbumCoverCache,
   readArtistAvatarCache,
@@ -499,8 +501,8 @@ const ARTIST_AVATAR_LOOKUP_GAP_MS = 1200
 const ARTIST_AVATAR_PROVIDER_GAP_MS = 350
 const ARTIST_AVATAR_TRANSIENT_RETRY_MS = 8 * 60 * 1000
 const LIBRARY_DETAIL_PREFETCH_DELAY_MS = 180
-const ALBUM_DETAIL_RETURN_ANIMATION_MS = 140
-const ARTIST_DETAIL_RETURN_ANIMATION_MS = 120
+const ALBUM_DETAIL_RETURN_ANIMATION_MS = 70
+const ARTIST_DETAIL_RETURN_ANIMATION_MS = 80
 const MAX_SHARE_CARD_COVER_CHARS = 600000
 const ALBUM_COVER_PERSIST_SIGNATURE_LIMIT = 2400
 const LYRICS_RENDER_TICK_MS = 80
@@ -1402,6 +1404,9 @@ function normalizeConfigState(raw) {
   }
   if (typeof merged.autoLocateCurrentTrack !== 'boolean') {
     merged.autoLocateCurrentTrack = DEFAULT_CONFIG.autoLocateCurrentTrack
+  }
+  if (typeof merged.mergeAlbumsByCoverAndAlbumArtist !== 'boolean') {
+    merged.mergeAlbumsByCoverAndAlbumArtist = DEFAULT_CONFIG.mergeAlbumsByCoverAndAlbumArtist
   }
   if (typeof merged.ultraSmallScreenAdaptive !== 'boolean') {
     merged.ultraSmallScreenAdaptive = DEFAULT_CONFIG.ultraSmallScreenAdaptive
@@ -5874,6 +5879,7 @@ export default function App() {
   const albumOverviewScrollTopRef = useRef(0)
   const artistOverviewScrollTopRef = useRef(0)
   const albumOverviewGridStateRef = useRef(null)
+  const albumOverviewVisibleCoverKeepPathsRef = useRef(new Set())
   const albumOverviewVisibleRangeKeyRef = useRef('')
   const albumOverviewHydrateTimerRef = useRef(null)
   const visibleCoverHydrationTimerRef = useRef(null)
@@ -8149,7 +8155,7 @@ export default function App() {
         !shouldRefreshCachedOggOpusCover(entry) &&
         !shouldRefreshTrackMetaCacheForAudioQuality(filePath, entry) &&
         !shouldRefreshInfoSidecarTrackMeta(filePath, entry) &&
-        entry.coverThumbnailOnly !== true &&
+        (entry.metadataDetailMode === 'full' || entry.coverThumbnailOnly !== true) &&
         entry.coverMemoryTrimmed !== true
       )
 
@@ -8389,7 +8395,10 @@ export default function App() {
         detectMeasuredBpm(cachedMeta)
       } else {
         // 1. Get Extended Metadata from Main Process (Music-Metadata)
-        const data = await window.api.getExtendedMetadataHandler(filePath)
+        const data = await window.api.getExtendedMetadataHandler(
+          filePath,
+          buildPlaybackMetadataRequestOptions()
+        )
         if (trackLoadSeqRef.current !== requestSeq) return
 
         if (data.success) {
@@ -8480,6 +8489,7 @@ export default function App() {
             coverThumbnailOnly:
               common.coverThumbnailOnly === true || cachedMeta?.coverThumbnailOnly === true,
             coverMaxDimension: common.coverMaxDimension ?? cachedMeta?.coverMaxDimension ?? null,
+            metadataDetailMode: 'full',
             coverExtractorVersion: common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
@@ -10847,13 +10857,7 @@ export default function App() {
     if (!hasDisplayMetadataOverrides) return trackMetaMap
     const next = { ...trackMetaMap }
     for (const [path, override] of Object.entries(displayMetadataOverrides || {})) {
-      const prev = next[path] || {}
-      const manualOverride = withManualMetadataSources(override)
-      next[path] = {
-        ...prev,
-        ...manualOverride,
-        cover: manualOverride?.cover || prev.cover || null
-      }
+      next[path] = getEffectiveTrackMeta(trackMetaMap, { [path]: override }, path)
     }
     return next
   }, [trackMetaMap, displayMetadataOverrides, hasDisplayMetadataOverrides])
@@ -13591,31 +13595,44 @@ export default function App() {
         }
       })
 
+      const sortedBuckets = mergeAlbumBucketsByCoverAndArtist(buckets, {
+        enabled: config.mergeAlbumsByCoverAndAlbumArtist === true
+      })
+
       const getAlbumAddedAt = (album) =>
         Math.min(...album.tracks.map((track) => track.birthtimeMs || Infinity))
 
       if (albumSortMode === 'dateAsc') {
-        buckets.sort((a, b) => getAlbumAddedAt(a) - getAlbumAddedAt(b))
+        sortedBuckets.sort((a, b) => getAlbumAddedAt(a) - getAlbumAddedAt(b))
       } else if (albumSortMode === 'dateDesc') {
-        buckets.sort((a, b) => getAlbumAddedAt(b) - getAlbumAddedAt(a))
+        sortedBuckets.sort((a, b) => getAlbumAddedAt(b) - getAlbumAddedAt(a))
       } else if (albumSortMode === 'nameDesc') {
-        buckets.sort((a, b) => b.name.localeCompare(a.name))
+        sortedBuckets.sort((a, b) => b.name.localeCompare(a.name))
       } else if (albumSortMode === 'artistAsc') {
-        buckets.sort((a, b) => a.artist.localeCompare(b.artist) || a.name.localeCompare(b.name))
+        sortedBuckets.sort(
+          (a, b) => a.artist.localeCompare(b.artist) || a.name.localeCompare(b.name)
+        )
       } else if (albumSortMode === 'artistDesc') {
-        buckets.sort((a, b) => b.artist.localeCompare(a.artist) || b.name.localeCompare(b.name))
+        sortedBuckets.sort(
+          (a, b) => b.artist.localeCompare(a.artist) || b.name.localeCompare(b.name)
+        )
       } else if (albumSortMode === 'tracksAsc') {
-        buckets.sort((a, b) => a.tracks.length - b.tracks.length || a.name.localeCompare(b.name))
+        sortedBuckets.sort(
+          (a, b) => a.tracks.length - b.tracks.length || a.name.localeCompare(b.name)
+        )
       } else if (albumSortMode === 'tracksDesc') {
-        buckets.sort((a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name))
+        sortedBuckets.sort(
+          (a, b) => b.tracks.length - a.tracks.length || a.name.localeCompare(b.name)
+        )
       } else {
-        buckets.sort((a, b) => a.name.localeCompare(b.name))
+        sortedBuckets.sort((a, b) => a.name.localeCompare(b.name))
       }
 
-      return buckets
+      return sortedBuckets
     })
   }, [
     albumSortMode,
+    config.mergeAlbumsByCoverAndAlbumArtist,
     displayMetadataOverrides,
     metadataIdentityVersion,
     queryFilteredPlaylist,
@@ -15470,7 +15487,10 @@ export default function App() {
             const path = track?.path
             if (!path) continue
             try {
-              const meta = await window.api.getExtendedMetadataHandler(path)
+              const meta = await window.api.getExtendedMetadataHandler(
+                path,
+                buildAlbumThumbnailMetadataRequestOptions()
+              )
               if (cancelled || !meta) continue
               const currentEntry = trackMetaMapRef.current?.[path] || {}
               const entry = buildParsedAlbumCoverMetaEntry(track, meta, currentEntry)
@@ -15565,7 +15585,7 @@ export default function App() {
     artistSortOptions.find((option) => option.key === artistSortMode)?.label ||
     artistSortOptions[0]?.label
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       !libraryBrowserVisible ||
       listMode !== 'album' ||
@@ -15578,12 +15598,15 @@ export default function App() {
     const playlistElement = sidebarPlaylistRef.current
     if (!playlistElement) return
 
+    const restoreTop = albumOverviewScrollTopRef.current || 0
     const restoreScroll = () => {
-      playlistElement.scrollTop = albumOverviewScrollTopRef.current || 0
+      playlistElement.scrollTop = restoreTop
       setSidebarScrollTop(playlistElement.scrollTop || 0)
       pendingAlbumOverviewRestoreRef.current = false
     }
 
+    playlistElement.scrollTop = restoreTop
+    setSidebarScrollTop(playlistElement.scrollTop || 0)
     const rafId = window.requestAnimationFrame(restoreScroll)
     return () => window.cancelAnimationFrame(rafId)
   }, [libraryBrowserVisible, listMode, selectedAlbum, albumGroupsFiltered.length])
@@ -15615,6 +15638,19 @@ export default function App() {
     () => albumGroupsFiltered.slice(visibleAlbumRange.startIndex, visibleAlbumRange.endIndex),
     [albumGroupsFiltered, visibleAlbumRange]
   )
+
+  useEffect(() => {
+    if (listMode !== 'album' || selectedAlbum !== 'all') return
+    const keepPaths = new Set()
+    const latestTrackMetaMap = trackMetaMapRef.current || {}
+    for (const album of visibleAlbumGroups) {
+      const tracks = Array.isArray(album?.tracks) ? album.tracks : []
+      const coverTrack =
+        tracks.find((track) => track?.path && latestTrackMetaMap[track.path]?.cover) || tracks[0]
+      if (coverTrack?.path) keepPaths.add(coverTrack.path)
+    }
+    albumOverviewVisibleCoverKeepPathsRef.current = keepPaths
+  }, [listMode, selectedAlbum, visibleAlbumGroups])
 
   const handleAlbumGridVisibleRangeChange = useCallback((range) => {
     const next = {
@@ -15864,6 +15900,12 @@ export default function App() {
     if (listMode === 'album' && selectedAlbum === 'all') {
       for (const album of visibleAlbumGroups) {
         pushTrack(album.tracks.find((track) => trackMetaMap[track.path]?.cover) || album.tracks[0])
+      }
+    }
+
+    if (listMode === 'album' || pendingAlbumOverviewRestoreRef.current) {
+      for (const path of albumOverviewVisibleCoverKeepPathsRef.current || []) {
+        if (path) paths.push(path)
       }
     }
 
@@ -16291,7 +16333,7 @@ export default function App() {
                 ? buildVisibleRowMetadataRequestOptions()
                 : hydrateRequirement?.source === 'album-wall'
                   ? buildAlbumThumbnailMetadataRequestOptions()
-                  : undefined
+                  : buildPlaybackMetadataRequestOptions()
             const data = await window.api.getExtendedMetadataHandler(track.path, metadataOptions)
             if (data?.success) {
               const common = data.common || {}
@@ -16315,6 +16357,12 @@ export default function App() {
                 coverThumbnailOnly:
                   common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true,
                 coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension ?? null,
+                metadataDetailMode:
+                  hydrateRequirement?.source === 'visible-row'
+                    ? 'visible-row'
+                    : hydrateRequirement?.source === 'album-wall'
+                      ? 'album-wall'
+                      : 'full',
                 coverExtractorVersion:
                   common.coverExtractorVersion ??
                   cachedMeta.coverExtractorVersion ??
@@ -16513,7 +16561,7 @@ export default function App() {
           if (knownEntry?.cover && knownHasUsefulArtist) continue
           const coverAlreadyProbed = albumCoverProbePathsRef.current.has(path)
           const artistAlreadyProbed = albumArtistProbePathsRef.current.has(path)
-          const needsCoverProbe = target.needsCover && !knownEntry?.cover
+          const needsCoverProbe = target.needsCover && knownEntry?.coverThumbnailOnly !== true
           const needsArtistProbe = target.needsArtist && !knownHasUsefulArtist
           if (
             hasCurrentEmbeddedCoverCheck(knownEntry) &&
@@ -16537,7 +16585,10 @@ export default function App() {
             if (target.needsCover) albumCoverProbePathsRef.current.add(path)
             if (target.needsArtist) albumArtistProbePathsRef.current.add(path)
             try {
-              const data = await window.api.getExtendedMetadataHandler(path)
+              const data = await window.api.getExtendedMetadataHandler(
+                path,
+                buildAlbumThumbnailMetadataRequestOptions()
+              )
               const currentMeta = trackMetaMapRef.current?.[path] || cached[path] || {}
               const parsedEntry = buildParsedAlbumCoverMetaEntry(target.track, data, currentMeta)
               if (!parsedEntry) continue
@@ -16872,7 +16923,10 @@ export default function App() {
         albumDetailLeaveTimerRef.current = null
       }
       setAlbumDetailLeaving(false)
-      albumOverviewScrollTopRef.current = sidebarPlaylistRef.current?.scrollTop || 0
+      albumOverviewScrollTopRef.current = Math.max(
+        sidebarPlaylistRef.current?.scrollTop || 0,
+        albumOverviewGridStateRef.current?.scrollTop || 0
+      )
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
       const albumTracks = Array.isArray(album.tracks) ? album.tracks : []
@@ -16942,7 +16996,10 @@ export default function App() {
       )
       const albumPaths = albumTracks.map((item) => item.path).filter(Boolean)
 
-      albumOverviewScrollTopRef.current = sidebarPlaylistRef.current?.scrollTop || 0
+      albumOverviewScrollTopRef.current = Math.max(
+        sidebarPlaylistRef.current?.scrollTop || 0,
+        albumOverviewGridStateRef.current?.scrollTop || 0
+      )
       pendingAlbumOverviewRestoreRef.current = false
       pendingAlbumDetailScrollResetRef.current = true
       selectedAlbumTracksRef.current = {
@@ -16995,9 +17052,9 @@ export default function App() {
 
   const handleBackToAlbumOverview = useCallback(() => {
     if (albumDetailLeaveTimerRef.current) return
+    pendingAlbumOverviewRestoreRef.current = true
     setAlbumDetailLeaving(true)
     albumDetailLeaveTimerRef.current = window.setTimeout(() => {
-      pendingAlbumOverviewRestoreRef.current = true
       selectedAlbumTracksRef.current = {
         key: '',
         name: '',
@@ -17026,10 +17083,15 @@ export default function App() {
   }, [])
 
   const handleAlbumGridScrollStateChange = useCallback((state) => {
-    albumOverviewGridStateRef.current = state || null
     if (state?.scrollTop != null) {
-      albumOverviewScrollTopRef.current = Math.max(0, Number(state.scrollTop) || 0)
+      const nextScrollTop = Math.max(0, Number(state.scrollTop) || 0)
+      const savedScrollTop = Math.max(0, Number(albumOverviewScrollTopRef.current) || 0)
+      if (pendingAlbumOverviewRestoreRef.current && nextScrollTop < savedScrollTop - 2) {
+        return
+      }
+      albumOverviewScrollTopRef.current = nextScrollTop
     }
+    albumOverviewGridStateRef.current = state || null
   }, [])
 
   useLayoutEffect(() => {
@@ -24103,6 +24165,40 @@ export default function App() {
                           }
                         >
                           {config.autoSaveLibrary !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>
+                            {t(
+                              'settings.mergeAlbumsByCoverAndAlbumArtistTitle',
+                              'Merge albums with same cover and album artist'
+                            )}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.mergeAlbumsByCoverAndAlbumArtistDesc',
+                              'When album artwork and album artist match, show split album groups as one album.'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${
+                            config.mergeAlbumsByCoverAndAlbumArtist ? 'active' : ''
+                          }`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              mergeAlbumsByCoverAndAlbumArtist:
+                                !prev.mergeAlbumsByCoverAndAlbumArtist
+                            }))
+                          }
+                        >
+                          {config.mergeAlbumsByCoverAndAlbumArtist ? (
                             <ToggleRight size={32} />
                           ) : (
                             <ToggleLeft size={32} />

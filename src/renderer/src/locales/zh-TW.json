@@ -447,6 +447,8 @@
     "playerViewScaleDesc": "單獨縮放播放畫面內容，不影響全域介面字級。",
     "autoLocateCurrentTrackTitle": "定位目前播放曲目",
     "autoLocateCurrentTrackDesc": "開啟後，切歌時會自動把左側目前清單捲動到正在播放的曲目位置。",
+    "mergeAlbumsByCoverAndAlbumArtistTitle": "同封面同專輯藝人時合併專輯",
+    "mergeAlbumsByCoverAndAlbumArtistDesc": "開啟後，專輯封面和專輯藝人相同的拆分專輯會顯示為同一張專輯。",
     "autoDetectBpmTitle": "自動偵測 BPM",
     "autoDetectBpmDesc": "預設關閉。開啟後，ECHO 會分析沒有 BPM 標籤的曲目，並快取偵測到的節拍。",
     "sidebarLogoTitle": "顯示 Logo",

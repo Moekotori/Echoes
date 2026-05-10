@@ -10,6 +10,7 @@ import {
   getTrackAlbumArtist,
   isGenericAlbumFallbackName,
   getTrackAlbumName,
+  mergeAlbumBucketsByCoverAndArtist,
   parseTrackInfo,
   resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
@@ -124,6 +125,92 @@ test('track artwork sources keep current track cover before album fallback', () 
     }),
     ['data:image/self', 'data:image/cached-album', 'data:image/album']
   )
+})
+
+test('merge album buckets with same cover and album artist when enabled', () => {
+  const cover = 'data:image/png;base64,cover-a'
+  const merged = mergeAlbumBucketsByCoverAndArtist(
+    [
+      {
+        key: 'the diving bell\u0001folder:e:/music/music',
+        name: 'Music',
+        artist: 'The Artist',
+        cacheArtist: 'The Artist',
+        cover,
+        coverCandidates: [cover],
+        tracks: [{ path: 'E:/Music/Music/01.flac' }]
+      },
+      {
+        key: 'the diving bell\u0001folder:e:/music/the diving bell',
+        name: 'The Diving Bell',
+        artist: 'The Artist',
+        cacheArtist: 'The Artist',
+        cover,
+        coverCandidates: [cover],
+        tracks: [{ path: 'E:/Music/The Diving Bell/02.flac' }]
+      }
+    ],
+    { enabled: true }
+  )
+
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].name, 'The Diving Bell')
+  assert.equal(merged[0].tracks.length, 2)
+})
+
+test('album bucket cover merge keeps different album artists separate', () => {
+  const cover = 'data:image/png;base64,shared-cover'
+  const merged = mergeAlbumBucketsByCoverAndArtist(
+    [
+      {
+        key: 'album-a\u0001artist:artistone',
+        name: 'Album A',
+        artist: 'Artist One',
+        cacheArtist: 'Artist One',
+        cover,
+        coverCandidates: [cover],
+        tracks: [{ path: 'a.flac' }]
+      },
+      {
+        key: 'album-b\u0001artist:artisttwo',
+        name: 'Album B',
+        artist: 'Artist Two',
+        cacheArtist: 'Artist Two',
+        cover,
+        coverCandidates: [cover],
+        tracks: [{ path: 'b.flac' }]
+      }
+    ],
+    { enabled: true }
+  )
+
+  assert.equal(merged.length, 2)
+})
+
+test('album bucket cover merge is disabled by default', () => {
+  const cover = 'data:image/png;base64,cover-a'
+  const buckets = [
+    {
+      key: 'album-a',
+      name: 'Album A',
+      artist: 'Artist',
+      cacheArtist: 'Artist',
+      cover,
+      coverCandidates: [cover],
+      tracks: [{ path: 'a.flac' }]
+    },
+    {
+      key: 'album-b',
+      name: 'Album B',
+      artist: 'Artist',
+      cacheArtist: 'Artist',
+      cover,
+      coverCandidates: [cover],
+      tracks: [{ path: 'b.flac' }]
+    }
+  ]
+
+  assert.equal(mergeAlbumBucketsByCoverAndArtist(buckets).length, 2)
 })
 
 test('track artwork sources use album group key cover', () => {
@@ -587,6 +674,12 @@ test('album cover backfill plan stops retrying artist after artist probe', () =>
     albumCoverMap: {
       [albumKey]: 'data:image/existing-cover'
     },
+    trackMetaMap: {
+      [track.path]: {
+        cover: 'data:image/existing-cover',
+        coverThumbnailOnly: true
+      }
+    },
     albumArtistProbePaths: new Set([track.path])
   })
 
@@ -862,6 +955,78 @@ test('metadata priority: embedded album beats folder fallback', () => {
   assert.equal(info.album, 'Real Album')
 })
 
+test('metadata priority: embedded track info beats stale cached folder and unknown artist', () => {
+  const track = {
+    path: 'D:/Music/01.flac',
+    name: '01.flac',
+    info: {
+      title: 'Real Title',
+      artist: 'Real Artist',
+      album: 'The Diving Bell',
+      albumArtist: 'Real Album Artist',
+      metadataSource: 'embedded',
+      fieldSources: {
+        title: 'embedded',
+        artist: 'embedded',
+        album: 'embedded',
+        albumArtist: 'embedded'
+      }
+    }
+  }
+  const info = parseTrackInfo(track, {
+    title: '01',
+    artist: 'Unknown Artist',
+    album: 'Music',
+    albumArtist: '',
+    metadataSource: 'folder',
+    fieldSources: {
+      title: 'filename',
+      artist: 'fallback',
+      album: 'folder'
+    }
+  })
+
+  assert.equal(info.title, 'Real Title')
+  assert.equal(info.artist, 'Real Artist')
+  assert.equal(info.album, 'The Diving Bell')
+  assert.equal(info.albumArtist, 'Real Album Artist')
+  assert.equal(info.fieldSources.album, 'embedded')
+  assert.equal(info.fieldSources.artist, 'embedded')
+})
+
+test('metadata priority: fresh embedded track info beats stale embedded cache on ties', () => {
+  const track = {
+    path: 'D:/Music/01.flac',
+    name: '01.flac',
+    info: {
+      artist: 'Real Artist',
+      album: 'The Diving Bell',
+      albumArtist: 'Real Artist',
+      metadataSource: 'embedded',
+      fieldSources: {
+        artist: 'embedded',
+        album: 'embedded',
+        albumArtist: 'embedded'
+      }
+    }
+  }
+  const info = parseTrackInfo(track, {
+    artist: 'Unknown Artist',
+    album: 'Music',
+    albumArtist: '',
+    metadataSource: 'embedded',
+    fieldSources: {
+      artist: 'embedded',
+      album: 'embedded',
+      albumArtist: 'embedded'
+    }
+  })
+
+  assert.equal(info.artist, 'Real Artist')
+  assert.equal(info.album, 'The Diving Bell')
+  assert.equal(info.albumArtist, 'Real Artist')
+})
+
 test('metadata priority: folder album remains a low-priority fallback', () => {
   const track = {
     path: 'D:/Music/01.flac',
@@ -916,6 +1081,42 @@ test('metadata priority: album wall display uses embedded album over folder fall
 
   assert.equal(display.name, 'The Diving Bell')
   assert.equal(display.artist, 'Smashing Pumpkins')
+})
+
+test('metadata priority: album wall does not let stale cache override embedded info', () => {
+  const track = {
+    path: 'D:/Music/01.flac',
+    name: '01.flac',
+    info: {
+      album: 'The Diving Bell',
+      albumArtist: 'Real Artist',
+      artist: 'Real Artist',
+      metadataSource: 'embedded',
+      fieldSources: {
+        album: 'embedded',
+        albumArtist: 'embedded',
+        artist: 'embedded'
+      }
+    }
+  }
+  const display = resolveAlbumWallDisplayInfo([track], {
+    albumName: 'Music',
+    albumKey: getTrackAlbumGroupKey(track),
+    trackMetaMap: {
+      [track.path]: {
+        album: 'Music',
+        artist: 'Unknown Artist',
+        metadataSource: 'folder',
+        fieldSources: {
+          album: 'folder',
+          artist: 'fallback'
+        }
+      }
+    }
+  })
+
+  assert.equal(display.name, 'The Diving Bell')
+  assert.equal(display.artist, 'Real Artist')
 })
 
 test('metadata priority: embedded album artist drives album group artist key', () => {

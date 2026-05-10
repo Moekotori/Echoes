@@ -129,7 +129,8 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   if (!needsCover && !needsArtist && !needsAlbum) return true
   if (!entry || typeof entry !== 'object') return false
   if (needsCover) {
-    const coverSatisfiedByLocalCover = entry.cover && isLocalCoverEntry(entry)
+    const coverSatisfiedByLocalCover =
+      entry.cover && isLocalCoverEntry(entry) && entry.coverThumbnailOnly === true
     const coverSatisfiedByCurrentNoCover =
       !entry.cover && requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
     if (!coverSatisfiedByLocalCover && !coverSatisfiedByCurrentNoCover) return false
@@ -200,6 +201,15 @@ function hasOwnTrackCover(track, entry = null, options = {}) {
   })
 }
 
+function shouldRefreshDisplayCoverAsThumbnail(track, entry = null) {
+  if (entry?.coverThumbnailOnly === true) return false
+  const coverSources = [entry?.cover, track?.info?.cover, track?.cover]
+  return coverSources.some((source) => {
+    const value = typeof source === 'string' ? source.trim() : ''
+    return Boolean(value && isLocalCoverUrl(value))
+  })
+}
+
 export function hasCurrentEmbeddedCoverCheck(entry = null) {
   if (entry?.cover && isLocalCoverEntry(entry)) return true
   return (
@@ -239,7 +249,8 @@ export function buildVisibleTrackMetaHydrateRequirement(
     albumCoverMap,
     albumTracks
   })
-  const needsCover = !hasOwnCover && !hasCurrentEmbeddedCoverCheck(entry)
+  const needsThumbnailCover = hasOwnCover && shouldRefreshDisplayCoverAsThumbnail(track, entry)
+  const needsCover = needsThumbnailCover || (!hasOwnCover && !hasCurrentEmbeddedCoverCheck(entry))
   const needsArtist = !hasVisibleRowArtist(track, entry)
   if (!needsCover && !needsArtist) return null
 
@@ -258,7 +269,8 @@ export function buildVisibleRowMetadataRequestOptions() {
     includeTechnicalProbe: false,
     includeLyrics: false,
     includeBpm: false,
-    includeMqa: false
+    includeMqa: false,
+    coverSize: 'album-thumbnail'
   }
 }
 
@@ -266,6 +278,12 @@ export function buildAlbumThumbnailMetadataRequestOptions() {
   return {
     ...buildVisibleRowMetadataRequestOptions(),
     mode: 'album-wall',
+    coverSize: 'album-thumbnail'
+  }
+}
+
+export function buildPlaybackMetadataRequestOptions() {
+  return {
     coverSize: 'album-thumbnail'
   }
 }
@@ -662,6 +680,9 @@ function normalizeTrackMetaEntry(entry) {
   }
   next.coverChecked = entry.coverChecked === true
   next.coverThumbnailOnly = entry.coverThumbnailOnly === true
+  if (['full', 'visible-row', 'album-wall'].includes(entry.metadataDetailMode)) {
+    next.metadataDetailMode = entry.metadataDetailMode
+  }
   next.bpmChecked = entry.bpmChecked === true
   next.bpmMeasured = entry.bpmMeasured === true
   next.mqaChecked = entry.mqaChecked === true

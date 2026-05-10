@@ -650,6 +650,8 @@
     "playerViewScaleDesc": "单独缩放播放画面内容，不影响全局界面字号。",
     "autoLocateCurrentTrackTitle": "定位当前播放歌曲",
     "autoLocateCurrentTrackDesc": "开启后，切歌时会自动把左侧当前列表滚动到正在播放的歌曲位置。",
+    "mergeAlbumsByCoverAndAlbumArtistTitle": "同封面同专辑艺人时合并专辑",
+    "mergeAlbumsByCoverAndAlbumArtistDesc": "开启后，专辑封面和专辑艺人相同的拆分专辑会显示为同一张专辑。",
     "autoDetectBpmTitle": "自动检测 BPM",
     "autoDetectBpmDesc": "默认关闭。开启后，ECHO 会分析没有 BPM 标签的曲目，并缓存检测到的节拍。",
     "sidebarLogoTitle": "Logo显示",

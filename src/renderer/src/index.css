@@ -3132,40 +3132,40 @@ body {
 .playlist-virtual-list--album-enter {
   transform-origin: top center;
   will-change: opacity, transform;
-  animation: albumDetailEnter 0.18s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+  animation: albumDetailEnter 0.12s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
 }
 
 .playlist-virtual-list--album-leaving {
   pointer-events: none;
-  animation: albumDetailLeave 0.14s cubic-bezier(0.32, 0, 0.2, 1) forwards;
+  animation: albumDetailLeave 0.07s cubic-bezier(0.32, 0, 0.2, 1) forwards;
 }
 
 .playlist-virtual-list--artist-detail {
   transform-origin: top center;
   will-change: opacity, transform;
-  animation: artistDetailEnter 0.16s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+  animation: artistDetailEnter 0.12s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
 }
 
 .playlist-virtual-list--artist-leaving {
   pointer-events: none;
-  animation: artistDetailLeave 0.12s cubic-bezier(0.32, 0, 0.2, 1) forwards;
+  animation: artistDetailLeave 0.08s cubic-bezier(0.32, 0, 0.2, 1) forwards;
 }
 
 .library-list-header--album-detail {
   transform-origin: left center;
   will-change: opacity, transform;
-  animation: albumHeaderEnter 0.18s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+  animation: albumHeaderEnter 0.12s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
 }
 
 .library-list-header--artist-detail {
   transform-origin: left center;
   will-change: opacity, transform;
-  animation: artistHeaderEnter 0.16s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+  animation: artistHeaderEnter 0.12s cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
 }
 
 .library-list-header--leaving {
   pointer-events: none;
-  animation: artistHeaderLeave 0.12s cubic-bezier(0.32, 0, 0.2, 1) forwards;
+  animation: artistHeaderLeave 0.08s cubic-bezier(0.32, 0, 0.2, 1) forwards;
 }
 
 .playlist-spacer {

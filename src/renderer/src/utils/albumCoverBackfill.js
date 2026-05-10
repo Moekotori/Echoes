@@ -45,11 +45,18 @@ export function buildAlbumCoverBackfillPlan({
 
   const shouldBackfillTrack = (track, entry = {}, { needsCover, needsArtist }) => {
     if (!track?.path) return false
-    if (needsCover && !entry?.cover && !albumCoverProbePaths.has(track.path)) return true
+    if (needsCover && entry?.coverThumbnailOnly !== true && !albumCoverProbePaths.has(track.path)) {
+      return true
+    }
     if (needsArtist && !hasKnownArtist(track, entry) && !albumArtistProbePaths.has(track.path)) {
       return true
     }
     return false
+  }
+
+  const hasThumbnailCoverEntry = (track) => {
+    const entry = trackMetaMap?.[track?.path]
+    return Boolean(entry?.cover && entry.coverThumbnailOnly === true)
   }
 
   const targets = []
@@ -58,16 +65,20 @@ export function buildAlbumCoverBackfillPlan({
     const albumKey = String(album?.key || '').trim()
     const coverFailed = failedAlbumCoverKeys.has(getAlbumCoverFailureKey(album))
     if (!albumName || !albumKey) continue
-    const hasAlbumCover = Boolean((album?.cover || albumCoverMap[albumKey]) && !coverFailed)
     const tracks = Array.isArray(album?.tracks) ? album.tracks : []
+    const rawAlbumCover = album?.cover || albumCoverMap[albumKey] || ''
+    const hasAlbumCover = Boolean(rawAlbumCover && !coverFailed)
+    const hasDisplayThumbnailCover =
+      hasAlbumCover &&
+      (!/^data:image\//i.test(String(rawAlbumCover || '')) || tracks.some(hasThumbnailCoverEntry))
     const hasAlbumArtist =
       (album?.cacheArtist && !isUnknownArtistName(album.cacheArtist)) ||
       (album?.artist && !isUnknownArtistName(album.artist)) ||
       tracks.some((track) => hasKnownArtist(track, trackMetaMap[track.path] || {}))
 
-    if (hasAlbumCover && hasAlbumArtist) continue
+    if (hasDisplayThumbnailCover && hasAlbumArtist) continue
     const needs = {
-      needsCover: !hasAlbumCover,
+      needsCover: !hasDisplayThumbnailCover,
       needsArtist: !hasAlbumArtist
     }
     const representativeTrack =
@@ -122,6 +133,7 @@ export function buildParsedAlbumCoverMetaEntry(track, data, cachedMeta = {}) {
     coverThumbnailOnly:
       common.coverThumbnailOnly === true || cachedMeta.coverThumbnailOnly === true,
     coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension ?? null,
+    metadataDetailMode: 'album-wall',
     duration: technical.duration || cachedMeta.duration || null,
     coverChecked: true,
     bpmChecked: true,

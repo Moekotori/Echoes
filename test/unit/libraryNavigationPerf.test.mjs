@@ -31,6 +31,18 @@ test('album visible range hydrate is delayed and deduped', () => {
   assert.match(appSource, /window\.setTimeout\(\(\) => \{[\s\S]*setVisibleAlbumRange/)
 })
 
+test('album overview return keeps scroll memory during restoration', () => {
+  assert.match(appSource, /pendingAlbumOverviewRestoreRef\.current = true/)
+  assert.match(appSource, /nextScrollTop < savedScrollTop - 2/)
+  assert.match(appSource, /playlistElement\.scrollTop = restoreTop/)
+})
+
+test('album overview keeps visible cover paths while detail is open', () => {
+  assert.match(appSource, /albumOverviewVisibleCoverKeepPathsRef/)
+  assert.match(appSource, /albumOverviewVisibleCoverKeepPathsRef\.current = keepPaths/)
+  assert.match(appSource, /for \(const path of albumOverviewVisibleCoverKeepPathsRef\.current/)
+})
+
 test('artist bucket grouping does not depend on cover-only maps', () => {
   const start = appSource.indexOf('const artistBucketBase = useMemo(() => {')
   const end = appSource.indexOf('const artistBuckets = useMemo(() => {', start)

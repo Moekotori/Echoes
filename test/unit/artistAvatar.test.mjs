@@ -119,14 +119,11 @@ test('artist avatar does not reuse a shared compilation cover across artists', (
 })
 
 test('artist avatar uses album cover cache before falling back to initials', () => {
-  const buckets = buildArtistBucketsWithAvatars(
-    [makeTrack('song-a', 'Artist A', 'Singles', '')],
-    {
-      albumCoverMap: {
-        Singles: 'data:image/album-fallback'
-      }
+  const buckets = buildArtistBucketsWithAvatars([makeTrack('song-a', 'Artist A', 'Singles', '')], {
+    albumCoverMap: {
+      Singles: 'data:image/album-fallback'
     }
-  )
+  })
 
   assert.equal(buckets[0].cover, 'data:image/album-fallback')
   assert.equal(buckets[0].fallbackCover, 'data:image/album-fallback')

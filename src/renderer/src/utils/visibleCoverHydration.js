@@ -31,6 +31,8 @@ export function buildEmptyVisibleCoverEntry() {
     coverSource: null,
     duration: null,
     coverChecked: true,
+    coverThumbnailOnly: true,
+    metadataDetailMode: 'visible-row',
     coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
     lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
     bpmChecked: true,
@@ -74,6 +76,7 @@ export function buildVisibleCoverEntry(data, cachedMeta = {}) {
     ...((common.coverMaxDimension ?? cachedMeta.coverMaxDimension)
       ? { coverMaxDimension: common.coverMaxDimension ?? cachedMeta.coverMaxDimension }
       : {}),
+    metadataDetailMode: 'visible-row',
     coverExtractorVersion:
       common.coverExtractorVersion ??
       cachedMeta.coverExtractorVersion ??

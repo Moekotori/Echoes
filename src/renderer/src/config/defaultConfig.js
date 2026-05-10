@@ -150,6 +150,7 @@ export const DEFAULT_CONFIG = {
   uiAccentBackgroundGlow: false,
   showSidebarLogo: false,
   autoLocateCurrentTrack: false,
+  mergeAlbumsByCoverAndAlbumArtist: false,
   ultraSmallScreenAdaptive: false,
   theme: 'minimal',
   customColors: { ...PRESET_THEMES.minimal.colors },

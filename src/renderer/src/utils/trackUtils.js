@@ -1,6 +1,8 @@
 import {
   getMetadataSourcePriority,
   getTrackMetaFieldSource,
+  mergeTrackMetaWithPriority,
+  pickHigherPriorityField,
   withManualMetadataSources
 } from './metadataPriority.js'
 
@@ -467,6 +469,94 @@ export function isUnknownArtistDisplay(value = '') {
   return isUnknownArtistName(value)
 }
 
+export function getArtworkFingerprint(value = '') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return ''
+  return `${text.length}:${text.slice(0, 160)}:${text.slice(-160)}`
+}
+
+function pushUniqueTracks(target, source) {
+  const seen = new Set(target.map((track) => track?.path || track?.info?.fileName || track))
+  for (const track of Array.isArray(source) ? source : []) {
+    const key = track?.path || track?.info?.fileName || track
+    if (seen.has(key)) continue
+    seen.add(key)
+    target.push(track)
+  }
+}
+
+function mergeCoverCandidates(existing = [], incoming = []) {
+  const merged = []
+  const seen = new Set()
+  for (const cover of [...(existing || []), ...(incoming || [])]) {
+    pushUniqueCover(merged, seen, cover)
+  }
+  return merged
+}
+
+function preferAlbumBucketName(current, incoming) {
+  const currentName = normalizeAlbumDisplayName(current?.name || '')
+  const incomingName = normalizeAlbumDisplayName(incoming?.name || '')
+  if (!incomingName) return currentName
+  if (!currentName) return incomingName
+  if (isGenericAlbumFallbackName(currentName) && !isGenericAlbumFallbackName(incomingName)) {
+    return incomingName
+  }
+  return currentName
+}
+
+export function mergeAlbumBucketsByCoverAndArtist(buckets = [], { enabled = false } = {}) {
+  const source = Array.isArray(buckets) ? buckets.filter(Boolean) : []
+  if (!enabled) return source
+
+  const merged = []
+  const byMergeKey = new Map()
+
+  for (const bucket of source) {
+    const cover = bucket.cover || bucket.coverCandidates?.[0] || ''
+    const coverKey = getArtworkFingerprint(cover)
+    const artist = bucket.cacheArtist || bucket.artist || ''
+    const artistKey = normalizeArtistNameKey(artist)
+
+    if (!coverKey || !artistKey || isUnknownArtistDisplay(artist)) {
+      merged.push(bucket)
+      continue
+    }
+
+    const mergeKey = `${artistKey}\u0001cover:${coverKey}`
+    const existing = byMergeKey.get(mergeKey)
+    if (!existing) {
+      const next = {
+        ...bucket,
+        tracks: [...(bucket.tracks || [])],
+        coverCandidates: [...(bucket.coverCandidates || [])],
+        mergedAlbumKeys: bucket.key ? [bucket.key] : []
+      }
+      byMergeKey.set(mergeKey, next)
+      merged.push(next)
+      continue
+    }
+
+    const preferredName = preferAlbumBucketName(existing, bucket)
+    const preferredIncoming = preferredName === normalizeAlbumDisplayName(bucket.name || '')
+    pushUniqueTracks(existing.tracks, bucket.tracks)
+    existing.coverCandidates = mergeCoverCandidates(
+      existing.coverCandidates,
+      bucket.coverCandidates
+    )
+    existing.cover = existing.cover || bucket.cover || existing.coverCandidates[0] || null
+    existing.artist = existing.artist || bucket.artist || artist
+    existing.cacheArtist = existing.cacheArtist || bucket.cacheArtist || ''
+    existing.name = preferredName
+    if (preferredIncoming && bucket.key) existing.key = bucket.key
+    existing.mergedAlbumKeys = Array.from(
+      new Set([...(existing.mergedAlbumKeys || []), ...(bucket.key ? [bucket.key] : [])])
+    )
+  }
+
+  return merged
+}
+
 function isLocalAlbumWallTrack(track, isLocalTrack) {
   if (!track?.path || typeof track.path !== 'string') return false
   if (typeof isLocalTrack === 'function') return isLocalTrack(track)
@@ -477,20 +567,21 @@ export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
   const entry = track?.path ? trackMetaMap?.[track.path] || null : null
   const info = parseTrackInfo(track, entry)
   const fieldSources = {
-    ...(info.fieldSources && typeof info.fieldSources === 'object' ? info.fieldSources : {}),
-    ...(entry?.fieldSources && typeof entry.fieldSources === 'object' ? entry.fieldSources : {})
+    ...(entry?.fieldSources && typeof entry.fieldSources === 'object' ? entry.fieldSources : {}),
+    ...(info.fieldSources && typeof info.fieldSources === 'object' ? info.fieldSources : {})
   }
   return {
     ...(entry || {}),
-    title: entry?.title || info.title || null,
-    artist: entry?.artist || info.artist || null,
-    albumArtist: entry?.albumArtist || info.albumArtist || null,
-    album: entry?.album || info.album || null,
-    cover: entry?.cover || track?.info?.cover || track?.cover || null,
-    duration: entry?.duration || info.duration || null,
-    trackNo: entry?.trackNo ?? info.trackNo ?? null,
-    discNo: entry?.discNo ?? info.discNo ?? null,
-    metadataSource: entry?.metadataSource || info.metadataSource || null,
+    title: info.title || entry?.title || null,
+    artist: info.artist || entry?.artist || null,
+    albumArtist: info.albumArtist || entry?.albumArtist || null,
+    album: info.album || entry?.album || null,
+    cover: info.cover || entry?.cover || track?.info?.cover || track?.cover || null,
+    duration: info.duration || entry?.duration || null,
+    trackNo: info.trackNo ?? entry?.trackNo ?? null,
+    discNo: info.discNo ?? entry?.discNo ?? null,
+    metadataSource: info.metadataSource || entry?.metadataSource || null,
+    coverSource: info.coverSource || entry?.coverSource || null,
     fieldSources: Object.keys(fieldSources).length > 0 ? fieldSources : null
   }
 }
@@ -653,11 +744,43 @@ export function buildAlbumWallHydrateTargets(
   return targets
 }
 
+function resolvePriorityField(trackInfo = {}, meta = {}, field = '') {
+  const trackInfoSource = getTrackMetaFieldSource(trackInfo, field)
+  const metaSource = getTrackMetaFieldSource(meta, field)
+  const trackInfoPriority = getMetadataSourcePriority(trackInfoSource)
+  const metaPriority = getMetadataSourcePriority(metaSource)
+  const keepCurrentEmbeddedOnTie =
+    trackInfoPriority >= getMetadataSourcePriority('embedded-cue') &&
+    metaPriority <= trackInfoPriority
+  const picked = pickHigherPriorityField(
+    trackInfo?.[field],
+    trackInfoSource,
+    meta?.[field],
+    metaSource,
+    { allowEqualPriorityOverride: !keepCurrentEmbeddedOnTie }
+  )
+  return picked
+}
+
+function setResolvedFieldSource(fieldSources, field, source, fallbackSource = '') {
+  const resolvedSource = source || fallbackSource
+  if (resolvedSource) fieldSources[field] = resolvedSource
+}
+
+function getStrongestMetadataSource(fieldSources = {}, fallbackSource = '') {
+  const sources = Object.values(fieldSources || {}).filter(Boolean)
+  if (fallbackSource) sources.push(fallbackSource)
+  return (
+    sources.sort((a, b) => getMetadataSourcePriority(b) - getMetadataSourcePriority(a))[0] || null
+  )
+}
+
 export const parseTrackInfo = (track, meta) => {
   const rawName = track?.name || ''
   const fileName = stripExtension(rawName)
   const pathParts = (track?.path || '').split(/[/\\]/).filter(Boolean)
   const folderAlbum = pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'Unknown Album'
+  const trackInfo = track?.info && typeof track.info === 'object' ? track.info : {}
 
   const discTrackPrefix = fileName.match(/^\s*(\d{1,3})\.(\d{1,3})\s+/)
   const trackNoFromName =
@@ -666,10 +789,18 @@ export const parseTrackInfo = (track, meta) => {
     ? fileName.slice(discTrackPrefix[0].length).trim()
     : fileName.replace(/^\s*\d+[.)\-\s_]+/, '').trim()
   const normalized = noTrackNo || fileName
-  const metaTitle = cleanMetadataText(meta?.title || '')
-  const metaArtist = cleanMetadataText(meta?.artist || '')
-  const metaAlbumArtist = cleanMetadataText(meta?.albumArtist || '')
-  const metaAlbum = cleanMetadataText(meta?.album || '')
+  const titlePick = resolvePriorityField(trackInfo, meta, 'title')
+  const artistPick = resolvePriorityField(trackInfo, meta, 'artist')
+  const albumArtistPick = resolvePriorityField(trackInfo, meta, 'albumArtist')
+  const albumPick = resolvePriorityField(trackInfo, meta, 'album')
+  const coverPick = resolvePriorityField(trackInfo, meta, 'cover')
+  const trackNoPick = resolvePriorityField(trackInfo, meta, 'trackNo')
+  const discNoPick = resolvePriorityField(trackInfo, meta, 'discNo')
+  const durationPick = resolvePriorityField(trackInfo, meta, 'duration')
+  const metaTitle = cleanMetadataText(titlePick.value || '')
+  const metaArtist = cleanMetadataText(artistPick.value || '')
+  const metaAlbumArtist = cleanMetadataText(albumArtistPick.value || '')
+  const metaAlbum = cleanMetadataText(albumPick.value || '')
   const trackAlbum = cleanMetadataText(track?.album || '')
   const resolvedIdentity = resolveTrackIdentityFromMetadata({
     fileName: normalized,
@@ -685,43 +816,50 @@ export const parseTrackInfo = (track, meta) => {
       : resolvedIdentity.title
   const title = repairedTechnicalFragmentTitle || fallbackFromFileName || 'Unknown Track'
   const album = normalizeAlbumDisplayName(metaAlbum || trackAlbum || folderAlbum) || 'Unknown Album'
-  const fieldSources = {
-    ...(meta?.fieldSources && typeof meta.fieldSources === 'object' ? meta.fieldSources : {})
+  const fieldSources = {}
+  setResolvedFieldSource(fieldSources, 'title', titlePick.source, metaTitle ? 'unknown' : 'filename')
+  setResolvedFieldSource(
+    fieldSources,
+    'artist',
+    artistPick.source || albumArtistPick.source,
+    metaArtist || metaAlbumArtist ? 'unknown' : 'filename'
+  )
+  if (metaAlbumArtist) {
+    setResolvedFieldSource(fieldSources, 'albumArtist', albumArtistPick.source, 'unknown')
   }
-  if (!fieldSources.title) {
-    fieldSources.title = metaTitle ? getTrackMetaFieldSource(meta, 'title') || 'unknown' : 'filename'
+  setResolvedFieldSource(fieldSources, 'album', albumPick.source, metaAlbum ? 'unknown' : 'folder')
+  setResolvedFieldSource(
+    fieldSources,
+    'trackNo',
+    trackNoPick.source,
+    trackNoPick.value != null ? 'unknown' : 'filename'
+  )
+  if (discNoPick.value != null) {
+    setResolvedFieldSource(fieldSources, 'discNo', discNoPick.source, 'unknown')
   }
-  if (!fieldSources.artist) {
-    fieldSources.artist =
-      metaArtist || metaAlbumArtist ? getTrackMetaFieldSource(meta, 'artist') || 'unknown' : 'filename'
+  if (durationPick.value != null) {
+    setResolvedFieldSource(fieldSources, 'duration', durationPick.source, 'unknown')
   }
-  if (!fieldSources.albumArtist && metaAlbumArtist) {
-    fieldSources.albumArtist = getTrackMetaFieldSource(meta, 'albumArtist') || 'unknown'
-  }
-  if (!fieldSources.album) {
-    fieldSources.album = metaAlbum
-      ? getTrackMetaFieldSource(meta, 'album') || 'unknown'
-      : trackAlbum
-        ? 'folder'
-        : 'folder'
-  }
-  if (!fieldSources.trackNo) {
-    fieldSources.trackNo = meta?.trackNo != null ? getTrackMetaFieldSource(meta, 'trackNo') || 'unknown' : 'filename'
+  if (coverPick.value) {
+    setResolvedFieldSource(fieldSources, 'cover', coverPick.source, 'unknown')
   }
 
   return {
     fileName,
     title,
     artist,
-    albumArtist: cleanMetadataText(meta?.albumArtist || track?.albumArtist || ''),
+    albumArtist: metaAlbumArtist || cleanMetadataText(track?.albumArtist || ''),
     album,
-    cover: meta?.cover || null,
-    trackNo: meta?.trackNo ?? (trackNoFromName ? Number(trackNoFromName) : null),
-    discNo: meta?.discNo ?? null,
-    duration: meta?.duration || 0,
+    cover: coverPick.value || null,
+    trackNo: trackNoPick.value ?? (trackNoFromName ? Number(trackNoFromName) : null),
+    discNo: discNoPick.value ?? null,
+    duration: durationPick.value || 0,
     sizeBytes: track?.sizeBytes || 0,
-    metadataSource: meta?.metadataSource || null,
-    coverSource: meta?.coverSource || null,
+    metadataSource: getStrongestMetadataSource(
+      fieldSources,
+      meta?.metadataSource || trackInfo?.metadataSource || ''
+    ),
+    coverSource: coverPick.source || meta?.coverSource || trackInfo?.coverSource || null,
     fieldSources
   }
 }
@@ -731,11 +869,7 @@ export function getEffectiveTrackMeta(trackMetaMap = {}, displayMetadataOverride
   const override = path ? displayMetadataOverrides?.[path] || null : null
   if (!override) return baseMeta
   const manualOverride = withManualMetadataSources(override)
-  return {
-    ...(baseMeta || {}),
-    ...manualOverride,
-    cover: manualOverride?.cover || baseMeta?.cover || null
-  }
+  return mergeTrackMetaWithPriority(baseMeta || {}, manualOverride || {})
 }
 
 export function buildParsedPlaylistWithCache(
@@ -770,11 +904,7 @@ export function buildParsedPlaylistWithCache(
 
     const manualOverride = override ? withManualMetadataSources(override) : null
     const meta = manualOverride
-      ? {
-          ...(baseMeta || {}),
-          ...manualOverride,
-          cover: manualOverride?.cover || baseMeta?.cover || null
-        }
+      ? mergeTrackMetaWithPriority(baseMeta || {}, manualOverride || {})
       : baseMeta
     const item = {
       ...track,

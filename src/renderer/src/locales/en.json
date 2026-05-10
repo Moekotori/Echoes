@@ -678,6 +678,8 @@
     "playerViewScaleDesc": "Scales the main playback screen without changing the global interface size.",
     "autoLocateCurrentTrackTitle": "Locate current playing song",
     "autoLocateCurrentTrackDesc": "When playback switches songs, automatically scroll the current list to the playing track.",
+    "mergeAlbumsByCoverAndAlbumArtistTitle": "Merge albums with same cover and album artist",
+    "mergeAlbumsByCoverAndAlbumArtistDesc": "When album artwork and album artist match, show split album groups as one album.",
     "autoDetectBpmTitle": "Auto-detect BPM",
     "autoDetectBpmDesc": "Off by default. When enabled, ECHO analyzes tracks without BPM tags and caches the measured tempo.",
     "sidebarLogoTitle": "Sidebar logo",

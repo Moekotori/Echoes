@@ -9,6 +9,7 @@ import {
   buildVisibleCoverHydrationPlan,
   buildVisibleTrackMetaHydrateRequirement,
   buildVisibleRowMetadataRequestOptions,
+  buildPlaybackMetadataRequestOptions,
   createAlbumCoverCacheKey,
   createAlbumCoverFallbackKey,
   hasCachedTrackCoverRecord,
@@ -261,7 +262,8 @@ test('metadata hydrate requirement rejects incomplete cached metadata', () => {
       {
         album: 'Album A',
         artist: 'Known Artist',
-        cover: 'data:image/cover'
+        cover: 'data:image/cover',
+        coverThumbnailOnly: true
       },
       requirement
     ),
@@ -501,7 +503,8 @@ test('visible-row hydrate requirement accepts cached cover and useful artist', (
     satisfiesMetadataHydrateRequirement(
       {
         artist: 'Known Artist',
-        cover: 'data:image/cover'
+        cover: 'data:image/cover',
+        coverThumbnailOnly: true
       },
       { needsCover: true, needsArtist: true, needsAlbum: false, source: 'visible-row' }
     ),
@@ -531,7 +534,7 @@ test('visible-row hydrate requirement is only created for missing displayed fiel
   assert.equal(
     buildVisibleTrackMetaHydrateRequirement(
       track,
-      { artist: 'Known Artist', cover: 'data:image/cover' },
+      { artist: 'Known Artist', cover: 'data:image/cover', coverThumbnailOnly: true },
       { isLocalTrack: () => true }
     ),
     null
@@ -659,7 +662,8 @@ test('visible-row hydrate requirement skips tracks with their own entry cover', 
       {
         cover: 'data:image/own-cover',
         coverChecked: true,
-        coverExtractorVersion: 1
+        coverExtractorVersion: 1,
+        coverThumbnailOnly: true
       },
       { isLocalTrack: () => true }
     ),
@@ -723,9 +727,16 @@ test('visible-row metadata request options use light metadata mode', () => {
       includeTechnicalProbe: false,
       includeLyrics: false,
       includeBpm: false,
-      includeMqa: false
+      includeMqa: false,
+      coverSize: 'album-thumbnail'
     }
   )
+})
+
+test('playback metadata request keeps full metadata while asking for thumbnail artwork', () => {
+  assert.deepEqual(buildPlaybackMetadataRequestOptions(), {
+    coverSize: 'album-thumbnail'
+  })
 })
 
 function missingVisibleMetaTrack(path) {
@@ -930,7 +941,8 @@ test('visible cover hydration plan skips cached-cover tracks', () => {
         artist: 'Known Artist',
         cover: 'data:image/cover',
         coverChecked: true,
-        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION
+        coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
+        coverThumbnailOnly: true
       }
     }
   })

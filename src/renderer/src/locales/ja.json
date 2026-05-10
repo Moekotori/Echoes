@@ -633,6 +633,8 @@
     "playerViewScaleDesc": "全体の UI サイズを変えずに、再生画面の内容だけを拡大・縮小します。",
     "autoLocateCurrentTrackTitle": "再生中の曲へ移動",
     "autoLocateCurrentTrackDesc": "曲が切り替わったとき、左側の現在リストを再生中の曲まで自動スクロールします。",
+    "mergeAlbumsByCoverAndAlbumArtistTitle": "同じカバーとアルバムアーティストのアルバムを結合",
+    "mergeAlbumsByCoverAndAlbumArtistDesc": "アルバムアートとアルバムアーティストが一致する分割アルバムを、1枚のアルバムとして表示します。",
     "autoDetectBpmTitle": "BPM を自動検出",
     "autoDetectBpmDesc": "既定ではオフです。有効にすると、BPM タグのない曲を解析し、検出したテンポをキャッシュします。",
     "sidebarLogoTitle": "左上ロゴ",

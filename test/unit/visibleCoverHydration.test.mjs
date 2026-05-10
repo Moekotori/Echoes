@@ -82,7 +82,8 @@ test('visible cover hydration batches parsed apply entries as deltas', async () 
     includeTechnicalProbe: false,
     includeLyrics: false,
     includeBpm: false,
-    includeMqa: false
+    includeMqa: false,
+    coverSize: 'album-thumbnail'
   })
 })
 
@@ -217,6 +218,7 @@ test('buildVisibleCoverEntry preserves renderer metadata fields', () => {
       coverScope: null,
       coverSource: 'embedded',
       coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
+      metadataDetailMode: 'visible-row',
       lyricsExtractorVersion: EMBEDDED_LYRICS_EXTRACTOR_VERSION,
       duration: 245,
       coverChecked: true,
