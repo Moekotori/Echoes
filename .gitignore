@@ -119,6 +119,9 @@ out/
 release/
 .vite/
 
+#vs studio2022 cache
+.vs
+
 # 打包与备份忽略文件
 release*/
 crash-reports/
