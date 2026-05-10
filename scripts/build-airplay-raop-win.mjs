@@ -4,10 +4,17 @@ import { join, resolve } from 'path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const PKG = join(ROOT, 'node_modules', '@lox-audioserver', 'node-libraop')
+const REQUIRE_RAOP_BUILD = process.env.ECHO_REQUIRE_AIRPLAY_RAOP === '1'
 
 function fail(message) {
   console.error(`[build-airplay-raop] ${message}`)
   process.exit(1)
+}
+
+function skip(message) {
+  console.warn(`[build-airplay-raop] ${message}`)
+  console.warn('[build-airplay-raop] Skipping optional AirPlay/RAOP native build. Set ECHO_REQUIRE_AIRPLAY_RAOP=1 to make this step fail instead.')
+  process.exit(0)
 }
 
 function readText(path) {
@@ -491,7 +498,9 @@ if (process.platform !== 'win32') {
 }
 
 if (!existsSync(PKG)) {
-  fail('Missing node_modules/@lox-audioserver/node-libraop. Run npm install first.')
+  const message = 'Missing optional node_modules/@lox-audioserver/node-libraop. AirPlay/RAOP support will not be included in this build.'
+  if (REQUIRE_RAOP_BUILD) fail(`${message} Run npm install first, or install the RAOP native build prerequisites.`)
+  skip(message)
 }
 
 patchBindingGyp()
@@ -510,6 +519,10 @@ const result =
     : spawnSync(npmCmd, npmArgs, { cwd: PKG, stdio: 'inherit', shell: false })
 
 if (result.error) fail(result.error.message)
-if (result.status !== 0) process.exit(result.status || 1)
+if (result.status !== 0) {
+  const message = `Optional AirPlay/RAOP native build failed with exit code ${result.status || 1}.`
+  if (REQUIRE_RAOP_BUILD) fail(message)
+  skip(`${message} Continuing without AirPlay/RAOP support.`)
+}
 copyOpenSslRuntimeDlls()
 console.log('[build-airplay-raop] Built @lox-audioserver/node-libraop for Windows.')
