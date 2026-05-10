@@ -683,6 +683,12 @@ function normalizeTrackMetaEntry(entry) {
   }
   next.coverChecked = entry.coverChecked === true
   next.coverThumbnailOnly = entry.coverThumbnailOnly === true
+  {
+    const value = Number(entry.metadataAutoCompleteVersion)
+    if (Number.isFinite(value) && value > 0) next.metadataAutoCompleteVersion = value
+  }
+  next.metadataAutoCompleteEmbeddedChecked = entry.metadataAutoCompleteEmbeddedChecked === true
+  next.metadataAutoCompleteNetworkChecked = entry.metadataAutoCompleteNetworkChecked === true
   if (['full', 'visible-row', 'album-wall'].includes(entry.metadataDetailMode)) {
     next.metadataDetailMode = entry.metadataDetailMode
   }
@@ -828,9 +834,10 @@ export async function readTrackMetaCache(trackSeeds = []) {
   })
 }
 
-export async function writeTrackMetaCache(entries = {}) {
+export async function writeTrackMetaCache(entries = {}, options = {}) {
   const db = await openTrackMetaDb()
   if (!db || !entries || typeof entries !== 'object') return
+  const shouldMerge = options?.merge !== false
 
   await new Promise((resolve) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -844,7 +851,7 @@ export async function writeTrackMetaCache(entries = {}) {
       const fingerprint = buildTrackMetaCacheFingerprint({ path, ...(entry || {}) })
       const putRecord = (existingRecord = null) => {
         const existingMeta = normalizeTrackMetaEntry(existingRecord?.meta) || {}
-        const mergedMeta = mergeTrackMetaEntryPreservingCover(existingMeta, meta)
+        const mergedMeta = shouldMerge ? mergeTrackMetaEntryPreservingCover(existingMeta, meta) : meta
         store.put({
           path,
           meta: mergedMeta,

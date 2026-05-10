@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ImagePlus, LoaderCircle, Save, Tag, X } from 'lucide-react'
+import { ImagePlus, LoaderCircle, RefreshCcw, Save, Tag, X } from 'lucide-react'
 
 function normalizeNumberDraft(value) {
   if (value === null || value === undefined || value === '') return ''
@@ -21,7 +21,15 @@ async function readImageAsDataUrl(filePath) {
   })
 }
 
-export default function MetadataEditorDrawer({ open, onClose, track, initialMetadata, onSave }) {
+export default function MetadataEditorDrawer({
+  open,
+  onClose,
+  track,
+  initialMetadata,
+  onSave,
+  onLoadEmbeddedTags,
+  onLoadNetworkTags
+}) {
   const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -33,14 +41,32 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
   const [coverPath, setCoverPath] = useState('')
   const [coverPreview, setCoverPreview] = useState('')
   const [loading, setLoading] = useState(false)
+  const [embeddedLoading, setEmbeddedLoading] = useState(false)
+  const [networkLoading, setNetworkLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const applyTagResponse = (response) => {
+    setTitle(String(response.title || ''))
+    setArtist(String(response.artist || ''))
+    setAlbum(String(response.album || ''))
+    setAlbumArtist(String(response.albumArtist || ''))
+    setTrackNo(normalizeNumberDraft(response.trackNumber))
+    setYear(normalizeNumberDraft(response.year))
+    setGenre(String(response.genre || ''))
+    setCoverPath('')
+    setCoverPreview(String(response.coverDataUrl || ''))
+  }
 
   useEffect(() => {
     if (!open) {
       setLoading(false)
+      setEmbeddedLoading(false)
+      setNetworkLoading(false)
       setBusy(false)
       setError('')
+      setNotice('')
       return
     }
 
@@ -53,7 +79,10 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
     setGenre(initialMetadata?.genre || '')
     setCoverPath('')
     setCoverPreview(initialMetadata?.cover || '')
+    setEmbeddedLoading(false)
+    setNetworkLoading(false)
     setError('')
+    setNotice('')
   }, [open, track?.path])
 
   useEffect(() => {
@@ -78,14 +107,10 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
         if (!response || response.error) {
           throw new Error(response?.error || 'Failed to read tags')
         }
-        setTitle(String(response.title || ''))
-        setArtist(String(response.artist || ''))
-        setAlbum(String(response.album || ''))
-        setAlbumArtist(String(response.albumArtist || ''))
-        setTrackNo(normalizeNumberDraft(response.trackNumber))
-        setYear(normalizeNumberDraft(response.year))
-        setGenre(String(response.genre || ''))
-        setCoverPreview(String(response.coverDataUrl || initialMetadata?.cover || ''))
+        applyTagResponse({
+          ...response,
+          coverDataUrl: response.coverDataUrl || initialMetadata?.cover || ''
+        })
       } catch (err) {
         if (!cancelled) {
           setError(err?.message || String(err))
@@ -100,6 +125,46 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
       cancelled = true
     }
   }, [open, track?.path])
+
+  const handleLoadEmbeddedTags = async () => {
+    if (!track?.path) return
+    setEmbeddedLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = onLoadEmbeddedTags
+        ? await onLoadEmbeddedTags(track.path)
+        : await window.api?.readTags?.(track.path)
+      if (!response || response.error) {
+        throw new Error(response?.error || t('metadataEditor.loadEmbeddedFailed'))
+      }
+      applyTagResponse(response)
+      setNotice(t('metadataEditor.loadEmbeddedDone'))
+    } catch (err) {
+      setError(err?.message || String(err))
+    } finally {
+      setEmbeddedLoading(false)
+    }
+  }
+
+  const handleLoadNetworkTags = async () => {
+    if (!track?.path) return
+    setNetworkLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = onLoadNetworkTags ? await onLoadNetworkTags(track.path) : null
+      if (!response || response.error) {
+        throw new Error(response?.error || t('metadataEditor.loadNetworkFailed'))
+      }
+      applyTagResponse(response)
+      setNotice(t('metadataEditor.loadNetworkDone'))
+    } catch (err) {
+      setError(err?.message || String(err))
+    } finally {
+      setNetworkLoading(false)
+    }
+  }
 
   const displayCover = useMemo(() => {
     if (coverPath) return window.api?.pathToFileURL?.(coverPath) || coverPreview || ''
@@ -226,6 +291,36 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
                   )}
                 </div>
               )}
+              <button
+                type="button"
+                className="export-btn secondary metadata-drawer-cover-btn"
+                onClick={handleLoadEmbeddedTags}
+                disabled={busy || loading || embeddedLoading || networkLoading}
+              >
+                {embeddedLoading ? (
+                  <LoaderCircle size={16} className="spin" />
+                ) : (
+                  <RefreshCcw size={16} />
+                )}
+                {embeddedLoading
+                  ? t('metadataEditor.loadingEmbedded')
+                  : t('metadataEditor.loadEmbedded')}
+              </button>
+              <button
+                type="button"
+                className="export-btn secondary metadata-drawer-cover-btn"
+                onClick={handleLoadNetworkTags}
+                disabled={busy || loading || embeddedLoading || networkLoading || !onLoadNetworkTags}
+              >
+                {networkLoading ? (
+                  <LoaderCircle size={16} className="spin" />
+                ) : (
+                  <RefreshCcw size={16} />
+                )}
+                {networkLoading
+                  ? t('metadataEditor.loadingNetwork')
+                  : t('metadataEditor.loadNetwork')}
+              </button>
             </div>
           </div>
 
@@ -235,6 +330,7 @@ export default function MetadataEditorDrawer({ open, onClose, track, initialMeta
             </div>
           ) : null}
           {error ? <div className="metadata-drawer-error">{error}</div> : null}
+          {notice ? <div className="metadata-drawer-cover-note">{notice}</div> : null}
 
           <div className="metadata-drawer-grid">
             <label className="metadata-drawer-field">

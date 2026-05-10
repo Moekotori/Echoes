@@ -11,6 +11,11 @@ test('parametric EQ is disabled by default', () => {
   assert.equal(DEFAULT_CONFIG.useEQ, false)
 })
 
+test('metadata embedded auto-load defaults on while network fill defaults off', () => {
+  assert.equal(DEFAULT_CONFIG.autoLoadEmbeddedMetadata, true)
+  assert.equal(DEFAULT_CONFIG.autoCompleteNetworkMetadata, false)
+})
+
 test('neutral EQ detection treats flat default bands as no audible EQ', () => {
   assert.equal(isNeutralEqConfig({ bands: DEFAULT_EQ_BANDS, preamp: 0 }), true)
 })

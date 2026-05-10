@@ -160,6 +160,8 @@ export const DEFAULT_CONFIG = {
   uiAccentBackgroundGlow: false,
   showSidebarLogo: false,
   autoLocateCurrentTrack: false,
+  autoLoadEmbeddedMetadata: true,
+  autoCompleteNetworkMetadata: false,
   mergeAlbumsByCoverAndAlbumArtist: false,
   ultraSmallScreenAdaptive: false,
   theme: 'minimal',

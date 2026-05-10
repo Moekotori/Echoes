@@ -161,6 +161,16 @@ import {
 } from './utils/themeColors'
 import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './utils/themeBundle'
 import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
+import { loadNetworkMetadataForEditor } from './utils/metadataEditorLoaders'
+import {
+  METADATA_AUTO_COMPLETE_VERSION,
+  buildEmbeddedMetadataAutoCompleteEntry,
+  buildMetadataAutoCompleteTargets,
+  buildNetworkMetadataAutoCompleteEntry,
+  buildNetworkMetadataAutoCompleteQuery,
+  hasAutoCompleteEntryPayload,
+  shouldRunNetworkMetadataAutoComplete
+} from './utils/metadataAutoComplete'
 import {
   buildParsedPlaylistWithCache,
   parseTrackInfo,
@@ -476,6 +486,9 @@ const ALBUM_METADATA_PREFETCH_LIMIT = 240
 const EMPTY_SET = new Set()
 const METADATA_PARSE_BATCH_SIZE = 16
 const ALBUM_METADATA_PARSE_BATCH_SIZE = 16
+const METADATA_AUTO_COMPLETE_BATCH_SIZE = 96
+const METADATA_AUTO_COMPLETE_EMBEDDED_WORKERS = 8
+const METADATA_AUTO_COMPLETE_NETWORK_WORKERS = 4
 const ALBUM_COVER_MANUAL_LOAD_LIMIT = 10000
 const ALBUM_COVER_MANUAL_LOAD_WORKERS = 2
 const ALBUM_COVER_BACKFILL_BATCH_SIZE = 48
@@ -1442,6 +1455,15 @@ function normalizeConfigState(raw) {
   if (typeof merged.autoLocateCurrentTrack !== 'boolean') {
     merged.autoLocateCurrentTrack = DEFAULT_CONFIG.autoLocateCurrentTrack
   }
+  if (typeof merged.autoLoadEmbeddedMetadata !== 'boolean') {
+    merged.autoLoadEmbeddedMetadata = DEFAULT_CONFIG.autoLoadEmbeddedMetadata
+  }
+  if (typeof merged.autoCompleteNetworkMetadata !== 'boolean') {
+    merged.autoCompleteNetworkMetadata = DEFAULT_CONFIG.autoCompleteNetworkMetadata
+  }
+  if (merged.autoLoadEmbeddedMetadata !== true) {
+    merged.autoCompleteNetworkMetadata = false
+  }
   if (typeof merged.mergeAlbumsByCoverAndAlbumArtist !== 'boolean') {
     merged.mergeAlbumsByCoverAndAlbumArtist = DEFAULT_CONFIG.mergeAlbumsByCoverAndAlbumArtist
   }
@@ -1606,6 +1628,11 @@ const SETTINGS_SECTION_KEYWORDS = {
     'locate',
     'current',
     'playing',
+    'metadata',
+    'tags',
+    'embedded',
+    'network metadata',
+    'auto complete',
     'bpm',
     'tempo',
     'beats per minute',
@@ -1620,6 +1647,10 @@ const SETTINGS_SECTION_KEYWORDS = {
     '\u884c\u4e3a',
     '\u5b9a\u4f4d',
     '\u5f53\u524d\u64ad\u653e',
+    '\u5143\u6570\u636e',
+    '\u6807\u7b7e',
+    '\u5185\u5d4c',
+    '\u7f51\u7edc\u8865\u5168',
     '\u8282\u62cd',
     '\u81ea\u52a8\u68c0\u6d4b',
     '\u7761\u7720',
@@ -2829,6 +2860,7 @@ export default function App() {
   const releaseNotesLoadingRef = useRef(false)
   const releaseNotesLastAttemptAtRef = useRef(0)
   const libraryMetaCacheHydrationKeyRef = useRef('')
+  const metadataAutoCompleteRunKeyRef = useRef('')
   const artistAvatarAttemptedRef = useRef(new Set())
   const artistAvatarLookupAvailableAtRef = useRef(0)
   const lastArtistAvatarLookupAtRef = useRef(0)
@@ -9038,6 +9070,287 @@ export default function App() {
       }
     },
     [applyStartTimeToAudio, isPlaying, loadTrackData]
+  )
+
+  const handleLoadEmbeddedTagsForEditor = useCallback(
+    async (filePath) => {
+      if (!filePath || !window.api?.readTags) return null
+      const response = await window.api.readTags(filePath)
+      if (!response || response.error) {
+        throw new Error(response?.error || t('metadataEditor.loadEmbeddedFailed'))
+      }
+
+      const existingEntry = trackMetaMapRef.current?.[filePath] || {}
+      const activeTrack = playlistRef.current[currentIndexRef.current] || null
+      const existingCover =
+        String(existingEntry.cover || '').trim() ||
+        (activeTrack?.path === filePath ? String(coverUrl || '').trim() : '')
+      const title = String(response.title || '').trim()
+      const artist = String(response.artist || '').trim()
+      const album = String(response.album || '').trim()
+      const albumArtist = String(response.albumArtist || '').trim()
+      const genre = String(response.genre || '').trim()
+      const trackNo = Number.parseInt(String(response.trackNumber || ''), 10)
+      const year = Number.parseInt(String(response.year || ''), 10)
+      const cover = String(response.coverDataUrl || '').trim()
+      const fieldSources = {
+        title: 'embedded',
+        artist: 'embedded',
+        album: 'embedded',
+        albumArtist: 'embedded',
+        trackNo: 'embedded',
+        year: 'embedded',
+        genre: 'embedded',
+        ...(cover ? { cover: 'embedded' } : {})
+      }
+      const embeddedEntry = {
+        title: title || null,
+        artist: artist || null,
+        album: album || null,
+        albumArtist: albumArtist || null,
+        trackNo: Number.isFinite(trackNo) && trackNo > 0 ? trackNo : null,
+        year: Number.isFinite(year) && year > 0 ? year : null,
+        genre: genre || null,
+        coverChecked: true,
+        metadataSource: 'embedded',
+        ...(cover
+          ? {
+              cover,
+              coverSource: 'embedded'
+            }
+          : {}),
+        fieldSources
+      }
+
+      const nextMetaEntry = {
+        ...existingEntry,
+        ...embeddedEntry,
+        fieldSources: {
+          ...(existingEntry.fieldSources || {}),
+          ...fieldSources
+        }
+      }
+      setTrackMetaMap((prev) => {
+        const next = {
+          ...prev,
+          [filePath]: nextMetaEntry
+        }
+        trackMetaMapRef.current = next
+        return next
+      })
+      writeTrackMetaCache({ [filePath]: nextMetaEntry }, { merge: false })
+
+      setPlaylist((prev) => {
+        const next = prev.map((item) =>
+          item?.path === filePath
+            ? {
+                ...item,
+                info: {
+                  ...(item.info || {}),
+                  ...(title ? { title } : {}),
+                  ...(artist ? { artist } : {}),
+                  ...(album ? { album } : {})
+                }
+              }
+            : item
+        )
+        playlistRef.current = next
+        return next
+      })
+
+      if (activeTrack?.path === filePath) {
+        setMetadata({
+          title,
+          artist,
+          album,
+          albumArtist,
+          trackNo: Number.isFinite(trackNo) && trackNo > 0 ? trackNo : null,
+          discNo: null
+        })
+        if (cover || existingCover) {
+          setCoverUrlTrackPath(filePath)
+          setCoverUrl(cover || existingCover)
+        } else {
+          setCoverUrlTrackPath('')
+          setCoverUrl(null)
+        }
+      }
+
+      return {
+        ...response,
+        coverDataUrl: cover || existingCover || ''
+      }
+    },
+    [coverUrl, t]
+  )
+
+  const handleLoadNetworkTagsForEditor = useCallback(
+    async (filePath) => {
+      if (!filePath) return null
+      const activeTrack = playlistRef.current[currentIndexRef.current] || null
+      const track =
+        playlistRef.current.find((item) => item?.path === filePath) ||
+        (metadataEditorTrack?.path === filePath ? metadataEditorTrack : null)
+      if (!track?.path) {
+        throw new Error(t('metadataEditor.loadNetworkFailed'))
+      }
+
+      const existingEntry = trackMetaMapRef.current?.[filePath] || {}
+      const parsed = parseTrackInfo(track, existingEntry)
+      const baseTitle = String(existingEntry.title || parsed.title || track?.info?.title || '').trim()
+      const baseArtist = String(
+        existingEntry.artist || parsed.artist || track?.info?.artist || ''
+      ).trim()
+      const baseAlbum = String(existingEntry.album || parsed.album || track?.info?.album || '').trim()
+      const existingCover =
+        String(existingEntry.cover || '').trim() ||
+        (activeTrack?.path === filePath ? String(coverUrl || '').trim() : '')
+      if (!baseTitle && !baseAlbum) {
+        throw new Error(t('metadataEditor.loadNetworkFailed'))
+      }
+
+      const best = await loadNetworkMetadataForEditor({
+        title: baseTitle,
+        artist: baseArtist,
+        album: baseAlbum,
+        searchNetease: window.api?.neteaseSearch,
+        searchQqMusic: window.api?.qqMusicSearch,
+        fetchImpl: typeof fetch === 'function' ? fetch : null
+      })
+      if (!best) {
+        throw new Error(t('metadataEditor.loadNetworkFailed'))
+      }
+
+      const title = String(best.title || baseTitle || '').trim()
+      const artist = String(best.artist || baseArtist || '').trim()
+      const album = String(best.album || baseAlbum || '').trim()
+      const albumArtist = String(best.albumArtist || artist || '').trim()
+      const genre = String(best.genre || existingEntry.genre || '').trim()
+      const trackNo = Number.parseInt(String(best.trackNumber || existingEntry.trackNo || ''), 10)
+      const year = Number.parseInt(String(best.year || existingEntry.year || ''), 10)
+      const cover = String(best.coverDataUrl || '').trim()
+      const displayCover = cover || existingCover
+      const fieldSources = {
+        title: 'network',
+        artist: 'network',
+        album: 'network',
+        albumArtist: 'network',
+        ...(Number.isFinite(trackNo) && trackNo > 0 ? { trackNo: 'network' } : {}),
+        ...(Number.isFinite(year) && year > 0 ? { year: 'network' } : {}),
+        ...(genre ? { genre: 'network' } : {}),
+        ...(cover ? { cover: 'network' } : {})
+      }
+      const networkEntry = {
+        ...existingEntry,
+        title: title || existingEntry.title || null,
+        artist: artist || existingEntry.artist || null,
+        album: album || existingEntry.album || null,
+        albumArtist: albumArtist || existingEntry.albumArtist || null,
+        trackNo: Number.isFinite(trackNo) && trackNo > 0 ? trackNo : existingEntry.trackNo || null,
+        year: Number.isFinite(year) && year > 0 ? year : existingEntry.year || null,
+        genre: genre || existingEntry.genre || null,
+        ...(cover
+          ? {
+              cover,
+              coverScope: 'album',
+              coverSource: 'network'
+            }
+          : {}),
+        coverChecked: true,
+        metadataSource: 'network',
+        fieldSources: {
+          ...(existingEntry.fieldSources || {}),
+          ...fieldSources
+        }
+      }
+
+      setTrackMetaMap((prev) => {
+        const next = {
+          ...prev,
+          [filePath]: networkEntry
+        }
+        trackMetaMapRef.current = next
+        return next
+      })
+      writeTrackMetaCache({ [filePath]: networkEntry }, { merge: false })
+
+      setPlaylist((prev) => {
+        const next = prev.map((item) =>
+          item?.path === filePath
+            ? {
+                ...item,
+                info: {
+                  ...(item.info || {}),
+                  ...(title ? { title } : {}),
+                  ...(artist ? { artist } : {}),
+                  ...(album ? { album } : {})
+                }
+              }
+            : item
+        )
+        playlistRef.current = next
+        return next
+      })
+
+      if (cover && album) {
+        const albumTrack = {
+          ...(track || {}),
+          info: {
+            ...(track?.info || {}),
+            album,
+            artist,
+            albumArtist
+          }
+        }
+        const albumKey = getTrackAlbumGroupKey(albumTrack)
+        if (albumKey) {
+          setAlbumCoverMap((prev) =>
+            mergeAlbumCoverMapEntries(prev, {
+              [albumKey]: {
+                albumKey,
+                album,
+                albumName: album,
+                displayAlbumName: album,
+                artist: albumArtist || artist || '',
+                cover
+              }
+            })
+          )
+          persistAlbumCoverCacheItems({
+            album,
+            artist: albumArtist || artist || '',
+            cover
+          })
+        }
+      }
+
+      if (activeTrack?.path === filePath) {
+        setMetadata({
+          title,
+          artist,
+          album,
+          albumArtist,
+          trackNo: Number.isFinite(trackNo) && trackNo > 0 ? trackNo : null,
+          discNo: null
+        })
+        if (displayCover) {
+          setCoverUrlTrackPath(filePath)
+          setCoverUrl(displayCover)
+        }
+      }
+
+      return {
+        title,
+        artist,
+        album,
+        albumArtist,
+        trackNumber: Number.isFinite(trackNo) && trackNo > 0 ? String(trackNo) : '',
+        year: Number.isFinite(year) && year > 0 ? String(year) : '',
+        genre,
+        coverDataUrl: displayCover || ''
+      }
+    },
+    [coverUrl, metadataEditorTrack, persistAlbumCoverCacheItems, t]
   )
 
   const openQuickMetadataFieldEditor = useCallback(
@@ -16298,6 +16611,180 @@ export default function App() {
       return next === prev ? prev : next
     })
   }, [metadataCoverKeepPathSet])
+
+  useEffect(() => {
+    if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return undefined
+    if (!playlist.length || typeof window.api?.readTags !== 'function') return undefined
+
+    const localTracks = playlist.filter(
+      (track) =>
+        isLocalAudioFilePath(track?.path) &&
+        !isRemoteTrackPath(track.path) &&
+        !isStreamingTrackPath(track.path)
+    )
+    const targets = buildMetadataAutoCompleteTargets(localTracks, trackMetaMap, {
+      limit: METADATA_AUTO_COMPLETE_BATCH_SIZE,
+      isLocalTrack: () => true
+    }).filter(({ entry }) => {
+      if (entry?.metadataAutoCompleteVersion !== METADATA_AUTO_COMPLETE_VERSION) return true
+      if (entry?.metadataAutoCompleteEmbeddedChecked !== true) return true
+      return (
+        config.autoCompleteNetworkMetadata === true &&
+        config.networkAccessDisabled !== true &&
+        entry?.metadataAutoCompleteNetworkChecked !== true
+      )
+    })
+    if (targets.length === 0) return undefined
+
+    const runKey = [
+      config.autoCompleteNetworkMetadata === true ? 'net' : 'local',
+      targets
+        .map(({ path, track }) => `${path}:${track?.sizeBytes || ''}:${track?.mtimeMs || ''}`)
+        .join('\u0001')
+    ].join('\u0002')
+    if (metadataAutoCompleteRunKeyRef.current === runKey) return undefined
+    metadataAutoCompleteRunKeyRef.current = runKey
+
+    let cancelled = false
+    const updates = {}
+    const networkEnabled =
+      config.autoCompleteNetworkMetadata === true && config.networkAccessDisabled !== true
+
+    const mergeUpdates = (entries) => {
+      if (cancelled || Object.keys(entries).length === 0) return
+      setTrackMetaMap((prev) => {
+        const merged = mergeTrackMetaMapPreservingCovers(prev, entries)
+        return trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSet)
+      })
+      writeTrackMetaCache(entries).catch(() => {})
+    }
+
+    const applyAlbumCoverUpdates = (entries) => {
+      const items = []
+      for (const entry of Object.values(entries)) {
+        if (entry?.cover && entry?.album) {
+          items.push({
+            album: entry.album,
+            artist: entry.albumArtist || entry.artist || '',
+            cover: entry.cover
+          })
+        }
+      }
+      if (items.length > 0) persistAlbumCoverCacheItems(items)
+    }
+
+    const runConcurrent = async (items, workerCount, task) => {
+      let nextIndex = 0
+      const runNext = async () => {
+        while (!cancelled) {
+          const item = items[nextIndex]
+          nextIndex += 1
+          if (!item) return
+          await task(item)
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(workerCount, items.length) }, () => runNext()))
+    }
+
+    const readEmbedded = async ({ path, track }) => {
+      const currentEntry = trackMetaMapRef.current?.[path] || {}
+      if (
+        currentEntry.metadataAutoCompleteVersion === METADATA_AUTO_COMPLETE_VERSION &&
+        currentEntry.metadataAutoCompleteEmbeddedChecked === true
+      ) {
+        return
+      }
+      try {
+        const response = await window.api.readTags(path)
+        const entry = buildEmbeddedMetadataAutoCompleteEntry(response || {}, currentEntry)
+        if (!hasAutoCompleteEntryPayload(entry)) {
+          entry.metadataAutoCompleteVersion = METADATA_AUTO_COMPLETE_VERSION
+          entry.metadataAutoCompleteEmbeddedChecked = true
+          entry.coverChecked = true
+        }
+        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+          ...entry,
+          sizeBytes: track?.sizeBytes,
+          mtimeMs: track?.mtimeMs
+        })
+      } catch {
+        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+          metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+          metadataAutoCompleteEmbeddedChecked: true,
+          coverChecked: currentEntry.coverChecked === true
+        })
+      }
+    }
+
+    const readNetwork = async ({ path, track }) => {
+      const currentEntry = updates[path] || trackMetaMapRef.current?.[path] || {}
+      if (!shouldRunNetworkMetadataAutoComplete(track, currentEntry)) return
+      if (
+        currentEntry.metadataAutoCompleteVersion === METADATA_AUTO_COMPLETE_VERSION &&
+        currentEntry.metadataAutoCompleteNetworkChecked === true
+      ) {
+        return
+      }
+      const query = buildNetworkMetadataAutoCompleteQuery(track, currentEntry)
+      if (!query.title && !query.album) {
+        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+          metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+          metadataAutoCompleteNetworkChecked: true
+        })
+        return
+      }
+      try {
+        const candidate = await loadNetworkMetadataForEditor({
+          ...query,
+          searchNetease: window.api?.neteaseSearch,
+          searchQqMusic: window.api?.qqMusicSearch,
+          fetchImpl: typeof fetch === 'function' ? fetch : null
+        })
+        const entry = buildNetworkMetadataAutoCompleteEntry(candidate || {}, currentEntry)
+        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+          ...entry,
+          sizeBytes: track?.sizeBytes,
+          mtimeMs: track?.mtimeMs
+        })
+      } catch {
+        updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
+          metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+          metadataAutoCompleteNetworkChecked: true
+        })
+      }
+    }
+
+    const run = async () => {
+      await runConcurrent(targets, METADATA_AUTO_COMPLETE_EMBEDDED_WORKERS, readEmbedded)
+      if (cancelled) return
+      if (networkEnabled) {
+        await runConcurrent(targets, METADATA_AUTO_COMPLETE_NETWORK_WORKERS, readNetwork)
+      }
+      if (cancelled) return
+      applyAlbumCoverUpdates(updates)
+      mergeUpdates(updates)
+    }
+
+    const timer = window.setTimeout(() => {
+      run().catch((error) => {
+        console.warn('[metadata-auto-complete] failed', error)
+      })
+    }, 350)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    config.autoCompleteNetworkMetadata,
+    config.autoLoadEmbeddedMetadata,
+    config.networkAccessDisabled,
+    libraryStateReady,
+    metadataCoverKeepPathSet,
+    persistAlbumCoverCacheItems,
+    playlist,
+    trackMetaMap
+  ])
 
   const visibleCoverHydrationPlan = useMemo(() => {
     return buildVisibleCoverHydrationPlan({
@@ -24651,6 +25138,96 @@ export default function App() {
                       </div>
                       <div className="setting-row">
                         <div className="setting-info">
+                          <h3>
+                            {t(
+                              'settings.autoLoadEmbeddedMetadataTitle',
+                              'Auto-load embedded tag info'
+                            )}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.autoLoadEmbeddedMetadataDesc',
+                              'When tracks still use the default cover or Unknown Artist, load title, artist, album, and artwork from embedded tags in parallel.'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${config.autoLoadEmbeddedMetadata !== false ? 'active' : ''}`}
+                          onClick={() =>
+                            setConfig((prev) => {
+                              const enabled = !(prev.autoLoadEmbeddedMetadata !== false)
+                              return {
+                                ...prev,
+                                autoLoadEmbeddedMetadata: enabled,
+                                autoCompleteNetworkMetadata: enabled
+                                  ? prev.autoCompleteNetworkMetadata === true
+                                  : false
+                              }
+                            })
+                          }
+                          aria-pressed={config.autoLoadEmbeddedMetadata !== false}
+                        >
+                          {config.autoLoadEmbeddedMetadata !== false ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>
+                            {t('settings.autoCompleteNetworkMetadataTitle', 'Network metadata fill')}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.autoCompleteNetworkMetadataDesc',
+                              'Off by default. After embedded tags finish, use online sources only for tracks that still lack useful artist info or artwork.'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${
+                            config.autoLoadEmbeddedMetadata !== false &&
+                            config.autoCompleteNetworkMetadata === true
+                              ? 'active'
+                              : ''
+                          }`}
+                          onClick={() => {
+                            if (config.autoLoadEmbeddedMetadata === false) return
+                            setConfig((prev) => ({
+                              ...prev,
+                              autoCompleteNetworkMetadata:
+                                prev.autoLoadEmbeddedMetadata !== false &&
+                                prev.autoCompleteNetworkMetadata !== true
+                            }))
+                          }}
+                          disabled={config.autoLoadEmbeddedMetadata === false}
+                          aria-pressed={
+                            config.autoLoadEmbeddedMetadata !== false &&
+                            config.autoCompleteNetworkMetadata === true
+                          }
+                          title={
+                            config.autoLoadEmbeddedMetadata === false
+                              ? t(
+                                  'settings.autoCompleteNetworkMetadataDisabledHint',
+                                  'Enable embedded tag auto-load first.'
+                                )
+                              : undefined
+                          }
+                        >
+                          {config.autoLoadEmbeddedMetadata !== false &&
+                          config.autoCompleteNetworkMetadata === true ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
                           <h3>{t('settings.plImportTitle')}</h3>
                           <p>{t('settings.plImportDesc')}</p>
                         </div>
@@ -25563,6 +26140,8 @@ export default function App() {
               : null
           }
           onSave={handleSaveTrackMetadata}
+          onLoadEmbeddedTags={handleLoadEmbeddedTagsForEditor}
+          onLoadNetworkTags={handleLoadNetworkTagsForEditor}
         />
         <CastReceiveDrawer open={castDrawerOpen} onClose={() => setCastDrawerOpen(false)} />
         <CastSendDrawer
