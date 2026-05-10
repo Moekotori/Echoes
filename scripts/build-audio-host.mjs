@@ -51,11 +51,11 @@ if (isWin) {
   // Try MSVC first, fall back to g++
   try {
     execSync('where cl.exe', { stdio: 'ignore' })
-    cmd = `cl.exe /nologo /std:c++14 /O2 /I"${ASIO_INC}" /I"${ASIO_HOST_INC}" /I"${ASIO_HOST_PC_INC}" /DMA_ENABLE_ASIO /Fe:"${OUT}" "${SRC}" "${WASAPI_EXCLUSIVE_SRC}" "${ASIO_SRC}" "${ASIO_DRIVERS_SRC}" "${ASIO_LIST_SRC}" ole32.lib user32.lib winmm.lib propsys.lib uuid.lib avrt.lib /link /SUBSYSTEM:CONSOLE`
+    cmd = `cl.exe /nologo /std:c++14 /O2 /I"${ASIO_INC}" /I"${ASIO_HOST_INC}" /I"${ASIO_HOST_PC_INC}" /DMA_ENABLE_ASIO /Fe:"${OUT}" "${SRC}" "${WASAPI_EXCLUSIVE_SRC}" "${ASIO_SRC}" "${ASIO_DRIVERS_SRC}" "${ASIO_LIST_SRC}" ole32.lib user32.lib winmm.lib propsys.lib uuid.lib avrt.lib advapi32.lib /link /SUBSYSTEM:CONSOLE`
     vstCmd = `cl.exe /nologo /O2 /Fe:"${VST_OUT}" "${VST_SRC}" /link /SUBSYSTEM:CONSOLE`
   } catch {
     console.log('[build-audio-host] cl.exe not found, trying g++...')
-    cmd = `g++ -std=c++14 -O2 -DMA_ENABLE_ASIO -I"${ASIO_INC}" -I"${ASIO_HOST_INC}" -I"${ASIO_HOST_PC_INC}" -o "${OUT}" "${SRC}" "${WASAPI_EXCLUSIVE_SRC}" "${ASIO_SRC}" "${ASIO_DRIVERS_SRC}" "${ASIO_LIST_SRC}" -lole32 -luser32 -lwinmm -lpropsys -luuid -lavrt -static`
+    cmd = `g++ -std=c++14 -O2 -DMA_ENABLE_ASIO -I"${ASIO_INC}" -I"${ASIO_HOST_INC}" -I"${ASIO_HOST_PC_INC}" -o "${OUT}" "${SRC}" "${WASAPI_EXCLUSIVE_SRC}" "${ASIO_SRC}" "${ASIO_DRIVERS_SRC}" "${ASIO_LIST_SRC}" -lole32 -luser32 -lwinmm -lpropsys -luuid -lavrt -ladvapi32 -static`
     vstCmd = `g++ -O2 -o "${VST_OUT}" "${VST_SRC}" -static`
   }
 } else if (isMac) {

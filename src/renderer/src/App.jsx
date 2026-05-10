@@ -26199,6 +26199,15 @@ export default function App() {
                   onMouseEnter={() => openDeckPopover('volume')}
                   onMouseLeave={scheduleDeckPopoverClose}
                   onFocus={() => openDeckPopover('volume')}
+                  onWheel={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const delta = e.deltaY > 0 ? -0.02 : 0.02
+                    setVolume((prev) => {
+                      const next = prev + delta
+                      return next < 0 ? 0 : next > 1 ? 1 : next
+                    })
+                  }}
                   title={t('player.vol')}
                 >
                   {volume <= 0.001 ? <VolumeX size={16} /> : <Volume2 size={16} />}
@@ -26245,7 +26254,18 @@ export default function App() {
                   onMouseLeave={scheduleDeckPopoverClose}
                 >
                   {activeDeckPopover === 'volume' ? (
-                    <div className="deck-popover-row deck-popover-volume-row">
+                    <div
+                      className="deck-popover-row deck-popover-volume-row"
+                      onWheel={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const delta = e.deltaY > 0 ? -0.02 : 0.02
+                        setVolume((prev) => {
+                          const next = prev + delta
+                          return next < 0 ? 0 : next > 1 ? 1 : next
+                        })
+                      }}
+                    >
                       <div className="deck-popover-header">
                         <span className="deck-popover-icon">
                           {volume <= 0.001 ? <VolumeX size={16} /> : <Volume2 size={16} />}
