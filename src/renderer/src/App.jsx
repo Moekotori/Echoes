@@ -27586,17 +27586,8 @@ export default function App() {
                   onFocus={() => openDeckPopover('volume')}
                   onWheel={(e) => {
                     e.preventDefault()
-<<<<<<< Updated upstream
-                    e.stopPropagation()
-                    const delta = e.deltaY > 0 ? -0.02 : 0.02
-                    setVolume((prev) => {
-                      const next = prev + delta
-                      return next < 0 ? 0 : next > 1 ? 1 : next
-                    })
-=======
                     const delta = e.deltaY < 0 ? 0.05 : -0.05
                     setVolume(Math.min(1, Math.max(0, volume + delta)))
->>>>>>> Stashed changes
                   }}
                   title={t('player.vol')}
                 >
@@ -27648,17 +27639,8 @@ export default function App() {
                       className="deck-popover-row deck-popover-volume-row"
                       onWheel={(e) => {
                         e.preventDefault()
-<<<<<<< Updated upstream
-                        e.stopPropagation()
-                        const delta = e.deltaY > 0 ? -0.02 : 0.02
-                        setVolume((prev) => {
-                          const next = prev + delta
-                          return next < 0 ? 0 : next > 1 ? 1 : next
-                        })
-=======
                         const delta = e.deltaY < 0 ? 0.05 : -0.05
                         setVolume(Math.min(1, Math.max(0, volume + delta)))
->>>>>>> Stashed changes
                       }}
                     >
                       <div className="deck-popover-header">
