@@ -48,7 +48,7 @@
 
 ### 打包与发布
 
-- Windows 构建流程会先构建 AirPlay RAOP 原生依赖，再执行 Electron/Vite 与 installer 打包。
+- Windows 构建流程会尽量构建 AirPlay RAOP 原生依赖；缺少可选依赖时会继续普通打包，可用 `ECHO_REQUIRE_AIRPLAY_RAOP=1` 强制失败。
 - Windows 安装器接入自定义 NSIS 脚本，用于更可靠地处理安装和快捷方式行为。
 - 保持版本号为合法 semver；如需 Canary/测试版标识，建议使用预发布版本或安装包文件名标识。
 

@@ -475,6 +475,39 @@ export function getArtworkFingerprint(value = '') {
   return `${text.length}:${text.slice(0, 160)}:${text.slice(-160)}`
 }
 
+export function isDisplayableTrackCoverUrl(value = '') {
+  const cover = String(value || '').trim()
+  return /^(?:data:image\/|file:\/\/|https?:\/\/)/i.test(cover)
+}
+
+export function hasReusableTrackCoverMeta(entry = {}) {
+  const cover = typeof entry?.cover === 'string' ? entry.cover.trim() : ''
+  if (!cover || entry?.coverChecked !== true) return false
+  return entry.coverThumbnailOnly === true || isDisplayableTrackCoverUrl(cover)
+}
+
+export function getCurrentTrackDisplayCover({
+  currentTrack = null,
+  currentTrackMeta = null,
+  albumCoverMap = {}
+} = {}) {
+  const normalizeCover = (value) => {
+    const cover = typeof value === 'string' ? value.trim() : ''
+    return cover || ''
+  }
+  const metaCover = normalizeCover(currentTrackMeta?.cover)
+  if (metaCover) return metaCover
+
+  const infoCover = normalizeCover(currentTrack?.info?.cover)
+  if (infoCover) return infoCover
+
+  const trackCover = normalizeCover(currentTrack?.cover)
+  if (trackCover) return trackCover
+
+  const albumKey = currentTrack ? getTrackAlbumGroupKey(currentTrack) : ''
+  return normalizeCover(albumKey ? albumCoverMap?.[albumKey] : '')
+}
+
 function pushUniqueTracks(target, source) {
   const seen = new Set(target.map((track) => track?.path || track?.info?.fileName || track))
   for (const track of Array.isArray(source) ? source : []) {
@@ -555,6 +588,128 @@ export function mergeAlbumBucketsByCoverAndArtist(buckets = [], { enabled = fals
   }
 
   return merged
+}
+
+export function buildAlbumWallBuckets(
+  tracks = [],
+  {
+    trackMetaMap = {},
+    displayMetadataOverrides = {},
+    albumCoverMap = {},
+    mergeAlbumsByCoverAndAlbumArtist = false
+  } = {}
+) {
+  const identityTrackMetaMap = trackMetaMap || {}
+  const identityTracks = (Array.isArray(tracks) ? tracks : []).map((track) => {
+    const identityMeta = getEffectiveTrackMeta(
+      identityTrackMetaMap,
+      displayMetadataOverrides,
+      track?.path || ''
+    )
+    return identityMeta
+      ? {
+          ...track,
+          info: parseTrackInfo(track, identityMeta)
+        }
+      : track
+  })
+  const folderAlbumIdentities = new Map()
+  for (const track of identityTracks) {
+    const folderKey = getTrackAlbumFolderKey(track)
+    if (!folderKey) continue
+    const albumSourcePriority = getMetadataSourcePriority(
+      getTrackMetaFieldSource(track?.info, 'album')
+    )
+    if (albumSourcePriority < getMetadataSourcePriority('embedded-cue')) continue
+    const albumName = getTrackAlbumName(track)
+    if (!albumName || isGenericAlbumFallbackName(albumName)) continue
+    const albumArtist = track?.info?.albumArtist || ''
+    const artist = track?.info?.artist || ''
+    const artistName = albumArtist || artist
+    const artistKey = normalizeArtistNameKey(artistName)
+    if (!artistKey) continue
+    const identityKey = `${normalizeAlbumNameKey(albumName)}\u0001artist:${artistKey}`
+    const identity = {
+      album: albumName,
+      artist,
+      albumArtist,
+      artistName,
+      identityKey,
+      fieldSources: {
+        ...(track?.info?.fieldSources || {}),
+        album: track?.info?.fieldSources?.album || 'embedded',
+        ...(albumArtist
+          ? { albumArtist: track?.info?.fieldSources?.albumArtist || 'embedded' }
+          : {}),
+        ...(artist ? { artist: track?.info?.fieldSources?.artist || 'embedded' } : {})
+      }
+    }
+    if (!folderAlbumIdentities.has(folderKey)) {
+      folderAlbumIdentities.set(folderKey, identity)
+    } else {
+      const existing = folderAlbumIdentities.get(folderKey)
+      if (existing && existing.identityKey !== identityKey) {
+        folderAlbumIdentities.set(folderKey, null)
+      }
+    }
+  }
+
+  const groupingTracks = identityTracks.map((track) => {
+    const albumSourcePriority = getMetadataSourcePriority(
+      getTrackMetaFieldSource(track?.info, 'album')
+    )
+    if (albumSourcePriority >= getMetadataSourcePriority('embedded-cue')) return track
+    const identity = folderAlbumIdentities.get(getTrackAlbumFolderKey(track))
+    if (!identity) return track
+    const nextInfo = {
+      ...(track.info || {}),
+      album: identity.album,
+      albumArtist: identity.albumArtist || track?.info?.albumArtist || '',
+      artist:
+        track?.info?.artist && track.info.artist !== 'Unknown Artist'
+          ? track.info.artist
+          : identity.artistName || track?.info?.artist || '',
+      metadataSource: 'embedded',
+      fieldSources: {
+        ...(track.info?.fieldSources || {}),
+        ...(identity.fieldSources || {})
+      }
+    }
+    return {
+      ...track,
+      info: nextInfo
+    }
+  })
+
+  const groups = groupingTracks.reduce((acc, identityTrack) => {
+    const name = getTrackAlbumName(identityTrack)
+    const key = getTrackAlbumGroupKey(identityTrack) || normalizeAlbumNameKey(name)
+    if (!acc.has(key)) acc.set(key, { key, name, tracks: [] })
+    acc.get(key).tracks.push(identityTrack)
+    return acc
+  }, new Map())
+
+  const buckets = Array.from(groups.values()).map(({ key, name, tracks: albumTracks }) => {
+    const display = resolveAlbumWallDisplayInfo(albumTracks, {
+      albumName: name,
+      albumKey: key,
+      albumCoverMap,
+      trackMetaMap: identityTrackMetaMap
+    })
+    return {
+      key,
+      name: display.name,
+      tracks: albumTracks,
+      artist: display.artist,
+      cacheArtist: display.cacheArtist,
+      cover: display.cover,
+      coverCandidates: display.coverCandidates
+    }
+  })
+
+  return mergeAlbumBucketsByCoverAndArtist(buckets, {
+    enabled: mergeAlbumsByCoverAndAlbumArtist === true
+  })
 }
 
 function isLocalAlbumWallTrack(track, isLocalTrack) {

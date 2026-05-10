@@ -2,13 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
   buildTrackArtworkSources,
   getAlbumCoverCandidates,
   getBestAlbumCover,
+  getCurrentTrackDisplayCover,
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
   isGenericAlbumFallbackName,
+  hasReusableTrackCoverMeta,
   getTrackAlbumName,
   mergeAlbumBucketsByCoverAndArtist,
   parseTrackInfo,
@@ -127,6 +130,65 @@ test('track artwork sources keep current track cover before album fallback', () 
   )
 })
 
+test('current track display cover prefers effective metadata before album fallback', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/track-info')
+  const albumKey = getTrackAlbumGroupKey(track)
+
+  assert.equal(
+    getCurrentTrackDisplayCover({
+      currentTrack: track,
+      currentTrackMeta: { cover: 'data:image/effective' },
+      albumCoverMap: {
+        [albumKey]: 'data:image/album'
+      }
+    }),
+    'data:image/effective'
+  )
+
+  assert.equal(
+    getCurrentTrackDisplayCover({
+      currentTrack: { ...track, info: { ...track.info, cover: '' }, cover: '' },
+      currentTrackMeta: {},
+      albumCoverMap: {
+        [albumKey]: 'data:image/album'
+      }
+    }),
+    'data:image/album'
+  )
+})
+
+test('reusable track cover metadata requires checked displayable cover', () => {
+  assert.equal(
+    hasReusableTrackCoverMeta({
+      cover: 'data:image/png;base64,cover',
+      coverChecked: true
+    }),
+    true
+  )
+  assert.equal(
+    hasReusableTrackCoverMeta({
+      cover: 'relative-cover.jpg',
+      coverChecked: true
+    }),
+    false
+  )
+  assert.equal(
+    hasReusableTrackCoverMeta({
+      cover: 'relative-cover.jpg',
+      coverChecked: true,
+      coverThumbnailOnly: true
+    }),
+    true
+  )
+  assert.equal(
+    hasReusableTrackCoverMeta({
+      cover: 'https://example.invalid/cover.jpg',
+      coverChecked: false
+    }),
+    false
+  )
+})
+
 test('merge album buckets with same cover and album artist when enabled', () => {
   const cover = 'data:image/png;base64,cover-a'
   const merged = mergeAlbumBucketsByCoverAndArtist(
@@ -155,6 +217,32 @@ test('merge album buckets with same cover and album artist when enabled', () => 
 
   assert.equal(merged.length, 1)
   assert.equal(merged[0].name, 'The Diving Bell')
+  assert.equal(merged[0].tracks.length, 2)
+})
+
+test('album wall bucket merge uses cached album cover map entries', () => {
+  const tracks = [
+    makeTrack('E:/Music/Music/01.flac', 'Music', '', 'The Artist', 'The Artist'),
+    makeTrack(
+      'E:/Music/The Diving Bell/02.flac',
+      'The Diving Bell',
+      '',
+      'The Artist',
+      'The Artist'
+    )
+  ]
+  const cover = 'data:image/png;base64,cached-cover'
+  const albumCoverMap = Object.fromEntries(
+    tracks.map((track) => [getTrackAlbumGroupKey(track), cover])
+  )
+
+  const merged = buildAlbumWallBuckets(tracks, {
+    albumCoverMap,
+    mergeAlbumsByCoverAndAlbumArtist: true
+  })
+
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].cover, cover)
   assert.equal(merged[0].tracks.length, 2)
 })
 

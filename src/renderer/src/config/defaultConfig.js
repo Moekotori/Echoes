@@ -1,4 +1,4 @@
-import { PRESET_THEMES } from '../utils/color'
+import { PRESET_THEMES } from '../utils/color.js'
 
 /** 参量 EQ 16 段：双搁架 + 14 峰化，对数分布覆盖 20Hz–20kHz */
 export const DEFAULT_EQ_BANDS = [
@@ -84,15 +84,25 @@ export function normalizeEqBands(bands) {
   })
 }
 
+export function isNeutralEqConfig({ bands = [], preamp = 0 } = {}) {
+  const normalizedBands = normalizeEqBands(bands)
+  const preampValue = Number(preamp ?? 0)
+  const neutralPreamp = !Number.isFinite(preampValue) || Math.abs(preampValue) < 0.001
+  return (
+    neutralPreamp &&
+    normalizedBands.every((band) => Math.abs(Number(band?.gain ?? 0)) < 0.001)
+  )
+}
+
 export const DEFAULT_CONFIG = {
   /**
    * 递增并在 App 加载时 run migration（`oldRev < configRevision`）。
    * 老存档无此字段时视为 0。
    */
-  configRevision: 12,
+  configRevision: 13,
   /** UI language: en | zh | zh-TW | ja */
   uiLocale: 'en',
-  useEQ: true,
+  useEQ: false,
   eqBands: DEFAULT_EQ_BANDS.map((b) => ({ ...b })),
   eqOversampling: '2x',
   eqOutputSafety: 'soft',

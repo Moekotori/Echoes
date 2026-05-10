@@ -114,7 +114,7 @@ function loadRaopBackend() {
     const msg = e?.message || String(e)
     const hint =
       process.platform === 'win32'
-        ? 'AirPlay RAOP backend is installed as an optional native module, but it is not built for this Windows runtime. Run npm run build:airplay-raop to build the Windows RAOP backend.'
+        ? 'AirPlay RAOP backend is unavailable. Install the optional @lox-audioserver/node-libraop dependency and run npm run build:airplay-raop to enable AirPlay receiving on Windows.'
         : 'AirPlay RAOP backend is not available.'
     const err = new Error(`${hint} (${msg})`)
     err.cause = e

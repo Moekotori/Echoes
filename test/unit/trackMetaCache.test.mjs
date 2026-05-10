@@ -735,6 +735,14 @@ test('visible-row metadata request options use light metadata mode', () => {
 
 test('playback metadata request keeps full metadata while asking for thumbnail artwork', () => {
   assert.deepEqual(buildPlaybackMetadataRequestOptions(), {
+    includeCover: true,
+    coverSize: 'album-thumbnail'
+  })
+})
+
+test('playback metadata request can skip cover extraction', () => {
+  assert.deepEqual(buildPlaybackMetadataRequestOptions({ includeCover: false }), {
+    includeCover: false,
     coverSize: 'album-thumbnail'
   })
 })

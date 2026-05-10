@@ -171,15 +171,14 @@ import {
   getTrackAlbumName,
   getTrackAlbumArtist,
   getTrackAlbumGroupKey,
-  getTrackAlbumFolderKey,
   buildTrackArtworkSources,
+  buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
-  isGenericAlbumFallbackName,
+  getCurrentTrackDisplayCover,
   isUnknownArtistName,
-  mergeAlbumBucketsByCoverAndArtist,
+  hasReusableTrackCoverMeta,
   normalizeAlbumNameKey,
   normalizeArtistNameKey,
-  resolveAlbumWallDisplayInfo,
   stripExtension,
   parseArtistTitleFromName,
   resolveTrackIdentityFromMetadata
@@ -213,7 +212,7 @@ import { ArtistLink } from './components/ArtistLink'
 import VirtualAlbumGrid from './components/VirtualAlbumGrid'
 import { EqPlot } from './components/EqPlot'
 import { EQ_PRESETS } from './constants/eq'
-import { DEFAULT_CONFIG, normalizeEqBands } from './config/defaultConfig'
+import { DEFAULT_CONFIG, isNeutralEqConfig, normalizeEqBands } from './config/defaultConfig'
 import {
   normalizeImportedPlaylists,
   buildPlaylistsExportPayload,
@@ -1411,6 +1410,9 @@ function normalizeConfigState(raw) {
   if (typeof merged.ultraSmallScreenAdaptive !== 'boolean') {
     merged.ultraSmallScreenAdaptive = DEFAULT_CONFIG.ultraSmallScreenAdaptive
   }
+  if (oldRev < 13 && source.ultraSmallScreenAdaptive === true) {
+    merged.ultraSmallScreenAdaptive = DEFAULT_CONFIG.ultraSmallScreenAdaptive
+  }
   if (typeof merged.showTitlebarCastSender !== 'boolean') {
     merged.showTitlebarCastSender = DEFAULT_CONFIG.showTitlebarCastSender
   }
@@ -1465,7 +1467,18 @@ function normalizeConfigState(raw) {
   if (oldRev < appRev) {
     merged.configRevision = appRev
   }
+  if (typeof merged.useEQ !== 'boolean') {
+    merged.useEQ = DEFAULT_CONFIG.useEQ
+  }
   merged.eqBands = normalizeEqBands(source.eqBands ?? merged.eqBands)
+  if (
+    oldRev < 13 &&
+    source.useEQ === true &&
+    isNeutralEqConfig({ bands: merged.eqBands, preamp: merged.preamp }) &&
+    (!source.activePreset || source.activePreset === 'Custom')
+  ) {
+    merged.useEQ = DEFAULT_CONFIG.useEQ
+  }
   if (!['off', '2x', '4x'].includes(merged.eqOversampling)) {
     merged.eqOversampling = DEFAULT_CONFIG.eqOversampling
   }
@@ -8228,7 +8241,18 @@ export default function App() {
       return { resolvedTitle, resolvedArtist }
     }
 
-    const memoryMeta = trackMetaMapRef.current?.[filePath]
+    const activeTrackForMetadata =
+      playlistRef.current[currentIndexRef.current]?.path === filePath
+        ? playlistRef.current[currentIndexRef.current]
+        : { path: filePath, info: trackHints }
+    const memoryMeta =
+      getEffectiveTrackMeta(
+        trackMetaMapRef.current || {},
+        displayMetadataOverridesRef.current || {},
+        filePath
+      ) ||
+      trackMetaMapRef.current?.[filePath] ||
+      null
     if (isCompleteCachedMeta(memoryMeta)) {
       applyCachedMeta(memoryMeta, {
         loadLyrics: !isRemoteTrackPath(filePath) || isStreamingTrackPath(filePath)
@@ -8272,11 +8296,11 @@ export default function App() {
       return
     }
 
-    const earlyCachedCover =
-      (typeof memoryMeta?.cover === 'string' && memoryMeta.cover) ||
-      (typeof trackHints?.cover === 'string' && trackHints.cover) ||
-      (typeof trackHints?.info?.cover === 'string' && trackHints.info.cover) ||
-      ''
+    const earlyCachedCover = getCurrentTrackDisplayCover({
+      currentTrack: activeTrackForMetadata,
+      currentTrackMeta: memoryMeta,
+      albumCoverMap
+    })
     if (earlyCachedCover) {
       setCoverUrl(earlyCachedCover)
     } else {
@@ -8389,16 +8413,29 @@ export default function App() {
     try {
       const cachedMeta = (await readTrackMetaCache([filePath]))[filePath]
       if (trackLoadSeqRef.current !== requestSeq) return
+      const cachedDisplayCover = getCurrentTrackDisplayCover({
+        currentTrack: activeTrackForMetadata,
+        currentTrackMeta: cachedMeta,
+        albumCoverMap
+      })
+      if (!earlyCachedCover && cachedDisplayCover) {
+        setCoverUrl(cachedDisplayCover)
+      }
 
       if (isCompleteCachedMeta(cachedMeta)) {
         applyCachedMeta(cachedMeta)
         detectMeasuredBpm(cachedMeta)
       } else {
+        const reusableCoverMeta = hasReusableTrackCoverMeta(memoryMeta)
+          ? memoryMeta
+          : hasReusableTrackCoverMeta(cachedMeta)
+            ? cachedMeta
+            : null
+        const metadataOptions = buildPlaybackMetadataRequestOptions({
+          includeCover: !reusableCoverMeta
+        })
         // 1. Get Extended Metadata from Main Process (Music-Metadata)
-        const data = await window.api.getExtendedMetadataHandler(
-          filePath,
-          buildPlaybackMetadataRequestOptions()
-        )
+        const data = await window.api.getExtendedMetadataHandler(filePath, metadataOptions)
         if (trackLoadSeqRef.current !== requestSeq) return
 
         if (data.success) {
@@ -8422,7 +8459,12 @@ export default function App() {
           const resolvedArtist = resolvedIdentity.artist || 'Unknown Artist'
           const resolvedAlbum = common.album || cachedMeta?.album || ''
           const resolvedAlbumArtist = common.albumArtist || cachedMeta?.albumArtist || ''
-          const resolvedCover = common.cover || cachedMeta?.cover || null
+          const resolvedCover =
+            common.cover ||
+            reusableCoverMeta?.cover ||
+            cachedMeta?.cover ||
+            memoryMeta?.cover ||
+            null
           const resolvedLyrics = common.lyrics || cachedMeta?.lyrics || null
           const existingBpmEntry = trackMetaMapRef.current?.[filePath] || cachedMeta || {}
           const existingMeasuredBpm =
@@ -8479,22 +8521,43 @@ export default function App() {
             trackNo: common.trackNo ?? null,
             discNo: common.discNo ?? null,
             cover: resolvedCover,
-            coverScope: common.coverScope || cachedMeta?.coverScope || null,
-            coverSource: common.coverSource || cachedMeta?.coverSource || null,
+            coverScope:
+              common.coverScope ||
+              reusableCoverMeta?.coverScope ||
+              cachedMeta?.coverScope ||
+              null,
+            coverSource:
+              common.coverSource ||
+              reusableCoverMeta?.coverSource ||
+              cachedMeta?.coverSource ||
+              null,
             metadataSource: common.metadataSource || cachedMeta?.metadataSource || null,
             fieldSources: {
               ...(cachedMeta?.fieldSources || {}),
               ...(common.fieldSources || {})
             },
             coverThumbnailOnly:
-              common.coverThumbnailOnly === true || cachedMeta?.coverThumbnailOnly === true,
-            coverMaxDimension: common.coverMaxDimension ?? cachedMeta?.coverMaxDimension ?? null,
+              common.coverThumbnailOnly === true ||
+              reusableCoverMeta?.coverThumbnailOnly === true ||
+              cachedMeta?.coverThumbnailOnly === true,
+            coverMaxDimension:
+              common.coverMaxDimension ??
+              reusableCoverMeta?.coverMaxDimension ??
+              cachedMeta?.coverMaxDimension ??
+              null,
             metadataDetailMode: 'full',
-            coverExtractorVersion: common.coverExtractorVersion ?? EMBEDDED_COVER_EXTRACTOR_VERSION,
+            coverExtractorVersion:
+              common.coverExtractorVersion ??
+              reusableCoverMeta?.coverExtractorVersion ??
+              cachedMeta?.coverExtractorVersion ??
+              EMBEDDED_COVER_EXTRACTOR_VERSION,
             lyricsExtractorVersion:
               common.lyricsExtractorVersion ?? EMBEDDED_LYRICS_EXTRACTOR_VERSION,
             duration: technical.duration || null,
-            coverChecked: true,
+            coverChecked:
+              common.coverChecked === true ||
+              reusableCoverMeta?.coverChecked === true ||
+              cachedMeta?.coverChecked === true,
             bpmChecked: true,
             bpmMeasured: existingMeasuredBpm,
             mqaChecked: true,
@@ -8510,8 +8573,12 @@ export default function App() {
             bpm: existingMeasuredBpm ? Number(existingBpmEntry?.bpm) : null,
             lyrics: resolvedLyrics
           }
-          writeTrackMetaCache({ [filePath]: parsedMetaEntry })
-          detectMeasuredBpm(parsedMetaEntry)
+          const mergedParsedMetaEntry = mergeTrackMetaEntryPreservingCover(
+            trackMetaMapRef.current?.[filePath] || cachedMeta || {},
+            parsedMetaEntry
+          )
+          writeTrackMetaCache({ [filePath]: mergedParsedMetaEntry })
+          detectMeasuredBpm(mergedParsedMetaEntry)
         } else {
           // Fallback for failed extraction
           const title = filePath
@@ -10876,12 +10943,12 @@ export default function App() {
       albumArtist: currentDisplayOverride.albumArtist || ''
     })
   }, [currentDisplayOverride, currentTrack])
-  const currentTrackEffectiveMeta = useMemo(
+  const currentTrackMeta = useMemo(
     () =>
       currentTrack?.path
-        ? getEffectiveTrackMeta(trackMetaMap, displayMetadataOverrides, currentTrack.path)
-        : null,
-    [currentTrack?.path, displayMetadataOverrides, trackMetaMap]
+        ? effectiveTrackMetaMap[currentTrack.path] || trackMetaMap[currentTrack.path] || {}
+        : {},
+    [currentTrack?.path, effectiveTrackMetaMap, trackMetaMap]
   )
   const listenTogetherSyncContent = useMemo(
     () => ({
@@ -10892,10 +10959,18 @@ export default function App() {
     [coverUrl, mvId, lyrics]
   )
   const currentTrackInfo = useMemo(
-    () => (currentTrack ? parseTrackInfo(currentTrack, currentTrackEffectiveMeta) : null),
-    [currentTrack, currentTrackEffectiveMeta]
+    () => (currentTrack ? parseTrackInfo(currentTrack, currentTrackMeta) : null),
+    [currentTrack, currentTrackMeta]
   )
-  const currentTrackMeta = currentTrack?.path ? trackMetaMap[currentTrack.path] || null : null
+  const currentTrackDisplayCover = useMemo(
+    () =>
+      getCurrentTrackDisplayCover({
+        currentTrack,
+        currentTrackMeta,
+        albumCoverMap
+      }),
+    [albumCoverMap, currentTrack, currentTrackMeta]
+  )
   const currentBpmRaw = Number(
     technicalInfo.originalBpm || (currentTrackMeta?.bpmMeasured ? currentTrackMeta?.bpm : 0)
   )
@@ -11309,15 +11384,11 @@ export default function App() {
       pushCover(meta.albumArtUrl)
       return candidates
     }
-    pushCover(currentDisplayOverride?.cover)
+    pushCover(currentTrackDisplayCover)
     if (!currentTrack?.path) return candidates
     if (isStreamingTrackPath(currentTrack.path)) {
       const parsed = parseStreamingTrackPath(currentTrack.path)
       const raw = parsed?.raw || {}
-      pushCover(currentTrack?.cover)
-      pushCover(currentTrack?.info?.cover)
-      pushCover(currentTrackInfo?.cover)
-      pushCover(effectiveTrackMetaMap[currentTrack.path]?.cover)
       pushCover(raw.cover)
       return candidates
     }
@@ -11337,20 +11408,16 @@ export default function App() {
     }
     if (coverUrlTrackPath === currentTrack.path) pushCover(coverUrl)
     pushCover(currentTrackInfo?.cover)
-    pushCover(effectiveTrackMetaMap[currentTrack.path]?.cover)
-    pushCover(currentTrack?.cover)
-    pushCover(currentTrack?.info?.cover)
     return candidates
   }, [
     lastCastStatus,
-    currentDisplayOverride,
+    currentTrackDisplayCover,
     currentTrack,
     currentTrack?.path,
     currentTrack?.downloadProvider,
     currentTrack?.sourceUrl,
     currentTrack?.mvOriginUrl,
     currentTrackInfo?.cover,
-    effectiveTrackMetaMap,
     coverUrlTrackPath,
     coverUrl
   ])
@@ -13489,114 +13556,11 @@ export default function App() {
   const albumBuckets = useMemo(() => {
     if (!shouldBuildAlbumBuckets) return []
     return measureLibraryPerf('album-list-build', () => {
-      const identityTrackMetaMap = trackMetaMapRef.current || {}
-      const identityTracks = queryFilteredPlaylist.map((track) => {
-        const identityMeta = getEffectiveTrackMeta(
-          identityTrackMetaMap,
-          displayMetadataOverrides,
-          track?.path || ''
-        )
-        return identityMeta
-          ? {
-              ...track,
-              info: parseTrackInfo(track, identityMeta)
-            }
-          : track
-      })
-      const folderAlbumIdentities = new Map()
-      for (const track of identityTracks) {
-        const folderKey = getTrackAlbumFolderKey(track)
-        if (!folderKey) continue
-        const albumSourcePriority = getMetadataSourcePriority(
-          getTrackMetaFieldSource(track?.info, 'album')
-        )
-        if (albumSourcePriority < getMetadataSourcePriority('embedded-cue')) continue
-        const albumName = getTrackAlbumName(track)
-        if (!albumName || isGenericAlbumFallbackName(albumName)) continue
-        const albumArtist = track?.info?.albumArtist || ''
-        const artist = track?.info?.artist || ''
-        const artistName = albumArtist || artist
-        const artistKey = normalizeArtistNameKey(artistName)
-        if (!artistKey) continue
-        const identityKey = `${normalizeAlbumNameKey(albumName)}\u0001artist:${artistKey}`
-        const identity = {
-          album: albumName,
-          artist,
-          albumArtist,
-          artistName,
-          identityKey,
-          fieldSources: {
-            ...(track?.info?.fieldSources || {}),
-            album: track?.info?.fieldSources?.album || 'embedded',
-            ...(albumArtist ? { albumArtist: track?.info?.fieldSources?.albumArtist || 'embedded' } : {}),
-            ...(artist ? { artist: track?.info?.fieldSources?.artist || 'embedded' } : {})
-          }
-        }
-        if (!folderAlbumIdentities.has(folderKey)) {
-          folderAlbumIdentities.set(folderKey, identity)
-        } else {
-          const existing = folderAlbumIdentities.get(folderKey)
-          if (existing && existing.identityKey !== identityKey) {
-            folderAlbumIdentities.set(folderKey, null)
-          }
-        }
-      }
-
-      const groupingTracks = identityTracks.map((track) => {
-        const albumSourcePriority = getMetadataSourcePriority(
-          getTrackMetaFieldSource(track?.info, 'album')
-        )
-        if (albumSourcePriority >= getMetadataSourcePriority('embedded-cue')) return track
-        const identity = folderAlbumIdentities.get(getTrackAlbumFolderKey(track))
-        if (!identity) return track
-        const nextInfo = {
-          ...(track.info || {}),
-          album: identity.album,
-          albumArtist: identity.albumArtist || track?.info?.albumArtist || '',
-          artist:
-            track?.info?.artist && track.info.artist !== 'Unknown Artist'
-              ? track.info.artist
-              : identity.artistName || track?.info?.artist || '',
-          metadataSource: 'embedded',
-          fieldSources: {
-            ...(track.info?.fieldSources || {}),
-            ...(identity.fieldSources || {})
-          }
-        }
-        return {
-          ...track,
-          info: nextInfo
-        }
-      })
-
-      const groups = groupingTracks.reduce((acc, identityTrack) => {
-        const name = getTrackAlbumName(identityTrack)
-        const key = getTrackAlbumGroupKey(identityTrack) || normalizeAlbumNameKey(name)
-        if (!acc.has(key)) acc.set(key, { key, name, tracks: [] })
-        acc.get(key).tracks.push(identityTrack)
-        return acc
-      }, new Map())
-
-      const buckets = Array.from(groups.values()).map(({ key, name, tracks }) => {
-        const display = resolveAlbumWallDisplayInfo(tracks, {
-          albumName: name,
-          albumKey: key,
-          albumCoverMap: {},
-          trackMetaMap: identityTrackMetaMap
-        })
-        return {
-          key,
-          name: display.name,
-          tracks,
-          artist: display.artist,
-          cacheArtist: display.cacheArtist,
-          cover: display.cover,
-          coverCandidates: display.coverCandidates
-        }
-      })
-
-      const sortedBuckets = mergeAlbumBucketsByCoverAndArtist(buckets, {
-        enabled: config.mergeAlbumsByCoverAndAlbumArtist === true
+      const sortedBuckets = buildAlbumWallBuckets(queryFilteredPlaylist, {
+        trackMetaMap: trackMetaMapRef.current || {},
+        displayMetadataOverrides,
+        albumCoverMap,
+        mergeAlbumsByCoverAndAlbumArtist: config.mergeAlbumsByCoverAndAlbumArtist === true
       })
 
       const getAlbumAddedAt = (album) =>
@@ -13631,6 +13595,7 @@ export default function App() {
       return sortedBuckets
     })
   }, [
+    albumCoverMap,
     albumSortMode,
     config.mergeAlbumsByCoverAndAlbumArtist,
     displayMetadataOverrides,

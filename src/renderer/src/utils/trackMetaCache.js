@@ -282,8 +282,9 @@ export function buildAlbumThumbnailMetadataRequestOptions() {
   }
 }
 
-export function buildPlaybackMetadataRequestOptions() {
+export function buildPlaybackMetadataRequestOptions({ includeCover = true } = {}) {
   return {
+    includeCover: includeCover !== false,
     coverSize: 'album-thumbnail'
   }
 }
