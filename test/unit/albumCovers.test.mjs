@@ -721,6 +721,21 @@ test('album cover backfill plan picks the next unprobed album track', () => {
   assert.equal(plan.targets[0].track.path, secondTrack.path)
 })
 
+test('album cover backfill plan trusts albumCoverMap data image cache hits', () => {
+  const track = makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', '', 'Known Artist')
+  const albumKey = getTrackAlbumGroupKey(track)
+  const plan = buildAlbumCoverBackfillPlan({
+    enabled: true,
+    albumGroups: [{ key: albumKey, name: 'Album A', artist: 'Known Artist', tracks: [track] }],
+    albumCoverMap: {
+      [albumKey]: 'data:image/jpeg;base64,cached-album-cover'
+    },
+    trackMetaMap: {}
+  })
+
+  assert.equal(plan.targets.length, 0)
+})
+
 test('album cover backfill plan includes albums with cover but unknown artist', () => {
   const track = makeTrack('D:/Music/Anime/Album A/01.flac', 'Album A', '', 'Unknown Artist')
   const albumKey = getTrackAlbumGroupKey(track)

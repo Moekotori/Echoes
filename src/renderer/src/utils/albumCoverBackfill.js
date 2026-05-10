@@ -66,11 +66,14 @@ export function buildAlbumCoverBackfillPlan({
     const coverFailed = failedAlbumCoverKeys.has(getAlbumCoverFailureKey(album))
     if (!albumName || !albumKey) continue
     const tracks = Array.isArray(album?.tracks) ? album.tracks : []
-    const rawAlbumCover = album?.cover || albumCoverMap[albumKey] || ''
+    const cachedAlbumCover = albumCoverMap[albumKey] || ''
+    const rawAlbumCover = album?.cover || cachedAlbumCover || ''
     const hasAlbumCover = Boolean(rawAlbumCover && !coverFailed)
+    const hasAlbumCoverCacheHit = Boolean(cachedAlbumCover)
+    const isDataImageCover = /^data:image\//i.test(String(rawAlbumCover || ''))
     const hasDisplayThumbnailCover =
       hasAlbumCover &&
-      (!/^data:image\//i.test(String(rawAlbumCover || '')) || tracks.some(hasThumbnailCoverEntry))
+      (hasAlbumCoverCacheHit || !isDataImageCover || tracks.some(hasThumbnailCoverEntry))
     const hasAlbumArtist =
       (album?.cacheArtist && !isUnknownArtistName(album.cacheArtist)) ||
       (album?.artist && !isUnknownArtistName(album.artist)) ||

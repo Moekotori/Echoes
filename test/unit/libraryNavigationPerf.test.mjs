@@ -30,6 +30,7 @@ test('VirtualAlbumGrid exposes scroll restoration state hooks', () => {
   assert.match(virtualGridSource, /scrollRestorationKey = ''/)
   assert.match(virtualGridSource, /onScrollStateChange/)
   assert.match(virtualGridSource, /preserveMeasurements = null/)
+  assert.match(virtualGridSource, /suppressScrollRestore = false/)
   assert.match(virtualGridSource, /scrollElement\.scrollTop = nextScrollTop/)
 })
 
@@ -80,6 +81,22 @@ test('VirtualAlbumGrid freezes render range and restores scroll by signature', (
   assert.match(virtualGridSource, /restoredKeyRef\.current === restoreSignature/)
 })
 
+test('VirtualAlbumGrid suppresses external scroll restoration while hidden', () => {
+  assert.match(virtualGridSource, /if \(freezeMeasurements \|\| suppressScrollRestore\) return/)
+  assert.match(
+    virtualGridSource,
+    /if \(freezeMeasurements \|\| suppressScrollRestore \|\| !wasFrozen\) return/
+  )
+  assert.match(appSource, /scrollElementRef=\{albumOverviewActive \? sidebarPlaylistRef : null\}/)
+  assert.match(appSource, /freezeMeasurements=\{!albumOverviewActive\}/)
+  assert.match(appSource, /const albumOverviewScrollRestoreActive =[\s\S]*albumOverviewActive && pendingAlbumOverviewRestoreRef\.current/)
+  assert.match(appSource, /suppressScrollRestore=\{!albumOverviewScrollRestoreActive\}/)
+  assert.match(
+    appSource,
+    /scrollRestorationKey=\{[\s\S]*albumOverviewScrollRestoreActive[\s\S]*\? `albums-\$\{metadataIdentityVersion\}-\$\{albumGroupsFiltered\.length\}`[\s\S]*: ''[\s\S]*\}/
+  )
+})
+
 test('VirtualAlbumGrid stays passive while album overview is frozen', () => {
   assert.match(
     virtualGridSource,
@@ -109,8 +126,39 @@ test('album wall hidden layer stays mounted without display none', () => {
   assert.match(match[1], /z-index\s*:\s*-?[\w-]+/)
   assert.match(match[1], /contain\s*:[^;]*(layout|paint)/)
   assert.match(appSource, /className=\{`album-browser no-drag/)
-  assert.match(appSource, /aria-hidden=\{selectedAlbum !== 'all'\}/)
-  assert.match(appSource, /inert=\{selectedAlbum !== 'all' \? '' : undefined\}/)
+  assert.match(appSource, /const albumOverviewMounted =[\s\S]*albumOverviewActive \|\| albumDetailLeaving \|\| pendingAlbumOverviewRestoreRef\.current/)
+  assert.match(appSource, /playlist\.length > 0 && listMode === 'album' && albumOverviewMounted/)
+  assert.match(appSource, /aria-hidden=\{!albumOverviewActive\}/)
+  assert.match(appSource, /inert=\{!albumOverviewActive \? '' : undefined\}/)
+})
+
+test('album detail scroll reset is one-shot', () => {
+  const start = appSource.lastIndexOf(
+    'useLayoutEffect(() => {',
+    appSource.indexOf('!pendingAlbumDetailScrollResetRef.current')
+  )
+  const end = appSource.indexOf('const handlePickFolderFromSidebar', start)
+  assert.ok(start > 0)
+  assert.ok(end > start)
+  const source = appSource.slice(start, end)
+  assert.match(source, /pendingAlbumDetailScrollResetRef\.current = false[\s\S]*resetSidebarPlaylistScrollNow\(\)/)
+  assert.doesNotMatch(source.slice(source.lastIndexOf('}, [')), /sidebarScrollTop|visibleAlbumRange/)
+  assert.match(appSource, /const rangeScrollTop =[\s\S]*pendingAlbumDetailScrollResetRef\.current[\s\S]*\? 0[\s\S]*: sidebarScrollTop/)
+  assert.match(appSource, /albumDetailScrollResetIgnoreUntilRef/)
+  assert.match(appSource, /const \[albumDetailScrollResetVersion, setAlbumDetailScrollResetVersion\]/)
+  assert.match(appSource, /setAlbumDetailScrollResetVersion\(\(version\) => version \+ 1\)/)
+  assert.match(appSource, /if \(ignoreUntil > now\) \{[\s\S]*event\.currentTarget\.scrollTop = 0[\s\S]*setSidebarScrollTop\(0\)/)
+  assert.match(appSource, /pendingAlbumDetailScrollResetRef\.current = true[\s\S]*resetSidebarPlaylistScrollNow\(\)/)
+})
+
+test('album cover backfill waits for album cover cache hydration', () => {
+  assert.match(appSource, /const \[albumCoverCacheHydratedKey, setAlbumCoverCacheHydratedKey\]/)
+  assert.match(appSource, /const albumCoverCacheHydrated =/)
+  assert.match(appSource, /setAlbumCoverCacheHydratedKey\(albumCoverCacheTargetsKey\)/)
+  assert.match(
+    appSource,
+    /enabled:\s*albumCoverCacheHydrated &&[\s\S]*listMode === 'album' &&[\s\S]*selectedAlbum === 'all'/
+  )
 })
 
 test('album detail layer is isolated above the preserved album wall', () => {

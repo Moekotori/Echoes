@@ -107,6 +107,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   gap = DEFAULT_GAP,
   overscanRows = DEFAULT_OVERSCAN_ROWS,
   freezeMeasurements = false,
+  suppressScrollRestore = false,
   onVisibleRangeChange
 }) {
   const containerRef = useRef(null)
@@ -247,7 +248,7 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
   }, [freezeMeasurements, itemCount, measure])
 
   useLayoutEffect(() => {
-    if (freezeMeasurements) return
+    if (freezeMeasurements || suppressScrollRestore) return
     const restoreKey = String(scrollRestorationKey || '')
     const restoreSignature = `${restoreKey}\u0001${Math.round(Number(initialScrollTop) || 0)}`
     if (!restoreKey || restoredKeyRef.current === restoreSignature) return
@@ -261,13 +262,20 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
     const nextScrollTop = Math.max(0, Number(initialScrollTop) || 0)
     scrollElement.scrollTop = nextScrollTop
     scheduleMeasure()
-  }, [freezeMeasurements, initialScrollTop, scheduleMeasure, scrollElementRef, scrollRestorationKey])
+  }, [
+    freezeMeasurements,
+    initialScrollTop,
+    scheduleMeasure,
+    scrollElementRef,
+    scrollRestorationKey,
+    suppressScrollRestore
+  ])
 
   useLayoutEffect(() => {
     const wasFrozen = wasFrozenRef.current
     wasFrozenRef.current = freezeMeasurements
 
-    if (freezeMeasurements || !wasFrozen) return
+    if (freezeMeasurements || suppressScrollRestore || !wasFrozen) return
 
     const container = containerRef.current
     const externalScrollElement = scrollElementRef?.current || null
@@ -279,7 +287,14 @@ const VirtualAlbumGrid = memo(function VirtualAlbumGrid({
 
     measure()
     scheduleMeasure()
-  }, [freezeMeasurements, initialScrollTop, measure, scheduleMeasure, scrollElementRef])
+  }, [
+    freezeMeasurements,
+    initialScrollTop,
+    measure,
+    scheduleMeasure,
+    scrollElementRef,
+    suppressScrollRestore
+  ])
 
   useEffect(() => {
     if (freezeMeasurements) return undefined
