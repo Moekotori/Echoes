@@ -502,7 +502,9 @@ export function isTrackMetaCacheRecordFresh(record, trackOrSeed) {
   const expected = buildTrackMetaCacheFingerprint(trackOrSeed)
   if (!expected) return true
   const actual = record?.fingerprint
-  if (!actual || typeof actual !== 'object') return true
+  if (!actual || typeof actual !== 'object') {
+    return !hasCachedTrackCoverRecord(record)
+  }
   return (
     Number(actual.schemaVersion) === expected.schemaVersion &&
     Number(actual.sizeBytes) === expected.sizeBytes &&

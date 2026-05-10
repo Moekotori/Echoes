@@ -7,12 +7,39 @@ import {
 
 const QQ_MUSICU_URL = 'https://u.y.qq.com/cgi-bin/musicu.fcg'
 const QQ_STREAM_HOST = 'https://dl.stream.qqmusic.qq.com/'
+const QQ_PLAYLIST_PAGE_SIZE = 1000
+const QQ_PLAYLIST_PAGE_CONCURRENCY = 4
 
 function pickString(...values) {
   for (const value of values) {
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
   return ''
+}
+
+function pickNumber(...values) {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return 0
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length)
+  let cursor = 0
+  const workerCount = Math.max(1, Math.min(Number(concurrency) || 1, items.length))
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        results[index] = await mapper(items[index], index)
+      }
+    })
+  )
+
+  return results
 }
 
 function joinArtists(value) {
@@ -119,6 +146,58 @@ function normalizeArtist(artist) {
     musicSize: Number(artist?.songNum || artist?.song_num || artist?.song_count || 0),
     source: 'qq'
   }
+}
+
+export function parseQqMusicPlaylistId(input) {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  if (/^\d+$/.test(raw)) return raw
+  const direct = /(?:[?&](?:id|tid|disstid|dirid)=|\/playlist\/)(\d+)/i.exec(raw)
+  if (direct) return direct[1]
+  try {
+    const normalized = raw.includes('://') ? raw : `https://${raw}`
+    const url = new URL(normalized)
+    const queryId =
+      url.searchParams.get('id') ||
+      url.searchParams.get('tid') ||
+      url.searchParams.get('disstid') ||
+      url.searchParams.get('dirid')
+    if (queryId && /^\d+$/.test(queryId)) return queryId
+    const pathMatch = url.pathname.match(/(?:playlist|taoge|details\/taoge)(?:\.html)?\/?(\d+)/i)
+    if (pathMatch) return pathMatch[1]
+  } catch {
+    // fall through
+  }
+  const loose = /\b(\d{5,})\b/.exec(raw)
+  return loose ? loose[1] : ''
+}
+
+export async function resolveQqMusicPlaylistId(input, { cookie = '' } = {}) {
+  const direct = parseQqMusicPlaylistId(input)
+  if (direct) return direct
+
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  let url
+  try {
+    url = new URL(raw.includes('://') ? raw : `https://${raw}`)
+  } catch {
+    return ''
+  }
+  if (!/(^|\.)qq\.com$/i.test(url.hostname)) return ''
+
+  const response = await axios.get(url.toString(), {
+    headers: buildQqMusicHeaders(cookie),
+    maxRedirects: 0,
+    timeout: 12000,
+    validateStatus: (status) => status >= 200 && status < 400
+  })
+  const location = response?.headers?.location
+  if (location) {
+    return parseQqMusicPlaylistId(new URL(location, url).toString())
+  }
+  const finalUrl = response?.request?.res?.responseUrl || response?.request?.responseURL || ''
+  return parseQqMusicPlaylistId(finalUrl)
 }
 
 async function requestMusicu(payload, cookie) {
@@ -255,9 +334,47 @@ export async function getQqMusicAlbumTracks({ albumMid = '', albumId = '', cooki
     .filter((song) => song.mid)
 }
 
-export async function getQqMusicPlaylistTracks({ playlistId = '', cookie = '', limit = 1000 } = {}) {
-  const disstid = String(playlistId || '').trim()
-  if (!/^\d+$/.test(disstid)) {
+function getQqPlaylistSongList(body) {
+  return body.songlist || body.songList || body.cdlist?.[0]?.songlist || []
+}
+
+function getQqPlaylistName(body) {
+  return (
+    pickString(
+      body.dissname,
+      body.dirinfo?.title,
+      body.dirinfo?.dissname,
+      body.cdlist?.[0]?.dissname
+    ) || 'QQ Music Playlist'
+  )
+}
+
+function getQqPlaylistTotal(body, fallback = 0) {
+  return pickNumber(
+    body.total_song_num,
+    body.songnum,
+    body.song_num,
+    body.songCount,
+    body.song_count,
+    body.total,
+    body.dirinfo?.songnum,
+    body.dirinfo?.song_num,
+    body.dirinfo?.songCount,
+    body.dirinfo?.song_count,
+    body.dirinfo?.total,
+    body.cdlist?.[0]?.total_song_num,
+    body.cdlist?.[0]?.songnum,
+    body.cdlist?.[0]?.song_num,
+    body.cdlist?.[0]?.songCount,
+    body.cdlist?.[0]?.song_count,
+    body.cdlist?.[0]?.total,
+    fallback
+  )
+}
+
+async function getQqMusicPlaylistPage({ disstid, cookie, begin = 0, num = QQ_PLAYLIST_PAGE_SIZE }) {
+  const playlistId = String(disstid || '').trim()
+  if (!/^\d+$/.test(playlistId)) {
     throw new Error('Invalid QQ Music playlist URL or ID')
   }
   const payload = {
@@ -265,12 +382,12 @@ export async function getQqMusicPlaylistTracks({ playlistId = '', cookie = '', l
       module: 'music.srfDissInfo.DissInfo',
       method: 'CgiGetDiss',
       param: {
-        disstid,
-        dirid: Number(disstid),
+        disstid: playlistId,
+        dirid: Number(playlistId),
         tag: 1,
         userinfo: 1,
-        song_begin: 0,
-        song_num: Math.max(1, Math.min(Number(limit) || 1000, 1000))
+        song_begin: Math.max(0, Math.floor(Number(begin) || 0)),
+        song_num: Math.max(1, Math.min(Math.floor(Number(num) || QQ_PLAYLIST_PAGE_SIZE), QQ_PLAYLIST_PAGE_SIZE))
       }
     },
     comm: {
@@ -280,19 +397,79 @@ export async function getQqMusicPlaylistTracks({ playlistId = '', cookie = '', l
   }
   const data = await requestMusicu(payload, cookie)
   const body = data?.req_0?.data || {}
-  const songlist = body.songlist || body.songList || body.cdlist?.[0]?.songlist || []
-  const name =
-    pickString(
-      body.dissname,
-      body.dirinfo?.title,
-      body.dirinfo?.dissname,
-      body.cdlist?.[0]?.dissname
-    ) || 'QQ Music Playlist'
+  const songlist = getQqPlaylistSongList(body)
   return {
-    name,
+    name: getQqPlaylistName(body),
+    total: getQqPlaylistTotal(body, songlist.length),
     tracks: songlist
       .map((item) => normalizeSong(item?.songInfo || item))
       .filter((song) => song.mid)
+  }
+}
+
+export async function getQqMusicPlaylistTracks({ playlistId = '', cookie = '', limit = Infinity } = {}) {
+  const disstid = String(playlistId || '').trim()
+  if (!/^\d+$/.test(disstid)) {
+    throw new Error('Invalid QQ Music playlist URL or ID')
+  }
+
+  const maxTracks = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : Infinity
+  const firstPageSize = Math.min(QQ_PLAYLIST_PAGE_SIZE, maxTracks)
+  const firstPage = await getQqMusicPlaylistPage({
+    disstid,
+    cookie,
+    begin: 0,
+    num: firstPageSize
+  })
+  const tracks = [...firstPage.tracks]
+  const reportedTotal = Math.min(getQqPlaylistTotal(firstPage, tracks.length), maxTracks)
+
+  if (reportedTotal > tracks.length) {
+    const pageStarts = []
+    for (let begin = QQ_PLAYLIST_PAGE_SIZE; begin < reportedTotal; begin += QQ_PLAYLIST_PAGE_SIZE) {
+      pageStarts.push(begin)
+    }
+    const pages = await mapWithConcurrency(
+      pageStarts,
+      QQ_PLAYLIST_PAGE_CONCURRENCY,
+      (begin) =>
+        getQqMusicPlaylistPage({
+          disstid,
+          cookie,
+          begin,
+          num: Math.min(QQ_PLAYLIST_PAGE_SIZE, reportedTotal - begin)
+        })
+    )
+    for (const page of pages) tracks.push(...page.tracks)
+  } else if (tracks.length >= QQ_PLAYLIST_PAGE_SIZE && maxTracks > tracks.length) {
+    let begin = QQ_PLAYLIST_PAGE_SIZE
+    let shouldContinue = true
+    while (shouldContinue && tracks.length < maxTracks) {
+      const pageStarts = []
+      for (
+        let i = 0;
+        i < QQ_PLAYLIST_PAGE_CONCURRENCY && begin + i * QQ_PLAYLIST_PAGE_SIZE < maxTracks;
+        i++
+      ) {
+        pageStarts.push(begin + i * QQ_PLAYLIST_PAGE_SIZE)
+      }
+      const pages = await mapWithConcurrency(pageStarts, QQ_PLAYLIST_PAGE_CONCURRENCY, (start) =>
+        getQqMusicPlaylistPage({
+          disstid,
+          cookie,
+          begin: start,
+          num: Math.min(QQ_PLAYLIST_PAGE_SIZE, maxTracks - start)
+        })
+      )
+      for (const page of pages) tracks.push(...page.tracks)
+      shouldContinue = pages.every((page) => page.tracks.length >= QQ_PLAYLIST_PAGE_SIZE)
+      begin += pageStarts.length * QQ_PLAYLIST_PAGE_SIZE
+    }
+  }
+
+  return {
+    name: firstPage.name,
+    tracks: tracks.slice(0, maxTracks)
   }
 }
 

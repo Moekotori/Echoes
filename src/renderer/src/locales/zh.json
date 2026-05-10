@@ -197,7 +197,9 @@
       "open": "打开",
       "historyTitle": "歌单历史",
       "historyHint": "网易云 / QQ 音乐合并记录",
-      "historyCount": "{{count}} 首"
+      "historyCount": "{{count}} 首",
+      "filterPlaceholder": "筛选 {{name}} 里的歌曲、艺人或专辑...",
+      "filterButton": "筛选"
     },
     "quality": {
       "lossless": "无损优先",

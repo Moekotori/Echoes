@@ -19,6 +19,7 @@ function formatNcmError(err) {
 }
 
 const NETEASE_SONG_DETAIL_BATCH_SIZE = 500
+const NETEASE_SONG_DETAIL_CONCURRENCY = 4
 
 function normalizeNeteaseTrackIds(trackIds = []) {
   if (!Array.isArray(trackIds)) return []
@@ -36,19 +37,45 @@ function chunkArray(items, size) {
   return chunks
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length)
+  let cursor = 0
+  const workerCount = Math.max(1, Math.min(Number(concurrency) || 1, items.length))
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        results[index] = await mapper(items[index], index)
+      }
+    })
+  )
+
+  return results
+}
+
 export async function fetchNeteaseSongsByTrackIds(ncm, trackIds, base = {}) {
   const orderedIds = normalizeNeteaseTrackIds(trackIds)
   if (orderedIds.length === 0) return []
 
   const uniqueIds = [...new Set(orderedIds)]
   const songById = new Map()
+  const batches = chunkArray(uniqueIds, NETEASE_SONG_DETAIL_BATCH_SIZE)
 
-  for (const batch of chunkArray(uniqueIds, NETEASE_SONG_DETAIL_BATCH_SIZE)) {
-    const result = await ncm.song_detail({
-      ids: batch.join(','),
-      ...base
-    })
-    for (const song of result.body?.songs || []) {
+  const batchResults = await mapWithConcurrency(
+    batches,
+    NETEASE_SONG_DETAIL_CONCURRENCY,
+    async (batch) => {
+      const result = await ncm.song_detail({
+        ids: batch.join(','),
+        ...base
+      })
+      return result.body?.songs || []
+    }
+  )
+
+  for (const songs of batchResults) {
+    for (const song of songs) {
       const id = String(song?.id || '').trim()
       if (id) songById.set(id, song)
     }

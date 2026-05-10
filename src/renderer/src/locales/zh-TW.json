@@ -193,7 +193,9 @@
       "open": "開啟",
       "historyTitle": "歌單歷史",
       "historyHint": "網易雲 / QQ 音樂合併記錄",
-      "historyCount": "{{count}} 首"
+      "historyCount": "{{count}} 首",
+      "filterPlaceholder": "篩選 {{name}} 裡的歌曲、藝人或專輯...",
+      "filterButton": "篩選"
     },
     "quality": {
       "lossless": "無損優先",

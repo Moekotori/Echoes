@@ -30,3 +30,23 @@ test('startup full rescan remains limited to the missing cached-library branch',
 
   assert.match(missingLibraryBranch, /reason:\s*'startup'/)
 })
+
+test('toolbar missing-track cleanup always performs a fresh scan and imported-folder rescan', () => {
+  const handlerStart = appSource.indexOf('const handleCleanupMissingLibraryFromToolbar')
+  assert.ok(handlerStart > 0, 'toolbar cleanup handler should exist')
+
+  const handlerSource = appSource.slice(handlerStart, handlerStart + 1200)
+  assert.match(handlerSource, /cleanupMissingLibraryPaths\(\{\s*forceScan:\s*true,\s*includeImportedFolderRescan:\s*true\s*\}/s)
+})
+
+test('manual imported-folder cleanup treats changed paths as removed entries', () => {
+  const scanStart = appSource.indexOf('const scanImportedFolderMissingPaths')
+  const cleanupStart = appSource.indexOf('const cleanupMissingLibraryPaths', scanStart)
+  assert.ok(scanStart > 0, 'manual imported-folder cleanup scan should exist')
+  assert.ok(cleanupStart > scanStart, 'cleanup callback should follow imported-folder scan')
+
+  const scanSource = appSource.slice(scanStart, cleanupStart)
+  assert.match(scanSource, /reason:\s*'manual-cleanup'/)
+  assert.match(scanSource, /\.\.\.delta\.removedPaths/)
+  assert.match(scanSource, /\.\.\.delta\.renamed\.map\(\(item\)\s*=>\s*item\.from\)/)
+})

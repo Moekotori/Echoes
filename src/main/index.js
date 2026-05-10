@@ -896,6 +896,9 @@ function registerGlobalMediaShortcuts() {
     {
       accelerator: 'MediaPlayPause',
       handler: () => {
+        const sent = sendPlayerCommand('togglePlay')
+        if (sent?.ok) return
+
         const status = audioEngine.getStatus()
         if (status?.isPlaying) audioEngine.pause()
         else audioEngine.resume()

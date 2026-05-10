@@ -3912,10 +3912,22 @@ export default function App() {
 
   useEffect(() => {
     if (!libraryStateReady || playlist.length === 0) return undefined
-    const paths = [...new Set(playlist.map((track) => track?.path).filter(Boolean))]
-    if (paths.length === 0) return undefined
+    const seenPaths = new Set()
+    const trackSeeds = []
+    for (const track of playlist) {
+      if (!track?.path || seenPaths.has(track.path)) continue
+      seenPaths.add(track.path)
+      trackSeeds.push(track)
+    }
+    if (trackSeeds.length === 0) return undefined
+    const paths = trackSeeds.map((track) => track.path)
 
-    const hydrationKey = buildPathListFingerprint(paths)
+    const hydrationKey = buildPathListFingerprint(
+      trackSeeds.map(
+        (track) =>
+          `${track.path}:${track.sizeBytes || track.info?.sizeBytes || ''}:${track.mtimeMs || track.info?.mtimeMs || ''}`
+      )
+    )
     if (libraryMetaCacheHydrationKeyRef.current === hydrationKey) return undefined
     libraryMetaCacheHydrationKeyRef.current = hydrationKey
 
@@ -3932,7 +3944,7 @@ export default function App() {
         for (const [path, cachedEntry] of entries) {
           if (!cachedEntry) continue
           const current = next[path] || {}
-          const merged = mergeTrackMetaEntryPreservingCover(cachedEntry, current)
+          const merged = mergeTrackMetaEntryPreservingCover(current, cachedEntry)
           if (JSON.stringify(current) !== JSON.stringify(merged)) {
             next[path] = merged
             changed = true
@@ -3946,10 +3958,10 @@ export default function App() {
     const hydrateLibraryMetaCache = async () => {
       for (
         let index = 0;
-        index < paths.length && !cancelled;
+        index < trackSeeds.length && !cancelled;
         index += LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE
       ) {
-        const chunk = paths.slice(index, index + LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE)
+        const chunk = trackSeeds.slice(index, index + LIBRARY_META_CACHE_HYDRATE_BATCH_SIZE)
         const cached = await readTrackMetaCache(chunk)
         if (cancelled) return
         mergeCachedEntries(cached)
@@ -4339,7 +4351,7 @@ export default function App() {
     }
   }, [])
 
-  const scanMissingLibraryPaths = useCallback(async () => {
+  const scanMissingLibraryPaths = useCallback(async ({ manageBusy = true } = {}) => {
     if (!window.api?.batchExistsHandler) return []
 
     const referencedPaths = collectReferencedLibraryPaths({
@@ -4355,7 +4367,7 @@ export default function App() {
       return []
     }
 
-    setLibraryCleanupBusy(true)
+    if (manageBusy) setLibraryCleanupBusy(true)
     try {
       const missing = []
       for (let i = 0; i < referencedPaths.length; i += 200) {
@@ -4368,23 +4380,70 @@ export default function App() {
       setMissingLibraryPaths(missing)
       return missing
     } finally {
-      setLibraryCleanupBusy(false)
+      if (manageBusy) setLibraryCleanupBusy(false)
     }
   }, [])
 
-  const cleanupMissingLibraryPaths = useCallback(async () => {
-    const missing = missingLibraryPaths.length
-      ? missingLibraryPaths
-      : await scanMissingLibraryPaths()
+  const scanImportedFolderMissingPaths = useCallback(async () => {
+    if (!window.api?.rescanFolders || !importedFolders.length) return []
+    const folders = importedFolders.slice()
+    const previousImportedTracks = playlistRef.current.filter((track) =>
+      isTrackInsideImportedFolders(track?.path, folders)
+    )
+    if (!previousImportedTracks.length) return []
+
+    const rescanResult = await window.api.rescanFolders({
+      folders,
+      existingPaths: previousImportedTracks.map((track) => track.path).filter(Boolean),
+      reason: 'manual-cleanup'
+    })
+    if (!Array.isArray(rescanResult)) return []
+
+    const delta = diffImportedFolderSnapshot(
+      previousImportedTracks,
+      rescanResult.map(normalizeWatchedTrack).filter(Boolean)
+    )
+    return [
+      ...delta.removedPaths,
+      ...delta.renamed.map((item) => item.from).filter(Boolean)
+    ]
+  }, [importedFolders])
+
+  const cleanupMissingLibraryPaths = useCallback(async (options = {}) => {
+    const forceScan = options?.forceScan === true
+    const includeImportedFolderRescan = options?.includeImportedFolderRescan === true
+    setLibraryCleanupBusy(true)
+    let missing = []
+    try {
+      const currentMissing = forceScan
+        ? await scanMissingLibraryPaths({ manageBusy: false })
+        : missingLibraryPaths.length
+          ? missingLibraryPaths
+          : await scanMissingLibraryPaths({ manageBusy: false })
+      const folderMissing = includeImportedFolderRescan
+        ? await scanImportedFolderMissingPaths()
+        : []
+      missing = [...new Set([...currentMissing, ...folderMissing].filter(Boolean))]
+    } finally {
+      setLibraryCleanupBusy(false)
+    }
     if (!missing.length) return 0
     applyLibraryFolderDelta({ renamed: [], removedPaths: missing, added: [] })
     setMissingLibraryPaths([])
     return missing.length
-  }, [applyLibraryFolderDelta, missingLibraryPaths, scanMissingLibraryPaths])
+  }, [
+    applyLibraryFolderDelta,
+    missingLibraryPaths,
+    scanImportedFolderMissingPaths,
+    scanMissingLibraryPaths
+  ])
 
   const handleCleanupMissingLibraryFromToolbar = useCallback(async () => {
     try {
-      const removedCount = await cleanupMissingLibraryPaths()
+      const removedCount = await cleanupMissingLibraryPaths({
+        forceScan: true,
+        includeImportedFolderRescan: true
+      })
       if (removedCount > 0) {
         alert(
           t('import.cleanupMissingDone', {
@@ -8476,7 +8535,7 @@ export default function App() {
     }
 
     try {
-      const cachedMeta = (await readTrackMetaCache([filePath]))[filePath]
+      const cachedMeta = (await readTrackMetaCache([activeTrackForMetadata]))[filePath]
       if (trackLoadSeqRef.current !== requestSeq) return
       const cachedDisplayCover = getCurrentTrackDisplayCover({
         currentTrack: activeTrackForMetadata,
@@ -8642,7 +8701,27 @@ export default function App() {
             trackMetaMapRef.current?.[filePath] || cachedMeta || {},
             parsedMetaEntry
           )
-          writeTrackMetaCache({ [filePath]: mergedParsedMetaEntry })
+          setTrackMetaMap((prev) => {
+            const currentEntry = prev[filePath] || {}
+            const mergedEntry = mergeTrackMetaEntryPreservingCover(
+              currentEntry,
+              mergedParsedMetaEntry
+            )
+            if (JSON.stringify(currentEntry) === JSON.stringify(mergedEntry)) return prev
+            const next = {
+              ...prev,
+              [filePath]: mergedEntry
+            }
+            trackMetaMapRef.current = next
+            return next
+          })
+          writeTrackMetaCache({
+            [filePath]: {
+              ...mergedParsedMetaEntry,
+              sizeBytes: activeTrackForMetadata.sizeBytes || activeTrackForMetadata.info?.sizeBytes,
+              mtimeMs: activeTrackForMetadata.mtimeMs || activeTrackForMetadata.info?.mtimeMs
+            }
+          })
           detectMeasuredBpm(mergedParsedMetaEntry)
         } else {
           // Fallback for failed extraction
@@ -9297,12 +9376,15 @@ export default function App() {
   const processFiles = async (files, options = {}) => {
     setIsConverting(true)
     const processed = []
-    const existingPaths = new Set((playlistRef.current || playlist).map((p) => p.path))
+    const existingTracks = playlistRef.current || playlist
+    const existingPaths = new Set(existingTracks.map((p) => p.path))
+    const refreshedExistingFiles = []
     const pathsForPlaylist = []
     let queuedBackgroundNcm = false
 
     for (const file of files) {
       if (existingPaths.has(file.path)) {
+        refreshedExistingFiles.push(file)
         pathsForPlaylist.push(file.path)
         continue
       }
@@ -9316,6 +9398,63 @@ export default function App() {
         processed.push(file)
         existingPaths.add(file.path)
         pathsForPlaylist.push(file.path)
+      }
+    }
+
+    if (refreshedExistingFiles.length > 0) {
+      const refreshedByPath = new Map(refreshedExistingFiles.map((file) => [file.path, file]))
+      setPlaylist((prev) => {
+        const next = prev.map((track) => {
+          const refreshed = refreshedByPath.get(track.path)
+          if (!refreshed) return track
+          return {
+            ...track,
+            name: refreshed.name || track.name,
+            folder: refreshed.folder || track.folder,
+            birthtimeMs: refreshed.birthtimeMs || track.birthtimeMs || 0,
+            mtimeMs: refreshed.mtimeMs || track.mtimeMs || 0,
+            sizeBytes: refreshed.sizeBytes || track.sizeBytes || 0,
+            info: {
+              ...(track.info || {}),
+              ...(refreshed.info || {}),
+              sizeBytes:
+                refreshed.sizeBytes || refreshed.info?.sizeBytes || track.info?.sizeBytes || 0,
+              mtimeMs: refreshed.mtimeMs || refreshed.info?.mtimeMs || track.info?.mtimeMs || 0
+            }
+          }
+        })
+        playlistRef.current = next
+        return next
+      })
+      setTrackMetaMap((prev) => {
+        let changed = false
+        const next = { ...prev }
+        for (const file of refreshedExistingFiles) {
+          if (next[file.path]) {
+            delete next[file.path]
+            changed = true
+          }
+        }
+        if (changed) trackMetaMapRef.current = next
+        return changed ? next : prev
+      })
+      const activeTrack = playlistRef.current[currentIndexRef.current] || null
+      const refreshedActive = activeTrack?.path ? refreshedByPath.get(activeTrack.path) : null
+      if (refreshedActive?.path) {
+        setCoverUrlTrackPath('')
+        setCoverUrl(null)
+        await loadTrackData(refreshedActive.path, {
+          title:
+            refreshedActive.info?.title ||
+            refreshedActive.title ||
+            stripExtension(refreshedActive.name || activeTrack.name || ''),
+          artist: refreshedActive.info?.artist || refreshedActive.artist || '',
+          album: refreshedActive.info?.album || '',
+          embeddedLyrics: refreshedActive.info?.lyrics || refreshedActive.lyrics || '',
+          mvOriginUrl: refreshedActive.mvOriginUrl || refreshedActive.sourceUrl,
+          sourceUrl: refreshedActive.sourceUrl || refreshedActive.mvOriginUrl,
+          hasLyrics: refreshedActive.hasLyrics === true
+        })
       }
     }
 
@@ -10129,6 +10268,10 @@ export default function App() {
   useEffect(() => {
     if (!window.api?.onPlayerCmd) return undefined
     return window.api.onPlayerCmd((cmd) => {
+      if (cmd === 'togglePlay') {
+        void togglePlay()
+        return
+      }
       if (cmd === 'next') {
         handleNext()
         return
@@ -10137,7 +10280,7 @@ export default function App() {
         handlePrev()
       }
     })
-  }, [handleNext, handlePrev])
+  }, [handleNext, handlePrev, togglePlay])
 
   useEffect(() => {
     if (config.crossfadeEnabled || !crossfadeStateRef.current.active) return
@@ -11449,8 +11592,9 @@ export default function App() {
       pushCover(meta.albumArtUrl)
       return candidates
     }
-    pushCover(currentTrackDisplayCover)
     if (!currentTrack?.path) return candidates
+    if (coverUrlTrackPath === currentTrack.path) pushCover(coverUrl)
+    pushCover(currentTrackDisplayCover)
     if (isStreamingTrackPath(currentTrack.path)) {
       const parsed = parseStreamingTrackPath(currentTrack.path)
       const raw = parsed?.raw || {}
@@ -11471,7 +11615,6 @@ export default function App() {
         .filter((value) => /(^|\/\/)(y|qpic)\.qq\.com\//i.test(String(value || '')))
         .forEach(pushCover)
     }
-    if (coverUrlTrackPath === currentTrack.path) pushCover(coverUrl)
     pushCover(currentTrackInfo?.cover)
     return candidates
   }, [
@@ -15531,9 +15674,19 @@ export default function App() {
     selectedAlbum,
     trackMetaMap
   ])
+  const albumCoverManualLoadIssueCount = missingAlbumCoverCount + unknownAlbumArtistCount
+  const albumCoverManualLoadAvailable = albumCoverManualLoadIssueCount > 0 || albumCoverManualLoadTargets.length > 0
 
   const handleLoadMissingAlbumCovers = useCallback(() => {
-    if (albumCoverManualLoadBusy || albumCoverManualLoadTargets.length === 0) return
+    if (albumCoverManualLoadBusy || !albumCoverManualLoadAvailable) return
+    albumCloudCoverAttemptedRef.current.clear()
+    setFailedAlbumCoverKeys(() => new Set())
+    if (albumCoverManualLoadTargets.length === 0) {
+      albumCoverProbePathsRef.current.clear()
+      albumArtistProbePathsRef.current.clear()
+      setMetadataPrefetchParseReady(true)
+      return
+    }
     for (const target of albumCoverManualLoadTargets) {
       if (target?.track?.path) albumCoverProbePathsRef.current.delete(target.track.path)
       if (target?.track?.path) albumArtistProbePathsRef.current.delete(target.track.path)
@@ -15542,7 +15695,7 @@ export default function App() {
       id: prev.id + 1,
       targets: albumCoverManualLoadTargets
     }))
-  }, [albumCoverManualLoadBusy, albumCoverManualLoadTargets])
+  }, [albumCoverManualLoadAvailable, albumCoverManualLoadBusy, albumCoverManualLoadTargets])
 
   const albumCoverManualLoadCountLabel =
     unknownAlbumArtistCount > 0
@@ -19789,32 +19942,14 @@ export default function App() {
               </button>
               {listMode === 'album' && selectedAlbum === 'all' && (
                 <button
-                  className="browser-toolbar-btn"
+                  className="browser-toolbar-btn browser-toolbar-btn--album-hydrate"
                   onClick={handleLoadMissingAlbumCovers}
-                  disabled={albumCoverManualLoadBusy || albumCoverManualLoadTargets.length === 0}
+                  disabled={albumCoverManualLoadBusy || !albumCoverManualLoadAvailable}
                   title={albumCoverManualLoadTitle}
                   aria-label={albumCoverManualLoadTitle}
-                  style={{ position: 'relative' }}
                 >
                   <Image size={17} />
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      top: '-5px',
-                      right: '-5px',
-                      minWidth: '18px',
-                      height: '18px',
-                      padding: '0 4px',
-                      borderRadius: '999px',
-                      background: 'var(--accent)',
-                      color: '#fff',
-                      fontSize: '10px',
-                      fontWeight: 800,
-                      lineHeight: '18px',
-                      boxShadow: '0 0 0 2px var(--surface-elevated)'
-                    }}
-                  >
+                  <span className="browser-toolbar-badge" aria-hidden="true">
                     {albumCoverManualLoadCountLabel}
                   </span>
                 </button>

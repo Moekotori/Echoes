@@ -14,10 +14,16 @@ test('parseNeteasePlaylistId handles ids and common playlist URLs', () => {
 
 test('fetchNeteaseSongsByTrackIds batches song detail requests beyond 1000 tracks', async () => {
   const requestedBatches = []
+  let activeRequests = 0
+  let maxActiveRequests = 0
   const ncm = {
     async song_detail(params) {
       const ids = String(params.ids || '').split(',')
       requestedBatches.push(ids)
+      activeRequests += 1
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      activeRequests -= 1
       return {
         body: {
           songs: ids.map((id) => ({
@@ -41,6 +47,7 @@ test('fetchNeteaseSongsByTrackIds batches song detail requests beyond 1000 track
   assert.equal(songs[0].id, 1)
   assert.equal(songs[999].id, 1000)
   assert.equal(songs[1000].id, 1001)
+  assert.ok(maxActiveRequests > 1)
 })
 
 test('fetchNeteaseSongsByTrackIds preserves playlist order and duplicate track ids', async () => {

@@ -9,6 +9,7 @@ import { getNeteaseSongDirectUrl, searchNeteaseSongs } from './neteaseLyrics.js'
 import {
   getQqMusicPlaylistTracks,
   getQqMusicSongDirectUrl,
+  resolveQqMusicPlaylistId,
   searchQqMusicSongs
 } from './qqMusicProvider.js'
 
@@ -91,7 +92,13 @@ function parseQqMusicPlaylistId(input) {
 }
 
 function looksLikeQqMusicPlaylistInput(raw) {
-  return !!parseQqMusicPlaylistId(raw)
+  if (parseQqMusicPlaylistId(raw)) return true
+  try {
+    const u = new URL(String(raw || '').includes('://') ? raw : `https://${raw}`)
+    return /(^|\.)qq\.com$/i.test(u.hostname)
+  } catch {
+    return false
+  }
 }
 
 function looksLikeSpotifyPlaylistInput(raw) {
@@ -634,7 +641,12 @@ export async function importPlaylistFromLink(
   }
 
   if (looksLikeQqMusicPlaylistInput(trimmed)) {
-    const playlistId = parseQqMusicPlaylistId(trimmed)
+    const playlistId =
+      parseQqMusicPlaylistId(trimmed) ||
+      (await resolveQqMusicPlaylistId(trimmed, { cookie: options.qqCookie || '' }))
+    if (!playlistId) {
+      throw new Error('Invalid QQ Music playlist URL or ID')
+    }
     const meta = await getQqMusicPlaylistTracks({
       playlistId,
       cookie: options.qqCookie || ''

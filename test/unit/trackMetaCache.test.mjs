@@ -74,7 +74,7 @@ test('track meta cache fingerprint rejects changed mtime', () => {
   )
 })
 
-test('legacy track meta cache records without fingerprint remain readable', () => {
+test('legacy track meta cache records without cover fingerprint remain readable', () => {
   assert.equal(
     isTrackMetaCacheRecordFresh(
       { meta: { title: 'Legacy title' } },
@@ -83,6 +83,35 @@ test('legacy track meta cache records without fingerprint remain readable', () =
     true
   )
   assert.equal(isTrackMetaCacheRecordFresh({ meta: { title: 'Path only' } }, 'D:/music/song.flac'), true)
+})
+
+test('legacy track cover cache records without fingerprint are refreshed for stat-aware seeds', () => {
+  assert.equal(
+    isTrackMetaCacheRecordFresh(
+      {
+        meta: {
+          title: 'Remember',
+          cover: 'data:image/jpeg;base64,stale-cover',
+          coverChecked: true
+        }
+      },
+      { path: 'D:/music/001-Remember_43911428.flac', sizeBytes: 2048, mtimeMs: 12345 }
+    ),
+    false
+  )
+  assert.equal(
+    isTrackMetaCacheRecordFresh(
+      {
+        meta: {
+          title: 'Remember',
+          cover: 'data:image/jpeg;base64,stale-cover',
+          coverChecked: true
+        }
+      },
+      'D:/music/001-Remember_43911428.flac'
+    ),
+    true
+  )
 })
 
 test('cover trim strips only cover fields from track metadata', () => {

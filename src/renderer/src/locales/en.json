@@ -232,7 +232,9 @@
       "open": "Open",
       "historyTitle": "Playlist history",
       "historyHint": "NetEase and QQ Music together",
-      "historyCount": "{{count}} tracks"
+      "historyCount": "{{count}} tracks",
+      "filterPlaceholder": "Filter songs in {{name}}...",
+      "filterButton": "Filter"
     },
     "quality": {
       "lossless": "Lossless first",

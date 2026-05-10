@@ -197,7 +197,9 @@
       "open": "開く",
       "historyTitle": "プレイリスト履歴",
       "historyHint": "NetEase / QQ Music をまとめて表示",
-      "historyCount": "{{count}} 曲"
+      "historyCount": "{{count}} 曲",
+      "filterPlaceholder": "{{name}} 内の曲、アーティスト、アルバムを絞り込み...",
+      "filterButton": "絞り込み"
     },
     "quality": {
       "lossless": "ロスレス優先",

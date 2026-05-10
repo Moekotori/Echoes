@@ -8,6 +8,7 @@ import { fetchNeteasePlaylistMeta, parseNeteasePlaylistId } from './neteasePlayl
 import {
   getQqMusicPlaylistTracks,
   getQqMusicSongDirectUrl,
+  resolveQqMusicPlaylistId,
   searchQqMusicSongs
 } from './qqMusicProvider.js'
 import { getQqLyricBySongMid } from './lyricsProviders.js'
@@ -245,26 +246,6 @@ function readTimedMapEntry(cache, key, ttlMs) {
     return null
   }
   return entry.value
-}
-
-function parseQqMusicPlaylistId(input) {
-  const raw = String(input || '').trim()
-  if (!raw) return ''
-  if (/^\d+$/.test(raw)) return raw
-  const direct = /(?:[?&](?:id|disstid)=|\/playlist\/)(\d+)/i.exec(raw)
-  if (direct) return direct[1]
-  try {
-    const normalized = raw.includes('://') ? raw : `https://${raw}`
-    const url = new URL(normalized)
-    const queryId = url.searchParams.get('id') || url.searchParams.get('disstid')
-    if (queryId && /^\d+$/.test(queryId)) return queryId
-    const pathMatch = url.pathname.match(/(?:playlist|taoge)[/-](\d+)/i)
-    if (pathMatch) return pathMatch[1]
-  } catch {
-    // fall through
-  }
-  const loose = /\b(\d{5,})\b/.exec(raw)
-  return loose ? loose[1] : ''
 }
 
 function pickQqTrackMid(track) {
@@ -505,12 +486,11 @@ export async function fetchStreamingPlaylist({
   if (!rawInput) return { ok: false, provider: normalizedProvider, error: 'missing_playlist_link', results: [] }
 
   if (normalizedProvider === 'qqMusic') {
-    const playlistId = parseQqMusicPlaylistId(rawInput)
+    const playlistId = await resolveQqMusicPlaylistId(rawInput, { cookie: qqMusicCookie })
     if (!playlistId) return { ok: false, provider: normalizedProvider, error: 'invalid_playlist_link', results: [] }
     const meta = await getQqMusicPlaylistTracks({
       playlistId,
-      cookie: qqMusicCookie,
-      limit: 1000
+      cookie: qqMusicCookie
     })
     return {
       ok: true,

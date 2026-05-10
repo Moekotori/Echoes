@@ -63,6 +63,14 @@ function isEmptyMetadataValue(value) {
   return false
 }
 
+function inferCoverSourceFromValue(value) {
+  const cover = typeof value === 'string' ? value.trim() : ''
+  if (!cover) return ''
+  if (/^(?:data:image\/|file:\/\/)/i.test(cover)) return 'local-folder-cover'
+  if (/^https?:\/\//i.test(cover)) return 'network'
+  return ''
+}
+
 export function getTrackMetaFieldSource(entry = {}, field = '') {
   if (!entry || typeof entry !== 'object' || !field) return ''
   const fieldSources =
@@ -72,7 +80,8 @@ export function getTrackMetaFieldSource(entry = {}, field = '') {
     return field === 'cover' && directSource === 'folder' ? 'local-folder-cover' : directSource
   if (field === 'cover') {
     const source = normalizeMetadataSource(entry.coverSource || entry.metadataSource)
-    return source === 'folder' ? 'local-folder-cover' : source
+    if (source) return source === 'folder' ? 'local-folder-cover' : source
+    return inferCoverSourceFromValue(entry.cover)
   }
   return normalizeMetadataSource(entry.metadataSource)
 }
@@ -191,6 +200,8 @@ export function mergeTrackMetaWithPriority(existing = {}, incoming = {}, options
     if (picked.picked || isEmptyMetadataValue(existing[field])) {
       next[field] = picked.value
       setFieldSource(fieldSources, field, picked.source)
+    } else if (!isEmptyMetadataValue(existing[field])) {
+      setFieldSource(fieldSources, field, picked.source)
     }
   }
 
@@ -217,6 +228,9 @@ export function mergeTrackMetaWithPriority(existing = {}, incoming = {}, options
       ]) {
         if (incoming[key] != null) next[key] = incoming[key]
       }
+    } else if (!isEmptyMetadataValue(existing.cover)) {
+      setFieldSource(fieldSources, 'cover', picked.source)
+      if (picked.source && !next.coverSource) next.coverSource = picked.source
     }
   }
 

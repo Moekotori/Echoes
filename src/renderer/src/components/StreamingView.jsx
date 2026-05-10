@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
@@ -22,6 +22,9 @@ const STREAMING_QUALITY_STORAGE_KEY = 'echo.streaming.audioQualityMode'
 const STREAMING_SESSION_STORAGE_KEY = 'echo.streaming.searchSession'
 const STREAMING_PLAYLIST_HISTORY_STORAGE_KEY = 'echo.streaming.playlistHistory'
 const STREAMING_PLAYLIST_HISTORY_LIMIT = 8
+const STREAMING_RESULT_ROW_HEIGHT = 80
+const STREAMING_RESULT_OVERSCAN = 8
+const STREAMING_VIRTUALIZE_THRESHOLD = 140
 
 const PROVIDERS = [
   { id: 'netease', labelKey: 'streaming.providers.netease', hintKey: 'streaming.providerHints.native' },
@@ -41,6 +44,7 @@ const PLAYLIST_PROVIDERS = [
   }
 ]
 const CATALOG_PROVIDER_IDS = new Set(['netease', 'qqMusic', 'soundcloud'])
+const STREAMING_RESULT_MODES = new Set(['search', 'daily', 'playlist'])
 
 const QUALITY_OPTIONS = [
   { id: 'lossless', labelKey: 'streaming.quality.lossless' },
@@ -77,7 +81,9 @@ function getInitialStreamingSession() {
       query: typeof parsed.query === 'string' ? parsed.query : '',
       selectedProviders: Array.isArray(parsed.selectedProviders) ? parsed.selectedProviders.filter(Boolean) : [],
       results: Array.isArray(parsed.results) ? parsed.results : [],
-      statuses: Array.isArray(parsed.statuses) ? parsed.statuses : []
+      statuses: Array.isArray(parsed.statuses) ? parsed.statuses : [],
+      resultMode: STREAMING_RESULT_MODES.has(parsed.resultMode) ? parsed.resultMode : 'search',
+      activePlaylistName: typeof parsed.activePlaylistName === 'string' ? parsed.activePlaylistName : ''
     }
   } catch {
     return {}
@@ -90,6 +96,30 @@ function rememberStreamingSession(snapshot) {
   } catch {
     /* ignore storage failures */
   }
+}
+
+function normalizeStreamingFilterValue(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+}
+
+function trackMatchesStreamingFilter(track, filterText) {
+  if (!filterText) return true
+  const fields = [
+    track?.title,
+    track?.artist,
+    track?.album,
+    track?.provider,
+    track?.providerLabel,
+    track?.sourceId,
+    track?.raw?.name,
+    track?.raw?.songName,
+    track?.raw?.singer,
+    track?.raw?.albumName
+  ]
+  return fields.some((field) => normalizeStreamingFilterValue(field).includes(filterText))
 }
 
 function playbackModeLabel(track, t) {
@@ -217,6 +247,8 @@ export default function StreamingView({ onPlayTrack }) {
   const [qualityMode, setQualityMode] = useState(getInitialQualityMode)
   const [results, setResults] = useState(initialSession.results || [])
   const [statuses, setStatuses] = useState(initialSession.statuses || [])
+  const [resultMode, setResultMode] = useState(initialSession.resultMode || 'search')
+  const [activePlaylistName, setActivePlaylistName] = useState(initialSession.activePlaylistName || '')
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [signInStatus, setSignInStatus] = useState({})
@@ -228,6 +260,9 @@ export default function StreamingView({ onPlayTrack }) {
   const [playlistLinkProvider, setPlaylistLinkProvider] = useState('')
   const [playlistLinkInput, setPlaylistLinkInput] = useState('')
   const [playlistHistory, setPlaylistHistory] = useState(getInitialPlaylistHistory)
+  const resultListRef = useRef(null)
+  const [resultListScrollTop, setResultListScrollTop] = useState(0)
+  const [resultListHeight, setResultListHeight] = useState(520)
 
   useEffect(() => {
     let cancelled = false
@@ -254,9 +289,11 @@ export default function StreamingView({ onPlayTrack }) {
       query,
       selectedProviders,
       results,
-      statuses
+      statuses,
+      resultMode,
+      activePlaylistName
     })
-  }, [query, selectedProviders, results, statuses])
+  }, [activePlaylistName, query, resultMode, selectedProviders, results, statuses])
 
   useEffect(() => {
     rememberPlaylistHistory(playlistHistory)
@@ -278,14 +315,62 @@ export default function StreamingView({ onPlayTrack }) {
     () => selectedProviders.filter((id) => CATALOG_PROVIDER_IDS.has(id)),
     [selectedProviders]
   )
-  const visibleResults = useMemo(
-    () => results.filter((track) => selectedSet.has(track?.provider)),
-    [results, selectedSet]
-  )
+  const playlistFilterMode = resultMode === 'playlist'
+  const visibleResults = useMemo(() => {
+    const providerFiltered = results.filter((track) => selectedSet.has(track?.provider))
+    if (!playlistFilterMode) return providerFiltered
+    const filterText = normalizeStreamingFilterValue(query)
+    if (!filterText) return providerFiltered
+    return providerFiltered.filter((track) => trackMatchesStreamingFilter(track, filterText))
+  }, [playlistFilterMode, query, results, selectedSet])
+  const shouldVirtualizeResults = visibleResults.length > STREAMING_VIRTUALIZE_THRESHOLD
+  const virtualWindow = useMemo(() => {
+    if (!shouldVirtualizeResults) {
+      return {
+        start: 0,
+        items: visibleResults,
+        totalHeight: 0
+      }
+    }
+    const visibleCount = Math.ceil(resultListHeight / STREAMING_RESULT_ROW_HEIGHT)
+    const start = Math.max(
+      0,
+      Math.floor(resultListScrollTop / STREAMING_RESULT_ROW_HEIGHT) - STREAMING_RESULT_OVERSCAN
+    )
+    const end = Math.min(
+      visibleResults.length,
+      start + visibleCount + STREAMING_RESULT_OVERSCAN * 2
+    )
+    return {
+      start,
+      items: visibleResults.slice(start, end),
+      totalHeight: visibleResults.length * STREAMING_RESULT_ROW_HEIGHT
+    }
+  }, [resultListHeight, resultListScrollTop, shouldVirtualizeResults, visibleResults])
   const groupedStatuses = useMemo(
     () => statuses.filter((status) => selectedSet.has(status?.provider) && statusMessage(status, t)),
     [statuses, selectedSet, t]
   )
+
+  useEffect(() => {
+    const node = resultListRef.current
+    if (!node) return undefined
+
+    const updateHeight = () => {
+      setResultListHeight(Math.max(320, node.clientHeight || 520))
+    }
+    updateHeight()
+
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [shouldVirtualizeResults])
+
+  useEffect(() => {
+    setResultListScrollTop(0)
+    if (resultListRef.current) resultListRef.current.scrollTop = 0
+  }, [query, resultMode, results, selectedProviders])
   const toggleProvider = (providerId) => {
     setDailyMode(false)
     setSelectedProviders((prev) => {
@@ -308,6 +393,8 @@ export default function StreamingView({ onPlayTrack }) {
   const loadDailyRecommendations = useCallback(async () => {
     if (!signInStatus.netease) {
       setDailyMode(true)
+      setResultMode('daily')
+      setActivePlaylistName('')
       setResults([])
       setStatuses([])
       setNotice(t('streaming.daily.signInRequired', 'Sign in to NetEase Cloud Music to see your daily recommendations.'))
@@ -327,6 +414,8 @@ export default function StreamingView({ onPlayTrack }) {
       }
       const tracks = Array.isArray(payload.results) ? payload.results : []
       setDailyMode(true)
+      setResultMode('daily')
+      setActivePlaylistName('')
       setSelectedProviders((prev) => (prev.includes('netease') ? prev : ['netease', ...prev]))
       setResults(tracks)
       setStatuses([])
@@ -335,6 +424,8 @@ export default function StreamingView({ onPlayTrack }) {
       }
     } catch (error) {
       setDailyMode(true)
+      setResultMode('daily')
+      setActivePlaylistName('')
       setResults([])
       setStatuses([])
       setNotice(error?.message || String(error))
@@ -369,7 +460,11 @@ export default function StreamingView({ onPlayTrack }) {
         )
       }
       const tracks = Array.isArray(payload.results) ? payload.results : []
+      const playlistName = payload.playlistName || t('streaming.playlists.fallbackName', 'Playlist')
       setSelectedProviders((prev) => (prev.includes(providerId) ? prev : [providerId, ...prev]))
+      setQuery('')
+      setResultMode('playlist')
+      setActivePlaylistName(playlistName)
       setResults(tracks)
       setStatuses([])
       setPlaylistLinkProvider('')
@@ -378,7 +473,7 @@ export default function StreamingView({ onPlayTrack }) {
         const nextItem = normalizePlaylistHistoryItem({
           provider: providerId,
           input: raw,
-          name: payload.playlistName || t('streaming.playlists.fallbackName', 'Playlist'),
+          name: playlistName,
           count: tracks.length,
           updatedAt: Date.now()
         })
@@ -425,12 +520,15 @@ export default function StreamingView({ onPlayTrack }) {
 
   const runSearch = async (event) => {
     event?.preventDefault?.()
+    if (playlistFilterMode) return
     const text = query.trim()
     if (!text) {
       setNotice(t('streaming.notices.enterQuery', 'Enter a song, artist, or album before searching.'))
       return
     }
     setDailyMode(false)
+    setResultMode('search')
+    setActivePlaylistName('')
     setLoading(true)
     setNotice('')
     try {
@@ -578,6 +676,97 @@ export default function StreamingView({ onPlayTrack }) {
     }
     setDailyLoading(false)
     setNotice(t('streaming.daily.downloadQueued', 'Daily recommendations were sent to the downloader.'))
+  }
+
+  const renderResultRow = (track, virtualIndex = null) => {
+    const native = track.playbackMode === 'nativeStream'
+    const actionId = track.id || `${track.provider}-${track.sourceId}`
+    const isDownloading = downloadingId === actionId
+    const rowStyle =
+      typeof virtualIndex === 'number'
+        ? {
+            top: `${virtualIndex * STREAMING_RESULT_ROW_HEIGHT}px`,
+            height: `${STREAMING_RESULT_ROW_HEIGHT - 8}px`
+          }
+        : undefined
+
+    return (
+      <div
+        key={track.id || `${track.provider}-${track.sourceId}`}
+        className={`streaming-result-row${typeof virtualIndex === 'number' ? ' streaming-result-row--virtual' : ''}`}
+        style={rowStyle}
+        role="button"
+        tabIndex={0}
+        onDoubleClick={(event) => {
+          if (hasSelectedText() || isSelectableTextTarget(event.target)) return
+          handlePlay(track)
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          void handlePlay(track)
+        }}
+        title={t('streaming.actions.doubleClickPlay', 'Double-click to play')}
+      >
+        <div className="streaming-cover">
+          {track.cover ? (
+            <img src={track.cover} alt="" loading="lazy" />
+          ) : (
+            <div className="streaming-cover-fallback">
+              <Music size={20} />
+            </div>
+          )}
+          <StreamingSourceBadge provider={track.provider} />
+        </div>
+        <div className="streaming-result-main">
+          <strong>{track.title || t('streaming.unknownTitle', 'Unknown Title')}</strong>
+          <span>{track.artist || t('common.unknownArtist', 'Unknown Artist')}{track.album ? ` / ${track.album}` : ''}</span>
+          <small>{track.providerLabel || track.provider}</small>
+        </div>
+        <span className="streaming-duration">{formatRemoteDuration(track.duration)}</span>
+        <span className={`streaming-quality-pill rank-${track.qualityRank || 0}`}>
+          {qualityText(track, t)}
+        </span>
+        <span className={`streaming-mode-pill${native ? ' native' : ' controlled'}`}>
+          {native ? t('streaming.mode.native', 'Native') : t('streaming.mode.controlled', 'Controlled')}
+        </span>
+        <div className="streaming-action-group" onDoubleClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            className="streaming-action-button download"
+            onClick={() => handleDownload(track)}
+            disabled={isDownloading}
+            title={t('streaming.actions.downloadTitle', 'Download to the media download folder')}
+            aria-label={t('streaming.actions.download', 'Download')}
+          >
+            {isDownloading ? (
+              <Loader2 size={16} className="spin" />
+            ) : (
+              <Download size={16} />
+            )}
+          </button>
+          <button
+            type="button"
+            className="streaming-action-button primary"
+            onClick={() => handlePlay(track)}
+            title={t('streaming.actions.playTitle', 'Play with ECHO')}
+            aria-label={t('streaming.actions.play', 'Play')}
+          >
+            <Play size={16} />
+          </button>
+        </div>
+        {isDownloading ? (
+          <div
+            className="streaming-download-progress"
+            aria-label={t('streaming.downloadProgress', 'Download progress')}
+            style={{ '--streaming-download-progress': `${downloadProgress}%` }}
+          >
+            <span />
+            <small>{Math.round(downloadProgress)}%</small>
+          </div>
+        ) : null}
+      </div>
+    )
   }
 
   return (
@@ -730,7 +919,14 @@ export default function StreamingView({ onPlayTrack }) {
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={t('streaming.searchPlaceholder', 'Search online songs, artists, or albums...')}
+          placeholder={
+            playlistFilterMode
+              ? t('streaming.playlists.filterPlaceholder', {
+                  name: activePlaylistName || t('streaming.playlists.fallbackName', 'Playlist'),
+                  defaultValue: 'Filter songs in {{name}}...'
+                })
+              : t('streaming.searchPlaceholder', 'Search online songs, artists, or albums...')
+          }
         />
         <div className="streaming-quality-toggle" role="group" aria-label={t('streaming.qualityAria', 'Default quality')}>
           {QUALITY_OPTIONS.map((option) => (
@@ -744,9 +940,9 @@ export default function StreamingView({ onPlayTrack }) {
             </button>
           ))}
         </div>
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading || playlistFilterMode}>
           {loading ? <Loader2 size={17} className="spin" /> : <SlidersHorizontal size={17} />}
-          {t('streaming.search', 'Search')}
+          {playlistFilterMode ? t('streaming.playlists.filterButton', 'Filter') : t('streaming.search', 'Search')}
         </button>
       </form>
 
@@ -782,95 +978,29 @@ export default function StreamingView({ onPlayTrack }) {
         </div>
       )}
 
-      <div className="streaming-result-list">
+      <div
+        ref={resultListRef}
+        className={`streaming-result-list${shouldVirtualizeResults ? ' streaming-result-list--virtual' : ''}`}
+        onScroll={
+          shouldVirtualizeResults
+            ? (event) => setResultListScrollTop(event.currentTarget.scrollTop)
+            : undefined
+        }
+      >
         {loading && (
           <div className="streaming-empty">
             <Loader2 size={24} className="spin" />
             <span>{t('streaming.loading', 'Searching enabled providers...')}</span>
           </div>
         )}
+        {!loading && shouldVirtualizeResults && (
+          <div className="streaming-result-virtual-spacer" style={{ height: `${virtualWindow.totalHeight}px` }}>
+            {virtualWindow.items.map((track, offset) => renderResultRow(track, virtualWindow.start + offset))}
+          </div>
+        )}
         {!loading &&
-          visibleResults.map((track) => {
-            const native = track.playbackMode === 'nativeStream'
-            const actionId = track.id || `${track.provider}-${track.sourceId}`
-            const isDownloading = downloadingId === actionId
-            return (
-              <div
-                key={track.id || `${track.provider}-${track.sourceId}`}
-                className="streaming-result-row"
-                role="button"
-                tabIndex={0}
-                onDoubleClick={(event) => {
-                  if (hasSelectedText() || isSelectableTextTarget(event.target)) return
-                  handlePlay(track)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return
-                  event.preventDefault()
-                  void handlePlay(track)
-                }}
-                title={t('streaming.actions.doubleClickPlay', 'Double-click to play')}
-              >
-                <div className="streaming-cover">
-                  {track.cover ? (
-                    <img src={track.cover} alt="" loading="lazy" />
-                  ) : (
-                    <div className="streaming-cover-fallback">
-                      <Music size={20} />
-                    </div>
-                  )}
-                  <StreamingSourceBadge provider={track.provider} />
-                </div>
-                <div className="streaming-result-main">
-                  <strong>{track.title || t('streaming.unknownTitle', 'Unknown Title')}</strong>
-                  <span>{track.artist || t('common.unknownArtist', 'Unknown Artist')}{track.album ? ` / ${track.album}` : ''}</span>
-                  <small>{track.providerLabel || track.provider}</small>
-                </div>
-                <span className="streaming-duration">{formatRemoteDuration(track.duration)}</span>
-                <span className={`streaming-quality-pill rank-${track.qualityRank || 0}`}>
-                  {qualityText(track, t)}
-                </span>
-                <span className={`streaming-mode-pill${native ? ' native' : ' controlled'}`}>
-                  {native ? t('streaming.mode.native', 'Native') : t('streaming.mode.controlled', 'Controlled')}
-                </span>
-                <div className="streaming-action-group" onDoubleClick={(event) => event.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="streaming-action-button download"
-                    onClick={() => handleDownload(track)}
-                    disabled={isDownloading}
-                    title={t('streaming.actions.downloadTitle', 'Download to the media download folder')}
-                    aria-label={t('streaming.actions.download', 'Download')}
-                  >
-                    {isDownloading ? (
-                      <Loader2 size={16} className="spin" />
-                    ) : (
-                      <Download size={16} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className="streaming-action-button primary"
-                    onClick={() => handlePlay(track)}
-                    title={t('streaming.actions.playTitle', 'Play with ECHO')}
-                    aria-label={t('streaming.actions.play', 'Play')}
-                  >
-                    <Play size={16} />
-                  </button>
-                </div>
-                {isDownloading ? (
-                  <div
-                    className="streaming-download-progress"
-                    aria-label={t('streaming.downloadProgress', 'Download progress')}
-                    style={{ '--streaming-download-progress': `${downloadProgress}%` }}
-                  >
-                    <span />
-                    <small>{Math.round(downloadProgress)}%</small>
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
+          !shouldVirtualizeResults &&
+          virtualWindow.items.map((track) => renderResultRow(track))}
       </div>
     </div>
   )

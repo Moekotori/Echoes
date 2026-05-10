@@ -1301,6 +1301,47 @@ test('metadata priority: embedded cover beats folder and network covers', () => 
   )
 })
 
+test('metadata priority: legacy local cover without source beats network cover', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      cover: 'data:image/jpeg;base64,local-embedded'
+    },
+    {
+      cover: 'https://example.test/wrong-network-cover.jpg',
+      coverSource: 'network',
+      fieldSources: { cover: 'network' }
+    }
+  )
+
+  assert.equal(merged.cover, 'data:image/jpeg;base64,local-embedded')
+  assert.equal(merged.coverSource, 'local-folder-cover')
+  assert.equal(merged.fieldSources.cover, 'local-folder-cover')
+})
+
+test('metadata priority: parsed track info keeps local cover before network metadata', () => {
+  const track = {
+    path: 'D:/Music/Remember/001-Remember_43911428.flac',
+    name: '001-Remember_43911428.flac',
+    info: {
+      title: 'Remember',
+      artist: 'yuigot',
+      album: 'Remember',
+      cover: 'data:image/jpeg;base64,embedded'
+    }
+  }
+
+  const info = parseTrackInfo(track, {
+    cover: 'https://example.test/wrong-network-cover.jpg',
+    coverSource: 'network',
+    fieldSources: { cover: 'network' },
+    metadataSource: 'network'
+  })
+
+  assert.equal(info.cover, 'data:image/jpeg;base64,embedded')
+  assert.equal(info.coverSource, 'local-folder-cover')
+  assert.equal(info.fieldSources.cover, 'local-folder-cover')
+})
+
 test('metadata priority: old cache without sources can be refreshed by embedded metadata', () => {
   const merged = mergeTrackMetaWithPriority(
     {
