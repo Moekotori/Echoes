@@ -269,6 +269,23 @@ export function getTrackAlbumGroupKey(track) {
   return `${albumKey}\u0001folder:unknown`
 }
 
+function getTrackAlbumWallGroupKey(track) {
+  const albumKey = normalizeAlbumNameKey(getTrackAlbumName(track))
+  if (!albumKey) return ''
+
+  const albumSourcePriority = getMetadataSourcePriority(
+    getTrackMetaFieldSource(track?.info, 'album')
+  )
+  if (
+    albumSourcePriority >= getMetadataSourcePriority('embedded-cue') &&
+    !isGenericAlbumFallbackName(albumKey)
+  ) {
+    return albumKey
+  }
+
+  return getTrackAlbumGroupKey(track)
+}
+
 export function resolveTrackIdentityFromMetadata({
   fileName = '',
   title = '',
@@ -424,9 +441,116 @@ export function getAlbumCoverCandidates(
   return covers
 }
 
+function getFallbackCoverCandidate(track, entry = null) {
+  const candidates = [
+    {
+      cover: entry?.cover,
+      source: getTrackMetaFieldSource(entry, 'cover'),
+      scope: entry?.coverScope
+    },
+    {
+      cover: track?.info?.cover,
+      source: getTrackMetaFieldSource(track?.info, 'cover'),
+      scope: track?.info?.coverScope
+    },
+    {
+      cover: track?.cover,
+      source: getTrackMetaFieldSource(track, 'cover'),
+      scope: track?.coverScope
+    }
+  ]
+  for (const candidate of candidates) {
+    const cover = typeof candidate.cover === 'string' ? candidate.cover.trim() : ''
+    if (!cover || !isDisplayableTrackCoverUrl(cover)) continue
+    if (candidate.scope === 'track') continue
+    if (candidate.source === 'network' || candidate.source === 'cloud') continue
+    return cover
+  }
+  return ''
+}
+
+function getFallbackArtistKey(track, entry = null) {
+  return normalizeArtistNameKey(
+    cleanArtistCandidate(entry?.albumArtist) ||
+      cleanArtistCandidate(entry?.artist) ||
+      cleanArtistCandidate(track?.info?.albumArtist) ||
+      cleanArtistCandidate(track?.info?.artist) ||
+      cleanArtistCandidate(track?.albumArtist) ||
+      cleanArtistCandidate(track?.artist)
+  )
+}
+
+function getReliableAlbumKey(track, entry = null) {
+  const album = entry?.album || track?.info?.album || track?.album || ''
+  if (!album || isGenericAlbumFallbackName(album)) return ''
+  const entryPriority = getMetadataSourcePriority(getTrackMetaFieldSource(entry, 'album'))
+  const trackPriority = getMetadataSourcePriority(getTrackMetaFieldSource(track?.info, 'album'))
+  const priority = Math.max(entryPriority, trackPriority)
+  return priority >= getMetadataSourcePriority('embedded-cue') ? normalizeAlbumNameKey(album) : ''
+}
+
+export function buildAlbumFolderCoverFallbackMap(
+  tracks = [],
+  { trackMetaMap = {}, effectiveTrackMetaMap = {}, enabled = true } = {}
+) {
+  if (enabled === false) return {}
+
+  const groups = new Map()
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    if (!track?.path) continue
+    const folderKey = getTrackAlbumFolderKey(track)
+    if (!folderKey) continue
+    if (!groups.has(folderKey)) {
+      groups.set(folderKey, {
+        tracks: [],
+        artistKeys: new Set(),
+        albumKeys: new Set(),
+        coverFingerprints: new Set(),
+        cover: ''
+      })
+    }
+    const group = groups.get(folderKey)
+    const entry = effectiveTrackMetaMap?.[track.path] || trackMetaMap?.[track.path] || null
+    const artistKey = getFallbackArtistKey(track, entry)
+    if (artistKey) group.artistKeys.add(artistKey)
+    const albumKey = getReliableAlbumKey(track, entry)
+    if (albumKey) group.albumKeys.add(albumKey)
+    const cover = getFallbackCoverCandidate(track, entry)
+    if (cover) {
+      group.coverFingerprints.add(getArtworkFingerprint(cover))
+      if (!group.cover) group.cover = cover
+    }
+    group.tracks.push({ track, entry, artistKey, albumKey })
+  }
+
+  const fallbackMap = {}
+  for (const group of groups.values()) {
+    if (!group.cover || group.coverFingerprints.size !== 1 || group.artistKeys.size !== 1) {
+      continue
+    }
+    const [groupArtistKey] = group.artistKeys
+    for (const item of group.tracks) {
+      const path = item.track?.path
+      if (!path) continue
+      const existingCover = getFallbackCoverCandidate(item.track, item.entry)
+      if (existingCover) continue
+      if (item.artistKey && item.artistKey !== groupArtistKey) continue
+      if (item.albumKey && group.albumKeys.size > 0 && !group.albumKeys.has(item.albumKey)) continue
+      fallbackMap[path] = group.cover
+    }
+  }
+  return fallbackMap
+}
+
 export function buildTrackArtworkSources(
   track,
-  { trackMetaMap = {}, effectiveTrackMetaMap = {}, albumCoverMap = {}, albumTracks = [] } = {}
+  {
+    trackMetaMap = {},
+    effectiveTrackMetaMap = {},
+    albumCoverMap = {},
+    albumFolderCoverFallbackMap = {},
+    albumTracks = []
+  } = {}
 ) {
   if (!track) return []
   const sources = []
@@ -444,6 +568,7 @@ export function buildTrackArtworkSources(
   if (!allowAlbumFallback) return sources
 
   pushUniqueCover(sources, seen, albumKey ? albumCoverMap?.[albumKey] : null)
+  pushUniqueCover(sources, seen, path ? albumFolderCoverFallbackMap?.[path] : null)
 
   const candidateTracks = Array.isArray(albumTracks) ? albumTracks : []
   for (const candidate of candidateTracks) {
@@ -489,23 +614,83 @@ export function hasReusableTrackCoverMeta(entry = {}) {
 export function getCurrentTrackDisplayCover({
   currentTrack = null,
   currentTrackMeta = null,
-  albumCoverMap = {}
+  albumCoverMap = {},
+  albumFolderCoverFallbackMap = {}
+} = {}) {
+  return getCurrentTrackDisplayCoverDetail({
+    currentTrack,
+    currentTrackMeta,
+    albumCoverMap,
+    albumFolderCoverFallbackMap
+  }).cover
+}
+
+export const TRUSTED_DISPLAY_COVER_SOURCES = new Set([
+  'manual',
+  'embedded',
+  'embedded-batch',
+  'embedded-cue',
+  'sidecar',
+  'download-sidecar',
+  'network'
+])
+
+export function isTrustedDisplayCoverSource(source = '') {
+  return TRUSTED_DISPLAY_COVER_SOURCES.has(String(source || '').trim())
+}
+
+export function getCurrentTrackDisplayCoverDetail({
+  currentTrack = null,
+  currentTrackMeta = null,
+  albumCoverMap = {},
+  albumFolderCoverFallbackMap = {}
 } = {}) {
   const normalizeCover = (value) => {
     const cover = typeof value === 'string' ? value.trim() : ''
     return cover || ''
   }
-  const metaCover = normalizeCover(currentTrackMeta?.cover)
-  if (metaCover) return metaCover
+  const candidates = [
+    {
+      cover: currentTrackMeta?.cover,
+      source: getTrackMetaFieldSource(currentTrackMeta, 'cover')
+    },
+    {
+      cover: currentTrack?.info?.cover,
+      source: getTrackMetaFieldSource(currentTrack?.info, 'cover')
+    },
+    {
+      cover: currentTrack?.cover,
+      source: getTrackMetaFieldSource(currentTrack, 'cover')
+    },
+    {
+      cover: currentTrack?.path ? albumFolderCoverFallbackMap?.[currentTrack.path] : '',
+      source: 'album-folder-fallback'
+    },
+    {
+      cover: (() => {
+        const albumKey = currentTrack ? getTrackAlbumGroupKey(currentTrack) : ''
+        return albumKey ? albumCoverMap?.[albumKey] : ''
+      })(),
+      source: 'album-cover-map'
+    }
+  ]
 
-  const infoCover = normalizeCover(currentTrack?.info?.cover)
-  if (infoCover) return infoCover
+  for (const candidate of candidates) {
+    const cover = normalizeCover(candidate.cover)
+    if (!cover) continue
+    const source = typeof candidate.source === 'string' ? candidate.source.trim() : ''
+    return {
+      cover,
+      source,
+      trusted: isTrustedDisplayCoverSource(source)
+    }
+  }
 
-  const trackCover = normalizeCover(currentTrack?.cover)
-  if (trackCover) return trackCover
-
-  const albumKey = currentTrack ? getTrackAlbumGroupKey(currentTrack) : ''
-  return normalizeCover(albumKey ? albumCoverMap?.[albumKey] : '')
+  return {
+    cover: '',
+    source: '',
+    trusted: false
+  }
 }
 
 function pushUniqueTracks(target, source) {
@@ -683,7 +868,7 @@ export function buildAlbumWallBuckets(
 
   const groups = groupingTracks.reduce((acc, identityTrack) => {
     const name = getTrackAlbumName(identityTrack)
-    const key = getTrackAlbumGroupKey(identityTrack) || normalizeAlbumNameKey(name)
+    const key = getTrackAlbumWallGroupKey(identityTrack) || normalizeAlbumNameKey(name)
     if (!acc.has(key)) acc.set(key, { key, name, tracks: [] })
     acc.get(key).tracks.push(identityTrack)
     return acc

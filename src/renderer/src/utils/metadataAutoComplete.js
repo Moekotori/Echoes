@@ -1,7 +1,8 @@
 import { getMetadataSourcePriority, getTrackMetaFieldSource } from './metadataPriority.js'
-import { isUnknownArtistName, parseTrackInfo } from './trackUtils.js'
+import { isTrustedDisplayCoverSource, isUnknownArtistName, parseTrackInfo } from './trackUtils.js'
+import { METADATA_AUTO_COMPLETE_VERSION } from '../../../shared/metadataAutoCompleteVersion.mjs'
 
-export const METADATA_AUTO_COMPLETE_VERSION = 2
+export { METADATA_AUTO_COMPLETE_VERSION }
 
 const AUTO_COMPLETE_FIELDS = ['title', 'artist', 'album', 'albumArtist', 'trackNo', 'year', 'genre']
 
@@ -14,8 +15,32 @@ function toPositiveInteger(value) {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+function toNonNegativeInteger(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
+}
+
 function hasRealCover(entry = {}, track = {}) {
-  return Boolean(cleanText(entry?.cover || track?.info?.cover || track?.cover))
+  const cover = cleanText(entry?.cover || track?.info?.cover || track?.cover)
+  if (!cover) return false
+  const coverSource =
+    getTrackMetaFieldSource(entry, 'cover') ||
+    getTrackMetaFieldSource(track?.info, 'cover') ||
+    getTrackMetaFieldSource(track, 'cover')
+  return isTrustedDisplayCoverSource(coverSource)
+}
+
+export function hasRetryableEmbeddedCoverMiss(entry = {}) {
+  return Number(entry?.embeddedPictureCount || 0) > 0 && !cleanText(entry?.cover)
+}
+
+export function shouldRefreshEmbeddedAutoComplete(entry = {}) {
+  if (!entry || typeof entry !== 'object') return false
+  const usesEmbeddedAutoComplete =
+    entry.metadataAutoCompleteEmbeddedChecked === true ||
+    entry.metadataAutoCompleteSource === 'embedded-batch'
+  if (!usesEmbeddedAutoComplete) return false
+  return entry.metadataAutoCompleteVersion !== METADATA_AUTO_COMPLETE_VERSION
 }
 
 function getTrackFingerprintValue(track = {}, field = '') {
@@ -76,6 +101,7 @@ export function shouldSkipEmbeddedMetadataAutoComplete(track, entry = {}, option
   const now = Number(options.now) || Date.now()
   if (hasFileFingerprintChanged(track, entry)) return false
   if (shouldRetryMetadataAutoComplete(entry, options)) return false
+  if (hasRetryableEmbeddedCoverMiss(entry)) return false
   if (hasPendingRetryDelay(entry, now)) return true
   if (entry?.metadataAutoCompleteEmbeddedChecked !== true) return false
   if (entry?.metadataAutoCompleteSource === 'embedded-batch') return true
@@ -93,7 +119,8 @@ export function buildFailedEmbeddedMetadataAutoCompleteEntry(
     now = Date.now(),
     retryDelayMs = 10 * 60 * 1000,
     sizeBytes = existingEntry?.sizeBytes,
-    mtimeMs = existingEntry?.mtimeMs
+    mtimeMs = existingEntry?.mtimeMs,
+    embeddedPictureCount = existingEntry?.embeddedPictureCount
   } = {}
 ) {
   return {
@@ -102,6 +129,7 @@ export function buildFailedEmbeddedMetadataAutoCompleteEntry(
     metadataAutoCompleteEmbeddedChecked: false,
     metadataAutoCompleteLastError: String(error || 'metadata_read_failed'),
     metadataAutoCompleteRetryAfter: now + Math.max(30 * 1000, Number(retryDelayMs) || 0),
+    embeddedPictureCount: toNonNegativeInteger(embeddedPictureCount),
     sizeBytes,
     mtimeMs
   }
@@ -142,9 +170,11 @@ export function buildEmbeddedMetadataAutoCompleteEntry(response = {}, existingEn
   const trackNo = toPositiveInteger(response.trackNumber)
   const year = toPositiveInteger(response.year)
   const fieldSources = {}
+  const embeddedPictureCount = toNonNegativeInteger(response.embeddedPictureCount)
   const entry = {
     coverChecked: true,
     metadataSource: 'embedded',
+    embeddedPictureCount,
     metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
     metadataAutoCompleteEmbeddedChecked: true
   }

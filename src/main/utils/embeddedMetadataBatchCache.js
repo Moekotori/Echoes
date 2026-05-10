@@ -1,6 +1,7 @@
 import fs from 'fs'
 import { createHash } from 'crypto'
 import { dirname, join } from 'path'
+import { METADATA_AUTO_COMPLETE_VERSION } from '../../shared/metadataAutoCompleteVersion.mjs'
 
 const CACHE_DIR_NAME = 'metadata-cache-v1'
 const SHARD_COUNT = 64
@@ -84,12 +85,37 @@ function normalizeNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function normalizeNonNegativeInteger(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0
+}
+
+function normalizeBatchSource(source) {
+  const value = String(source || '').trim()
+  return value === 'embedded' ? 'embedded-batch' : value
+}
+
+function normalizeBatchFieldSources(fieldSources = {}) {
+  const normalized = {}
+  for (const [field, source] of Object.entries(fieldSources || {})) {
+    const nextSource = normalizeBatchSource(source)
+    if (nextSource) normalized[field] = nextSource
+  }
+  return normalized
+}
+
+function hasRetryableMissingEmbeddedCover(entry = {}) {
+  return Number(entry?.embeddedPictureCount || 0) > 0 && !normalizeText(entry?.cover)
+}
+
 function normalizeEntryFromExtendedMetadata(data = {}, seed = {}) {
   if (!data?.success) return null
   const common = data.common || {}
   const technical = data.technical || {}
   const fieldSources =
     common.fieldSources && typeof common.fieldSources === 'object' ? common.fieldSources : {}
+  const normalizedFieldSources = normalizeBatchFieldSources(fieldSources)
+  const coverSource = normalizeBatchSource(common.coverSource)
   return {
     title: normalizeText(common.title) || null,
     artist: normalizeText(common.artist) || null,
@@ -106,15 +132,19 @@ function normalizeEntryFromExtendedMetadata(data = {}, seed = {}) {
     channels: normalizeNumber(technical.channels),
     cover: normalizeText(common.cover) || null,
     coverScope: common.coverScope || null,
-    coverSource: common.coverSource || null,
+    coverSource: coverSource || null,
     coverChecked: common.coverChecked === true,
     coverExtractorVersion: normalizeNumber(common.coverExtractorVersion),
     coverThumbnailOnly: common.coverThumbnailOnly === true,
     coverMaxDimension: normalizeNumber(common.coverMaxDimension),
-    metadataSource: common.metadataSource || (Object.keys(fieldSources).length ? 'embedded' : null),
-    fieldSources,
+    embeddedPictureCount: normalizeNonNegativeInteger(common.embeddedPictureCount),
+    metadataSource:
+      normalizeBatchSource(common.metadataSource) ||
+      (Object.keys(normalizedFieldSources).length ? 'embedded-batch' : null),
+    fieldSources: normalizedFieldSources,
     metadataDetailMode: 'embedded-batch',
     metadataAutoCompleteSource: 'embedded-batch',
+    metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
     metadataAutoCompleteEmbeddedChecked: true,
     sizeBytes: seed.sizeBytes || null,
     mtimeMs: seed.mtimeMs || null
@@ -142,6 +172,14 @@ function normalizeCachedEntry(entry = {}) {
     entry
   )
   return normalized
+}
+
+function isCachedRecordUsable(record, seed) {
+  if (!fingerprintsMatch(record, seed)) return false
+  if (Number(record?.meta?.metadataAutoCompleteVersion || 0) !== METADATA_AUTO_COMPLETE_VERSION) {
+    return false
+  }
+  return !hasRetryableMissingEmbeddedCover(record?.meta)
 }
 
 export async function readEmbeddedMetadataBatch({
@@ -186,7 +224,7 @@ export async function readEmbeddedMetadataBatch({
   for (const seed of unique.values()) {
     const shard = getShard(seed.path)
     const record = shard.records[seed.path]
-    if (!force && fingerprintsMatch(record, seed)) {
+    if (!force && isCachedRecordUsable(record, seed)) {
       const entry = normalizeCachedEntry(record.meta)
       if (entry) {
         entries[seed.path] = entry
@@ -201,6 +239,13 @@ export async function readEmbeddedMetadataBatch({
       if (!entry) {
         failedPaths.push(seed.path)
         errors[seed.path] = data?.error || 'metadata_parse_failed'
+        continue
+      }
+      if (hasRetryableMissingEmbeddedCover(entry)) {
+        delete shard.records[seed.path]
+        shard.changed = true
+        failedPaths.push(seed.path)
+        errors[seed.path] = 'embedded_cover_missing'
         continue
       }
       entries[seed.path] = entry

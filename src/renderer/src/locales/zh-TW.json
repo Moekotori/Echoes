@@ -455,6 +455,8 @@
     "autoDetectBpmDesc": "預設關閉。開啟後，ECHO 會分析沒有 BPM 標籤的曲目，並快取偵測到的節拍。",
     "autoLoadEmbeddedMetadataTitle": "自動載入內嵌標籤資訊",
     "autoLoadEmbeddedMetadataDesc": "預設開啟。仍顯示 Unknown Artist 或預設封面的歌曲會並行從內嵌標籤補全標題、藝人、專輯與封面。",
+    "albumFolderCoverFallbackTitle": "標籤載入時暫用同資料夾專輯封面",
+    "albumFolderCoverFallbackDesc": "預設開啟。只有同一本機專輯資料夾內只有一個已知藝人與一個已知封面時，仍在載入標籤的曲目才會暫時顯示該封面。",
     "autoCompleteNetworkMetadataTitle": "網路補全",
     "autoCompleteNetworkMetadataDesc": "預設關閉。內嵌標籤載入後仍缺藝人或封面的歌曲，才會低優先級使用線上來源補全。",
     "autoCompleteNetworkMetadataDisabledHint": "請先開啟自動載入內嵌標籤資訊。",

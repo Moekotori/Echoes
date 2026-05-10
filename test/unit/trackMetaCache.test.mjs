@@ -1043,6 +1043,32 @@ test('visible cover hydration plan skips current no-cover rows', () => {
   assert.equal(coverPlan.tracks.length, 0)
 })
 
+test('visible cover hydration plan retries no-cover rows when embedded pictures were present', () => {
+  const visibleTrack = missingVisibleMetaTrack('D:/Music/picture-present-no-cover.flac')
+  const trackMetaMap = {
+    [visibleTrack.path]: {
+      artist: 'Known Artist',
+      cover: null,
+      coverChecked: true,
+      coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
+      embeddedPictureCount: 1
+    }
+  }
+  const prefetchPlan = buildTrackMetadataPrefetchPlan({
+    visibleSidebarTracks: [visibleTrack],
+    maxTracks: 10,
+    isLocalTrack: isLocalVisibleTestTrack,
+    trackMetaMap
+  })
+  const coverPlan = buildVisibleCoverHydrationPlan({
+    visibleTracks: [visibleTrack],
+    metadataHydrateRequirementByPath: prefetchPlan.metadataHydrateRequirementByPath,
+    trackMetaMap
+  })
+
+  assert.deepEqual(coverPlan.tracks.map((track) => track.path), [visibleTrack.path])
+})
+
 test('metadata prefetch plan caps tracks and does not require an entire playlist', () => {
   const playlist = Array.from({ length: 50 }, (_, index) =>
     missingVisibleMetaTrack(`D:/Music/playlist-${index + 1}.flac`)

@@ -658,6 +658,8 @@
     "autoDetectBpmDesc": "默认关闭。开启后，ECHO 会分析没有 BPM 标签的曲目，并缓存检测到的节拍。",
     "autoLoadEmbeddedMetadataTitle": "自动加载内嵌标签信息",
     "autoLoadEmbeddedMetadataDesc": "默认开启。仍显示 Unknown Artist 或默认封面的歌曲会并发从内嵌标签补全标题、艺人、专辑与封面。",
+    "albumFolderCoverFallbackTitle": "标签加载时临时使用同文件夹专辑封面",
+    "albumFolderCoverFallbackDesc": "默认开启。仅当同一本地专辑文件夹内只有一个已知作者和一个已知封面时，仍在加载标签的曲目才会临时显示该封面。",
     "autoCompleteNetworkMetadataTitle": "网络补全",
     "autoCompleteNetworkMetadataDesc": "默认关闭。内嵌标签加载后仍缺艺人或封面的歌曲，才会低优先级使用在线来源补全。",
     "autoCompleteNetworkMetadataDisabledHint": "请先开启自动加载内嵌标签信息。",

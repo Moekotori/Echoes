@@ -6,8 +6,8 @@ const DEFAULT_ROW_HEIGHT = 244
 const DEFAULT_GAP = 18
 const DEFAULT_OVERSCAN_ROWS = 3
 const DEFAULT_FALLBACK_VIEWPORT_ROWS = 5
-const RENDER_RANGE_IDLE_SHRINK_MS = 700
-const MAX_RENDER_ROWS = 36
+const RENDER_RANGE_IDLE_SHRINK_MS = 1600
+const MAX_RENDER_ROWS = 60
 
 function getAlbumItemKey(album, index) {
   return (

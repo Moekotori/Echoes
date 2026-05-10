@@ -43,7 +43,21 @@ test('album visible range hydrate is delayed and deduped', () => {
 test('album overview return keeps scroll memory during restoration', () => {
   assert.match(appSource, /pendingAlbumOverviewRestoreRef\.current = true/)
   assert.match(appSource, /nextScrollTop < savedScrollTop - 2/)
+  assert.match(
+    appSource,
+    /\(pendingAlbumOverviewRestoreRef\.current \|\| pendingAlbumDetailScrollResetRef\.current\) &&[\s\S]*nextScrollTop < savedScrollTop - 2/
+  )
   assert.match(appSource, /playlistElement\.scrollTop = restoreTop/)
+})
+
+test('sidebar scroll metrics are coalesced during album wall scrolling', () => {
+  assert.match(appSource, /const sidebarScrollMetricsRafRef = useRef\(0\)/)
+  assert.match(appSource, /const sidebarScrollMetricsPendingRef = useRef\(null\)/)
+  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*applySidebarScrollMetrics\(next\)/)
+  assert.match(
+    appSource,
+    /albumOverviewActiveRef\.current &&[\s\S]*!pendingAlbumDetailScrollResetRef\.current &&[\s\S]*albumOverviewScrollTopRef\.current = scrollTop/
+  )
 })
 
 test('album overview keeps visible cover paths while detail is open', () => {
@@ -132,6 +146,13 @@ test('VirtualAlbumGrid stays passive while album overview is frozen', () => {
   )
 })
 
+test('album wall virtual range keeps a relaxed recycle window', () => {
+  assert.match(virtualGridSource, /const RENDER_RANGE_IDLE_SHRINK_MS = 1600/)
+  assert.match(virtualGridSource, /const MAX_RENDER_ROWS = 60/)
+  assert.match(appSource, /const ALBUM_GRID_OVERSCAN_ROWS = 14/)
+  assert.match(appSource, /const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 20/)
+})
+
 test('album wall hidden layer stays mounted without display none', () => {
   const match = indexCssSource.match(/\.album-browser--hidden\s*\{([\s\S]*?)\n\}/)
   assert.ok(match, 'album-browser--hidden rule should exist')
@@ -167,7 +188,10 @@ test('album detail scroll reset is one-shot', () => {
   assert.match(appSource, /albumDetailScrollResetIgnoreUntilRef/)
   assert.match(appSource, /const \[albumDetailScrollResetVersion, setAlbumDetailScrollResetVersion\]/)
   assert.match(appSource, /setAlbumDetailScrollResetVersion\(\(version\) => version \+ 1\)/)
-  assert.match(appSource, /if \(ignoreUntil > now\) \{[\s\S]*event\.currentTarget\.scrollTop = 0[\s\S]*setSidebarScrollTop\(0\)/)
+  assert.match(
+    appSource,
+    /if \(ignoreUntil > now\) \{[\s\S]*scrollElement\.scrollTop = 0[\s\S]*applySidebarScrollMetrics\(\{[\s\S]*scrollTop: 0/
+  )
   assert.match(appSource, /pendingAlbumDetailScrollResetRef\.current = true[\s\S]*resetSidebarPlaylistScrollNow\(\)/)
 })
 

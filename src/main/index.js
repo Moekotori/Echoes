@@ -5258,6 +5258,11 @@ app.whenReady().then(async () => {
       useWorker: useMetadataWorker
     })
     const musicMetadata = musicMetadataResult?.metadata || {}
+    let embeddedPictureCount =
+      requestOptions.includeCover &&
+      Array.isArray(musicMetadataResult?.rawMetadata?.common?.picture)
+        ? musicMetadataResult.rawMetadata.common.picture.length
+        : 0
     const ffmpegInfo = requestOptions.includeTechnicalProbe
       ? await getFfmpegAudioInfo(filePath).catch(() => null)
       : null
@@ -5325,6 +5330,9 @@ app.whenReady().then(async () => {
       } else {
         const jsmediatagsCover = await runCoverTask(() => readJsmediatagsPicture(filePath))
         const jsmediatagsPicture = jsmediatagsCover?.picture || null
+        if (jsmediatagsPicture?.data && embeddedPictureCount === 0) {
+          embeddedPictureCount = 1
+        }
         const compressedJsmediatagsCover = jsmediatagsPicture
           ? await runCoverTask(() =>
               compressEmbeddedCoverData(
@@ -5454,6 +5462,7 @@ app.whenReady().then(async () => {
           ? EMBEDDED_COVER_EXTRACTOR_VERSION
           : null,
         coverBytes,
+        embeddedPictureCount,
         coverWidth: 0,
         coverHeight: 0,
         coverThumbnailOnly: requestOptions.coverSize === 'album-thumbnail',
@@ -6136,6 +6145,9 @@ app.whenReady().then(async () => {
           coverChecked: requestOptions.includeCover === true,
           coverExtractorVersion,
           coverBytes,
+          embeddedPictureCount:
+            musicMetadataPictureCount +
+            (jsmediatagsPictureFound && musicMetadataPictureCount === 0 ? 1 : 0),
           coverWidth,
           coverHeight,
           coverThumbnailOnly: requestOptions.coverSize === 'album-thumbnail',
@@ -6722,6 +6734,9 @@ app.whenReady().then(async () => {
         ])
       )
       const cover = selectCover(metadata.common.picture)
+      const embeddedPictureCount = Array.isArray(metadata.common.picture)
+        ? metadata.common.picture.length
+        : 0
       return {
         title,
         artist,
@@ -6741,6 +6756,7 @@ app.whenReady().then(async () => {
         genre: Array.isArray(metadata.common.genre)
           ? metadata.common.genre.filter(Boolean).join('; ')
           : normalizeMetadataGenre(metadata.common.genre),
+        embeddedPictureCount,
         coverDataUrl: createPictureDataUrl(cover)
       }
     } catch (error) {

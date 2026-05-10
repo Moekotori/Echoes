@@ -2,6 +2,7 @@ export const METADATA_PRIORITY_VERSION = 1
 
 const SOURCE_PRIORITIES = {
   manual: 100,
+  'embedded-batch': 95,
   embedded: 90,
   'embedded-cue': 88,
   cue: 88,

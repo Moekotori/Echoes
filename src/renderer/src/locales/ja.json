@@ -641,6 +641,8 @@
     "autoDetectBpmDesc": "既定ではオフです。有効にすると、BPM タグのない曲を解析し、検出したテンポをキャッシュします。",
     "autoLoadEmbeddedMetadataTitle": "埋め込みタグ情報を自動読み込み",
     "autoLoadEmbeddedMetadataDesc": "既定ではオンです。Unknown Artist または既定カバーのままの曲を、埋め込みタグから並行して補完します。",
+    "albumFolderCoverFallbackTitle": "タグ読み込み中に同じフォルダーのアルバムカバーを使う",
+    "albumFolderCoverFallbackDesc": "既定でオン。同じローカルアルバムフォルダー内で既知のアーティストとカバーがそれぞれ1つだけの場合、タグ読み込み中の曲に一時的にそのカバーを表示します。",
     "autoCompleteNetworkMetadataTitle": "ネットワーク補完",
     "autoCompleteNetworkMetadataDesc": "既定ではオフです。埋め込みタグ後もアーティスト情報やアートワークが足りない曲だけ、低優先度でオンライン補完します。",
     "autoCompleteNetworkMetadataDisabledHint": "先に埋め込みタグの自動読み込みを有効にしてください。",

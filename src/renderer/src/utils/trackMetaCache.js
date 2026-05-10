@@ -163,6 +163,7 @@ function normalizeCoverSource(value = '') {
     [
       'manual',
       'embedded',
+      'embedded-batch',
       'embedded-cue',
       'sidecar',
       'download-sidecar',
@@ -212,6 +213,7 @@ function shouldRefreshDisplayCoverAsThumbnail(track, entry = null) {
 
 export function hasCurrentEmbeddedCoverCheck(entry = null) {
   if (entry?.cover && isLocalCoverEntry(entry)) return true
+  if (!entry?.cover && Number(entry?.embeddedPictureCount || 0) > 0) return false
   return (
     entry?.coverChecked === true &&
     Number(entry?.coverExtractorVersion) === EMBEDDED_COVER_EXTRACTOR_VERSION
@@ -676,6 +678,10 @@ function normalizeTrackMetaEntry(entry) {
   {
     const value = Number(entry.coverMaxDimension)
     next.coverMaxDimension = Number.isFinite(value) && value > 0 ? value : null
+  }
+  {
+    const value = Number(entry.embeddedPictureCount)
+    next.embeddedPictureCount = Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
   }
   {
     const value = Number(entry.lyricsExtractorVersion)

@@ -4,9 +4,11 @@ import assert from 'node:assert/strict'
 import {
   buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
+  buildAlbumFolderCoverFallbackMap,
   buildTrackArtworkSources,
   getAlbumCoverCandidates,
   getBestAlbumCover,
+  getCurrentTrackDisplayCoverDetail,
   getCurrentTrackDisplayCover,
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
@@ -113,6 +115,80 @@ test('track artwork sources fall back to another track in the same album', () =>
   )
 })
 
+test('track artwork sources can temporarily use a same-folder single-artist cover', () => {
+  const known = makeTrack(
+    'D:/Music/Album A/01.flac',
+    'Album A',
+    'data:image/known',
+    'Known Artist'
+  )
+  const loading = makeTrack('D:/Music/Album A/02.flac', 'Scanned Album', '', 'Unknown Artist')
+  const fallbackMap = buildAlbumFolderCoverFallbackMap([known, loading])
+
+  assert.equal(fallbackMap[loading.path], 'data:image/known')
+  assert.deepEqual(
+    buildTrackArtworkSources(loading, { albumFolderCoverFallbackMap: fallbackMap }),
+    ['data:image/known']
+  )
+})
+
+test('same-folder cover fallback is disabled by option', () => {
+  const known = makeTrack(
+    'D:/Music/Album A/01.flac',
+    'Album A',
+    'data:image/known',
+    'Known Artist'
+  )
+  const loading = makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Unknown Artist')
+
+  assert.deepEqual(buildAlbumFolderCoverFallbackMap([known, loading], { enabled: false }), {})
+})
+
+test('same-folder cover fallback rejects mixed artists', () => {
+  const tracks = [
+    makeTrack('D:/Music/Mixed/01.flac', 'Album A', 'data:image/a', 'Artist A'),
+    makeTrack('D:/Music/Mixed/02.flac', 'Album A', '', 'Artist B'),
+    makeTrack('D:/Music/Mixed/03.flac', 'Album A', '', 'Unknown Artist')
+  ]
+
+  assert.deepEqual(buildAlbumFolderCoverFallbackMap(tracks), {})
+})
+
+test('same-folder cover fallback rejects multiple cover candidates', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/a', 'Artist A'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', 'data:image/b', 'Artist A'),
+    makeTrack('D:/Music/Album A/03.flac', 'Album A', '', 'Unknown Artist')
+  ]
+
+  assert.deepEqual(buildAlbumFolderCoverFallbackMap(tracks), {})
+})
+
+test('same-folder cover fallback rejects target artist conflicts', () => {
+  const tracks = [
+    makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/a', 'Artist A'),
+    makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Artist B')
+  ]
+
+  assert.deepEqual(buildAlbumFolderCoverFallbackMap(tracks), {})
+})
+
+test('same-folder cover fallback ignores track-scoped covers', () => {
+  const known = makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')
+  const loading = makeTrack('D:/Music/Album A/02.flac', 'Album A', '', 'Unknown Artist')
+  const fallbackMap = buildAlbumFolderCoverFallbackMap([known, loading], {
+    trackMetaMap: {
+      [known.path]: {
+        artist: 'Known Artist',
+        cover: 'data:image/single',
+        coverScope: 'track'
+      }
+    }
+  })
+
+  assert.deepEqual(fallbackMap, {})
+})
+
 test('track artwork sources keep current track cover before album fallback', () => {
   const tracks = [
     makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/album', 'Known Artist'),
@@ -149,11 +225,67 @@ test('current track display cover prefers effective metadata before album fallba
     getCurrentTrackDisplayCover({
       currentTrack: { ...track, info: { ...track.info, cover: '' }, cover: '' },
       currentTrackMeta: {},
+      albumFolderCoverFallbackMap: {
+        [track.path]: 'data:image/folder-fallback'
+      },
+      albumCoverMap: {
+        [albumKey]: 'data:image/album'
+      }
+    }),
+    'data:image/folder-fallback'
+  )
+
+  assert.equal(
+    getCurrentTrackDisplayCover({
+      currentTrack: { ...track, info: { ...track.info, cover: '' }, cover: '' },
+      currentTrackMeta: {},
+      albumFolderCoverFallbackMap: {},
       albumCoverMap: {
         [albumKey]: 'data:image/album'
       }
     }),
     'data:image/album'
+  )
+})
+
+test('current track display cover detail marks fallback art as untrusted', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', 'data:image/track-info')
+  const albumKey = getTrackAlbumGroupKey(track)
+
+  assert.deepEqual(
+    getCurrentTrackDisplayCoverDetail({
+      currentTrack: track,
+      currentTrackMeta: { cover: 'data:image/effective', coverSource: 'embedded' },
+      albumFolderCoverFallbackMap: {
+        [track.path]: 'data:image/folder-fallback'
+      },
+      albumCoverMap: {
+        [albumKey]: 'data:image/album'
+      }
+    }),
+    {
+      cover: 'data:image/effective',
+      source: 'embedded',
+      trusted: true
+    }
+  )
+
+  assert.deepEqual(
+    getCurrentTrackDisplayCoverDetail({
+      currentTrack: { ...track, info: { ...track.info, cover: '' }, cover: '' },
+      currentTrackMeta: {},
+      albumFolderCoverFallbackMap: {
+        [track.path]: 'data:image/folder-fallback'
+      },
+      albumCoverMap: {
+        [albumKey]: 'data:image/album'
+      }
+    }),
+    {
+      cover: 'data:image/folder-fallback',
+      source: 'album-folder-fallback',
+      trusted: false
+    }
   )
 })
 
@@ -1242,6 +1374,29 @@ test('metadata priority: embedded album artist drives album group artist key', (
   assert.equal(getTrackAlbumGroupKey(track), 'real album\u0001artist:banda')
 })
 
+test('album wall buckets keep the same embedded album together even when track artists differ', () => {
+  const tracks = [
+    makeTrack('D:/Music/A/01.flac', 'Real Album', '', 'Guest A', 'Band A'),
+    makeTrack('D:/Music/B/02.flac', 'Real Album', '', 'Guest B', 'Band B')
+  ]
+  for (const track of tracks) {
+    track.info.metadataSource = 'embedded'
+    track.info.fieldSources = {
+      album: 'embedded',
+      artist: 'embedded',
+      albumArtist: 'embedded'
+    }
+  }
+
+  const buckets = buildAlbumWallBuckets(tracks, {
+    mergeAlbumsByCoverAndAlbumArtist: false
+  })
+
+  assert.equal(buckets.length, 1)
+  assert.equal(buckets[0].key, 'real album')
+  assert.equal(buckets[0].tracks.length, 2)
+})
+
 test('metadata priority: network does not overwrite embedded album', () => {
   const merged = mergeTrackMetaWithPriority(
     {
@@ -1372,6 +1527,52 @@ test('metadata priority: manual override beats embedded metadata', () => {
   )
 
   assert.equal(merged.title, 'User Title')
+})
+
+test('metadata priority: fresh embedded batch beats stale embedded metadata', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      title: 'Stale Title',
+      cover: 'data:image/stale',
+      coverSource: 'embedded',
+      fieldSources: { title: 'embedded', cover: 'embedded' },
+      metadataSource: 'embedded'
+    },
+    {
+      title: 'Fresh Title',
+      cover: 'data:image/fresh',
+      coverSource: 'embedded-batch',
+      fieldSources: { title: 'embedded-batch', cover: 'embedded-batch' },
+      metadataSource: 'embedded-batch'
+    }
+  )
+
+  assert.equal(merged.title, 'Fresh Title')
+  assert.equal(merged.cover, 'data:image/fresh')
+  assert.equal(merged.fieldSources.title, 'embedded-batch')
+  assert.equal(merged.fieldSources.cover, 'embedded-batch')
+})
+
+test('metadata priority: manual override still beats fresh embedded batch', () => {
+  const merged = mergeTrackMetaWithPriority(
+    {
+      title: 'User Title',
+      cover: 'data:image/manual',
+      coverSource: 'manual',
+      fieldSources: { title: 'manual', cover: 'manual' },
+      metadataSource: 'manual'
+    },
+    {
+      title: 'Fresh Title',
+      cover: 'data:image/fresh',
+      coverSource: 'embedded-batch',
+      fieldSources: { title: 'embedded-batch', cover: 'embedded-batch' },
+      metadataSource: 'embedded-batch'
+    }
+  )
+
+  assert.equal(merged.title, 'User Title')
+  assert.equal(merged.cover, 'data:image/manual')
 })
 
 test('metadata priority: same embedded album and album artist group across folders', () => {

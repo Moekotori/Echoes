@@ -169,6 +169,8 @@ import {
   buildMetadataAutoCompleteTargets,
   buildNetworkMetadataAutoCompleteEntry,
   buildNetworkMetadataAutoCompleteQuery,
+  hasRetryableEmbeddedCoverMiss,
+  shouldRefreshEmbeddedAutoComplete,
   shouldSkipEmbeddedMetadataAutoComplete,
   shouldRunNetworkMetadataAutoComplete
 } from './utils/metadataAutoComplete'
@@ -185,14 +187,17 @@ import {
   buildTrackArtworkSources,
   buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
+  getCurrentTrackDisplayCoverDetail,
   getCurrentTrackDisplayCover,
   isUnknownArtistName,
   hasReusableTrackCoverMeta,
+  buildAlbumFolderCoverFallbackMap,
   normalizeAlbumNameKey,
   normalizeArtistNameKey,
   stripExtension,
   parseArtistTitleFromName,
-  resolveTrackIdentityFromMetadata
+  resolveTrackIdentityFromMetadata,
+  isTrustedDisplayCoverSource
 } from './utils/trackUtils'
 import {
   buildAlbumCoverBackfillPlan,
@@ -322,6 +327,7 @@ import {
   isTrackScopedCoverEntry,
   mergeTrackMetaEntryPreservingCover,
   mergeTrackMetaMapPreservingCovers,
+  stripCoverFieldsFromTrackMeta,
   satisfiesMetadataHydrateRequirement,
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
@@ -451,8 +457,8 @@ const SIDEBAR_DETAIL_ROW_HEIGHT = 75
 const ALBUM_GRID_DEFAULT_ROW_HEIGHT = 244
 const ALBUM_GRID_DEFAULT_GAP = 18
 const ALBUM_GRID_MIN_CARD_WIDTH = 160
-const ALBUM_GRID_OVERSCAN_ROWS = 10
-const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 14
+const ALBUM_GRID_OVERSCAN_ROWS = 14
+const ALBUM_GRID_RESTORE_OVERSCAN_ROWS = 20
 const ALBUM_OVERVIEW_RESTORE_HYDRATION_DELAY_MS = 260
 const RENDERER_PERSIST_DEBOUNCE_MS = 600
 const MV_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
@@ -1465,6 +1471,9 @@ function normalizeConfigState(raw) {
   if (merged.autoLoadEmbeddedMetadata !== true) {
     merged.autoCompleteNetworkMetadata = false
   }
+  if (typeof merged.albumFolderCoverFallback !== 'boolean') {
+    merged.albumFolderCoverFallback = DEFAULT_CONFIG.albumFolderCoverFallback
+  }
   if (typeof merged.mergeAlbumsByCoverAndAlbumArtist !== 'boolean') {
     merged.mergeAlbumsByCoverAndAlbumArtist = DEFAULT_CONFIG.mergeAlbumsByCoverAndAlbumArtist
   }
@@ -1746,14 +1755,25 @@ const SETTINGS_SECTION_KEYWORDS = {
     'folder',
     'import',
     'cleanup',
+    'cover',
+    'artwork',
+    'album cover',
+    'folder cover',
+    'fallback',
     '\u4e0b\u8f7d',
     '\u5a92\u4f53\u5e93',
     '\u6b4c\u5355',
     '\u5bfc\u5165',
     '\u6e05\u7406',
+    '\u5c01\u9762',
+    '\u4e13\u8f91\u5c01\u9762',
+    '\u6587\u4ef6\u5939\u5c01\u9762',
+    '\u515c\u5e95',
     '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
     '\u30e9\u30a4\u30d6\u30e9\u30ea',
-    '\u30d7\u30ec\u30a4\u30ea\u30b9\u30c8'
+    '\u30d7\u30ec\u30a4\u30ea\u30b9\u30c8',
+    '\u30ab\u30d0\u30fc',
+    '\u30a2\u30fc\u30c8\u30ef\u30fc\u30af'
   ],
   about: [
     'about',
@@ -2396,7 +2416,20 @@ export default function App() {
   const [sleepTimerNowMs, setSleepTimerNowMs] = useState(Date.now())
   const [coverUrl, setCoverUrl] = useState(null)
   const [coverUrlTrackPath, setCoverUrlTrackPath] = useState('')
+  const [coverUrlSource, setCoverUrlSource] = useState('')
+  const [coverUrlTrusted, setCoverUrlTrusted] = useState(false)
   const [failedDisplayCoverUrl, setFailedDisplayCoverUrl] = useState(null)
+  const updateCoverDisplay = useCallback((nextCover, { source = '', trusted = false } = {}) => {
+    const cover = typeof nextCover === 'string' ? nextCover.trim() : ''
+    setCoverUrl(cover || null)
+    setCoverUrlSource(cover ? String(source || '').trim() : '')
+    setCoverUrlTrusted(Boolean(cover && trusted))
+  }, [])
+  const clearCoverDisplay = useCallback(() => {
+    setCoverUrl(null)
+    setCoverUrlSource('')
+    setCoverUrlTrusted(false)
+  }, [])
   const crossfadeStateRef = useRef({
     active: false,
     sourcePath: '',
@@ -6044,6 +6077,8 @@ export default function App() {
   const activeLyricIndexRef = useRef(activeLyricIndex)
   const sidebarPlaylistRef = useRef(null)
   const sidebarScrollbarDragRef = useRef(null)
+  const sidebarScrollMetricsRafRef = useRef(0)
+  const sidebarScrollMetricsPendingRef = useRef(null)
   const albumOverviewScrollTopRef = useRef(0)
   const artistOverviewScrollTopRef = useRef(0)
   const albumOverviewGridStateRef = useRef(null)
@@ -8229,6 +8264,8 @@ export default function App() {
     cloudCoverFetchSeqRef.current += 1
     coverFailureFetchKeyRef.current = ''
     setCoverUrlTrackPath(filePath)
+    setCoverUrlSource('')
+    setCoverUrlTrusted(false)
     setFailedDisplayCoverUrl(null)
     setShareCardSnapshot(null)
     lyricsLoadedTrackPathRef.current = ''
@@ -8318,6 +8355,7 @@ export default function App() {
       !!(
         entry?.coverChecked &&
         hasCurrentEmbeddedCoverCheck(entry) &&
+        !shouldRefreshEmbeddedAutoComplete(entry) &&
         (configRef.current?.autoDetectBpm !== true ||
           (entry?.bpmChecked && entry?.bpmDetectorVersion === BPM_DETECTOR_VERSION)) &&
         entry?.mqaChecked &&
@@ -8379,9 +8417,13 @@ export default function App() {
         setDuration(entry.duration)
       }
       if (entry.cover) {
-        setCoverUrl(entry.cover)
+        const coverSource = getTrackMetaFieldSource(entry, 'cover')
+        updateCoverDisplay(entry.cover, {
+          source: coverSource,
+          trusted: isTrustedDisplayCoverSource(coverSource)
+        })
       } else {
-        setCoverUrl(null)
+        clearCoverDisplay()
         fetchCloudCover(resolvedTitle, resolvedArtist, requestSeq, {
           album: entry.album || ''
         })
@@ -8453,15 +8495,19 @@ export default function App() {
       return
     }
 
-    const earlyCachedCover = getCurrentTrackDisplayCover({
+    const earlyCachedCover = getCurrentTrackDisplayCoverDetail({
       currentTrack: activeTrackForMetadata,
       currentTrackMeta: memoryMeta,
-      albumCoverMap
+      albumCoverMap,
+      albumFolderCoverFallbackMap
     })
-    if (earlyCachedCover) {
-      setCoverUrl(earlyCachedCover)
+    if (earlyCachedCover.cover) {
+      updateCoverDisplay(earlyCachedCover.cover, {
+        source: earlyCachedCover.source,
+        trusted: earlyCachedCover.trusted
+      })
     } else {
-      setCoverUrl(null)
+      clearCoverDisplay()
     }
     setMetadata({
       title: '',
@@ -8570,26 +8616,38 @@ export default function App() {
     try {
       const cachedMeta = (await readTrackMetaCache([activeTrackForMetadata]))[filePath]
       if (trackLoadSeqRef.current !== requestSeq) return
-      const cachedDisplayCover = getCurrentTrackDisplayCover({
+      const cachedDisplayCover = getCurrentTrackDisplayCoverDetail({
         currentTrack: activeTrackForMetadata,
         currentTrackMeta: cachedMeta,
-        albumCoverMap
+        albumCoverMap,
+        albumFolderCoverFallbackMap
       })
-      if (!earlyCachedCover && cachedDisplayCover) {
-        setCoverUrl(cachedDisplayCover)
+      if (
+        cachedDisplayCover.cover &&
+        (!earlyCachedCover.cover ||
+          (!earlyCachedCover.trusted && cachedDisplayCover.trusted))
+      ) {
+        updateCoverDisplay(cachedDisplayCover.cover, {
+          source: cachedDisplayCover.source,
+          trusted: cachedDisplayCover.trusted
+        })
       }
 
       if (isCompleteCachedMeta(cachedMeta)) {
         applyCachedMeta(cachedMeta)
         detectMeasuredBpm(cachedMeta)
       } else {
-        const reusableCoverMeta = hasReusableTrackCoverMeta(memoryMeta)
-          ? memoryMeta
-          : hasReusableTrackCoverMeta(cachedMeta)
-            ? cachedMeta
-            : null
+        const hasTrustedReusableCoverMeta = (entry = null) =>
+          Boolean(
+            entry &&
+              hasReusableTrackCoverMeta(entry) &&
+              isTrustedDisplayCoverSource(getTrackMetaFieldSource(entry, 'cover'))
+          )
+        const reusableCoverMeta = hasTrustedReusableCoverMeta(memoryMeta) ? memoryMeta : null
+        const cachedReusableCoverMeta = hasTrustedReusableCoverMeta(cachedMeta) ? cachedMeta : null
+        const resolvedReusableCoverMeta = reusableCoverMeta || cachedReusableCoverMeta
         const metadataOptions = buildPlaybackMetadataRequestOptions({
-          includeCover: !reusableCoverMeta
+          includeCover: !resolvedReusableCoverMeta
         })
         // 1. Get Extended Metadata from Main Process (Music-Metadata)
         const data = await window.api.getExtendedMetadataHandler(filePath, metadataOptions)
@@ -8616,12 +8674,7 @@ export default function App() {
           const resolvedArtist = resolvedIdentity.artist || 'Unknown Artist'
           const resolvedAlbum = common.album || cachedMeta?.album || ''
           const resolvedAlbumArtist = common.albumArtist || cachedMeta?.albumArtist || ''
-          const resolvedCover =
-            common.cover ||
-            reusableCoverMeta?.cover ||
-            cachedMeta?.cover ||
-            memoryMeta?.cover ||
-            null
+          const resolvedCover = common.cover || resolvedReusableCoverMeta?.cover || null
           const resolvedLyrics = common.lyrics || cachedMeta?.lyrics || null
           const existingBpmEntry = trackMetaMapRef.current?.[filePath] || cachedMeta || {}
           const existingMeasuredBpm =
@@ -8658,7 +8711,7 @@ export default function App() {
           }
 
           if (resolvedCover) {
-            setCoverUrl(resolvedCover)
+            updateCoverDisplay(resolvedCover, { source: 'embedded', trusted: true })
           } else {
             fetchCloudCover(resolvedTitle, resolvedArtist, requestSeq, { album: resolvedAlbum })
           }
@@ -8730,8 +8783,15 @@ export default function App() {
             bpm: existingMeasuredBpm ? Number(existingBpmEntry?.bpm) : null,
             lyrics: resolvedLyrics
           }
+          const existingParsedMetaSource =
+            !resolvedCover &&
+            shouldRefreshEmbeddedAutoComplete(cachedMeta) &&
+            !resolvedReusableCoverMeta &&
+            !common.cover
+              ? stripCoverFieldsFromTrackMeta(trackMetaMapRef.current?.[filePath] || cachedMeta || {})
+              : trackMetaMapRef.current?.[filePath] || cachedMeta || {}
           const mergedParsedMetaEntry = mergeTrackMetaEntryPreservingCover(
-            trackMetaMapRef.current?.[filePath] || cachedMeta || {},
+            existingParsedMetaSource,
             parsedMetaEntry
           )
           setTrackMetaMap((prev) => {
@@ -9030,7 +9090,7 @@ export default function App() {
         })
         if (draft.cover) {
           setCoverUrlTrackPath(draft.path)
-          setCoverUrl(draft.cover)
+          updateCoverDisplay(draft.cover, { source: 'manual', trusted: true })
         }
 
         try {
@@ -9083,9 +9143,13 @@ export default function App() {
 
       const existingEntry = trackMetaMapRef.current?.[filePath] || {}
       const activeTrack = playlistRef.current[currentIndexRef.current] || null
+      const existingCoverSource = getTrackMetaFieldSource(existingEntry, 'cover')
+      const existingTrustedCover = isTrustedDisplayCoverSource(existingCoverSource)
+        ? String(existingEntry.cover || '').trim()
+        : ''
       const existingCover =
-        String(existingEntry.cover || '').trim() ||
-        (activeTrack?.path === filePath ? String(coverUrl || '').trim() : '')
+        existingTrustedCover ||
+        (activeTrack?.path === filePath && coverUrlTrusted ? String(coverUrl || '').trim() : '')
       const title = String(response.title || '').trim()
       const artist = String(response.artist || '').trim()
       const album = String(response.album || '').trim()
@@ -9112,6 +9176,7 @@ export default function App() {
         trackNo: Number.isFinite(trackNo) && trackNo > 0 ? trackNo : null,
         year: Number.isFinite(year) && year > 0 ? year : null,
         genre: genre || null,
+        embeddedPictureCount: Number(response.embeddedPictureCount || 0) || 0,
         coverChecked: true,
         metadataSource: 'embedded',
         ...(cover
@@ -9129,6 +9194,20 @@ export default function App() {
         fieldSources: {
           ...(existingEntry.fieldSources || {}),
           ...fieldSources
+        }
+      }
+      if (!cover && !existingTrustedCover) {
+        delete nextMetaEntry.cover
+        delete nextMetaEntry.coverSource
+        delete nextMetaEntry.coverScope
+        delete nextMetaEntry.coverThumbnailOnly
+        delete nextMetaEntry.coverMaxDimension
+        delete nextMetaEntry.coverExtractorVersion
+        if (nextMetaEntry.fieldSources?.cover) {
+          const nextFieldSources = { ...nextMetaEntry.fieldSources }
+          delete nextFieldSources.cover
+          if (Object.keys(nextFieldSources).length > 0) nextMetaEntry.fieldSources = nextFieldSources
+          else delete nextMetaEntry.fieldSources
         }
       }
       setTrackMetaMap((prev) => {
@@ -9170,10 +9249,13 @@ export default function App() {
         })
         if (cover || existingCover) {
           setCoverUrlTrackPath(filePath)
-          setCoverUrl(cover || existingCover)
+          updateCoverDisplay(cover || existingCover, {
+            source: cover ? 'embedded' : existingCoverSource,
+            trusted: Boolean(cover) || existingTrustedCover.length > 0
+          })
         } else {
           setCoverUrlTrackPath('')
-          setCoverUrl(null)
+          clearCoverDisplay()
         }
       }
 
@@ -9182,7 +9264,7 @@ export default function App() {
         coverDataUrl: cover || existingCover || ''
       }
     },
-    [coverUrl, t]
+    [clearCoverDisplay, coverUrl, coverUrlTrusted, t, updateCoverDisplay]
   )
 
   const handleLoadNetworkTagsForEditor = useCallback(
@@ -9203,9 +9285,13 @@ export default function App() {
         existingEntry.artist || parsed.artist || track?.info?.artist || ''
       ).trim()
       const baseAlbum = String(existingEntry.album || parsed.album || track?.info?.album || '').trim()
+      const existingCoverSource = getTrackMetaFieldSource(existingEntry, 'cover')
+      const existingTrustedCover = isTrustedDisplayCoverSource(existingCoverSource)
+        ? String(existingEntry.cover || '').trim()
+        : ''
       const existingCover =
-        String(existingEntry.cover || '').trim() ||
-        (activeTrack?.path === filePath ? String(coverUrl || '').trim() : '')
+        existingTrustedCover ||
+        (activeTrack?.path === filePath && coverUrlTrusted ? String(coverUrl || '').trim() : '')
       if (!baseTitle && !baseAlbum) {
         throw new Error(t('metadataEditor.loadNetworkFailed'))
       }
@@ -9262,6 +9348,20 @@ export default function App() {
         fieldSources: {
           ...(existingEntry.fieldSources || {}),
           ...fieldSources
+        }
+      }
+      if (!cover && !existingTrustedCover) {
+        delete networkEntry.cover
+        delete networkEntry.coverSource
+        delete networkEntry.coverScope
+        delete networkEntry.coverThumbnailOnly
+        delete networkEntry.coverMaxDimension
+        delete networkEntry.coverExtractorVersion
+        if (networkEntry.fieldSources?.cover) {
+          const nextFieldSources = { ...networkEntry.fieldSources }
+          delete nextFieldSources.cover
+          if (Object.keys(nextFieldSources).length > 0) networkEntry.fieldSources = nextFieldSources
+          else delete networkEntry.fieldSources
         }
       }
 
@@ -9336,7 +9436,10 @@ export default function App() {
         })
         if (displayCover) {
           setCoverUrlTrackPath(filePath)
-          setCoverUrl(displayCover)
+          updateCoverDisplay(displayCover, {
+            source: cover ? 'network' : existingCoverSource,
+            trusted: Boolean(cover) || existingTrustedCover.length > 0
+          })
         }
       }
 
@@ -9351,7 +9454,14 @@ export default function App() {
         coverDataUrl: displayCover || ''
       }
     },
-    [coverUrl, metadataEditorTrack, persistAlbumCoverCacheItems, t]
+    [
+      coverUrl,
+      coverUrlTrusted,
+      metadataEditorTrack,
+      persistAlbumCoverCacheItems,
+      t,
+      updateCoverDisplay
+    ]
   )
 
   const openQuickMetadataFieldEditor = useCallback(
@@ -9491,7 +9601,7 @@ export default function App() {
         return true
       }
       setFailedDisplayCoverUrl(null)
-      setCoverUrl(resolvedUrl)
+      updateCoverDisplay(resolvedUrl, { source: 'network', trusted: true })
       return true
     }
 
@@ -9756,7 +9866,7 @@ export default function App() {
       const refreshedActive = activeTrack?.path ? refreshedByPath.get(activeTrack.path) : null
       if (refreshedActive?.path) {
         setCoverUrlTrackPath('')
-        setCoverUrl(null)
+        clearCoverDisplay()
         await loadTrackData(refreshedActive.path, {
           title:
             refreshedActive.info?.title ||
@@ -10183,7 +10293,7 @@ export default function App() {
     setDuration(0)
     setCurrentTime(0)
     setCoverUrlTrackPath('')
-    setCoverUrl(null)
+    clearCoverDisplay()
     setFailedDisplayCoverUrl(null)
     coverFailureFetchKeyRef.current = ''
     setLyricsSourceStatus({ kind: 'idle', detail: '', origin: '' })
@@ -11484,14 +11594,27 @@ export default function App() {
     () => (currentTrack ? parseTrackInfo(currentTrack, currentTrackMeta) : null),
     [currentTrack, currentTrackMeta]
   )
+  const albumFolderCoverFallbackMap = useMemo(() => {
+    return buildAlbumFolderCoverFallbackMap(playlist, {
+      enabled: config.albumFolderCoverFallback !== false,
+      trackMetaMap,
+      effectiveTrackMetaMap
+    })
+  }, [
+    config.albumFolderCoverFallback,
+    effectiveTrackMetaMap,
+    playlist,
+    trackMetaMap
+  ])
   const currentTrackDisplayCover = useMemo(
     () =>
       getCurrentTrackDisplayCover({
         currentTrack,
         currentTrackMeta,
-        albumCoverMap
+        albumCoverMap,
+        albumFolderCoverFallbackMap
       }),
-    [albumCoverMap, currentTrack, currentTrackMeta]
+    [albumCoverMap, albumFolderCoverFallbackMap, currentTrack, currentTrackMeta]
   )
   const currentBpmRaw = Number(
     technicalInfo.originalBpm || (currentTrackMeta?.bpmMeasured ? currentTrackMeta?.bpm : 0)
@@ -12366,6 +12489,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentTrack?.path || !displaySafeCoverUrl) return
+    if (!coverUrlTrusted || !coverUrlSource) return
     if (
       !isCastSessionActive(lastCastStatus) &&
       !currentDisplayOverride?.cover &&
@@ -12467,6 +12591,8 @@ export default function App() {
     currentTrack,
     currentTrackInfo,
     coverUrlTrackPath,
+    coverUrlTrusted,
+    coverUrlSource,
     currentDisplayOverride?.cover,
     displaySafeCoverUrl,
     duration,
@@ -14157,7 +14283,7 @@ export default function App() {
     metadataIdentityVersion,
     queryFilteredPlaylist,
     shouldBuildAlbumBuckets
-  ])
+  ]) 
 
   const albumGroups = listMode === 'album' ? albumBuckets : []
 
@@ -15792,26 +15918,70 @@ export default function App() {
     return () => ro.disconnect()
   }, [libraryBrowserVisible, listMode, selectedUserPlaylistId, selectedSmartCollectionId])
 
+  const applySidebarScrollMetrics = useCallback((metrics) => {
+    if (!metrics) return
+    setSidebarScrollHeight((prev) => (prev === metrics.scrollHeight ? prev : metrics.scrollHeight))
+    setSidebarViewportHeight((prev) =>
+      prev === metrics.viewportHeight ? prev : metrics.viewportHeight
+    )
+    setSidebarScrollTop((prev) => (prev === metrics.scrollTop ? prev : metrics.scrollTop))
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (sidebarScrollMetricsRafRef.current) {
+        window.cancelAnimationFrame(sidebarScrollMetricsRafRef.current)
+        sidebarScrollMetricsRafRef.current = 0
+      }
+      sidebarScrollMetricsPendingRef.current = null
+    }
+  }, [])
+
   const handleSidebarScroll = useCallback((event) => {
+    const scrollElement = event.currentTarget
+    const scrollTop = Math.max(0, Number(scrollElement.scrollTop) || 0)
     const ignoreUntil = albumDetailScrollResetIgnoreUntilRef.current || 0
     const now =
       typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
         : Date.now()
     if (ignoreUntil > now) {
-      event.currentTarget.scrollTop = 0
-      setSidebarScrollHeight(event.currentTarget.scrollHeight || 0)
-      setSidebarViewportHeight(event.currentTarget.clientHeight || 0)
-      setSidebarScrollTop(0)
+      scrollElement.scrollTop = 0
+      sidebarScrollMetricsPendingRef.current = null
+      if (sidebarScrollMetricsRafRef.current) {
+        window.cancelAnimationFrame(sidebarScrollMetricsRafRef.current)
+        sidebarScrollMetricsRafRef.current = 0
+      }
+      applySidebarScrollMetrics({
+        scrollHeight: scrollElement.scrollHeight || 0,
+        viewportHeight: scrollElement.clientHeight || 0,
+        scrollTop: 0
+      })
       return
     }
     if (ignoreUntil > 0) {
       albumDetailScrollResetIgnoreUntilRef.current = 0
     }
-    setSidebarScrollHeight(event.currentTarget.scrollHeight || 0)
-    setSidebarViewportHeight(event.currentTarget.clientHeight || 0)
-    setSidebarScrollTop(event.currentTarget.scrollTop || 0)
-  }, [])
+    if (
+      albumOverviewActiveRef.current &&
+      !pendingAlbumDetailScrollResetRef.current &&
+      !pendingAlbumOverviewRestoreRef.current
+    ) {
+      albumOverviewScrollTopRef.current = scrollTop
+    }
+    sidebarScrollMetricsPendingRef.current = {
+      scrollHeight: scrollElement.scrollHeight || 0,
+      viewportHeight: scrollElement.clientHeight || 0,
+      scrollTop
+    }
+    if (sidebarScrollMetricsRafRef.current) return
+    sidebarScrollMetricsRafRef.current = window.requestAnimationFrame(() => {
+      sidebarScrollMetricsRafRef.current = 0
+      const next = sidebarScrollMetricsPendingRef.current
+      sidebarScrollMetricsPendingRef.current = null
+      applySidebarScrollMetrics(next)
+    })
+  }, [applySidebarScrollMetrics])
 
   const sidebarScrollbarMetrics = useMemo(() => {
     const viewportHeight = sidebarViewportHeight || 0
@@ -16862,6 +17032,15 @@ export default function App() {
           const currentEntry = trackMetaMapRef.current?.[path] || {}
           const entry = entries[path]
           if (entry) {
+            if (hasRetryableEmbeddedCoverMiss(entry)) {
+              batchUpdates[path] = buildFailedEmbeddedMetadataAutoCompleteEntry(currentEntry, {
+                error: 'embedded_cover_missing',
+                embeddedPictureCount: entry.embeddedPictureCount,
+                sizeBytes: track?.sizeBytes || track?.info?.sizeBytes || 0,
+                mtimeMs: track?.mtimeMs || track?.info?.mtimeMs || 0
+              })
+              continue
+            }
             batchUpdates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
               ...entry,
               metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
@@ -18196,7 +18375,10 @@ export default function App() {
     if (state?.scrollTop != null) {
       const nextScrollTop = Math.max(0, Number(state.scrollTop) || 0)
       const savedScrollTop = Math.max(0, Number(albumOverviewScrollTopRef.current) || 0)
-      if (pendingAlbumOverviewRestoreRef.current && nextScrollTop < savedScrollTop - 2) {
+      if (
+        (pendingAlbumOverviewRestoreRef.current || pendingAlbumDetailScrollResetRef.current) &&
+        nextScrollTop < savedScrollTop - 2
+      ) {
         return
       }
       albumOverviewScrollTopRef.current = nextScrollTop
@@ -19743,7 +19925,7 @@ export default function App() {
       }))
       if (playback.syncCover && playback.coverUrl) {
         setCoverUrlTrackPath(playlistRef.current[currentIndexRef.current]?.path || '')
-        setCoverUrl(playback.coverUrl)
+        updateCoverDisplay(playback.coverUrl, { source: 'remote', trusted: false })
       }
       if (playback.syncMv && playback.mvSync?.id) {
         setMvId({ id: playback.mvSync.id, source: playback.mvSync.source || 'youtube' })
@@ -21947,6 +22129,7 @@ export default function App() {
                             trackMetaMap,
                             effectiveTrackMetaMap,
                             albumCoverMap,
+                            albumFolderCoverFallbackMap,
                             albumTracks: trackAlbumTracksByKey.get(trackAlbumKey) || []
                           })
 
@@ -25310,6 +25493,41 @@ export default function App() {
                           }
                         >
                           {config.mergeAlbumsByCoverAndAlbumArtist ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>
+                            {t(
+                              'settings.albumFolderCoverFallbackTitle',
+                              'Use same-folder album cover while tags load'
+                            )}
+                          </h3>
+                          <p>
+                            {t(
+                              'settings.albumFolderCoverFallbackDesc',
+                              'On by default. If one local album folder has one known artist and one known cover, tracks still loading tags can temporarily show that cover.'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className={`toggle-btn ${
+                            config.albumFolderCoverFallback !== false ? 'active' : ''
+                          }`}
+                          onClick={() =>
+                            setConfig((prev) => ({
+                              ...prev,
+                              albumFolderCoverFallback: !(prev.albumFolderCoverFallback !== false)
+                            }))
+                          }
+                          aria-pressed={config.albumFolderCoverFallback !== false}
+                        >
+                          {config.albumFolderCoverFallback !== false ? (
                             <ToggleRight size={32} />
                           ) : (
                             <ToggleLeft size={32} />

@@ -686,6 +686,8 @@
     "autoDetectBpmDesc": "Off by default. When enabled, ECHO analyzes tracks without BPM tags and caches the measured tempo.",
     "autoLoadEmbeddedMetadataTitle": "Auto-load embedded tag info",
     "autoLoadEmbeddedMetadataDesc": "On by default. Tracks still showing Unknown Artist or no real cover are filled from embedded tags in parallel.",
+    "albumFolderCoverFallbackTitle": "Use same-folder album cover while tags load",
+    "albumFolderCoverFallbackDesc": "On by default. When one local album folder has one known artist and one known cover, tracks still loading tags can temporarily show that cover.",
     "autoCompleteNetworkMetadataTitle": "Network metadata fill",
     "autoCompleteNetworkMetadataDesc": "Off by default. After embedded tags finish, online sources fill only tracks that still lack useful artist info or artwork.",
     "autoCompleteNetworkMetadataDisabledHint": "Enable embedded tag auto-load first.",

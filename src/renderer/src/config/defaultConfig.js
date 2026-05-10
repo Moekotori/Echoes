@@ -162,6 +162,7 @@ export const DEFAULT_CONFIG = {
   autoLocateCurrentTrack: false,
   autoLoadEmbeddedMetadata: true,
   autoCompleteNetworkMetadata: false,
+  albumFolderCoverFallback: true,
   mergeAlbumsByCoverAndAlbumArtist: false,
   ultraSmallScreenAdaptive: false,
   theme: 'minimal',

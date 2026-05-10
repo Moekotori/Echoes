@@ -1,0 +1,1 @@
+export const METADATA_AUTO_COMPLETE_VERSION = 5

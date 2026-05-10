@@ -7,6 +7,7 @@ import {
   buildFailedEmbeddedMetadataAutoCompleteEntry,
   buildMetadataAutoCompleteTargets,
   buildNetworkMetadataAutoCompleteEntry,
+  hasRetryableEmbeddedCoverMiss,
   shouldSkipEmbeddedMetadataAutoComplete,
   shouldRunNetworkMetadataAutoComplete
 } from '../../src/renderer/src/utils/metadataAutoComplete.js'
@@ -24,7 +25,8 @@ test('metadata auto-complete targets unknown artist or missing cover tracks', ()
       title: 'Complete Title',
       artist: 'Aimer',
       album: 'Complete Album',
-      cover: 'data:image/png;base64,abc'
+      cover: 'data:image/png;base64,abc',
+      coverSource: 'embedded'
     }
   }
 
@@ -103,6 +105,39 @@ test('embedded checked markers are invalidated when the file fingerprint changes
   )
 })
 
+test('stale embedded rows with cached covers are re-read after the auto-complete version bumps', () => {
+  const track = {
+    path: 'D:/Music/stale-cover.flac',
+    sizeBytes: 2400,
+    mtimeMs: 8000,
+    info: {
+      title: 'Title',
+      artist: 'Artist',
+      album: 'Album',
+      cover: 'data:image/png;base64,stale'
+    }
+  }
+  const entry = {
+    metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION - 1,
+    metadataAutoCompleteEmbeddedChecked: true,
+    title: 'Title',
+    artist: 'Artist',
+    album: 'Album',
+    cover: 'data:image/png;base64,stale',
+    coverChecked: true,
+    embeddedPictureCount: 1,
+    sizeBytes: 2400,
+    mtimeMs: 8000
+  }
+
+  assert.equal(
+    buildMetadataAutoCompleteTargets([track], { [track.path]: entry }, { now: 5000 }).map(
+      (target) => target.path
+    )[0],
+    track.path
+  )
+})
+
 test('broad embedded source without field sources does not protect empty or fallback fields', () => {
   const entry = buildEmbeddedMetadataAutoCompleteEntry(
     {
@@ -167,6 +202,37 @@ test('fresh embedded batch misses do not keep occupying the local batch queue', 
   assert.equal(shouldSkipEmbeddedMetadataAutoComplete(track, entry, { now: 5000 }), true)
 })
 
+test('embedded picture without extracted cover remains incomplete for retry', () => {
+  const track = {
+    path: 'D:/Music/picture-present.flac',
+    sizeBytes: 1200,
+    mtimeMs: 2000,
+    info: { title: 'Title', artist: 'Artist', album: 'Album' }
+  }
+  const picturePresent = {
+    metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION,
+    metadataAutoCompleteEmbeddedChecked: true,
+    metadataAutoCompleteSource: 'embedded-batch',
+    title: 'Title',
+    artist: 'Artist',
+    album: 'Album',
+    cover: null,
+    coverChecked: true,
+    embeddedPictureCount: 1,
+    sizeBytes: 1200,
+    mtimeMs: 2000
+  }
+  const trueNoCover = {
+    ...picturePresent,
+    embeddedPictureCount: 0
+  }
+
+  assert.equal(hasRetryableEmbeddedCoverMiss(picturePresent), true)
+  assert.equal(shouldSkipEmbeddedMetadataAutoComplete(track, picturePresent, { now: 5000 }), false)
+  assert.equal(hasRetryableEmbeddedCoverMiss(trueNoCover), false)
+  assert.equal(shouldSkipEmbeddedMetadataAutoComplete(track, trueNoCover, { now: 5000 }), true)
+})
+
 test('network auto-complete runs only while useful artist or cover is still missing', () => {
   const track = { path: 'D:/Music/a.flac', info: { artist: 'Unknown Artist' } }
 
@@ -174,7 +240,8 @@ test('network auto-complete runs only while useful artist or cover is still miss
   assert.equal(
     shouldRunNetworkMetadataAutoComplete(track, {
       artist: 'Aimer',
-      cover: 'data:image/png;base64,abc'
+      cover: 'data:image/png;base64,abc',
+      coverSource: 'network'
     }),
     false
   )

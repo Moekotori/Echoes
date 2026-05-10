@@ -14,6 +14,7 @@ test('parametric EQ is disabled by default', () => {
 test('metadata embedded auto-load defaults on while network fill defaults off', () => {
   assert.equal(DEFAULT_CONFIG.autoLoadEmbeddedMetadata, true)
   assert.equal(DEFAULT_CONFIG.autoCompleteNetworkMetadata, false)
+  assert.equal(DEFAULT_CONFIG.albumFolderCoverFallback, true)
 })
 
 test('neutral EQ detection treats flat default bands as no audible EQ', () => {
