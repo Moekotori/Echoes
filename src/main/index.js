@@ -851,17 +851,6 @@ function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
-
-  // On Linux some window managers need extra help to bring the window forward.
-  if (process.platform === 'linux') {
-    try {
-      mainWindow.setAlwaysOnTop(true)
-      mainWindow.setAlwaysOnTop(false)
-    } catch {
-      /* best-effort */
-    }
-  }
-
   mainWindow.focus()
 }
 
@@ -896,14 +885,7 @@ function restoreMainWindowAfterMiniPlayer() {
 
 function toggleMainWindowVisibility() {
   if (!mainWindow || mainWindow.isDestroyed()) return
-
-  // On some Linux DEs / Wayland, isVisible() may not be reliable.
-  // Use a combination of checks: isMinimized implies the window exists
-  // but is not on-screen, so we should show it regardless.
-  const visible = mainWindow.isVisible()
-  const minimized = mainWindow.isMinimized()
-
-  if (visible && !minimized) {
+  if (mainWindow.isVisible()) {
     mainWindow.hide()
     return
   }
@@ -1047,8 +1029,6 @@ function createTray() {
   tray.setToolTip('ECHO')
   refreshTrayMenu(audioEngine.getStatus())
 
-  // Left-click toggles window visibility; right-click opens context menu.
-  // This behaviour is consistent across platforms.
   tray.on('click', () => {
     toggleMainWindowVisibility()
   })
@@ -7169,26 +7149,6 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('audio:showVstUI', async () => {
     audioEngine.showVstPluginUI()
-  })
-
-  // Rebuild metadata cache: collect all audio file paths from imported folders.
-  ipcMain.handle('metadata:rebuildCache', async () => {
-    const state = readAppStateJson()
-    const folders = state?.importedFolders || []
-    if (!folders.length) return { success: false, error: 'no imported folders' }
-
-    const allFiles = []
-    for (const folder of folders) {
-      try {
-        const files = await collectAudioFilesRecursive(folder)
-        allFiles.push(...files.map((f) => (typeof f === 'string' ? f : f?.path || '')))
-      } catch {
-        // skip inaccessible folders
-      }
-    }
-
-    const paths = [...new Set(allFiles.filter(Boolean))]
-    return { success: true, paths, total: paths.length }
   })
 
   // Start polling playback status

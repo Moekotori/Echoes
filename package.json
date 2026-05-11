@@ -1,6 +1,6 @@
 {
   "name": "echoes",
-  "version": "1.3.9-beta-ver1.0",
+  "version": "1.3.9-beta-ver1.1",
   "description": "ECHO desktop application",
   "main": "./out/main/index.js",
   "author": "Moekotori",
@@ -12,14 +12,14 @@
     "test:unit": "node --test test/unit/*.test.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "postinstall": "cross-env PYTHONUTF8=1 electron-builder install-app-deps",
-    "start": "electron-vite preview",
-    "dev": "electron-vite dev",
+    "start": "electron-vite preview --config scripts/electron.vite.config.mjs",
+    "dev": "electron-vite dev --config scripts/electron.vite.config.mjs",
     "rebuild:native": "cross-env PYTHONUTF8=1 electron-builder install-app-deps",
-    "build": "npm run guard:encoding && electron-vite build",
-    "build:win": "npm run guard:encoding && npm run build:airplay-raop && electron-vite build && node scripts/build-win.mjs",
-    "build:win:release": "npm run guard:encoding && npm run build:airplay-raop && electron-vite build && electron-builder --win -c.directories.output=release",
-    "build:mac": "npm run guard:encoding && electron-vite build && electron-builder --mac",
-    "build:linux": "npm run build:audio-host && node node_modules/ffmpeg-static/install.js && electron-vite build && electron-builder --linux",
+    "build": "npm run guard:encoding && electron-vite build --config scripts/electron.vite.config.mjs",
+    "build:win": "npm run guard:encoding && npm run build:airplay-raop && electron-vite build --config scripts/electron.vite.config.mjs && node scripts/build-win.mjs",
+    "build:win:release": "npm run guard:encoding && npm run build:airplay-raop && electron-vite build --config scripts/electron.vite.config.mjs && electron-builder --win -c.directories.output=release",
+    "build:mac": "npm run guard:encoding && electron-vite build --config scripts/electron.vite.config.mjs && electron-builder --mac",
+    "build:linux": "npm run guard:encoding && electron-vite build --config scripts/electron.vite.config.mjs && electron-builder --linux",
     "theme:audit": "node scripts/theme-audit.mjs --write",
     "build:airplay-raop": "node scripts/build-airplay-raop-win.mjs",
     "build:audio-host": "node scripts/build-audio-host.mjs"
@@ -27,7 +27,7 @@
   "build": {
     "appId": "com.echoes.studio",
     "productName": "ECHO",
-    "icon": "artifacts/software-icon-before-enlarge.png",
+    "icon": "electron-app/build/software.ico",
     "publish": [
       {
         "provider": "github",
@@ -70,7 +70,7 @@
         "to": "software.png"
       },
       {
-        "from": "artifacts/software-icon-before-enlarge.png",
+        "from": "electron-app/build/software.ico",
         "to": "software.ico"
       },
       {
@@ -84,13 +84,13 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "artifacts/software-icon-before-enlarge.png",
+      "icon": "electron-app/build/software.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "installerIcon": "artifacts/software-icon-before-enlarge.png",
-      "uninstallerIcon": "artifacts/software-icon-before-enlarge.png",
+      "installerIcon": "electron-app/build/software.ico",
+      "uninstallerIcon": "electron-app/build/software.ico",
       "createDesktopShortcut": "always",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

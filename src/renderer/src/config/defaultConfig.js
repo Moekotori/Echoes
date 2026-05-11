@@ -88,7 +88,10 @@ export function isNeutralEqConfig({ bands = [], preamp = 0 } = {}) {
   const normalizedBands = normalizeEqBands(bands)
   const preampValue = Number(preamp ?? 0)
   const neutralPreamp = !Number.isFinite(preampValue) || Math.abs(preampValue) < 0.001
-  return neutralPreamp && normalizedBands.every((band) => Math.abs(Number(band?.gain ?? 0)) < 0.001)
+  return (
+    neutralPreamp &&
+    normalizedBands.every((band) => Math.abs(Number(band?.gain ?? 0)) < 0.001)
+  )
 }
 
 export const DEFAULT_CONFIG = {
@@ -110,9 +113,6 @@ export const DEFAULT_CONFIG = {
   audioDeviceId: '',
   audioExclusive: false,
   audioExclusiveResetOnStartup: true,
-  replaygainMode: 'off',
-  replaygainPreamp: 0,
-  metadataCacheUnlimited: false,
   /** 上一首按钮行为：playlist = 列表上一首（默认），history = 上一首听的歌 */
   prevButtonMode: 'playlist',
   historyMaxEntries: 1000,
@@ -138,6 +138,8 @@ export const DEFAULT_CONFIG = {
   enableMV: false,
   customBgPath: null,
   customBgOpacity: 1.0,
+  customBgBlur: 0,
+  customBgEditState: null,
   uiBgOpacity: 0.6,
   uiBlur: 20,
   uiFontFamily: 'outfit',

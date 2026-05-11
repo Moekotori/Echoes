@@ -15,18 +15,6 @@ import { tmpdir } from 'os'
 
 const isWin = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
-
-function safePkgConfigLibs(name) {
-  try {
-    return execSync(`pkg-config --libs ${name}`, {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore']
-    }).trim()
-  } catch {
-    return undefined
-  }
-}
-
 const REAL_ROOT = resolve(import.meta.dirname, '..')
 
 function getBuildRoot(root) {
@@ -74,11 +62,8 @@ if (isWin) {
   cmd = `clang++ -O2 -o "${OUT}" "${SRC}" -framework CoreAudio -framework AudioUnit -framework CoreFoundation -lpthread`
   vstCmd = `clang++ -O2 -o "${VST_OUT}" "${VST_SRC}" -lpthread`
 } else {
-  const alsaLibs = safePkgConfigLibs('alsa') || '-lasound'
-  const pulseLibs = safePkgConfigLibs('libpulse') || '-lpulse'
-  const linuxAudioLibs = `${alsaLibs} ${pulseLibs}`
-  cmd = `g++ -O2 -o "${OUT}" "${SRC}" -lpthread -ldl -lm ${linuxAudioLibs}`
-  vstCmd = `g++ -O2 -o "${VST_OUT}" "${VST_SRC}" -lpthread -ldl`
+  cmd = `g++ -O2 -o "${OUT}" "${SRC}" -lpthread -ldl -lm`
+  vstCmd = `g++ -O2 -o "${VST_OUT}" "${VST_SRC}" -lpthread`
 }
 
 console.log(`[build-audio-host] Compiling: ${cmd}`)
