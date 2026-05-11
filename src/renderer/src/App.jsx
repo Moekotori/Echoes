@@ -91,6 +91,7 @@ import {
 } from '@dnd-kit/sortable'
 import LyricsSettingsDrawer from './components/LyricsSettingsDrawer'
 import MediaDownloaderDrawer from './components/MediaDownloaderDrawer'
+import BgImageEditor from './components/BgImageEditor'
 import MvSettingsDrawer from './components/MvSettingsDrawer'
 import AudioSettingsDrawer from './components/AudioSettingsDrawer'
 import CastReceiveDrawer from './components/CastReceiveDrawer'
@@ -163,6 +164,10 @@ import {
 import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './utils/themeBundle'
 import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
 import { loadNetworkMetadataForEditor } from './utils/metadataEditorLoaders'
+import {
+  buildCoverThumbMetaEntry,
+  cacheExternalCoverThumbForTrack
+} from './utils/coverThumbMetadata'
 import {
   METADATA_AUTO_COMPLETE_VERSION,
   buildEmbeddedMetadataAutoCompleteEntry,
@@ -2580,6 +2585,11 @@ export default function App() {
     setCoverUrlSource(cover ? String(source || '').trim() : '')
     setCoverUrlTrusted(Boolean(cover && trusted))
   }, [])
+  const isExternalCoverDisplaySource = useCallback((source = '') => {
+    return ['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external'].includes(
+      String(source || '').trim()
+    )
+  }, [])
   const clearCoverDisplay = useCallback(() => {
     setCoverUrl(null)
     setCoverUrlSource('')
@@ -3147,19 +3157,8 @@ export default function App() {
   const mergeFullCoverThumbMetadata = useCallback((seed = {}, result = {}) => {
     const path = typeof seed?.path === 'string' ? seed.path.trim() : ''
     if (!path || !result || typeof result !== 'object') return
-    const thumbEntry = {
-      path,
-      coverKey: result.coverKey || null,
-      coverThumbPath: result.coverThumbPath || null,
-      coverThumbUrl: result.coverThumbUrl || null,
-      coverCacheVersion: result.coverCacheVersion ?? null,
-      coverThumbBytes: result.coverThumbBytes ?? null,
-      coverThumbWidth: result.coverThumbWidth ?? null,
-      coverThumbHeight: result.coverThumbHeight ?? null,
-      coverSource: result.coverSource || null,
-      coverChecked: true
-    }
-    if (!thumbEntry.coverThumbUrl && !thumbEntry.coverThumbPath && !thumbEntry.coverKey) return
+    const thumbEntry = buildCoverThumbMetaEntry(path, result)
+    if (!thumbEntry) return
     setTrackMetaMap((prev) => {
       const mergedEntry = {
         ...mergeTrackMetaEntryPreservingCover(prev?.[path] || {}, thumbEntry),
@@ -3181,6 +3180,9 @@ export default function App() {
   const [view, setView] = useState('player') // 'player', 'lyrics', 'settings'
   const [settingsQuery, setSettingsQuery] = useState('')
   const [activeSettingsSection, setActiveSettingsSection] = useState('language')
+  const [bgEditorOpen, setBgEditorOpen] = useState(false)
+  const [bgEditorImage, setBgEditorImage] = useState(null)
+  const [bgLivePreview, setBgLivePreview] = useState(null)
   const [config, setConfig] = useState(() => {
     const saved = getInitialAppStateValue('config')
     if (saved && typeof saved === 'object') return normalizeConfigState(saved)
@@ -9524,6 +9526,13 @@ export default function App() {
       const trackNo = Number.parseInt(String(best.trackNumber || existingEntry.trackNo || ''), 10)
       const year = Number.parseInt(String(best.year || existingEntry.year || ''), 10)
       const cover = String(best.coverDataUrl || '').trim()
+      const thumbEntry = cover
+        ? await cacheExternalCoverThumbForTrack(track, cover, {
+            coverSource: 'manual-network',
+            sizeBytes: existingEntry.sizeBytes || 0,
+            mtimeMs: existingEntry.mtimeMs || 0
+          })
+        : null
       const displayCover = cover || existingCover
       const fieldSources = {
         title: 'network',
@@ -9533,7 +9542,7 @@ export default function App() {
         ...(Number.isFinite(trackNo) && trackNo > 0 ? { trackNo: 'network' } : {}),
         ...(Number.isFinite(year) && year > 0 ? { year: 'network' } : {}),
         ...(genre ? { genre: 'network' } : {}),
-        ...(cover ? { cover: 'network' } : {})
+        ...(cover ? { cover: 'manual-network' } : {})
       }
       const networkEntry = {
         ...existingEntry,
@@ -9548,7 +9557,8 @@ export default function App() {
           ? {
               cover,
               coverScope: 'album',
-              coverSource: 'network'
+              coverSource: 'manual-network',
+              ...(thumbEntry || {})
             }
           : {}),
         coverChecked: true,
@@ -9574,14 +9584,19 @@ export default function App() {
       }
 
       setTrackMetaMap((prev) => {
+        const mergedNetworkEntry = mergeTrackMetaEntryPreservingCover(
+          prev?.[filePath] || {},
+          networkEntry
+        )
         const next = {
           ...prev,
-          [filePath]: networkEntry
+          [filePath]: mergedNetworkEntry
         }
         trackMetaMapRef.current = next
         return next
       })
       writeTrackMetaCache({ [filePath]: networkEntry }, { merge: false })
+      setCoverVersion((version) => version + 1)
 
       setPlaylist((prev) => {
         const next = prev.map((item) =>
@@ -9645,7 +9660,7 @@ export default function App() {
         if (displayCover) {
           setCoverUrlTrackPath(filePath)
           updateCoverDisplay(displayCover, {
-            source: cover ? 'network' : existingCoverSource,
+            source: cover ? 'manual-network' : existingCoverSource,
             trusted: Boolean(cover) || existingTrustedCover.length > 0
           })
         }
@@ -11790,7 +11805,6 @@ export default function App() {
         : {},
     [currentTrack?.path, effectiveTrackMetaMap, trackMetaMap]
   )
-
   useEffect(() => {
     void window.api?.setReplayGainPreamp?.(config.replaygainPreamp ?? 0)
   }, [config.replaygainPreamp])
@@ -12715,6 +12729,43 @@ export default function App() {
     [config.customBgOpacity]
   )
   const hasVisibleWallpaper = wallpaperOpacity > 0.001
+  const isBgEditing = bgEditorOpen && !!customWallpaperUrl && !config.themeCoverAsBackground
+  const liveOpacity = bgLivePreview ? bgLivePreview.opacity / 100 : (config.customBgOpacity ?? 1)
+  const liveBlur = bgLivePreview ? bgLivePreview.blur : (config.customBgBlur ?? 0)
+  const liveEditState = bgLivePreview
+    ? {
+        zoomPct: bgLivePreview.zoom,
+        posX: bgLivePreview.posX,
+        posY: bgLivePreview.posY,
+        vw: window.innerWidth,
+        vh: window.innerHeight,
+        natW: bgLivePreview.natW || config.customBgEditState?.natW,
+        natH: bgLivePreview.natH || config.customBgEditState?.natH
+      }
+    : config.customBgEditState
+  const customWallpaperStyle = useMemo(() => {
+    if (!customWallpaperUrl || !liveEditState) return null
+    const s = liveEditState
+    if (!s.natW || !s.natH) return null
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const z = s.zoomPct / 100
+    const fillScale = Math.max(vw / s.natW, vh / s.natH)
+    const scale = fillScale * z
+    const imgW = s.natW * scale
+    const imgH = s.natH * scale
+    const offX = (s.posX || 0) * (vw / s.vw)
+    const offY = (s.posY || 0) * (vh / s.vh)
+    return {
+      position: 'absolute',
+      width: imgW + 'px',
+      height: imgH + 'px',
+      left: ((vw - imgW) / 2 + offX) + 'px',
+      top: ((vh - imgH) / 2 + offY) + 'px',
+      pointerEvents: 'none',
+      userSelect: 'none'
+    }
+  }, [customWallpaperUrl, liveEditState])
   const uiPanelOpacity = useMemo(
     () => normalizeUnitOpacity(config.uiBgOpacity, DEFAULT_CONFIG.uiBgOpacity ?? 0.6),
     [config.uiBgOpacity]
@@ -12755,6 +12806,45 @@ export default function App() {
       null
     const albumArtist = metadata.albumArtist || currentTrackInfo?.albumArtist || null
     const existingCurrentMeta = trackMetaMap[currentTrack.path] || {}
+    const displaySource = coverUrlSource || existingCurrentMeta.coverSource || ''
+    if (isExternalCoverDisplaySource(coverUrlSource)) {
+      const thumbEntry = buildCoverThumbMetaEntry(currentTrack.path, existingCurrentMeta)
+      if (thumbEntry) {
+        setTrackMetaMap((prev) => {
+          const existing = prev[currentTrack.path] || {}
+          const mergedEntry = mergeTrackMetaEntryPreservingCover(existing, thumbEntry)
+          if (JSON.stringify(existing) === JSON.stringify(mergedEntry)) return prev
+          return {
+            ...prev,
+            [currentTrack.path]: mergedEntry
+          }
+        })
+        writeTrackMetaCache({ [currentTrack.path]: thumbEntry }).catch(() => {})
+      }
+      return
+    }
+    if (displaySafeCoverUrl) {
+      cacheExternalCoverThumbForTrack(currentTrack, displaySafeCoverUrl, {
+          coverSource: displaySource || 'embedded-batch',
+          sizeBytes: existingCurrentMeta.sizeBytes || 0,
+          mtimeMs: existingCurrentMeta.mtimeMs || 0
+        })
+        .then((thumbEntry) => {
+          if (!thumbEntry) return
+          setTrackMetaMap((prev) => {
+            const existing = prev[currentTrack.path] || {}
+            const mergedEntry = mergeTrackMetaEntryPreservingCover(existing, thumbEntry)
+            if (JSON.stringify(existing) === JSON.stringify(mergedEntry)) return prev
+            return {
+              ...prev,
+              [currentTrack.path]: mergedEntry
+            }
+          })
+          writeTrackMetaCache({ [currentTrack.path]: thumbEntry }).catch(() => {})
+          setCoverVersion((version) => version + 1)
+        })
+        .catch(() => {})
+    }
     const coverEntry = {
       title,
       artist,
@@ -12764,7 +12854,7 @@ export default function App() {
       discNo: metadata.discNo ?? currentTrackInfo?.discNo ?? null,
       cover: displaySafeCoverUrl,
       coverScope: existingCurrentMeta.coverScope || null,
-      coverSource: existingCurrentMeta.coverSource || null,
+      coverSource: displaySource || null,
       coverExtractorVersion: existingCurrentMeta.coverExtractorVersion || null,
       duration: duration || currentTrackInfo?.duration || null,
       coverChecked: true,
@@ -12836,6 +12926,7 @@ export default function App() {
     currentDisplayOverride?.cover,
     displaySafeCoverUrl,
     duration,
+    isExternalCoverDisplaySource,
     lastCastStatus,
     metadata.album,
     metadata.albumArtist,
@@ -14261,7 +14352,7 @@ export default function App() {
     )
     parsedPlaylistCacheRef.current = result.cache
     return result.items
-  }, [playlist, metadataIdentityVersion, displayMetadataOverrides])
+  }, [playlist, metadataIdentityVersion, displayMetadataOverrides, coverVersion])
 
   const libraryVersion = useMemo(
     () =>
@@ -16786,9 +16877,15 @@ export default function App() {
                 fetchImpl: typeof fetch === 'function' ? fetch : null
               })
               if (cancelled || !candidate?.coverDataUrl) continue
+              const thumbEntry = await cacheExternalCoverThumbForTrack(
+                track,
+                candidate.coverDataUrl,
+                { coverSource: 'network' }
+              )
               const entry = buildNetworkMetadataAutoCompleteEntry(candidate, currentEntry)
               networkEntries[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
                 ...entry,
+                ...(thumbEntry || {}),
                 sizeBytes: track?.sizeBytes,
                 mtimeMs: track?.mtimeMs
               })
@@ -18120,9 +18217,15 @@ export default function App() {
           searchQqMusic: window.api?.qqMusicSearch,
           fetchImpl: typeof fetch === 'function' ? fetch : null
         })
+        const thumbEntry = candidate?.coverDataUrl
+          ? await cacheExternalCoverThumbForTrack(track, candidate.coverDataUrl, {
+              coverSource: 'network'
+            })
+          : null
         const entry = buildNetworkMetadataAutoCompleteEntry(candidate || {}, currentEntry)
         updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
           ...entry,
+          ...(thumbEntry || {}),
           sizeBytes: track?.sizeBytes,
           mtimeMs: track?.mtimeMs
         })
@@ -18455,12 +18558,7 @@ export default function App() {
       bitDepth: null,
       channels: null,
       isMqa: false,
-      bpm: null,
-      replaygainTrackGain: null,
-      replaygainTrackPeak: null,
-      replaygainAlbumGain: null,
-      replaygainAlbumPeak: null,
-      replaygainChecked: false
+      bpm: null
     })
 
     const loadMetadata = async () => {
@@ -18531,7 +18629,6 @@ export default function App() {
         if (shouldRefreshInfoSidecarTrackMeta(track.path, cachedMeta)) return true
         if (!cachedMeta.bpmChecked) return true
         if (!cachedMeta.mqaChecked) return true
-        if (!cachedMeta.replaygainChecked) return true
         const cachedHasUsefulArtist = !isUnknownArtistName(
           cachedMeta.albumArtist ||
             cachedMeta.artist ||
@@ -18681,12 +18778,7 @@ export default function App() {
                 bitDepth: technical.bitDepth || cachedMeta.bitDepth || null,
                 channels: technical.channels || cachedMeta.channels || null,
                 isMqa: technical.isMqa === true || cachedMeta.isMqa === true,
-                bpm: cachedMeta.bpmMeasured ? cachedMeta.bpm || null : null,
-                replaygainTrackGain: common.replaygainTrackGain ?? cachedMeta.replaygainTrackGain ?? null,
-                replaygainTrackPeak: common.replaygainTrackPeak ?? cachedMeta.replaygainTrackPeak ?? null,
-                replaygainAlbumGain: common.replaygainAlbumGain ?? cachedMeta.replaygainAlbumGain ?? null,
-                replaygainAlbumPeak: common.replaygainAlbumPeak ?? cachedMeta.replaygainAlbumPeak ?? null,
-                replaygainChecked: true
+                bpm: cachedMeta.bpmMeasured ? cachedMeta.bpm || null : null
               }
             } else {
               loaded[track.path] = buildEmptyMetaEntry()
@@ -18990,8 +19082,11 @@ export default function App() {
     let cancelled = false
     let nextIndex = 0
 
-    const applyCloudAlbumCover = (candidate, cover) => {
+    const applyCloudAlbumCover = async (candidate, cover) => {
       if (!cover) return
+      const thumbEntry = await cacheExternalCoverThumbForTrack(candidate.track, cover, {
+        coverSource: 'network'
+      })
       setAlbumCoverMap((prev) => {
         return mergeAlbumCoverMapEntries(prev, {
           [candidate.albumKey || candidate.albumName]: {
@@ -19024,6 +19119,7 @@ export default function App() {
         cover,
         coverScope: 'album',
         coverSource: 'network',
+        ...(thumbEntry || {}),
         fieldSources: {
           ...(currentEntry.fieldSources || {}),
           cover: 'network'
@@ -19068,7 +19164,7 @@ export default function App() {
               candidate.albumName
             )
           }
-          applyCloudAlbumCover(candidate, cover)
+          await applyCloudAlbumCover(candidate, cover)
         } finally {
           albumCloudCoverPendingRef.current.delete(candidate.key)
         }
@@ -21164,7 +21260,26 @@ export default function App() {
         {!showLyrics &&
           customWallpaperUrl &&
           !config.themeCoverAsBackground &&
-          hasVisibleWallpaper && (
+          hasVisibleWallpaper &&
+          (isBgEditing || liveEditState ? (
+            <div
+              className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
+              style={{
+                opacity: liveOpacity,
+                overflow: 'hidden'
+              }}
+            >
+              <img
+                src={customWallpaperUrl}
+                alt=""
+                draggable={false}
+                style={{
+                  ...(customWallpaperStyle || {}),
+                  filter: liveBlur > 0 ? `blur(${liveBlur}px)` : 'none'
+                }}
+              />
+            </div>
+          ) : (
             <div
               className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
               style={{
@@ -21172,7 +21287,7 @@ export default function App() {
                 backgroundImage: `url("${customWallpaperUrl}")`
               }}
             />
-          )}
+          ))}
         {!showLyrics &&
           config.themeCoverAsBackground &&
           displaySafeCoverUrl &&
@@ -25825,7 +25940,7 @@ export default function App() {
                               <button
                                 className="btn"
                                 onClick={() =>
-                                  setConfig((prev) => ({ ...prev, customBgPath: null }))
+                                  setConfig((prev) => ({ ...prev, customBgPath: null, customBgEditState: null, customBgBlur: 0 }))
                                 }
                                 style={{
                                   width: 'auto',
@@ -25838,10 +25953,38 @@ export default function App() {
                                 {t('settings.clear')}
                               </button>
                             )}
+                            {config.customBgPath && (
+                              <button
+                                className="btn"
+                                onClick={async () => {
+                                  const url = customWallpaperUrl
+                                  if (!url) return
+                                  try {
+                                    const resp = await fetch(url)
+                                    const blob = await resp.blob()
+                                    const reader = new FileReader()
+                                    reader.onloadend = () => setBgEditorImage(reader.result)
+                                    reader.readAsDataURL(blob)
+                                  } catch {
+                                    setBgEditorImage(url)
+                                  }
+                                  setBgEditorOpen(true)
+                                }}
+                                style={{
+                                  width: 'auto',
+                                  height: '36px',
+                                  padding: '0 14px',
+                                  fontSize: 12,
+                                  borderRadius: 18
+                                }}
+                              >
+                                {t('settings.bgEditor.edit')}
+                              </button>
+                            )}
                             <button
                               className="btn"
                               onClick={async () => {
-                                const path = await window.api.openImageHandler(
+                                const path = await window.api.openMainPlayerWallpaper(
                                   configRef.current.uiLocale
                                 )
                                 if (path)
@@ -26839,7 +26982,7 @@ export default function App() {
                           ) : null}
                         </div>
                       ) : null}
-                                            <div className="setting-row">
+                      <div className="setting-row">
                         <div className="setting-info">
                           <h3>{t('settings.metadataCacheClearTitle', 'Delete local metadata cache')}</h3>
                           <p>{t('settings.metadataCacheClearDesc', 'Clears all cached track metadata, album covers, and artist avatars.')}</p>
@@ -26880,9 +27023,9 @@ export default function App() {
                               const ok = window.confirm(t('settings.metadataCacheRebuildConfirm', 'Rebuild all metadata from scratch?'))
                               if (!ok) return
                               setMetadataCacheBusy(true)
+                              setMetadataCacheProgress({ current: 0, total: 0, active: true })
                               try {
                                 await clearMetadataCache()
-                                // Trigger full metadata reload for all library tracks
                                 const tracks = playlistRef.current || []
                                 if (tracks.length > 0) {
                                   setMetadataCacheProgress({ current: 0, total: tracks.length, active: true })
@@ -26892,10 +27035,7 @@ export default function App() {
                                     await Promise.all(batch.map(async (track) => {
                                       if (!track?.path) return
                                       try {
-                                        const data = await window.api.getExtendedMetadataHandler(track.path, buildPlaybackMetadataRequestOptions({ includeCover: false }))
-                                        if (data?.success) {
-                                          // Cache is written by loadMetadata
-                                        }
+                                        await window.api.getExtendedMetadataHandler(track.path, buildPlaybackMetadataRequestOptions({ includeCover: false }))
                                       } catch { /* skip */ }
                                     }))
                                     setMetadataCacheProgress({ current: Math.min(i + batchSize, tracks.length), total: tracks.length, active: true })
@@ -26952,7 +27092,7 @@ export default function App() {
                           )}
                         </button>
                       </div>
-</section>
+                    </section>
                   </div>
 
                   <div
@@ -27791,6 +27931,66 @@ export default function App() {
             }
           }}
         />
+        {bgEditorOpen && bgEditorImage && (
+          <BgImageEditor
+            imageDataUrl={bgEditorImage}
+            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
+            initialBlur={config.customBgBlur ?? 0}
+            initialEditState={config.customBgEditState}
+            viewportW={window.innerWidth}
+            viewportH={window.innerHeight}
+            t={t}
+            onPreview={(p) =>
+              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
+            }
+            onSave={({ opacity, blur, editState }) => {
+              setConfig((prev) => ({
+                ...prev,
+                customBgOpacity: opacity / 100,
+                customBgBlur: blur,
+                customBgEditState: editState
+              }))
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+            onClose={() => {
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+          />
+        )}
+        {bgEditorOpen && bgEditorImage && (
+          <BgImageEditor
+            imageDataUrl={bgEditorImage}
+            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
+            initialBlur={config.customBgBlur ?? 0}
+            initialEditState={config.customBgEditState}
+            viewportW={window.innerWidth}
+            viewportH={window.innerHeight}
+            t={t}
+            onPreview={(p) =>
+              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
+            }
+            onSave={({ opacity, blur, editState }) => {
+              setConfig((prev) => ({
+                ...prev,
+                customBgOpacity: opacity / 100,
+                customBgBlur: blur,
+                customBgEditState: editState
+              }))
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+            onClose={() => {
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+          />
+        )}
         <PluginManagerDrawer open={pluginDrawerOpen} onClose={() => setPluginDrawerOpen(false)} />
         <PluginSlot name="drawers" />
         <div className="song-share-capture-root" aria-hidden>

@@ -130,9 +130,20 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   if (!entry || typeof entry !== 'object') return false
   if (needsCover) {
     const coverSatisfiedByLocalCover = hasRealTrackCover(entry)
+    const coverSatisfiedByNetworkCover = hasNetworkDisplayCover(entry)
     const coverSatisfiedByCurrentNoCover =
       !entry.cover && requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
-    if (!coverSatisfiedByLocalCover && !coverSatisfiedByCurrentNoCover) return false
+    const coverSatisfiedByNoEmbeddedCoverChecked =
+      !entry.cover &&
+      requirement?.source === 'visible-row' &&
+      hasExplicitNoEmbeddedCoverCheck(entry)
+    if (
+      !coverSatisfiedByLocalCover &&
+      !coverSatisfiedByNetworkCover &&
+      !coverSatisfiedByCurrentNoCover &&
+      !coverSatisfiedByNoEmbeddedCoverChecked
+    )
+      return false
   }
   if (
     needsArtist &&
@@ -169,7 +180,12 @@ function normalizeCoverSource(value = '') {
       'local-folder-cover',
       'folder',
       'local',
-      'network'
+      'network',
+      'manual-network',
+      'remote',
+      'netease',
+      'qqmusic',
+      'external'
     ].includes(source)
   ) {
     return source === 'local-folder-cover' ? 'folder' : source
@@ -180,9 +196,42 @@ function normalizeCoverSource(value = '') {
 export function isLocalCoverEntry(entry = {}) {
   if (!entry?.cover) return false
   const source = normalizeCoverSource(entry.coverSource)
-  if (source && source !== 'network') return true
-  if (source === 'network') return false
+  if (
+    ['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external'].includes(source)
+  ) {
+    return false
+  }
+  if (source) return true
   return isLocalCoverUrl(entry.cover) || !isNetworkCoverUrl(entry.cover)
+}
+
+function hasDisplayCoverThumbnail(entry = {}) {
+  if (!entry || typeof entry !== 'object') return false
+  return Boolean(
+    (typeof entry.coverThumbUrl === 'string' && entry.coverThumbUrl.trim()) ||
+      (typeof entry.coverThumbPath === 'string' && entry.coverThumbPath.trim())
+  )
+}
+
+function hasNetworkDisplayCover(entry = {}) {
+  if (!entry || typeof entry !== 'object') return false
+  const source = normalizeCoverSource(entry.coverSource)
+  if (
+    !['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external', 'manual'].includes(
+      source
+    )
+  ) {
+    return false
+  }
+  return hasDisplayCoverThumbnail(entry) || hasRealTrackCover(entry)
+}
+
+function hasExplicitNoEmbeddedCoverCheck(entry = {}) {
+  return (
+    entry?.coverChecked === true &&
+    Object.prototype.hasOwnProperty.call(entry, 'embeddedPictureCount') &&
+    Number(entry.embeddedPictureCount) === 0
+  )
 }
 
 function hasOwnTrackCover(track, entry = null, options = {}) {
@@ -247,8 +296,15 @@ export function buildVisibleTrackMetaHydrateRequirement(
     albumCoverMap,
     albumTracks
   })
+  const hasNetworkCover = hasNetworkDisplayCover(entry)
+  const noEmbeddedCoverChecked = hasExplicitNoEmbeddedCoverCheck(entry)
   const needsThumbnailCover = hasOwnCover && shouldRefreshDisplayCoverAsThumbnail(track, entry)
-  const needsCover = needsThumbnailCover || (!hasOwnCover && !hasCurrentEmbeddedCoverCheck(entry))
+  const needsCover =
+    needsThumbnailCover ||
+    (!hasOwnCover &&
+      !hasNetworkCover &&
+      !noEmbeddedCoverChecked &&
+      !hasCurrentEmbeddedCoverCheck(entry))
   const needsArtist = !hasVisibleRowArtist(track, entry)
   if (!needsCover && !needsArtist) return null
 
@@ -654,22 +710,27 @@ function normalizeTrackMetaEntry(entry) {
   }
   for (const key of [
     'trackNo',
+    'trackTotal',
     'discNo',
+    'discTotal',
+    'year',
     'duration',
+    'bitrate',
     'bitrateKbps',
+    'sampleRate',
     'sampleRateHz',
     'bitDepth',
     'channels',
     'bpm',
-    'replaygainTrackPeak',
-    'replaygainAlbumPeak'
+    'sizeBytes',
+    'mtimeMs',
+    'coverCacheVersion',
+    'coverThumbBytes',
+    'coverThumbWidth',
+    'coverThumbHeight'
   ]) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null
-  }
-  for (const key of ['replaygainTrackGain', 'replaygainAlbumGain']) {
-    const value = Number(entry[key])
-    next[key] = Number.isFinite(value) ? value : null
   }
   {
     const value = Number(entry.coverExtractorVersion)
@@ -716,7 +777,6 @@ function normalizeTrackMetaEntry(entry) {
   next.bpmMeasured = entry.bpmMeasured === true
   next.mqaChecked = entry.mqaChecked === true
   next.isMqa = entry.isMqa === true
-  next.replaygainChecked = entry.replaygainChecked === true
   next.lossless = entry.lossless === true
   return next
 }
@@ -872,9 +932,7 @@ export async function writeTrackMetaCache(entries = {}, options = {}) {
       const fingerprint = buildTrackMetaCacheFingerprint({ path, ...(entry || {}) })
       const putRecord = (existingRecord = null) => {
         const existingMeta = normalizeTrackMetaEntry(existingRecord?.meta) || {}
-        const mergedMeta = shouldMerge
-          ? mergeTrackMetaEntryPreservingCover(existingMeta, meta)
-          : meta
+        const mergedMeta = shouldMerge ? mergeTrackMetaEntryPreservingCover(existingMeta, meta) : meta
         store.put({
           path,
           meta: mergedMeta,
@@ -1135,7 +1193,6 @@ export async function pruneTrackMetaCache() {
 
   return prunePromise
 }
-
 /**
  * Clear all metadata cache stores (track meta, album covers, artist avatars).
  * Returns the number of stores cleared.

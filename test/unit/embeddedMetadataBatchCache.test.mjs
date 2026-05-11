@@ -11,12 +11,14 @@ import {
   getEmbeddedMetadataCacheDbPath,
   readEmbeddedMetadataBatch,
   readCoverThumbBatchFromEmbeddedMetadataCache,
-  readTrackFullCoverFromEmbeddedMetadataCache
+  readTrackFullCoverFromEmbeddedMetadataCache,
+  cacheExternalCoverForTrack
 } from '../../src/main/utils/embeddedMetadataBatchCache.js'
 import {
   COVER_THUMB_CACHE_VERSION,
   getCoverThumbUrl,
-  getCoverThumbPath
+  getCoverThumbPath,
+  ensureDisplayCoverThumbnailCache
 } from '../../src/main/utils/coverThumbnailCache.js'
 import { METADATA_AUTO_COMPLETE_VERSION } from '../../src/shared/metadataAutoCompleteVersion.mjs'
 
@@ -188,6 +190,164 @@ function createFakeThumbnailAdapter({ fail = false, width = 320, height = 240 } 
     }
   }
 }
+
+test('network cover dataURL can generate display thumbnail cache', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const cover = dataUrlFromText('network-cover')
+
+  const result = await ensureDisplayCoverThumbnailCache({
+    userDataPath,
+    coverDataUrl: cover,
+    coverSource: 'network',
+    imageAdapter: adapter,
+    logger: null
+  })
+
+  assert.equal(Boolean(result?.coverThumbUrl), true)
+  assert.equal(fs.existsSync(result.coverThumbPath), true)
+  assert.equal(result.coverCacheVersion, COVER_THUMB_CACHE_VERSION)
+  assert.equal(result.coverThumbWidth, 320)
+  assert.equal(result.coverThumbHeight, 240)
+})
+
+test('cacheExternalCoverForTrack writes network cover thumb metadata to sqlite', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const trackPath = path.join(userDataPath, 'network-track.flac')
+  const cover = dataUrlFromText('network-sqlite-cover')
+
+  const result = await cacheExternalCoverForTrack({
+    userDataPath,
+    path: trackPath,
+    coverDataUrl: cover,
+    coverSource: 'network',
+    sizeBytes: 123,
+    mtimeMs: 456,
+    imageAdapter: adapter
+  })
+  const meta = readCacheMeta(userDataPath, trackPath)
+
+  assert.equal(result.ok, true)
+  assert.equal(meta.cover, cover)
+  assert.equal(meta.coverSource, 'network')
+  assert.equal(meta.coverChecked, true)
+  assert.equal(Boolean(meta.coverThumbUrl), true)
+  assert.equal(fs.existsSync(meta.coverThumbPath), true)
+  assert.equal(meta.coverThumbBytes > 0, true)
+  assert.equal(meta.coverThumbWidth, 320)
+  assert.equal(meta.coverThumbHeight, 240)
+})
+
+test('thumb-only fast path returns network cover thumb without full cover', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const trackPath = path.join(userDataPath, 'network-thumb-only.flac')
+  const cover = dataUrlFromText('network-thumb-only-cover')
+
+  await cacheExternalCoverForTrack({
+    userDataPath,
+    path: trackPath,
+    coverDataUrl: cover,
+    coverSource: 'network',
+    sizeBytes: 777,
+    mtimeMs: 888,
+    imageAdapter: adapter
+  })
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [{ path: trackPath, sizeBytes: 777, mtimeMs: 888 }]
+  })
+  const entry = result.entries[trackPath]
+
+  assert.equal(result.hitPaths.includes(trackPath), true)
+  assert.equal(entry.coverThumbUrl.startsWith('file:'), true)
+  assert.equal(entry.coverSource, 'network')
+  assert.equal(entry.cover, undefined)
+})
+
+test('automatic network cover does not overwrite existing embedded cover cache', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const trackPath = path.join(userDataPath, 'protected-embedded.flac')
+  writeRawCacheRecord(userDataPath, {
+    path: trackPath,
+    sizeBytes: 1,
+    mtimeMs: 2,
+    meta_json: JSON.stringify({
+      cover: dataUrlFromText('embedded-cover'),
+      coverSource: 'embedded',
+      fieldSources: { cover: 'embedded' },
+      coverChecked: true,
+      metadataAutoCompleteVersion: METADATA_AUTO_COMPLETE_VERSION
+    })
+  })
+
+  const result = await cacheExternalCoverForTrack({
+    userDataPath,
+    path: trackPath,
+    coverDataUrl: dataUrlFromText('network-attempt'),
+    coverSource: 'network',
+    sizeBytes: 1,
+    mtimeMs: 2,
+    imageAdapter: adapter
+  })
+  const meta = readCacheMeta(userDataPath, trackPath)
+
+  assert.equal(result.ok, false)
+  assert.equal(result.skipped, true)
+  assert.equal(meta.cover, dataUrlFromText('embedded-cover'))
+  assert.equal(meta.coverSource, 'embedded')
+})
+
+test('manual-network cover can replace display cover cache as user choice', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const trackPath = path.join(userDataPath, 'manual-network.flac')
+
+  const result = await cacheExternalCoverForTrack({
+    userDataPath,
+    path: trackPath,
+    coverDataUrl: dataUrlFromText('manual-network-cover'),
+    coverSource: 'manual-network',
+    sizeBytes: 11,
+    mtimeMs: 22,
+    imageAdapter: adapter
+  })
+  const meta = readCacheMeta(userDataPath, trackPath)
+
+  assert.equal(result.ok, true)
+  assert.equal(meta.coverSource, 'manual-network')
+  assert.equal(meta.fieldSources.cover, 'manual-network')
+  assert.equal(Boolean(meta.coverThumbUrl), true)
+})
+
+test('cacheExternalCoverForTrack accepts embedded source for current playback thumb write-back', async () => {
+  const userDataPath = createTempUserData()
+  const adapter = createFakeThumbnailAdapter()
+  const trackPath = path.join(userDataPath, 'playback-embedded-thumb.flac')
+
+  const result = await cacheExternalCoverForTrack({
+    userDataPath,
+    path: trackPath,
+    coverDataUrl: dataUrlFromText('playback-embedded-cover'),
+    coverSource: 'embedded',
+    sizeBytes: 33,
+    mtimeMs: 44,
+    imageAdapter: adapter
+  })
+  const thumbOnly = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [{ path: trackPath, sizeBytes: 33, mtimeMs: 44 }]
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.coverSource, 'embedded-batch')
+  assert.equal(thumbOnly.entries[trackPath].coverSource, 'embedded-batch')
+  assert.equal(Boolean(thumbOnly.entries[trackPath].coverThumbUrl), true)
+  assert.equal(thumbOnly.entries[trackPath].cover, undefined)
+})
 
 test('embedded metadata batch caches parsed entries by path fingerprint', async () => {
   const userDataPath = createTempUserData()

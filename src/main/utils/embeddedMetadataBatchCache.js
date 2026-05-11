@@ -6,7 +6,9 @@ import { EMBEDDED_COVER_EXTRACTOR_VERSION } from '../../shared/embeddedCoverVers
 import {
   COVER_THUMB_CACHE_VERSION,
   getCoverThumbUrl,
-  ensureCoverThumbnailCache
+  ensureCoverThumbnailCache,
+  ensureDisplayCoverThumbnailCache,
+  isExternalCacheableCoverSource
 } from './coverThumbnailCache.js'
 import {
   createEmbeddedCoverRecoveryStats,
@@ -18,6 +20,16 @@ const LEGACY_CACHE_DIR_NAME = 'metadata-cache-v1'
 const MAX_BATCH_LIMIT = 256
 const MAX_THUMB_ONLY_BATCH_LIMIT = 500
 const CACHE_STATE_KEY_LEGACY_IMPORTED = 'legacy-json-imported-v1'
+const EXTERNAL_COVER_FETCH_TIMEOUT_MS = 8000
+const EXTERNAL_COVER_MAX_BYTES = 8 * 1024 * 1024
+const EXTERNAL_COVER_ALLOWED_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+  'image/bmp'
+])
 
 function getStateValue(db, key) {
   const row = db.prepare('SELECT value FROM cache_state WHERE key = ?').get(key)
@@ -124,6 +136,57 @@ function normalizeNonNegativeInteger(value) {
 function normalizeBatchSource(source) {
   const value = String(source || '').trim()
   return value === 'embedded' ? 'embedded-batch' : value
+}
+
+function isExternalCoverSource(source = '') {
+  return isExternalCacheableCoverSource(normalizeBatchSource(source))
+}
+
+function isLocalCoverSource(source = '') {
+  return ['embedded', 'embedded-batch', 'folder'].includes(normalizeBatchSource(source))
+}
+
+function isProtectedLocalCoverSource(source = '') {
+  return [
+    'manual',
+    'embedded',
+    'embedded-batch',
+    'embedded-cue',
+    'sidecar',
+    'download-sidecar',
+    'folder',
+    'local-folder-cover'
+  ].includes(normalizeBatchSource(source))
+}
+
+function canCacheCoverSource(source = '') {
+  const normalized = normalizeBatchSource(source)
+  return isLocalCoverSource(normalized) || isExternalCoverSource(normalized)
+}
+
+function normalizeCacheableCoverSource(source = '') {
+  const normalized = normalizeBatchSource(source)
+  if (normalized === 'manual') return 'manual-network'
+  if (canCacheCoverSource(normalized)) return normalized
+  return 'network'
+}
+
+function shouldPreserveProtectedCover(existingEntry = {}, incomingSource = '') {
+  const normalizedSource = normalizeCacheableCoverSource(incomingSource)
+  if (!isExternalCoverSource(normalizedSource)) return false
+  return (
+    normalizedSource === 'network' &&
+    normalizeText(existingEntry?.cover) &&
+    isProtectedLocalCoverSource(existingEntry?.coverSource || existingEntry?.fieldSources?.cover)
+  )
+}
+
+function hasProtectedExistingCover(entry = {}) {
+  return normalizeText(entry?.cover) && isProtectedLocalCoverSource(entry?.coverSource || entry?.fieldSources?.cover)
+}
+
+function normalizeExternalCoverSource(source = '') {
+  return normalizeCacheableCoverSource(source)
 }
 
 function normalizeBatchFieldSources(fieldSources = {}) {
@@ -340,7 +403,10 @@ function writeThumbOnlyDebugSummary(summary = {}) {
 async function maybeAttachCoverThumbnailCache(entry, { userDataPath, imageAdapter } = {}) {
   if (!entry?.cover) return entry
   if (hasCurrentCoverThumbnailCache(entry)) return attachCoverThumbUrl(entry)
-  const thumbnail = await ensureCoverThumbnailCache({
+  const ensureThumbnail = isExternalCoverSource(entry.coverSource)
+    ? ensureDisplayCoverThumbnailCache
+    : ensureCoverThumbnailCache
+  const thumbnail = await ensureThumbnail({
     userDataPath,
     coverDataUrl: entry.cover,
     coverSource: entry.coverSource,
@@ -350,6 +416,159 @@ async function maybeAttachCoverThumbnailCache(entry, { userDataPath, imageAdapte
   return {
     ...entry,
     ...thumbnail
+  }
+}
+
+function normalizeDataUrlMime(dataUrl = '') {
+  const match = String(dataUrl || '').trim().match(/^data:([^;,]+)[;,]/i)
+  return match ? match[1].toLowerCase() : ''
+}
+
+async function fetchExternalCoverDataUrl(coverUrl = '', { fetchImpl = globalThis.fetch } = {}) {
+  const url = String(coverUrl || '').trim()
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('invalid_cover_url')
+  }
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch_unavailable')
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), EXTERNAL_COVER_FETCH_TIMEOUT_MS)
+  try {
+    const response = await fetchImpl(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8'
+      }
+    })
+    if (!response?.ok) throw new Error(`cover_fetch_failed_${response?.status || 'unknown'}`)
+
+    const contentType = String(response.headers?.get?.('content-type') || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase()
+    if (!EXTERNAL_COVER_ALLOWED_CONTENT_TYPES.has(contentType)) {
+      throw new Error('unsupported_cover_content_type')
+    }
+
+    const contentLength = Number(response.headers?.get?.('content-length') || 0)
+    if (Number.isFinite(contentLength) && contentLength > EXTERNAL_COVER_MAX_BYTES) {
+      throw new Error('cover_too_large')
+    }
+
+    const arrayBuffer = await response.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    if (!buffer.length) throw new Error('empty_cover_response')
+    if (buffer.length > EXTERNAL_COVER_MAX_BYTES) throw new Error('cover_too_large')
+    return `data:${contentType};base64,${buffer.toString('base64')}`
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function cacheExternalCoverForTrack({
+  path = '',
+  coverUrl = '',
+  coverDataUrl = '',
+  coverSource = 'network',
+  sizeBytes = 0,
+  mtimeMs = 0,
+  userDataPath = '',
+  imageAdapter,
+  fetchImpl
+} = {}) {
+  const trackPath = normalizeText(path)
+  if (!trackPath || !userDataPath) {
+    return { ok: false, error: 'invalid_request' }
+  }
+
+  const normalizedSource = normalizeCacheableCoverSource(coverSource)
+  let db = null
+  try {
+    db = openEmbeddedMetadataCacheDb(userDataPath)
+    const hasLegacyMetaJson = hasLegacyMetaJsonColumn(db)
+    const cachedRecord = getCachedRecord(db, trackPath, { hasLegacyMetaJson })
+    const existingEntry = cachedRecord?.meta && typeof cachedRecord.meta === 'object' ? cachedRecord.meta : {}
+
+    if (shouldPreserveProtectedCover(existingEntry, normalizedSource)) {
+      return {
+        ok: false,
+        skipped: true,
+        error: 'protected_cover_exists',
+        coverSource: normalizeText(existingEntry.coverSource) || null,
+        coverThumbUrl: normalizeText(existingEntry.coverThumbUrl) || getCoverThumbUrl(existingEntry.coverThumbPath)
+      }
+    }
+
+    let cover = normalizeText(coverDataUrl)
+    if (!cover && coverUrl) {
+      cover = await fetchExternalCoverDataUrl(coverUrl, { fetchImpl })
+    }
+    if (!cover || !normalizeDataUrlMime(cover).startsWith('image/')) {
+      return { ok: false, error: 'invalid_cover_data' }
+    }
+
+    const thumbnail = await ensureDisplayCoverThumbnailCache({
+      userDataPath,
+      coverDataUrl: cover,
+      coverSource: normalizedSource,
+      imageAdapter
+    })
+    if (!thumbnail?.coverThumbUrl && !thumbnail?.coverThumbPath) {
+      return { ok: false, error: 'thumbnail_failed' }
+    }
+
+    const fingerprint = {
+      sizeBytes:
+        Number(sizeBytes || 0) > 0
+          ? Number(sizeBytes)
+          : Number(cachedRecord?.sizeBytes || existingEntry.sizeBytes || 0) || 0,
+      mtimeMs:
+        Number(mtimeMs || 0) > 0
+          ? Number(mtimeMs)
+          : Number(cachedRecord?.mtimeMs || existingEntry.mtimeMs || 0) || 0
+    }
+    const fieldSources =
+      existingEntry.fieldSources && typeof existingEntry.fieldSources === 'object'
+        ? existingEntry.fieldSources
+        : {}
+    const entry = {
+      ...existingEntry,
+      cover,
+      coverSource: normalizedSource,
+      coverScope: existingEntry.coverScope || 'album',
+      coverChecked: true,
+      ...thumbnail,
+      embeddedPictureCount: normalizeNonNegativeInteger(existingEntry.embeddedPictureCount),
+      metadataSource: normalizedSource,
+      fieldSources: {
+        ...fieldSources,
+        cover: normalizedSource
+      },
+      sizeBytes: fingerprint.sizeBytes || existingEntry.sizeBytes || null,
+      mtimeMs: fingerprint.mtimeMs || existingEntry.mtimeMs || null
+    }
+
+    upsertCachedRecord(db, { path: trackPath, ...fingerprint }, entry)
+    return {
+      ok: true,
+      path: trackPath,
+      cover,
+      coverSource: normalizedSource,
+      coverChecked: true,
+      ...thumbnail,
+      embeddedPictureCount: entry.embeddedPictureCount
+    }
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error || '') }
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* ignore db close errors */
+    }
   }
 }
 
@@ -489,7 +708,10 @@ export async function readTrackFullCoverFromEmbeddedMetadataCache({
     let entryWithThumb = entry
     const existingThumbState = readValidCoverThumb(entryWithThumb.coverThumbPath)
     if (!existingThumbState.ok) {
-      const thumbnail = await ensureCoverThumbnailCache({
+      const ensureThumbnail = isExternalCoverSource(entryWithThumb.coverSource)
+        ? ensureDisplayCoverThumbnailCache
+        : ensureCoverThumbnailCache
+      const thumbnail = await ensureThumbnail({
         userDataPath,
         coverDataUrl: cover,
         coverSource: entryWithThumb.coverSource || 'embedded-batch',

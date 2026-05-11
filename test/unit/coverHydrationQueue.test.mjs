@@ -206,6 +206,59 @@ test('thumb-only miss is the only path forwarded to heavy hydration', async () =
   assert.equal(manager.getDebugStats().thumbOnlyRequestUniqueCount, 2)
 })
 
+test('cover hydration skips tracks that already have network thumbnails', async () => {
+  const timer = createImmediateTimer()
+  const track = makeTrack('D:/Music/network-thumb.flac')
+  const readCalls = []
+  const manager = createCoverHydrationManager({
+    setTimeoutFn: timer.setTimeoutFn,
+    clearTimeoutFn: timer.clearTimeoutFn,
+    getCurrentMeta: () => ({
+      coverThumbUrl: 'file:///network-thumb.jpg',
+      coverSource: 'network',
+      coverChecked: true
+    }),
+    readEmbeddedMetadataBatch: async (seeds) => {
+      readCalls.push(seeds)
+      return { entries: {} }
+    }
+  })
+
+  const result = manager.requestCoverHydration(track, { reason: 'list-prewarm' })
+  timer.runAll()
+  await manager.whenIdle()
+
+  assert.equal(result.queuedCount, 0)
+  assert.equal(readCalls.length, 0)
+  assert.equal(manager.getDebugStats().hydrationSkippedHasNetworkCover, 1)
+})
+
+test('cover hydration skips tracks with no embedded cover already checked', async () => {
+  const timer = createImmediateTimer()
+  const track = makeTrack('D:/Music/no-embedded-cover.flac')
+  const readCalls = []
+  const manager = createCoverHydrationManager({
+    setTimeoutFn: timer.setTimeoutFn,
+    clearTimeoutFn: timer.clearTimeoutFn,
+    getCurrentMeta: () => ({
+      coverChecked: true,
+      embeddedPictureCount: 0
+    }),
+    readEmbeddedMetadataBatch: async (seeds) => {
+      readCalls.push(seeds)
+      return { entries: {} }
+    }
+  })
+
+  const result = manager.requestCoverHydration(track, { reason: 'list-prewarm' })
+  timer.runAll()
+  await manager.whenIdle()
+
+  assert.equal(result.queuedCount, 0)
+  assert.equal(readCalls.length, 0)
+  assert.equal(manager.getDebugStats().hydrationSkippedNoEmbeddedCoverChecked, 1)
+})
+
 test('thumb-only stale result is ignored after search or sort switches scope key', async () => {
   const oldTrack = makeTrack('D:/Music/old.flac')
   const newTrack = makeTrack('D:/Music/new.flac')

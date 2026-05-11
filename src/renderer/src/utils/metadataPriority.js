@@ -2,6 +2,7 @@ export const METADATA_PRIORITY_VERSION = 1
 
 const SOURCE_PRIORITIES = {
   manual: 100,
+  'manual-network': 100,
   'embedded-batch': 95,
   embedded: 90,
   'embedded-cue': 88,
@@ -12,6 +13,10 @@ const SOURCE_PRIORITIES = {
   folder: 20,
   filename: 10,
   network: 40,
+  remote: 40,
+  netease: 40,
+  qqmusic: 40,
+  external: 40,
   cloud: 40,
   fallback: 0,
   unknown: 0

@@ -18,7 +18,6 @@ const initialAppStateSnapshot = (() => {
 contextBridge.exposeInMainWorld('api', {
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
-  isLinux: process.platform === 'linux',
   installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
   setAutoUpdateEnabled: (enabled) => ipcRenderer.invoke('app:setAutoUpdateEnabled', !!enabled),
   setNetworkAccessDisabled: (disabled) =>
@@ -59,6 +58,8 @@ contextBridge.exposeInMainWorld('api', {
   openLyricsFileHandler: (locale) => ipcRenderer.invoke('dialog:openLyricsFile', { locale }),
   openCookiesFileHandler: (locale) => ipcRenderer.invoke('dialog:openCookiesFile', { locale }),
   openFontFileHandler: (locale) => ipcRenderer.invoke('dialog:openFontFile', { locale }),
+  /** 主界面背景图专用：选择图片并复制到 userData 目录 */
+  openMainPlayerWallpaper: (locale) => ipcRenderer.invoke('dialog:openMainPlayerWallpaper', { locale }),
   getAudioFilesFromPaths: (paths) => ipcRenderer.invoke('file:getFilesFromPaths', paths),
   exportPlaylistM3U: (payload) => ipcRenderer.invoke('playlist:exportM3U', payload),
   exportPlaylistText: (payload) => ipcRenderer.invoke('playlist:exportText', payload),
@@ -107,10 +108,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('file:getExtendedMetadata', path, options),
   readEmbeddedMetadataBatch: (seeds, options) =>
     ipcRenderer.invoke('metadata:readEmbeddedBatch', seeds, options),
-  rebuildMetadataCache: () => ipcRenderer.invoke('metadata:rebuildCache'),
   readCoverThumbBatch: (seeds, options) =>
     ipcRenderer.invoke('metadata:readCoverThumbBatch', seeds, options),
   getTrackFullCover: (filePath) => ipcRenderer.invoke('metadata:getTrackFullCover', filePath),
+  cacheExternalCoverForTrack: (payload) =>
+    ipcRenderer.invoke('metadata:cacheExternalCoverForTrack', payload),
   detectBpmHandler: (path) => ipcRenderer.invoke('file:detectBpm', path),
   updateExtendedMetadataHandler: (payload) =>
     ipcRenderer.invoke('file:updateExtendedMetadata', payload),
@@ -231,8 +233,6 @@ contextBridge.exposeInMainWorld('api', {
   audioCancelFade: () => ipcRenderer.invoke('audio:cancelFade'),
   stopAudio: () => ipcRenderer.invoke('audio:stop'),
   setAudioVolume: (vol) => ipcRenderer.invoke('audio:setVolume', vol),
-  setReplayGain: (gainDb) => ipcRenderer.invoke('audio:setReplayGain', gainDb),
-  setReplayGainPreamp: (preampDb) => ipcRenderer.invoke('audio:setReplayGainPreamp', preampDb),
   loadVstPlugin: (path) => ipcRenderer.invoke('audio:loadVst', path),
   disableVstPlugin: () => ipcRenderer.invoke('audio:disableVst'),
   showVstPluginUI: () => ipcRenderer.invoke('audio:showVstUI'),
