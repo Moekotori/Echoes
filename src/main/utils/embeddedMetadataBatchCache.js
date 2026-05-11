@@ -492,13 +492,14 @@ export async function readTrackFullCoverFromEmbeddedMetadataCache({
       const thumbnail = await ensureCoverThumbnailCache({
         userDataPath,
         coverDataUrl: cover,
-        coverSource: entryWithThumb.coverSource,
+        coverSource: entryWithThumb.coverSource || 'embedded-batch',
         imageAdapter: coverThumbnailImageAdapter
       })
       if (thumbnail) {
         entryWithThumb = {
           ...entryWithThumb,
-          ...thumbnail
+          ...thumbnail,
+          coverSource: entryWithThumb.coverSource || 'embedded-batch'
         }
         try {
           upsertCachedRecord(db, { path: trackPath, ...record }, entryWithThumb)

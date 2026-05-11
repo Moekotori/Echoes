@@ -3156,7 +3156,11 @@ export default function App() {
     }
     if (!thumbEntry.coverThumbUrl && !thumbEntry.coverThumbPath && !thumbEntry.coverKey) return
     setTrackMetaMap((prev) => {
-      const mergedEntry = mergeTrackMetaEntryPreservingCover(prev?.[path] || {}, thumbEntry)
+      const mergedEntry = {
+        ...mergeTrackMetaEntryPreservingCover(prev?.[path] || {}, thumbEntry),
+        coverSource: thumbEntry.coverSource || prev?.[path]?.coverSource || null,
+        coverChecked: true
+      }
       if (JSON.stringify(prev?.[path] || {}) === JSON.stringify(mergedEntry)) return prev
       return {
         ...(prev || {}),

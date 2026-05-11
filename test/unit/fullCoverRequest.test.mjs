@@ -8,6 +8,7 @@ import {
 import { mergeTrackMetaMapPreservingCovers } from '../../src/renderer/src/utils/trackMetaCache.js'
 import {
   buildLightweightTrackForList,
+  buildTrackCoverDebugStats,
   buildTrackArtworkSources
 } from '../../src/renderer/src/utils/trackUtils.js'
 
@@ -156,12 +157,19 @@ test('full cover result can merge only thumb metadata back into list cache', asy
       trackMetaMap: metaMap,
       allowFullCover: false
     })
+    const debugStats = buildTrackCoverDebugStats([listTrack], {
+      trackMetaMap: metaMap,
+      includeCacheCover: true
+    })
 
     assert.equal(result, fullCover)
     assert.equal(metaMap[lightweightTrack.path].cover, undefined)
+    assert.equal(metaMap[lightweightTrack.path].coverSource, 'embedded-batch')
     assert.equal(listTrack.cover, undefined)
     assert.equal(listTrack.info.cover, undefined)
     assert.deepEqual(sources, ['file:///current-list-sync-thumb.jpg'])
+    assert.equal(debugStats.listPayloadFullCoverCount, 0)
+    assert.equal(debugStats.usingThumbUrl, 1)
   } finally {
     delete globalThis.window
   }

@@ -310,6 +310,40 @@ test('track full cover generates and writes back thumbnail metadata when sqlite 
   assert.equal(adapter.encodeCalls.length, 1)
 })
 
+test('track full cover generates thumbnail when cached cover source is missing', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/full-cover-no-source.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const cover = dataUrlFromText('full-cover-no-source')
+  const adapter = createFakeThumbnailAdapter()
+
+  writeRawCacheRecord(userDataPath, {
+    path: seed.path,
+    sizeBytes: seed.sizeBytes,
+    mtimeMs: seed.mtimeMs,
+    meta_json: JSON.stringify({
+      cover,
+      coverChecked: true,
+      embeddedPictureCount: 1
+    })
+  })
+
+  const result = await readTrackFullCoverFromEmbeddedMetadataCache({
+    userDataPath,
+    path: seed.path,
+    coverThumbnailImageAdapter: adapter
+  })
+  const cached = readCacheMeta(userDataPath, seed.path)
+
+  assert.equal(result.ok, true)
+  assert.equal(result.cover, cover)
+  assert.equal(result.coverSource, 'embedded-batch')
+  assert.equal(result.coverThumbUrl.startsWith('file://'), true)
+  assert.equal(cached.cover, cover)
+  assert.equal(cached.coverSource, 'embedded-batch')
+  assert.equal(cached.coverThumbUrl, result.coverThumbUrl)
+  assert.equal(adapter.encodeCalls.length, 1)
+})
+
 test('track full cover reuses existing valid thumbnail metadata', async () => {
   const userDataPath = createTempUserData()
   const seed = { path: 'D:/Music/full-cover-existing-thumb.flac', sizeBytes: 4096, mtimeMs: 5000 }

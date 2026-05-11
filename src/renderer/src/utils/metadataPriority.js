@@ -242,6 +242,17 @@ export function mergeTrackMetaWithPriority(existing = {}, incoming = {}, options
     }
   }
 
+  if (
+    !Object.prototype.hasOwnProperty.call(incoming, 'cover') &&
+    (incoming.coverThumbUrl || incoming.coverThumbPath || incoming.coverKey)
+  ) {
+    const thumbCoverSource = normalizeMetadataSource(incoming.coverSource || incomingDefaultSource)
+    if (thumbCoverSource) {
+      next.coverSource = thumbCoverSource
+      setFieldSource(fieldSources, 'cover', thumbCoverSource)
+    }
+  }
+
   const selectedSources = Object.values(fieldSources).filter(Boolean)
   const strongestSource = selectedSources.sort(
     (a, b) => getMetadataSourcePriority(b) - getMetadataSourcePriority(a)
