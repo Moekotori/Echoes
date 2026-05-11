@@ -27,7 +27,7 @@
   "build": {
     "appId": "com.echoes.studio",
     "productName": "ECHO",
-    "icon": "electron-app/build/software.ico",
+    "icon": "artifacts/software-icon-before-enlarge.png",
     "publish": [
       {
         "provider": "github",
@@ -70,7 +70,7 @@
         "to": "software.png"
       },
       {
-        "from": "electron-app/build/software.ico",
+        "from": "artifacts/software-icon-before-enlarge.png",
         "to": "software.ico"
       },
       {
@@ -84,13 +84,13 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "electron-app/build/software.ico",
+      "icon": "artifacts/software-icon-before-enlarge.png",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "installerIcon": "electron-app/build/software.ico",
-      "uninstallerIcon": "electron-app/build/software.ico",
+      "installerIcon": "artifacts/software-icon-before-enlarge.png",
+      "uninstallerIcon": "artifacts/software-icon-before-enlarge.png",
       "createDesktopShortcut": "always",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
