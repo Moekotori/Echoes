@@ -406,6 +406,132 @@ function pushUniqueCover(covers, seen, cover) {
   covers.push(value)
 }
 
+const REAL_DATA_IMAGE_COVER_RE = /^data:image\/[a-z0-9.+-]+;base64,/i
+
+export function isRealTrackCoverDataUrl(value = '') {
+  return REAL_DATA_IMAGE_COVER_RE.test(String(value || '').trim())
+}
+
+function entryHasRealTrackCover(entry = null) {
+  if (!entry || typeof entry !== 'object') return false
+  const coverThumbUrl = typeof entry.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
+  if (coverThumbUrl) return true
+  const coverThumbPath = typeof entry.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
+  if (coverThumbPath) return true
+  return isRealTrackCoverDataUrl(entry.cover)
+}
+
+export function hasRealTrackCover(track = null, ...entries) {
+  const candidates = []
+  for (const entry of [track, ...entries]) {
+    if (!entry || typeof entry !== 'object') continue
+    candidates.push(entry)
+    if (entry.info && typeof entry.info === 'object') candidates.push(entry.info)
+  }
+  return candidates.some(entryHasRealTrackCover)
+}
+
+function convertLocalCoverPathToUrl(filePath = '') {
+  const value = typeof filePath === 'string' ? filePath.trim() : ''
+  if (!value) return ''
+  try {
+    if (typeof window !== 'undefined' && typeof window.api?.pathToFileURL === 'function') {
+      return window.api.pathToFileURL(value) || ''
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
+function getCoverThumbnailSource(entry = {}) {
+  const coverThumbUrl = typeof entry?.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
+  if (coverThumbUrl) return coverThumbUrl
+  const coverThumbPath = typeof entry?.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
+  return coverThumbPath ? convertLocalCoverPathToUrl(coverThumbPath) : ''
+}
+
+export function resolveTrackCoverSources(entry = {}, { preferThumbnail = true } = {}) {
+  const sources = []
+  const seen = new Set()
+  if (preferThumbnail !== false) {
+    pushUniqueCover(sources, seen, getCoverThumbnailSource(entry))
+  }
+  pushUniqueCover(sources, seen, entry?.cover)
+  return sources
+}
+
+export function resolveTrackCoverSrc(entry = {}, options = {}) {
+  return resolveTrackCoverSources(entry, options)[0] || ''
+}
+
+function getTrackCoverDebugEntry(track = {}, { trackMetaMap = {}, effectiveTrackMetaMap = {} } = {}) {
+  const path = track?.path || ''
+  const meta = (path ? effectiveTrackMetaMap?.[path] || trackMetaMap?.[path] : null) || {}
+  const info = track?.info || {}
+  return {
+    cover: meta.cover || info.cover || track?.cover || null,
+    coverThumbUrl: meta.coverThumbUrl || info.coverThumbUrl || track?.coverThumbUrl || null,
+    coverThumbPath: meta.coverThumbPath || info.coverThumbPath || track?.coverThumbPath || null
+  }
+}
+
+export function buildTrackCoverDebugStats(
+  tracks = [],
+  { trackMetaMap = {}, effectiveTrackMetaMap = {}, limit = 100 } = {}
+) {
+  const items = Array.isArray(tracks) ? tracks.slice(0, Math.max(0, Number(limit) || 0)) : []
+  const stats = {
+    total: items.length,
+    usingThumbUrl: 0,
+    usingThumbPath: 0,
+    usingFullCoverFallback: 0,
+    missingCover: 0,
+    averageCoverLength: 0,
+    maxCoverLength: 0
+  }
+  let coverLengthTotal = 0
+  let coverLengthCount = 0
+
+  for (const track of items) {
+    const entry = getTrackCoverDebugEntry(track, { trackMetaMap, effectiveTrackMetaMap })
+    const cover = typeof entry.cover === 'string' ? entry.cover.trim() : ''
+    const coverThumbUrl = typeof entry.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
+    const coverThumbPath =
+      typeof entry.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
+
+    if (isRealTrackCoverDataUrl(cover)) {
+      coverLengthTotal += cover.length
+      coverLengthCount += 1
+      stats.maxCoverLength = Math.max(stats.maxCoverLength, cover.length)
+    }
+
+    if (!hasRealTrackCover(entry)) {
+      stats.missingCover += 1
+    } else if (coverThumbUrl) {
+      stats.usingThumbUrl += 1
+    } else if (coverThumbPath) {
+      stats.usingThumbPath += 1
+    } else if (isRealTrackCoverDataUrl(cover)) {
+      stats.usingFullCoverFallback += 1
+    }
+  }
+
+  stats.averageCoverLength =
+    coverLengthCount > 0 ? Math.round(coverLengthTotal / coverLengthCount) : 0
+  return stats
+}
+
+function pushTrackCoverSources(covers, seen, entry, { preferThumbnail = true } = {}) {
+  if (entry && typeof entry === 'object') {
+    for (const source of resolveTrackCoverSources(entry, { preferThumbnail })) {
+      pushUniqueCover(covers, seen, source)
+    }
+    return
+  }
+  pushUniqueCover(covers, seen, entry)
+}
+
 export function getAlbumCoverCandidates(
   tracks = [],
   { albumName = '', albumKey = '', albumCoverMap = {}, trackMetaMap = {} } = {}
@@ -425,9 +551,9 @@ export function getAlbumCoverCandidates(
   for (const track of tracks) {
     const entry = trackMetaMap?.[track?.path]
     if (entry?.coverScope === 'track') {
-      pushUniqueCover(trackScopedMetaCovers, seen, entry?.cover)
+      pushTrackCoverSources(trackScopedMetaCovers, seen, entry)
     } else {
-      pushUniqueCover(covers, seen, entry?.cover)
+      pushTrackCoverSources(covers, seen, entry)
     }
   }
 
@@ -560,11 +686,11 @@ export function buildTrackArtworkSources(
   const albumKey = getTrackAlbumGroupKey(track)
   const allowAlbumFallback = albumKey && !isGenericAlbumFallbackName(albumName)
   const effectiveMetaCover =
-    (path ? effectiveTrackMetaMap?.[path]?.cover || trackMetaMap?.[path]?.cover : '') || ''
+    (path ? effectiveTrackMetaMap?.[path] || trackMetaMap?.[path] : null) || null
 
-  pushUniqueCover(sources, seen, effectiveMetaCover)
-  pushUniqueCover(sources, seen, track?.info?.cover)
-  pushUniqueCover(sources, seen, track?.cover)
+  pushTrackCoverSources(sources, seen, effectiveMetaCover)
+  pushTrackCoverSources(sources, seen, track?.info)
+  pushTrackCoverSources(sources, seen, track)
   if (!allowAlbumFallback) return sources
 
   pushUniqueCover(sources, seen, albumKey ? albumCoverMap?.[albumKey] : null)
@@ -577,10 +703,10 @@ export function buildTrackArtworkSources(
     const candidateEntry =
       effectiveTrackMetaMap?.[candidate.path] || trackMetaMap?.[candidate.path] || null
     if (candidateEntry?.coverScope !== 'track') {
-      pushUniqueCover(sources, seen, candidateEntry?.cover)
+      pushTrackCoverSources(sources, seen, candidateEntry)
     }
-    pushUniqueCover(sources, seen, candidate?.info?.cover)
-    pushUniqueCover(sources, seen, candidate?.cover)
+    pushTrackCoverSources(sources, seen, candidate?.info)
+    pushTrackCoverSources(sources, seen, candidate)
   }
 
   return sources
@@ -917,6 +1043,35 @@ export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
     albumArtist: info.albumArtist || entry?.albumArtist || null,
     album: info.album || entry?.album || null,
     cover: info.cover || entry?.cover || track?.info?.cover || track?.cover || null,
+    coverKey: entry?.coverKey || info.coverKey || track?.info?.coverKey || track?.coverKey || null,
+    coverThumbPath:
+      entry?.coverThumbPath || info.coverThumbPath || track?.info?.coverThumbPath || track?.coverThumbPath || null,
+    coverThumbUrl:
+      entry?.coverThumbUrl || info.coverThumbUrl || track?.info?.coverThumbUrl || track?.coverThumbUrl || null,
+    coverCacheVersion:
+      entry?.coverCacheVersion ??
+      info.coverCacheVersion ??
+      track?.info?.coverCacheVersion ??
+      track?.coverCacheVersion ??
+      null,
+    coverThumbBytes:
+      entry?.coverThumbBytes ??
+      info.coverThumbBytes ??
+      track?.info?.coverThumbBytes ??
+      track?.coverThumbBytes ??
+      null,
+    coverThumbWidth:
+      entry?.coverThumbWidth ??
+      info.coverThumbWidth ??
+      track?.info?.coverThumbWidth ??
+      track?.coverThumbWidth ??
+      null,
+    coverThumbHeight:
+      entry?.coverThumbHeight ??
+      info.coverThumbHeight ??
+      track?.info?.coverThumbHeight ??
+      track?.coverThumbHeight ??
+      null,
     duration: info.duration || entry?.duration || null,
     trackNo: info.trackNo ?? entry?.trackNo ?? null,
     discNo: info.discNo ?? entry?.discNo ?? null,
@@ -1191,6 +1346,14 @@ export const parseTrackInfo = (track, meta) => {
     albumArtist: metaAlbumArtist || cleanMetadataText(track?.albumArtist || ''),
     album,
     cover: coverPick.value || null,
+    coverKey: meta?.coverKey || trackInfo?.coverKey || track?.coverKey || null,
+    coverThumbPath: meta?.coverThumbPath || trackInfo?.coverThumbPath || track?.coverThumbPath || null,
+    coverThumbUrl: meta?.coverThumbUrl || trackInfo?.coverThumbUrl || track?.coverThumbUrl || null,
+    coverCacheVersion:
+      meta?.coverCacheVersion ?? trackInfo?.coverCacheVersion ?? track?.coverCacheVersion ?? null,
+    coverThumbBytes: meta?.coverThumbBytes ?? trackInfo?.coverThumbBytes ?? track?.coverThumbBytes ?? null,
+    coverThumbWidth: meta?.coverThumbWidth ?? trackInfo?.coverThumbWidth ?? track?.coverThumbWidth ?? null,
+    coverThumbHeight: meta?.coverThumbHeight ?? trackInfo?.coverThumbHeight ?? track?.coverThumbHeight ?? null,
     trackNo: trackNoPick.value ?? (trackNoFromName ? Number(trackNoFromName) : null),
     discNo: discNoPick.value ?? null,
     duration: durationPick.value || 0,

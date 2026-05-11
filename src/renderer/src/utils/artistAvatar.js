@@ -1,3 +1,5 @@
+import { resolveTrackCoverSources } from './trackUtils.js'
+
 const GENERIC_ALBUM_ARTIST_NAMES = new Set([
   '',
   'unknown',
@@ -115,15 +117,25 @@ function normalizeAlbumKey(value) {
 function getTrackCoverCandidate(track, trackMetaMap = {}, albumCoverMap = {}) {
   const meta = trackMetaMap[track?.path] || {}
   const albumName = meta.album || track?.info?.album || 'Singles'
+  const metaSources = resolveTrackCoverSources(meta)
+  const trackInfoSources = resolveTrackCoverSources(track?.info)
   const cover =
-    meta.cover ||
-    track?.info?.cover ||
+    metaSources[0] ||
+    trackInfoSources[0] ||
     (albumName && typeof albumCoverMap[albumName] === 'string' ? albumCoverMap[albumName] : '') ||
     null
   if (!cover) return null
+  const coverSources =
+    metaSources.length > 0
+      ? metaSources
+      : trackInfoSources.length > 0
+        ? trackInfoSources
+        : [cover]
   return {
     cover,
-    source: meta.cover ? 'trackMeta' : track?.info?.cover ? 'trackInfo' : 'album'
+    fullCover: meta.cover || track?.info?.cover || cover,
+    coverSources,
+    source: metaSources.length > 0 ? 'trackMeta' : trackInfoSources.length > 0 ? 'trackInfo' : 'album'
   }
 }
 
@@ -212,7 +224,7 @@ export function buildArtistBucketsWithAvatars(
     if (artistToken && !unknown) albumArtistSets.get(albumKey).add(artistToken)
 
     const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
-    const fingerprint = coverFingerprint(coverCandidate?.cover)
+    const fingerprint = coverFingerprint(coverCandidate?.fullCover || coverCandidate?.cover)
     if (fingerprint && artistToken && !unknown) {
       if (!coverArtistSets.has(fingerprint)) coverArtistSets.set(fingerprint, new Set())
       coverArtistSets.get(fingerprint).add(artistToken)
@@ -230,7 +242,7 @@ export function buildArtistBucketsWithAvatars(
     for (const track of artistBucket.tracks) {
       const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
       if (!coverCandidate?.cover) continue
-      const fingerprint = coverFingerprint(coverCandidate.cover)
+      const fingerprint = coverFingerprint(coverCandidate.fullCover || coverCandidate.cover)
       const sharedArtistCount = coverArtistSets.get(fingerprint)?.size || 0
       if (sharedArtistCount > 1) continue
 
@@ -246,17 +258,27 @@ export function buildArtistBucketsWithAvatars(
         ownershipScore +
         (coverCandidate.source === 'trackMeta' ? 12 : coverCandidate.source === 'trackInfo' ? 8 : 4)
       if (!best || score > best.score) {
-        best = { cover: coverCandidate.cover, source: coverCandidate.source, score }
+        best = {
+          cover: coverCandidate.cover,
+          fullCover: coverCandidate.fullCover,
+          coverSources: coverCandidate.coverSources,
+          source: coverCandidate.source,
+          score
+        }
       }
     }
 
     const fallbackCover = best?.cover || null
+    const fallbackCoverCandidates = Array.isArray(best?.coverSources) ? best.coverSources : []
     const remoteAvatar = artistAvatarMap[artistBucket.name] || ''
     const usableRemoteAvatar = isPlatformDefaultArtistAvatarUrl(remoteAvatar) ? '' : remoteAvatar
 
     return {
       ...artistBucket,
       cover: usableRemoteAvatar || fallbackCover,
+      coverCandidates: usableRemoteAvatar
+        ? [usableRemoteAvatar, ...fallbackCoverCandidates.filter((item) => item !== usableRemoteAvatar)]
+        : fallbackCoverCandidates,
       fallbackCover,
       coverSource: usableRemoteAvatar
         ? 'remote'

@@ -225,7 +225,14 @@ export function mergeTrackMetaWithPriority(existing = {}, incoming = {}, options
         'coverChecked',
         'coverThumbnailOnly',
         'coverMaxDimension',
-        'coverExtractorVersion'
+        'coverExtractorVersion',
+        'coverKey',
+        'coverThumbPath',
+        'coverThumbUrl',
+        'coverCacheVersion',
+        'coverThumbBytes',
+        'coverThumbWidth',
+        'coverThumbHeight'
       ]) {
         if (incoming[key] != null) next[key] = incoming[key]
       }

@@ -220,6 +220,32 @@ test('mergeTrackMetaEntryPreservingCover keeps an existing fetched cover', () =>
   assert.equal(merged.coverExtractorVersion, EMBEDDED_COVER_EXTRACTOR_VERSION)
 })
 
+test('mergeTrackMetaEntryPreservingCover preserves thumbnail cache fields with embedded cover', () => {
+  const merged = mergeTrackMetaEntryPreservingCover(
+    {},
+    {
+      cover: 'data:image/jpeg;base64,full-cover',
+      coverSource: 'embedded-batch',
+      coverChecked: true,
+      coverKey: 'abc123',
+      coverThumbPath: 'C:/Users/Moe/AppData/Roaming/ECHO/cover-cache-v2/thumb/ab/c1/abc123.jpg',
+      coverThumbUrl: 'file:///C:/Users/Moe/AppData/Roaming/ECHO/cover-cache-v2/thumb/ab/c1/abc123.jpg',
+      coverCacheVersion: 1,
+      coverThumbBytes: 1234,
+      coverThumbWidth: 320,
+      coverThumbHeight: 240,
+      fieldSources: { cover: 'embedded-batch' }
+    }
+  )
+
+  assert.equal(merged.cover, 'data:image/jpeg;base64,full-cover')
+  assert.equal(merged.coverKey, 'abc123')
+  assert.equal(merged.coverThumbUrl, 'file:///C:/Users/Moe/AppData/Roaming/ECHO/cover-cache-v2/thumb/ab/c1/abc123.jpg')
+  assert.equal(merged.coverThumbBytes, 1234)
+  assert.equal(merged.coverThumbWidth, 320)
+  assert.equal(merged.coverThumbHeight, 240)
+})
+
 test('mergeTrackMetaEntryPreservingCover keeps fetched cover when BPM result writes back', () => {
   const merged = mergeTrackMetaEntryPreservingCover(
     {
@@ -291,7 +317,7 @@ test('metadata hydrate requirement rejects incomplete cached metadata', () => {
       {
         album: 'Album A',
         artist: 'Known Artist',
-        cover: 'data:image/cover',
+        cover: 'data:image/jpeg;base64,cover',
         coverThumbnailOnly: true
       },
       requirement
@@ -314,7 +340,7 @@ test('metadata hydrate requirement rejects incomplete cached metadata', () => {
       {
         album: 'Album A',
         artist: 'Unknown Artist',
-        cover: 'data:image/cover'
+        cover: 'data:image/jpeg;base64,cover'
       },
       requirement
     ),
@@ -532,7 +558,7 @@ test('visible-row hydrate requirement accepts cached cover and useful artist', (
     satisfiesMetadataHydrateRequirement(
       {
         artist: 'Known Artist',
-        cover: 'data:image/cover',
+        cover: 'data:image/jpeg;base64,cover',
         coverThumbnailOnly: true
       },
       { needsCover: true, needsArtist: true, needsAlbum: false, source: 'visible-row' }
@@ -563,7 +589,7 @@ test('visible-row hydrate requirement is only created for missing displayed fiel
   assert.equal(
     buildVisibleTrackMetaHydrateRequirement(
       track,
-      { artist: 'Known Artist', cover: 'data:image/cover', coverThumbnailOnly: true },
+      { artist: 'Known Artist', cover: 'data:image/jpeg;base64,cover', coverThumbnailOnly: true },
       { isLocalTrack: () => true }
     ),
     null
@@ -689,7 +715,7 @@ test('visible-row hydrate requirement skips tracks with their own entry cover', 
     buildVisibleTrackMetaHydrateRequirement(
       track,
       {
-        cover: 'data:image/own-cover',
+        cover: 'data:image/jpeg;base64,own-cover',
         coverChecked: true,
         coverExtractorVersion: 1,
         coverThumbnailOnly: true
@@ -976,7 +1002,7 @@ test('visible cover hydration plan skips cached-cover tracks', () => {
     trackMetaMap: {
       [visibleTrack.path]: {
         artist: 'Known Artist',
-        cover: 'data:image/cover',
+        cover: 'data:image/jpeg;base64,cover',
         coverChecked: true,
         coverExtractorVersion: EMBEDDED_COVER_EXTRACTOR_VERSION,
         coverThumbnailOnly: true

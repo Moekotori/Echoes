@@ -151,6 +151,7 @@ import {
 } from './utils/folderCover.js'
 import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
 import { readEmbeddedMetadataBatch } from './utils/embeddedMetadataBatchCache.js'
+import { recoverEmbeddedCoverForBatch } from './utils/embeddedCoverRecovery.js'
 import { createLimiter, getCoverConcurrency } from './utils/concurrency.js'
 import { closeMetadataWorkerPool } from './utils/metadataWorkerPool.js'
 import { readWavInfoTags } from './utils/wavInfoTags.js'
@@ -6677,6 +6678,17 @@ app.whenReady().then(async () => {
           includeBpm: false,
           includeMqa: false,
           coverSize: 'album-thumbnail'
+        })
+      },
+      recoverCover: async (filePath, recoveryOptions = {}) => {
+        const metadataPath = resolveMetadataFilePath(filePath)
+        if (!existsSync(metadataPath)) {
+          return { ok: false, error: 'file_not_found' }
+        }
+        return await recoverEmbeddedCoverForBatch(getCueAudioPath(metadataPath), {
+          ...recoveryOptions,
+          coverMaxDimension: getAlbumThumbnailDimension(),
+          maxDimension: getAlbumThumbnailDimension()
         })
       }
     })

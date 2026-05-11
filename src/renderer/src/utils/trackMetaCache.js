@@ -4,7 +4,7 @@ import {
   mergeTrackMetaWithPriority,
   normalizeMetadataSource
 } from './metadataPriority.js'
-import { getTrackAlbumGroupKey } from './trackUtils.js'
+import { getTrackAlbumGroupKey, hasRealTrackCover } from './trackUtils.js'
 
 const DB_NAME = 'echo-track-meta-cache'
 const DB_VERSION = 4
@@ -129,8 +129,7 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   if (!needsCover && !needsArtist && !needsAlbum) return true
   if (!entry || typeof entry !== 'object') return false
   if (needsCover) {
-    const coverSatisfiedByLocalCover =
-      entry.cover && isLocalCoverEntry(entry) && entry.coverThumbnailOnly === true
+    const coverSatisfiedByLocalCover = hasRealTrackCover(entry)
     const coverSatisfiedByCurrentNoCover =
       !entry.cover && requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
     if (!coverSatisfiedByLocalCover && !coverSatisfiedByCurrentNoCover) return false
@@ -193,26 +192,23 @@ function hasOwnTrackCover(track, entry = null, options = {}) {
     path ? options.trackMetaMap?.[path] : null,
     entry
   ].filter(Boolean)
-  if (ownEntries.some((item) => item?.cover && isLocalCoverEntry(item))) return true
-
-  const trackCoverSources = [track?.info?.cover, track?.cover]
-  return trackCoverSources.some((source) => {
-    const value = typeof source === 'string' ? source.trim() : ''
-    return Boolean(value && !isNetworkCoverUrl(value))
-  })
+  if (ownEntries.some((item) => hasRealTrackCover(item) && isLocalCoverEntry(item))) return true
+  return hasRealTrackCover(track)
 }
 
 function shouldRefreshDisplayCoverAsThumbnail(track, entry = null) {
   if (entry?.coverThumbnailOnly === true) return false
-  const coverSources = [entry?.cover, track?.info?.cover, track?.cover]
-  return coverSources.some((source) => {
-    const value = typeof source === 'string' ? source.trim() : ''
-    return Boolean(value && isLocalCoverUrl(value))
+  const hasThumbnail = [entry, track?.info, track].some((item) => {
+    const thumbUrl = typeof item?.coverThumbUrl === 'string' ? item.coverThumbUrl.trim() : ''
+    const thumbPath = typeof item?.coverThumbPath === 'string' ? item.coverThumbPath.trim() : ''
+    return Boolean(thumbUrl || thumbPath)
   })
+  if (hasThumbnail) return false
+  return hasRealTrackCover({ cover: entry?.cover || track?.info?.cover || track?.cover || '' })
 }
 
 export function hasCurrentEmbeddedCoverCheck(entry = null) {
-  if (entry?.cover && isLocalCoverEntry(entry)) return true
+  if (hasRealTrackCover(entry) && isLocalCoverEntry(entry)) return true
   if (!entry?.cover && Number(entry?.embeddedPictureCount || 0) > 0) return false
   return (
     entry?.coverChecked === true &&
@@ -618,6 +614,9 @@ function normalizeTrackMetaEntry(entry) {
     'album',
     'albumArtist',
     'cover',
+    'coverKey',
+    'coverThumbPath',
+    'coverThumbUrl',
     'codec',
     'container',
     'lyrics',
@@ -666,7 +665,13 @@ function normalizeTrackMetaEntry(entry) {
     'sampleRateHz',
     'bitDepth',
     'channels',
-    'bpm'
+    'bpm',
+    'sizeBytes',
+    'mtimeMs',
+    'coverCacheVersion',
+    'coverThumbBytes',
+    'coverThumbWidth',
+    'coverThumbHeight'
   ]) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null

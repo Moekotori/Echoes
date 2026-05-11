@@ -184,6 +184,8 @@ import {
   getTrackAlbumName,
   getTrackAlbumArtist,
   getTrackAlbumGroupKey,
+  buildTrackCoverDebugStats,
+  hasRealTrackCover,
   buildTrackArtworkSources,
   buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
@@ -303,6 +305,11 @@ import {
 } from '../../shared/mvSearchRank.mjs'
 import { getAutoMvSearchHit, getBestEffortMvSearchHit } from './utils/mvAutoAccept'
 import { orderMvSearchItems } from './utils/mvSearchCandidates'
+import {
+  createCoverHydrationManager,
+  selectListCoverHydrationPrewarmTracks,
+  selectAlbumCoverHydrationTracks
+} from './utils/coverHydrationQueue'
 import {
   isImmersiveLyricsMvEnabled,
   isSideLyricsMvEnabled,
@@ -509,6 +516,9 @@ const PLAYING_METADATA_PARSE_WORKERS = 1
 const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 96
 const VISIBLE_ROW_COVER_HYDRATE_AHEAD_LIMIT = 120
 const VISIBLE_ROW_COVER_HYDRATE_VISIBLE_LIMIT = 48
+const LIST_COVER_HYDRATION_INITIAL_LIMIT = 64
+const LIST_COVER_HYDRATION_WINDOW_LIMIT = 32
+const ALBUM_COVER_HYDRATION_PREWARM_LIMIT = 32
 const VISIBLE_ROW_METADATA_STARTUP_DELAY_MS = 800
 const BULK_METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
 const STARTUP_IMPORTED_FOLDER_IDLE_RESCAN_DELAY_MS = 8000
@@ -566,6 +576,19 @@ function isAlbumCoverCacheDebugEnabled() {
       window.localStorage?.getItem?.('echoDebugAlbumCoverCache') === '1' ||
       window.localStorage?.getItem?.('ECHO_DEBUG_ALBUM_COVER_CACHE') === '1' ||
       isLibraryPerfDebugEnabled()
+    )
+  } catch {
+    return false
+  }
+}
+
+function isCoverDebugEnabled() {
+  try {
+    if (typeof window === 'undefined') return false
+    return (
+      import.meta.env?.DEV === true ||
+      window.localStorage?.getItem?.('echoDebugCovers') === '1' ||
+      window.localStorage?.getItem?.('ECHO_DEBUG_COVERS') === '1'
     )
   } catch {
     return false
@@ -2107,9 +2130,13 @@ const AlbumSidebarCard = memo(
     onPickAlbum,
     onContextMenu,
     onCoverFailed,
+    onVisible,
     coverLoading = 'lazy'
   }) {
     const { t } = useTranslation()
+    const cardRef = useRef(null)
+    const albumRef = useRef(album)
+    const onVisibleRef = useRef(onVisible)
     const [coverIndex, setCoverIndex] = useState(0)
     const coverCandidates =
       Array.isArray(album.coverCandidates) && album.coverCandidates.length > 0
@@ -2131,8 +2158,40 @@ const AlbumSidebarCard = memo(
       setCoverLoaded(coverSource ? loadedAlbumCoverSources.has(coverSource) : false)
     }, [coverSource])
 
+    useEffect(() => {
+      albumRef.current = album
+      onVisibleRef.current = onVisible
+    }, [album, onVisible])
+
+    useEffect(() => {
+      const element = cardRef.current
+      if (!element || typeof onVisibleRef.current !== 'function') return undefined
+      let called = false
+      const notifyVisible = () => {
+        if (called) return
+        called = true
+        onVisibleRef.current?.(albumRef.current)
+      }
+      if (typeof IntersectionObserver !== 'function') {
+        const timer = window.setTimeout(notifyVisible, 0)
+        return () => window.clearTimeout(timer)
+      }
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            notifyVisible()
+            observer.disconnect()
+          }
+        },
+        { rootMargin: '160px 0px' }
+      )
+      observer.observe(element)
+      return () => observer.disconnect()
+    }, [album?.key])
+
     return (
       <button
+        ref={cardRef}
         type="button"
         className={`album-card ${isSelected ? 'active' : ''}`}
         onClick={() => {
@@ -2202,19 +2261,28 @@ const AlbumSidebarCard = memo(
       (next.album?.coverCandidates || []).join('\u0001') &&
     prev.onPickAlbum === next.onPickAlbum &&
     prev.onContextMenu === next.onContextMenu &&
-    prev.onCoverFailed === next.onCoverFailed
+    prev.onCoverFailed === next.onCoverFailed &&
+    prev.onVisible === next.onVisible
 )
 
 const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, onPickArtist }) {
-  const [coverFailed, setCoverFailed] = useState(false)
+  const [coverIndex, setCoverIndex] = useState(0)
   const avatarStyle = useMemo(
     () => ({ '--artist-avatar-hue': `${Number(artist.avatarHue || 0)}` }),
     [artist.avatarHue]
   )
+  const coverCandidates =
+    Array.isArray(artist.coverCandidates) && artist.coverCandidates.length > 0
+      ? artist.coverCandidates
+      : artist.cover
+        ? [artist.cover]
+        : []
+  const coverCandidateKey = coverCandidates.join('\u0001')
+  const coverSource = normalizeArtworkSource(coverCandidates[coverIndex] || '')
 
   useEffect(() => {
-    setCoverFailed(false)
-  }, [artist.cover])
+    setCoverIndex(0)
+  }, [coverCandidateKey])
 
   return (
     <button
@@ -2226,14 +2294,18 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, 
       }}
       title={`${artist.name} - ${artist.tracks.length} tracks`}
     >
-      {artist.cover && !coverFailed ? (
+      {coverSource ? (
         <img
-          src={artist.cover}
+          src={coverSource}
           alt={artist.name}
           className="artist-avatar-image"
-          loading={String(artist.cover).startsWith('data:') ? 'eager' : 'lazy'}
+          loading={String(coverSource).startsWith('data:') ? 'eager' : 'lazy'}
           decoding="async"
-          onError={() => setCoverFailed(true)}
+          onError={() => {
+            setCoverIndex((index) =>
+              index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
+            )
+          }}
         />
       ) : (
         <div className="artist-avatar-fallback" style={avatarStyle}>
@@ -2607,6 +2679,7 @@ export default function App() {
   const visibleRowArtistProbePathsRef = useRef(new Set())
   const visibleRowCoverHydrationInFlightPathsRef = useRef(new Set())
   const visibleRowCoverHydrationSeqRef = useRef(0)
+  const coverHydrationManagerRef = useRef(null)
   const albumCoverBackfillRunKeyRef = useRef('')
   const [albumCoverManualLoadRequest, setAlbumCoverManualLoadRequest] = useState({
     id: 0,
@@ -6100,6 +6173,9 @@ export default function App() {
   const albumOverviewRestoreIdleTimerRef = useRef(null)
   const visibleCoverHydrationTimerRef = useRef(null)
   const lastVisibleCoverHydrationKeyRef = useRef('')
+  const lastListCoverHydrationPrewarmKeyRef = useRef('')
+  const lastAlbumCoverHydrationPrewarmKeyRef = useRef('')
+  const metadataCoverKeepPathSetRef = useRef(EMPTY_SET)
   const pendingAlbumOverviewRestoreRef = useRef(false)
   const pendingArtistOverviewRestoreRef = useRef(false)
   const pendingAlbumDetailScrollResetRef = useRef(false)
@@ -16880,6 +16956,91 @@ export default function App() {
   ])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    if (!isCoverDebugEnabled()) {
+      if (window.__ECHO_DEBUG_COVERS__?.__echoDebugCovers === true) {
+        delete window.__ECHO_DEBUG_COVERS__
+      }
+      return undefined
+    }
+
+    const debugCovers = () => {
+      const stats = buildTrackCoverDebugStats(parsedPlaylist, {
+        trackMetaMap,
+        effectiveTrackMetaMap,
+        limit: 100
+      })
+      const visibleDebugTracks =
+        showTrackList
+          ? visibleSidebarTracks
+          : listMode === 'album' && albumOverviewDisplayActive
+            ? visibleAlbumGroups.flatMap((album) => (album?.tracks || []).slice(0, 5))
+            : []
+      const visibleStats = buildTrackCoverDebugStats(visibleDebugTracks, {
+        trackMetaMap,
+        effectiveTrackMetaMap,
+        limit: 100
+      })
+      return {
+        ...stats,
+        ...(coverHydrationManagerRef.current?.getDebugStats?.() || {
+          hydrationQueued: 0,
+          hydrationInFlight: 0,
+          hydrationCompleted: 0,
+          hydrationSkipped: 0,
+          hydrationFailed: 0,
+          hydrationMergedCount: 0,
+          hydrationMergeMissCount: 0,
+          hydrationLastErrors: [],
+          hydrationFailedEmbeddedCoverMissing: 0,
+          hydrationFailedNoSeedInfo: 0,
+          hydrationFailedFileMissing: 0,
+          hydrationFailedOther: 0,
+          embeddedCoverRecoveryAttempted: 0,
+          embeddedCoverRecoverySucceeded: 0,
+          embeddedCoverRecoveryFailed: 0,
+          embeddedCoverRecoveryMusicMetadataSucceeded: 0,
+          embeddedCoverRecoveryJsmediatagsSucceeded: 0,
+          embeddedCoverRecoveryFolderSucceeded: 0,
+          embeddedCoverRecoveryNativeImageFailed: 0,
+          embeddedCoverRecoveryNoPictureData: 0,
+          embeddedCoverRecoveryUnsupportedMime: 0,
+          embeddedCoverRecoveryError: 0,
+          hydrationCandidateCount: 0,
+          hydrationPrewarmCandidateCount: 0,
+          hydrationObserverCandidateCount: 0,
+          hydrationSkippedAlreadyHasRealCover: 0,
+          hydrationSkippedInFlight: 0
+        }),
+        visibleWithoutCoverCount: visibleStats.missingCover,
+        visibleCoverSampleTotal: visibleStats.total,
+        coverDebugSampleScope: showTrackList
+          ? 'visible-track-list'
+          : listMode === 'album' && albumOverviewDisplayActive
+            ? 'visible-album-wall'
+            : 'none',
+        coverDebugSamplesDiffer: visibleStats.total !== stats.total
+      }
+    }
+    debugCovers.__echoDebugCovers = true
+    window.__ECHO_DEBUG_COVERS__ = debugCovers
+    return () => {
+      if (window.__ECHO_DEBUG_COVERS__ === debugCovers) {
+        delete window.__ECHO_DEBUG_COVERS__
+      }
+    }
+  }, [
+    albumOverviewDisplayActive,
+    effectiveTrackMetaMap,
+    listMode,
+    parsedPlaylist,
+    showTrackList,
+    trackMetaMap,
+    visibleAlbumGroups,
+    visibleSidebarTracks
+  ])
+
+  useEffect(() => {
     if (config.autoLocateCurrentTrack !== true) {
       autoLocateHandledTrackPathRef.current = ''
       return
@@ -17091,6 +17252,184 @@ export default function App() {
     if (!metadataCoverKeepPathKey) return new Set()
     return new Set(metadataCoverKeepPathKey.split('\n').filter(Boolean))
   }, [metadataCoverKeepPathKey])
+
+  useEffect(() => {
+    metadataCoverKeepPathSetRef.current = metadataCoverKeepPathSet
+  }, [metadataCoverKeepPathSet])
+
+  const applyCoverHydrationEntries = useCallback(
+    (entries) => {
+      const paths = Object.keys(entries || {})
+      if (paths.length === 0) return { mergedCount: 0, mergeMissCount: 0 }
+      const keepPaths = new Set(metadataCoverKeepPathSetRef.current || EMPTY_SET)
+      for (const path of paths) keepPaths.add(path)
+      setTrackMetaMap((prev) => {
+        const merged = mergeTrackMetaMapPreservingCovers(prev, entries)
+        const trimmed = trimTrackMetaCoverEntries(merged, keepPaths)
+        trackMetaMapRef.current = trimmed
+        return trimmed
+      })
+      const albumItems = []
+      for (const entry of Object.values(entries || {})) {
+        if (!entry?.cover || !entry?.album) continue
+        albumItems.push({
+          album: entry.album,
+          artist: entry.albumArtist || entry.artist || '',
+          cover: entry.cover
+        })
+      }
+      if (albumItems.length > 0) persistAlbumCoverCacheItems(albumItems)
+      writeTrackMetaCache(entries).catch(() => {})
+      return { mergedCount: paths.length, mergeMissCount: 0 }
+    },
+    [persistAlbumCoverCacheItems]
+  )
+
+  const getCoverHydrationManager = useCallback(() => {
+    if (!coverHydrationManagerRef.current) {
+      coverHydrationManagerRef.current = createCoverHydrationManager({
+        readEmbeddedMetadataBatch: (seeds, options) =>
+          window.api.readEmbeddedMetadataBatch(seeds, options),
+        getCurrentMeta: (path) => trackMetaMapRef.current?.[path] || {},
+        mergeEntries: applyCoverHydrationEntries,
+        maxBatchSize: 16,
+        maxConcurrentBatches: 2,
+        debounceMs: 180,
+        isDebugEnabled: isCoverDebugEnabled
+      })
+    }
+    return coverHydrationManagerRef.current
+  }, [applyCoverHydrationEntries])
+
+  useEffect(() => {
+    return () => {
+      coverHydrationManagerRef.current?.dispose?.()
+      coverHydrationManagerRef.current = null
+    }
+  }, [])
+
+  const requestVisibleTrackCoverHydration = useCallback(
+    (track) => {
+      if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return
+      if (typeof window.api?.readEmbeddedMetadataBatch !== 'function') return
+      if (
+        !isLocalAudioFilePath(track?.path) ||
+        isRemoteTrackPath(track.path) ||
+        isStreamingTrackPath(track.path)
+      ) {
+        return
+      }
+      if (hasRealTrackCover(track, trackMetaMapRef.current?.[track.path] || {})) return
+      if (visibleRowCoverHydrationInFlightPathsRef.current.has(track.path)) return
+      getCoverHydrationManager().requestCoverHydration(track, { reason: 'visible-track' })
+    },
+    [config.autoLoadEmbeddedMetadata, getCoverHydrationManager, libraryStateReady]
+  )
+
+  const requestVisibleAlbumCoverHydration = useCallback(
+    (album) => {
+      if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return
+      if (typeof window.api?.readEmbeddedMetadataBatch !== 'function') return
+      const candidates = selectAlbumCoverHydrationTracks(album, {
+        trackMetaMap: trackMetaMapRef.current || {},
+        effectiveTrackMetaMap,
+        maxTracks: 5,
+        isLocalTrack: (track) =>
+          isLocalAudioFilePath(track?.path) &&
+          !isRemoteTrackPath(track.path) &&
+          !isStreamingTrackPath(track.path)
+      })
+      if (candidates.length === 0) return
+      getCoverHydrationManager().requestCoverHydration(candidates, { reason: 'visible-album' })
+    },
+    [config.autoLoadEmbeddedMetadata, effectiveTrackMetaMap, getCoverHydrationManager, libraryStateReady]
+  )
+
+  const listCoverHydrationPrewarmTracks = useMemo(() => {
+    if (!showTrackList || !libraryDetailPrefetchAllowed) return []
+    return selectListCoverHydrationPrewarmTracks(tracksForSidebarListFiltered, {
+      visibleRange: visibleSidebarRange,
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      maxInitialTracks: LIST_COVER_HYDRATION_INITIAL_LIMIT,
+      maxWindowTracks: LIST_COVER_HYDRATION_WINDOW_LIMIT,
+      isLocalTrack: (track) =>
+        isLocalAudioFilePath(track?.path) &&
+        !isRemoteTrackPath(track.path) &&
+        !isStreamingTrackPath(track.path)
+    })
+  }, [
+    effectiveTrackMetaMap,
+    libraryDetailPrefetchAllowed,
+    showTrackList,
+    trackMetaMap,
+    tracksForSidebarListFiltered,
+    visibleSidebarRange
+  ])
+
+  useEffect(() => {
+    if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return
+    if (typeof window.api?.readEmbeddedMetadataBatch !== 'function') return
+    if (listCoverHydrationPrewarmTracks.length === 0) {
+      lastListCoverHydrationPrewarmKeyRef.current = ''
+      return
+    }
+    const prewarmKey = listCoverHydrationPrewarmTracks.map((track) => track.path).join('\n')
+    if (lastListCoverHydrationPrewarmKeyRef.current === prewarmKey) return
+    lastListCoverHydrationPrewarmKeyRef.current = prewarmKey
+    getCoverHydrationManager().requestCoverHydration(listCoverHydrationPrewarmTracks, {
+      reason: 'list-prewarm'
+    })
+  }, [
+    config.autoLoadEmbeddedMetadata,
+    getCoverHydrationManager,
+    libraryStateReady,
+    listCoverHydrationPrewarmTracks
+  ])
+
+  const albumCoverHydrationPrewarmTracks = useMemo(() => {
+    if (listMode !== 'album' || !albumOverviewDisplayActive) return []
+    const candidates = []
+    const seen = new Set()
+    for (const album of visibleAlbumGroups) {
+      const albumTracks = selectAlbumCoverHydrationTracks(album, {
+        trackMetaMap,
+        effectiveTrackMetaMap,
+        maxTracks: 5,
+        isLocalTrack: (track) =>
+          isLocalAudioFilePath(track?.path) &&
+          !isRemoteTrackPath(track.path) &&
+          !isStreamingTrackPath(track.path)
+      })
+      for (const track of albumTracks) {
+        if (!track?.path || seen.has(track.path)) continue
+        seen.add(track.path)
+        candidates.push(track)
+        if (candidates.length >= ALBUM_COVER_HYDRATION_PREWARM_LIMIT) return candidates
+      }
+    }
+    return candidates
+  }, [albumOverviewDisplayActive, effectiveTrackMetaMap, listMode, trackMetaMap, visibleAlbumGroups])
+
+  useEffect(() => {
+    if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return
+    if (typeof window.api?.readEmbeddedMetadataBatch !== 'function') return
+    if (albumCoverHydrationPrewarmTracks.length === 0) {
+      lastAlbumCoverHydrationPrewarmKeyRef.current = ''
+      return
+    }
+    const prewarmKey = albumCoverHydrationPrewarmTracks.map((track) => track.path).join('\n')
+    if (lastAlbumCoverHydrationPrewarmKeyRef.current === prewarmKey) return
+    lastAlbumCoverHydrationPrewarmKeyRef.current = prewarmKey
+    getCoverHydrationManager().requestCoverHydration(albumCoverHydrationPrewarmTracks, {
+      reason: 'album-prewarm'
+    })
+  }, [
+    albumCoverHydrationPrewarmTracks,
+    config.autoLoadEmbeddedMetadata,
+    getCoverHydrationManager,
+    libraryStateReady
+  ])
 
   useEffect(() => {
     setTrackMetaMap((prev) => {
@@ -18998,16 +19337,19 @@ export default function App() {
 
   const renderAlbumGridItem = useCallback(
     (album, absoluteIndex) => {
-      const cover = albumCoverMap[album.key] || album.cover || ''
+      const cachedCover = albumCoverMap[album.key] || ''
+      const coverCandidates = [
+        ...(album.coverCandidates || []),
+        ...(cachedCover ? [cachedCover] : []),
+        ...(album.cover ? [album.cover] : [])
+      ].filter((item, index, list) => item && list.indexOf(item) === index)
+      const cover = coverCandidates[0] || ''
       const albumForCard =
-        cover && cover !== album.cover
+        cover || coverCandidates.length > 0
           ? {
               ...album,
               cover,
-              coverCandidates: [
-                cover,
-                ...(album.coverCandidates || []).filter((item) => item !== cover)
-              ]
+              coverCandidates
             }
           : album
       return (
@@ -19018,6 +19360,7 @@ export default function App() {
           }
           onPickAlbum={handlePickAlbumFromSidebar}
           onCoverFailed={handleAlbumCoverFailed}
+          onVisible={requestVisibleAlbumCoverHydration}
           onContextMenu={openGroupContextMenuForAlbum}
           coverLoading={
             absoluteIndex >= visibleAlbumRange.startIndex &&
@@ -19033,6 +19376,7 @@ export default function App() {
       handleAlbumCoverFailed,
       handlePickAlbumFromSidebar,
       openGroupContextMenuForAlbum,
+      requestVisibleAlbumCoverHydration,
       selectedAlbum,
       selectedAlbumKey,
       visibleAlbumRange
@@ -22389,6 +22733,7 @@ export default function App() {
                               ? formatTime(track.info.duration)
                               : ''
                           const trackMeta = effectiveTrackMetaMap[track.path] || {}
+                          const trackHasRealCover = hasRealTrackCover(track, trackMeta)
                           const selectedForDrag = selectedSidebarTrackPathSet.has(track.path)
                           const trackCoverSources = buildTrackArtworkSources(track, {
                             trackMetaMap,
@@ -22443,6 +22788,12 @@ export default function App() {
                               <TrackArtwork
                                 sources={trackCoverSources}
                                 isPlaying={track.originalIdx === currentIndex}
+                                observeVisibility={!trackHasRealCover}
+                                onVisible={
+                                  trackHasRealCover
+                                    ? undefined
+                                    : () => requestVisibleTrackCoverHydration(track)
+                                }
                               />
                               <div className="track-text-group">
                                 <div className="track-name" title={track.info.title}>

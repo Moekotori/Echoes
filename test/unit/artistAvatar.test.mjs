@@ -69,6 +69,53 @@ test('artist avatar falls back to owned track cover when remote is missing', () 
   assert.equal(buckets[0].hasRemoteAvatar, false)
 })
 
+test('artist avatar prefers local thumbnail but keeps full cover fallback candidate', () => {
+  const track = makeTrack('song-a', 'Artist A', 'Album A', 'data:image/full-cover')
+  const buckets = buildArtistBucketsWithAvatars([track], {
+    trackMetaMap: {
+      [track.path]: {
+        artist: 'Artist A',
+        album: 'Album A',
+        cover: 'data:image/full-cover',
+        coverThumbUrl: 'file:///thumb-cover.jpg',
+        fieldSources: { artist: 'embedded-batch', album: 'embedded-batch', cover: 'embedded-batch' }
+      }
+    }
+  })
+
+  assert.equal(buckets[0].cover, 'file:///thumb-cover.jpg')
+  assert.deepEqual(buckets[0].coverCandidates, [
+    'file:///thumb-cover.jpg',
+    'data:image/full-cover'
+  ])
+  assert.equal(track.info.cover, 'data:image/full-cover')
+})
+
+test('artist avatar puts remote avatar before local thumbnail fallback candidates', () => {
+  const track = makeTrack('song-a', 'Artist A', 'Album A', 'data:image/full-cover')
+  const buckets = buildArtistBucketsWithAvatars([track], {
+    trackMetaMap: {
+      [track.path]: {
+        artist: 'Artist A',
+        album: 'Album A',
+        cover: 'data:image/full-cover',
+        coverThumbUrl: 'file:///thumb-cover.jpg',
+        fieldSources: { artist: 'embedded-batch', album: 'embedded-batch', cover: 'embedded-batch' }
+      }
+    },
+    artistAvatarMap: {
+      'Artist A': 'https://example.test/avatar.jpg'
+    }
+  })
+
+  assert.equal(buckets[0].cover, 'https://example.test/avatar.jpg')
+  assert.deepEqual(buckets[0].coverCandidates, [
+    'https://example.test/avatar.jpg',
+    'file:///thumb-cover.jpg',
+    'data:image/full-cover'
+  ])
+})
+
 test('artist buckets merge artist names that only differ by case', () => {
   const buckets = buildArtistBucketsWithAvatars([
     makeTrack('song-a', 'my little airport', 'Album A', ''),

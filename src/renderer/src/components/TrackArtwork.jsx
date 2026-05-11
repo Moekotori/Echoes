@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Music } from 'lucide-react'
 
 const LOCAL_ABSOLUTE_PATH_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
@@ -13,7 +13,7 @@ export function normalizeArtworkSource(source) {
       typeof window !== 'undefined' && typeof window.api?.pathToFileURL === 'function'
         ? window.api.pathToFileURL(value)
         : ''
-    return href || `file:///${value.replace(/\\/g, '/')}`
+    return href || ''
   }
   return value
 }
@@ -22,8 +22,12 @@ export default function TrackArtwork({
   sources = [],
   isPlaying = false,
   className = '',
-  fallbackSize = 17
+  fallbackSize = 17,
+  observeVisibility = false,
+  onVisible
 }) {
+  const rootRef = useRef(null)
+  const onVisibleRef = useRef(onVisible)
   const coverSources = useMemo(() => {
     const seen = new Set()
     const unique = []
@@ -45,8 +49,43 @@ export default function TrackArtwork({
 
   const currentSource = coverSources[sourceIndex] || ''
 
+  useEffect(() => {
+    onVisibleRef.current = onVisible
+  }, [onVisible])
+
+  useEffect(() => {
+    if (!observeVisibility || typeof onVisibleRef.current !== 'function') return undefined
+    const element = rootRef.current
+    if (!element) return undefined
+    let called = false
+    const notifyVisible = () => {
+      if (called) return
+      called = true
+      onVisibleRef.current?.()
+    }
+    if (typeof IntersectionObserver !== 'function') {
+      const timer = window.setTimeout(notifyVisible, 0)
+      return () => window.clearTimeout(timer)
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          notifyVisible()
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '160px 0px' }
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [observeVisibility])
+
   return (
-    <div className={`track-art${isPlaying ? ' track-art--playing' : ''} ${className}`.trim()} aria-hidden>
+    <div
+      ref={rootRef}
+      className={`track-art${isPlaying ? ' track-art--playing' : ''} ${className}`.trim()}
+      aria-hidden
+    >
       {currentSource ? (
         <img
           src={currentSource}

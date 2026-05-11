@@ -55,6 +55,9 @@
       "node_modules/strnum/**/*",
       "node_modules/@lox-audioserver/node-libraop/**/*",
       "node_modules/node-gyp-build/**/*",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/bindings/**/*",
+      "node_modules/file-uri-to-path/**/*",
       "node_modules/ws/**/*"
     ],
     "extraResources": [
@@ -98,7 +101,8 @@
       "**/node_modules/kuromoji/**",
       "**/node_modules/ffmpeg-static/**",
       "**/node_modules/naudiodon/**",
-      "**/node_modules/@lox-audioserver/node-libraop/**"
+      "**/node_modules/@lox-audioserver/node-libraop/**",
+      "**/node_modules/better-sqlite3/**"
     ]
   },
   "dependencies": {
@@ -108,6 +112,7 @@
     "@electron-toolkit/utils": "^3.0.0",
     "@neteasecloudmusicapienhanced/api": "^4.31.0",
     "axios": "^1.13.6",
+    "better-sqlite3": "^12.9.0",
     "discord-rpc": "^4.0.1",
     "dompurify": "^3.4.0",
     "electron-updater": "^6.8.3",

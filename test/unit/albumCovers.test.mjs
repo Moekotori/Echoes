@@ -12,11 +12,14 @@ import {
   getCurrentTrackDisplayCover,
   getTrackAlbumGroupKey,
   getTrackAlbumArtist,
+  buildTrackCoverDebugStats,
   isGenericAlbumFallbackName,
   hasReusableTrackCoverMeta,
   getTrackAlbumName,
   mergeAlbumBucketsByCoverAndArtist,
   parseTrackInfo,
+  resolveTrackCoverSrc,
+  resolveTrackCoverSources,
   resolveAlbumWallDisplayInfo
 } from '../../src/renderer/src/utils/trackUtils.js'
 import {
@@ -113,6 +116,143 @@ test('track artwork sources fall back to another track in the same album', () =>
     }),
     ['data:image/first']
   )
+})
+
+test('track cover resolver prefers thumbnail url for list contexts', () => {
+  const entry = {
+    cover: 'data:image/jpeg;base64,full-cover',
+    coverThumbUrl: 'file:///C:/Users/Moe/AppData/Roaming/ECHO/cover-cache-v2/thumb/aa/bb/thumb.jpg'
+  }
+
+  assert.equal(resolveTrackCoverSrc(entry), entry.coverThumbUrl)
+  assert.deepEqual(resolveTrackCoverSources(entry), [entry.coverThumbUrl, entry.cover])
+  assert.equal(resolveTrackCoverSrc(entry, { preferThumbnail: false }), entry.cover)
+  assert.equal(entry.cover, 'data:image/jpeg;base64,full-cover')
+})
+
+test('track cover resolver falls back to cover when thumbnail url is missing', () => {
+  const entry = {
+    cover: 'data:image/png;base64,full-cover'
+  }
+
+  assert.equal(resolveTrackCoverSrc(entry), entry.cover)
+  assert.deepEqual(resolveTrackCoverSources(entry), [entry.cover])
+})
+
+test('track cover resolver converts thumbnail paths through preload helper', () => {
+  const originalWindow = globalThis.window
+  globalThis.window = {
+    api: {
+      pathToFileURL: (filePath) => `file:///safe/${String(filePath).replace(/\\/g, '/')}`
+    }
+  }
+  try {
+    const entry = {
+      cover: 'data:image/jpeg;base64,full-cover',
+      coverThumbPath: 'C:\\Users\\Moe\\cover-cache-v2\\thumb\\aa\\bb\\thumb.jpg'
+    }
+
+    assert.equal(
+      resolveTrackCoverSrc(entry),
+      'file:///safe/C:/Users/Moe/cover-cache-v2/thumb/aa/bb/thumb.jpg'
+    )
+    assert.deepEqual(resolveTrackCoverSources(entry), [
+      'file:///safe/C:/Users/Moe/cover-cache-v2/thumb/aa/bb/thumb.jpg',
+      entry.cover
+    ])
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalThis.window
+    } else {
+      globalThis.window = originalWindow
+    }
+  }
+})
+
+test('track artwork sources order thumbnail before full cover for image error fallback', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')
+  const sources = buildTrackArtworkSources(track, {
+    trackMetaMap: {
+      [track.path]: {
+        cover: 'data:image/jpeg;base64,full-cover',
+        coverThumbUrl: 'file:///thumb.jpg'
+      }
+    }
+  })
+
+  assert.deepEqual(sources.slice(0, 2), ['file:///thumb.jpg', 'data:image/jpeg;base64,full-cover'])
+})
+
+test('current playback display cover continues to use full cover', () => {
+  const track = makeTrack('D:/Music/Album A/01.flac', 'Album A', '', 'Known Artist')
+  const detail = getCurrentTrackDisplayCoverDetail({
+    currentTrack: track,
+    currentTrackMeta: {
+      cover: 'data:image/jpeg;base64,full-cover',
+      coverThumbUrl: 'file:///thumb.jpg'
+    }
+  })
+
+  assert.equal(detail.cover, 'data:image/jpeg;base64,full-cover')
+})
+
+test('track cover debug stats count thumbnail and fallback sources without data urls', () => {
+  const originalWindow = globalThis.window
+  globalThis.window = {
+    api: {
+      pathToFileURL: (filePath) => `file:///safe/${String(filePath).replace(/\\/g, '/')}`
+    }
+  }
+  try {
+    const tracks = [
+      makeTrack('thumb-url.flac', 'Album A', '', 'Artist'),
+      makeTrack('thumb-path.flac', 'Album A', '', 'Artist'),
+      makeTrack('full-cover.flac', 'Album A', '', 'Artist'),
+      makeTrack('missing.flac', 'Album A', '', 'Artist')
+    ]
+    const fullCover = 'data:image/jpeg;base64,secret-full-cover'
+    const stats = buildTrackCoverDebugStats(tracks, {
+      trackMetaMap: {
+        'thumb-url.flac': {
+          cover: fullCover,
+          coverThumbUrl: 'file:///thumb-url.jpg'
+        },
+        'thumb-path.flac': {
+          cover: 'data:image/jpeg;base64,secret-path-cover',
+          coverThumbPath: 'C:\\Users\\Moe\\cover-cache-v2\\thumb\\aa\\bb\\thumb.jpg'
+        },
+        'full-cover.flac': {
+          cover: 'data:image/png;base64,secret-fallback-cover'
+        }
+      }
+    })
+
+    assert.deepEqual(
+      {
+        total: stats.total,
+        usingThumbUrl: stats.usingThumbUrl,
+        usingThumbPath: stats.usingThumbPath,
+        usingFullCoverFallback: stats.usingFullCoverFallback,
+        missingCover: stats.missingCover
+      },
+      {
+        total: 4,
+        usingThumbUrl: 1,
+        usingThumbPath: 1,
+        usingFullCoverFallback: 1,
+        missingCover: 1
+      }
+    )
+    assert.equal(JSON.stringify(stats).includes(fullCover), false)
+    assert.equal(JSON.stringify(stats).includes('secret-fallback-cover'), false)
+    assert.equal(stats.maxCoverLength > 0, true)
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalThis.window
+    } else {
+      globalThis.window = originalWindow
+    }
+  }
 })
 
 test('track artwork sources can temporarily use a same-folder single-artist cover', () => {
