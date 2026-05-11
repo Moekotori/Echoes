@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('api', {
   openLyricsFileHandler: (locale) => ipcRenderer.invoke('dialog:openLyricsFile', { locale }),
   openCookiesFileHandler: (locale) => ipcRenderer.invoke('dialog:openCookiesFile', { locale }),
   openFontFileHandler: (locale) => ipcRenderer.invoke('dialog:openFontFile', { locale }),
+  /** 主界面背景图专用：选择图片并复制到 userData 目录 */
+  openMainPlayerWallpaper: (locale) => ipcRenderer.invoke('dialog:openMainPlayerWallpaper', { locale }),
   getAudioFilesFromPaths: (paths) => ipcRenderer.invoke('file:getFilesFromPaths', paths),
   exportPlaylistM3U: (payload) => ipcRenderer.invoke('playlist:exportM3U', payload),
   exportPlaylistText: (payload) => ipcRenderer.invoke('playlist:exportText', payload),

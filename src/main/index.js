@@ -4086,6 +4086,57 @@ app.whenReady().then(async () => {
     }
   })
 
+  // IPC: Show open image dialog for main player wallpaper and copy to app data dir
+  ipcMain.handle('dialog:openMainPlayerWallpaper', async (_, opts) => {
+    const d = getDialogStrings(dialogLocaleFromOpts(opts))
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        {
+          name: d.filterImages,
+          extensions: ['jpg', 'png', 'gif', 'webp', 'bmp', 'jpeg']
+        }
+      ]
+    })
+    if (canceled || !filePaths?.length) return null
+
+    const sourcePath = filePaths[0]
+    try {
+      // Ensure target directory exists
+      const wallpaperDir = join(app.getPath('userData'), 'wallpapers')
+      if (!fs.existsSync(wallpaperDir)) {
+        fs.mkdirSync(wallpaperDir, { recursive: true })
+      }
+
+      // Generate target filename based on original file
+      const ext = extname(sourcePath)
+      const targetFilename = `main-wallpaper-${Date.now()}${ext}`
+      const targetPath = join(wallpaperDir, targetFilename)
+
+      // Copy file to app data directory
+      fs.copyFileSync(sourcePath, targetPath)
+
+      // Clean up old wallpaper files to save disk space
+      try {
+        const files = fs.readdirSync(wallpaperDir)
+        const oldWallpapers = files
+          .filter(f => f.startsWith('main-wallpaper-') && f !== targetFilename)
+        // Delete all old wallpapers, keep only the new one
+        for (const oldFile of oldWallpapers) {
+          fs.unlinkSync(join(wallpaperDir, oldFile))
+        }
+      } catch (cleanupErr) {
+        console.warn('[MainPlayerWallpaper] Failed to cleanup old wallpapers:', cleanupErr)
+      }
+
+      return targetPath
+    } catch (err) {
+      console.error('[MainPlayerWallpaper] Failed to copy wallpaper:', err)
+      // Fallback to original path if copy fails
+      return sourcePath
+    }
+  })
+
   ipcMain.handle('dialog:openFontFile', async (_, opts) => {
     const d = getDialogStrings(dialogLocaleFromOpts(opts))
     const { canceled, filePaths } = await dialog.showOpenDialog({

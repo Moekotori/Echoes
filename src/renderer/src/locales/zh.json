@@ -676,6 +676,18 @@
     "bgImageDesc": "选择一张本地图片作为应用背景。",
     "selectImage": "选择图片",
     "changeImage": "更换图片",
+    "bgEditor": {
+      "title": "背景图编辑器",
+      "previewLabel": "预览效果 = 最终背景效果",
+      "edit": "编辑",
+      "zoom": "缩放",
+      "opacity": "不透明度",
+      "blur": "模糊",
+      "offset": "偏移",
+      "autoFit": "自动适应",
+      "reset": "重置",
+      "save": "保存"
+    },
     "wallpaperOpacity": "壁纸不透明度",
     "wallpaperOpacityDesc": "调整自定义背景图的可见程度。",
     "panelTransparency": "面板透明度",
