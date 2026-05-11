@@ -300,6 +300,8 @@ test('cover thumb batch marks missing or empty thumbnail files as missingThumb',
   assert.deepEqual(result.hitPaths, [])
   assert.equal(result.missingThumbPaths.includes(missingSeed.path), true)
   assert.equal(result.missingThumbPaths.includes(emptySeed.path), true)
+  assert.equal(result.missingThumb[missingSeed.path], true)
+  assert.equal(result.missingThumb[emptySeed.path], true)
   assert.equal(result.entries[missingSeed.path], undefined)
   assert.equal(result.entries[emptySeed.path], undefined)
 })

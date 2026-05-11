@@ -480,6 +480,7 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
   const hitPaths = []
   const missPaths = []
   const missingThumbPaths = []
+  const missingThumb = {}
   const errors = {}
   const startedAt = Date.now()
 
@@ -490,6 +491,7 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
       hitPaths,
       missPaths,
       missingThumbPaths,
+      missingThumb,
       errors,
       elapsedMs: 0
     }
@@ -498,11 +500,6 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
   let db = null
   try {
     db = openEmbeddedMetadataCacheDb(userDataPath)
-    try {
-      importLegacyEmbeddedMetadataCache(db, userDataPath)
-    } catch (error) {
-      errors.__legacyImport = error?.message || String(error)
-    }
 
     for (const seed of unique.values()) {
       let cachedRecord = null
@@ -523,7 +520,10 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
         hitPaths.push(seed.path)
       } else {
         missPaths.push(seed.path)
-        if (thumb?.missingThumb) missingThumbPaths.push(seed.path)
+        if (thumb?.missingThumb) {
+          missingThumbPaths.push(seed.path)
+          missingThumb[seed.path] = true
+        }
       }
     }
   } catch (error) {
@@ -554,6 +554,7 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
     hitPaths,
     missPaths,
     missingThumbPaths,
+    missingThumb,
     errors,
     elapsedMs
   }
