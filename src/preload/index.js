@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld('api', {
   readCoverThumbBatch: (seeds, options) =>
     ipcRenderer.invoke('metadata:readCoverThumbBatch', seeds, options),
   getTrackFullCover: (filePath) => ipcRenderer.invoke('metadata:getTrackFullCover', filePath),
+  cacheExternalCoverForTrack: (payload) =>
+    ipcRenderer.invoke('metadata:cacheExternalCoverForTrack', payload),
   detectBpmHandler: (path) => ipcRenderer.invoke('file:detectBpm', path),
   updateExtendedMetadataHandler: (payload) =>
     ipcRenderer.invoke('file:updateExtendedMetadata', payload),
