@@ -204,7 +204,6 @@ export function buildEmbeddedMetadataAutoCompleteEntry(response = {}, existingEn
 
 export function buildNetworkMetadataAutoCompleteEntry(candidate = {}, existingEntry = {}) {
   const cover = cleanText(candidate.coverDataUrl)
-  const coverSource = cleanText(candidate.coverSource) || 'network'
   const title = cleanText(candidate.title)
   const artist = cleanText(candidate.artist)
   const album = cleanText(candidate.album)
@@ -237,8 +236,8 @@ export function buildNetworkMetadataAutoCompleteEntry(candidate = {}, existingEn
   if (cover && !isFieldProtected(existingEntry, 'cover')) {
     entry.cover = cover
     entry.coverScope = 'album'
-    entry.coverSource = coverSource
-    fieldSources.cover = coverSource
+    entry.coverSource = 'network'
+    fieldSources.cover = 'network'
   }
   if (Object.keys(fieldSources).length > 0) entry.fieldSources = fieldSources
   return entry

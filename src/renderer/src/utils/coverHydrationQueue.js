@@ -24,16 +24,6 @@ const EMBEDDED_COVER_RECOVERY_STAT_KEYS = [
   'embeddedCoverRecoveryError'
 ]
 
-const DISPLAY_COVER_SOURCES = new Set([
-  'network',
-  'manual-network',
-  'manual',
-  'remote',
-  'netease',
-  'qqmusic',
-  'external'
-])
-
 function normalizeTrackList(trackOrTracks) {
   if (Array.isArray(trackOrTracks)) return trackOrTracks.filter(Boolean)
   return trackOrTracks ? [trackOrTracks] : []
@@ -103,23 +93,6 @@ function hasTrackThumbnailSource(track = null, ...entries) {
     }
   }
   return false
-}
-
-function hasDisplayNetworkCover(entry = {}) {
-  if (!entry || typeof entry !== 'object') return false
-  const source = String(entry.coverSource || entry.fieldSources?.cover || '')
-    .trim()
-    .toLowerCase()
-  if (!DISPLAY_COVER_SOURCES.has(source)) return false
-  return hasTrackThumbnailSource(entry) || hasRealTrackCover(entry)
-}
-
-function hasNoEmbeddedCoverChecked(entry = {}) {
-  return (
-    entry?.coverChecked === true &&
-    Object.prototype.hasOwnProperty.call(entry, 'embeddedPictureCount') &&
-    Number(entry.embeddedPictureCount) === 0
-  )
 }
 
 export function hasHydratableCoverSource(track = null, currentMeta = null) {
@@ -474,8 +447,6 @@ export function createCoverHydrationManager({
     merged: 0,
     mergeMiss: 0,
     skippedAlreadyHasRealCover: 0,
-    skippedHasNetworkCover: 0,
-    skippedNoEmbeddedCoverChecked: 0,
     skippedInFlight: 0,
     skippedInvalid: 0,
     failedEmbeddedCoverMissing: 0,
@@ -694,20 +665,6 @@ export function createCoverHydrationManager({
         recordFailure(seed.path, 'missing_size_or_mtime', 'noSeedInfo')
         continue
       }
-      if (options.force !== true && hasDisplayNetworkCover(currentMeta)) {
-        result.skippedAlreadyHasCover += 1
-        result.skippedAlreadyHasRealCover += 1
-        stats.skippedAlreadyHasRealCover += 1
-        stats.skippedHasNetworkCover += 1
-        continue
-      }
-      if (options.force !== true && hasNoEmbeddedCoverChecked(currentMeta)) {
-        result.skippedAlreadyHasCover += 1
-        result.skippedAlreadyHasRealCover += 1
-        stats.skippedAlreadyHasRealCover += 1
-        stats.skippedNoEmbeddedCoverChecked += 1
-        continue
-      }
       if (options.force !== true && hasTrackThumbnailSource(seed.track, currentMeta)) {
         result.skippedAlreadyHasCover += 1
         result.skippedAlreadyHasRealCover += 1
@@ -776,8 +733,6 @@ export function createCoverHydrationManager({
     hydrationIdlePrewarmQueuedCount: stats.idlePrewarmQueuedCount,
     hydrationObserverCandidateCount: stats.observerCandidateCount,
     hydrationSkippedAlreadyHasRealCover: stats.skippedAlreadyHasRealCover,
-    hydrationSkippedHasNetworkCover: stats.skippedHasNetworkCover,
-    hydrationSkippedNoEmbeddedCoverChecked: stats.skippedNoEmbeddedCoverChecked,
     hydrationSkippedInFlight: stats.skippedInFlight,
     hydrationBatches: stats.batches,
     hydrationLastBatchSize: stats.lastBatchSize,

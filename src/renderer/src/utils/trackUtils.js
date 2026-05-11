@@ -915,17 +915,12 @@ export function getCurrentTrackDisplayCover({
 
 export const TRUSTED_DISPLAY_COVER_SOURCES = new Set([
   'manual',
-  'manual-network',
   'embedded',
   'embedded-batch',
   'embedded-cue',
   'sidecar',
   'download-sidecar',
-  'network',
-  'remote',
-  'netease',
-  'qqmusic',
-  'external'
+  'network'
 ])
 
 export function isTrustedDisplayCoverSource(source = '') {

@@ -461,7 +461,7 @@ test('mergeTrackMetaEntryPreservingCover keeps folder cover over network cover',
   assert.equal(merged.coverSource, 'folder')
 })
 
-test('network cover alone does not satisfy local embedded cover check but satisfies visible display', () => {
+test('network cover alone does not satisfy current local embedded cover check', () => {
   assert.equal(
     hasCurrentEmbeddedCoverCheck({
       cover: 'https://example.test/network.jpg',
@@ -480,7 +480,7 @@ test('network cover alone does not satisfy local embedded cover check but satisf
   )
 })
 
-test('visible-row hydrate skips files with network thumbnail display cover', () => {
+test('visible-row hydrate still probes local files that only have network cover', () => {
   const track = {
     path: 'D:/Music/Album/01.flac',
     info: {
@@ -493,35 +493,18 @@ test('visible-row hydrate skips files with network thumbnail display cover', () 
     buildVisibleTrackMetaHydrateRequirement(
       track,
       {
-        coverThumbUrl: 'file:///network-thumb.jpg',
+        cover: 'https://example.test/network.jpg',
         coverSource: 'network',
         coverChecked: true
       },
       { isLocalTrack: () => true }
     ),
-    null
-  )
-})
-
-test('visible-row hydrate skips files with checked zero embedded pictures', () => {
-  const track = {
-    path: 'D:/Music/Album/02.flac',
-    info: {
-      album: 'Album',
-      artist: 'Artist'
+    {
+      needsCover: true,
+      needsArtist: false,
+      needsAlbum: false,
+      source: 'visible-row'
     }
-  }
-
-  assert.equal(
-    buildVisibleTrackMetaHydrateRequirement(
-      track,
-      {
-        coverChecked: true,
-        embeddedPictureCount: 0
-      },
-      { isLocalTrack: () => true }
-    ),
-    null
   )
 })
 

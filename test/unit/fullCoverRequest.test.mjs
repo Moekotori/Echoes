@@ -11,7 +11,6 @@ import {
   buildTrackCoverDebugStats,
   buildTrackArtworkSources
 } from '../../src/renderer/src/utils/trackUtils.js'
-import { buildCoverThumbMetaEntry } from '../../src/renderer/src/utils/coverThumbMetadata.js'
 
 test('requestTrackFullCover invokes window.api.getTrackFullCover', async () => {
   const calls = []
@@ -169,64 +168,6 @@ test('full cover result can merge only thumb metadata back into list cache', asy
     assert.equal(listTrack.cover, undefined)
     assert.equal(listTrack.info.cover, undefined)
     assert.deepEqual(sources, ['file:///current-list-sync-thumb.jpg'])
-    assert.equal(debugStats.listPayloadFullCoverCount, 0)
-    assert.equal(debugStats.usingThumbUrl, 1)
-  } finally {
-    delete globalThis.window
-  }
-})
-
-test('network full cover result gives list item only thumb metadata', async () => {
-  const fullCover = 'data:image/jpeg;base64,current-network-full-cover'
-  const path = 'D:/Music/current-network-list-sync.flac'
-  const lightweightTrack = buildLightweightTrackForList({
-    path,
-    sizeBytes: 2222,
-    mtimeMs: 3333,
-    info: {
-      title: 'Current Network',
-      cover: 'data:image/jpeg;base64,stripped'
-    }
-  })
-  let metaMap = {}
-  globalThis.window = {
-    api: {
-      getTrackFullCover: async () => ({
-        ok: true,
-        cover: fullCover,
-        coverKey: 'network-thumb-key',
-        coverThumbUrl: 'file:///current-network-list-sync-thumb.jpg',
-        coverThumbPath: 'D:/Cache/current-network-list-sync-thumb.jpg',
-        coverSource: 'network',
-        coverChecked: true
-      })
-    }
-  }
-
-  try {
-    const result = await requestTrackFullCover(lightweightTrack, {
-      onResult: (seed, response) => {
-        metaMap = mergeTrackMetaMapPreservingCovers(metaMap, {
-          [seed.path]: buildCoverThumbMetaEntry(seed.path, response)
-        })
-      }
-    })
-    const listTrack = buildLightweightTrackForList(lightweightTrack, metaMap[path])
-    const sources = buildTrackArtworkSources(listTrack, {
-      trackMetaMap: metaMap,
-      allowFullCover: false
-    })
-    const debugStats = buildTrackCoverDebugStats([listTrack], {
-      trackMetaMap: metaMap,
-      includeCacheCover: true
-    })
-
-    assert.equal(result, fullCover)
-    assert.equal(metaMap[path].cover, undefined)
-    assert.equal(metaMap[path].coverSource, 'network')
-    assert.equal(listTrack.cover, undefined)
-    assert.equal(listTrack.info.cover, undefined)
-    assert.deepEqual(sources, ['file:///current-network-list-sync-thumb.jpg'])
     assert.equal(debugStats.listPayloadFullCoverCount, 0)
     assert.equal(debugStats.usingThumbUrl, 1)
   } finally {

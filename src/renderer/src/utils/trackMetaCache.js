@@ -130,20 +130,9 @@ export function satisfiesMetadataHydrateRequirement(entry, requirement = null) {
   if (!entry || typeof entry !== 'object') return false
   if (needsCover) {
     const coverSatisfiedByLocalCover = hasRealTrackCover(entry)
-    const coverSatisfiedByNetworkCover = hasNetworkDisplayCover(entry)
     const coverSatisfiedByCurrentNoCover =
       !entry.cover && requirement?.source === 'visible-row' && hasCurrentEmbeddedCoverCheck(entry)
-    const coverSatisfiedByNoEmbeddedCoverChecked =
-      !entry.cover &&
-      requirement?.source === 'visible-row' &&
-      hasExplicitNoEmbeddedCoverCheck(entry)
-    if (
-      !coverSatisfiedByLocalCover &&
-      !coverSatisfiedByNetworkCover &&
-      !coverSatisfiedByCurrentNoCover &&
-      !coverSatisfiedByNoEmbeddedCoverChecked
-    )
-      return false
+    if (!coverSatisfiedByLocalCover && !coverSatisfiedByCurrentNoCover) return false
   }
   if (
     needsArtist &&
@@ -180,12 +169,7 @@ function normalizeCoverSource(value = '') {
       'local-folder-cover',
       'folder',
       'local',
-      'network',
-      'manual-network',
-      'remote',
-      'netease',
-      'qqmusic',
-      'external'
+      'network'
     ].includes(source)
   ) {
     return source === 'local-folder-cover' ? 'folder' : source
@@ -196,42 +180,9 @@ function normalizeCoverSource(value = '') {
 export function isLocalCoverEntry(entry = {}) {
   if (!entry?.cover) return false
   const source = normalizeCoverSource(entry.coverSource)
-  if (
-    ['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external'].includes(source)
-  ) {
-    return false
-  }
-  if (source) return true
+  if (source && source !== 'network') return true
+  if (source === 'network') return false
   return isLocalCoverUrl(entry.cover) || !isNetworkCoverUrl(entry.cover)
-}
-
-function hasDisplayCoverThumbnail(entry = {}) {
-  if (!entry || typeof entry !== 'object') return false
-  return Boolean(
-    (typeof entry.coverThumbUrl === 'string' && entry.coverThumbUrl.trim()) ||
-      (typeof entry.coverThumbPath === 'string' && entry.coverThumbPath.trim())
-  )
-}
-
-function hasNetworkDisplayCover(entry = {}) {
-  if (!entry || typeof entry !== 'object') return false
-  const source = normalizeCoverSource(entry.coverSource)
-  if (
-    !['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external', 'manual'].includes(
-      source
-    )
-  ) {
-    return false
-  }
-  return hasDisplayCoverThumbnail(entry) || hasRealTrackCover(entry)
-}
-
-function hasExplicitNoEmbeddedCoverCheck(entry = {}) {
-  return (
-    entry?.coverChecked === true &&
-    Object.prototype.hasOwnProperty.call(entry, 'embeddedPictureCount') &&
-    Number(entry.embeddedPictureCount) === 0
-  )
 }
 
 function hasOwnTrackCover(track, entry = null, options = {}) {
@@ -296,15 +247,8 @@ export function buildVisibleTrackMetaHydrateRequirement(
     albumCoverMap,
     albumTracks
   })
-  const hasNetworkCover = hasNetworkDisplayCover(entry)
-  const noEmbeddedCoverChecked = hasExplicitNoEmbeddedCoverCheck(entry)
   const needsThumbnailCover = hasOwnCover && shouldRefreshDisplayCoverAsThumbnail(track, entry)
-  const needsCover =
-    needsThumbnailCover ||
-    (!hasOwnCover &&
-      !hasNetworkCover &&
-      !noEmbeddedCoverChecked &&
-      !hasCurrentEmbeddedCoverCheck(entry))
+  const needsCover = needsThumbnailCover || (!hasOwnCover && !hasCurrentEmbeddedCoverCheck(entry))
   const needsArtist = !hasVisibleRowArtist(track, entry)
   if (!needsCover && !needsArtist) return null
 

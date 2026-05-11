@@ -164,10 +164,6 @@ import { pickThemeExportSlice, mergeThemeImport, parseThemeBundleJson } from './
 import { buildSettingsExportBundle, parseSettingsImportText } from './utils/configBundle'
 import { loadNetworkMetadataForEditor } from './utils/metadataEditorLoaders'
 import {
-  buildCoverThumbMetaEntry,
-  cacheExternalCoverThumbForTrack
-} from './utils/coverThumbMetadata'
-import {
   METADATA_AUTO_COMPLETE_VERSION,
   buildEmbeddedMetadataAutoCompleteEntry,
   buildFailedEmbeddedMetadataAutoCompleteEntry,
@@ -2582,11 +2578,6 @@ export default function App() {
     setCoverUrlSource(cover ? String(source || '').trim() : '')
     setCoverUrlTrusted(Boolean(cover && trusted))
   }, [])
-  const isExternalCoverDisplaySource = useCallback((source = '') => {
-    return ['network', 'manual-network', 'remote', 'netease', 'qqmusic', 'external'].includes(
-      String(source || '').trim()
-    )
-  }, [])
   const clearCoverDisplay = useCallback(() => {
     setCoverUrl(null)
     setCoverUrlSource('')
@@ -3152,8 +3143,19 @@ export default function App() {
   const mergeFullCoverThumbMetadata = useCallback((seed = {}, result = {}) => {
     const path = typeof seed?.path === 'string' ? seed.path.trim() : ''
     if (!path || !result || typeof result !== 'object') return
-    const thumbEntry = buildCoverThumbMetaEntry(path, result)
-    if (!thumbEntry) return
+    const thumbEntry = {
+      path,
+      coverKey: result.coverKey || null,
+      coverThumbPath: result.coverThumbPath || null,
+      coverThumbUrl: result.coverThumbUrl || null,
+      coverCacheVersion: result.coverCacheVersion ?? null,
+      coverThumbBytes: result.coverThumbBytes ?? null,
+      coverThumbWidth: result.coverThumbWidth ?? null,
+      coverThumbHeight: result.coverThumbHeight ?? null,
+      coverSource: result.coverSource || null,
+      coverChecked: true
+    }
+    if (!thumbEntry.coverThumbUrl && !thumbEntry.coverThumbPath && !thumbEntry.coverKey) return
     setTrackMetaMap((prev) => {
       const mergedEntry = {
         ...mergeTrackMetaEntryPreservingCover(prev?.[path] || {}, thumbEntry),
@@ -9521,13 +9523,6 @@ export default function App() {
       const trackNo = Number.parseInt(String(best.trackNumber || existingEntry.trackNo || ''), 10)
       const year = Number.parseInt(String(best.year || existingEntry.year || ''), 10)
       const cover = String(best.coverDataUrl || '').trim()
-      const thumbEntry = cover
-        ? await cacheExternalCoverThumbForTrack(track, cover, {
-            coverSource: 'manual-network',
-            sizeBytes: existingEntry.sizeBytes || 0,
-            mtimeMs: existingEntry.mtimeMs || 0
-          })
-        : null
       const displayCover = cover || existingCover
       const fieldSources = {
         title: 'network',
@@ -9537,7 +9532,7 @@ export default function App() {
         ...(Number.isFinite(trackNo) && trackNo > 0 ? { trackNo: 'network' } : {}),
         ...(Number.isFinite(year) && year > 0 ? { year: 'network' } : {}),
         ...(genre ? { genre: 'network' } : {}),
-        ...(cover ? { cover: 'manual-network' } : {})
+        ...(cover ? { cover: 'network' } : {})
       }
       const networkEntry = {
         ...existingEntry,
@@ -9552,8 +9547,7 @@ export default function App() {
           ? {
               cover,
               coverScope: 'album',
-              coverSource: 'manual-network',
-              ...(thumbEntry || {})
+              coverSource: 'network'
             }
           : {}),
         coverChecked: true,
@@ -9579,19 +9573,14 @@ export default function App() {
       }
 
       setTrackMetaMap((prev) => {
-        const mergedNetworkEntry = mergeTrackMetaEntryPreservingCover(
-          prev?.[filePath] || {},
-          networkEntry
-        )
         const next = {
           ...prev,
-          [filePath]: mergedNetworkEntry
+          [filePath]: networkEntry
         }
         trackMetaMapRef.current = next
         return next
       })
       writeTrackMetaCache({ [filePath]: networkEntry }, { merge: false })
-      setCoverVersion((version) => version + 1)
 
       setPlaylist((prev) => {
         const next = prev.map((item) =>
@@ -9655,7 +9644,7 @@ export default function App() {
         if (displayCover) {
           setCoverUrlTrackPath(filePath)
           updateCoverDisplay(displayCover, {
-            source: cover ? 'manual-network' : existingCoverSource,
+            source: cover ? 'network' : existingCoverSource,
             trusted: Boolean(cover) || existingTrustedCover.length > 0
           })
         }
@@ -12770,45 +12759,6 @@ export default function App() {
       null
     const albumArtist = metadata.albumArtist || currentTrackInfo?.albumArtist || null
     const existingCurrentMeta = trackMetaMap[currentTrack.path] || {}
-    const displaySource = coverUrlSource || existingCurrentMeta.coverSource || ''
-    if (isExternalCoverDisplaySource(coverUrlSource)) {
-      const thumbEntry = buildCoverThumbMetaEntry(currentTrack.path, existingCurrentMeta)
-      if (thumbEntry) {
-        setTrackMetaMap((prev) => {
-          const existing = prev[currentTrack.path] || {}
-          const mergedEntry = mergeTrackMetaEntryPreservingCover(existing, thumbEntry)
-          if (JSON.stringify(existing) === JSON.stringify(mergedEntry)) return prev
-          return {
-            ...prev,
-            [currentTrack.path]: mergedEntry
-          }
-        })
-        writeTrackMetaCache({ [currentTrack.path]: thumbEntry }).catch(() => {})
-      }
-      return
-    }
-    if (displaySafeCoverUrl) {
-      cacheExternalCoverThumbForTrack(currentTrack, displaySafeCoverUrl, {
-          coverSource: displaySource || 'embedded-batch',
-          sizeBytes: existingCurrentMeta.sizeBytes || 0,
-          mtimeMs: existingCurrentMeta.mtimeMs || 0
-        })
-        .then((thumbEntry) => {
-          if (!thumbEntry) return
-          setTrackMetaMap((prev) => {
-            const existing = prev[currentTrack.path] || {}
-            const mergedEntry = mergeTrackMetaEntryPreservingCover(existing, thumbEntry)
-            if (JSON.stringify(existing) === JSON.stringify(mergedEntry)) return prev
-            return {
-              ...prev,
-              [currentTrack.path]: mergedEntry
-            }
-          })
-          writeTrackMetaCache({ [currentTrack.path]: thumbEntry }).catch(() => {})
-          setCoverVersion((version) => version + 1)
-        })
-        .catch(() => {})
-    }
     const coverEntry = {
       title,
       artist,
@@ -12818,7 +12768,7 @@ export default function App() {
       discNo: metadata.discNo ?? currentTrackInfo?.discNo ?? null,
       cover: displaySafeCoverUrl,
       coverScope: existingCurrentMeta.coverScope || null,
-      coverSource: displaySource || null,
+      coverSource: existingCurrentMeta.coverSource || null,
       coverExtractorVersion: existingCurrentMeta.coverExtractorVersion || null,
       duration: duration || currentTrackInfo?.duration || null,
       coverChecked: true,
@@ -12890,7 +12840,6 @@ export default function App() {
     currentDisplayOverride?.cover,
     displaySafeCoverUrl,
     duration,
-    isExternalCoverDisplaySource,
     lastCastStatus,
     metadata.album,
     metadata.albumArtist,
@@ -14316,7 +14265,7 @@ export default function App() {
     )
     parsedPlaylistCacheRef.current = result.cache
     return result.items
-  }, [playlist, metadataIdentityVersion, displayMetadataOverrides, coverVersion])
+  }, [playlist, metadataIdentityVersion, displayMetadataOverrides])
 
   const libraryVersion = useMemo(
     () =>
@@ -16841,15 +16790,9 @@ export default function App() {
                 fetchImpl: typeof fetch === 'function' ? fetch : null
               })
               if (cancelled || !candidate?.coverDataUrl) continue
-              const thumbEntry = await cacheExternalCoverThumbForTrack(
-                track,
-                candidate.coverDataUrl,
-                { coverSource: 'network' }
-              )
               const entry = buildNetworkMetadataAutoCompleteEntry(candidate, currentEntry)
               networkEntries[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
                 ...entry,
-                ...(thumbEntry || {}),
                 sizeBytes: track?.sizeBytes,
                 mtimeMs: track?.mtimeMs
               })
@@ -18181,15 +18124,9 @@ export default function App() {
           searchQqMusic: window.api?.qqMusicSearch,
           fetchImpl: typeof fetch === 'function' ? fetch : null
         })
-        const thumbEntry = candidate?.coverDataUrl
-          ? await cacheExternalCoverThumbForTrack(track, candidate.coverDataUrl, {
-              coverSource: 'network'
-            })
-          : null
         const entry = buildNetworkMetadataAutoCompleteEntry(candidate || {}, currentEntry)
         updates[path] = mergeTrackMetaEntryPreservingCover(currentEntry, {
           ...entry,
-          ...(thumbEntry || {}),
           sizeBytes: track?.sizeBytes,
           mtimeMs: track?.mtimeMs
         })
@@ -19046,11 +18983,8 @@ export default function App() {
     let cancelled = false
     let nextIndex = 0
 
-    const applyCloudAlbumCover = async (candidate, cover) => {
+    const applyCloudAlbumCover = (candidate, cover) => {
       if (!cover) return
-      const thumbEntry = await cacheExternalCoverThumbForTrack(candidate.track, cover, {
-        coverSource: 'network'
-      })
       setAlbumCoverMap((prev) => {
         return mergeAlbumCoverMapEntries(prev, {
           [candidate.albumKey || candidate.albumName]: {
@@ -19083,7 +19017,6 @@ export default function App() {
         cover,
         coverScope: 'album',
         coverSource: 'network',
-        ...(thumbEntry || {}),
         fieldSources: {
           ...(currentEntry.fieldSources || {}),
           cover: 'network'
@@ -19128,7 +19061,7 @@ export default function App() {
               candidate.albumName
             )
           }
-          await applyCloudAlbumCover(candidate, cover)
+          applyCloudAlbumCover(candidate, cover)
         } finally {
           albumCloudCoverPendingRef.current.delete(candidate.key)
         }
