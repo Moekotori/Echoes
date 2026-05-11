@@ -2144,7 +2144,8 @@ const AlbumSidebarCard = memo(
     onVisible,
     coverLoading = 'lazy',
     coverRequestSeed = null,
-    allowFullCoverRequest = false
+    allowFullCoverRequest = false,
+    onFullCoverResult
   }) {
     const { t } = useTranslation()
     const cardRef = useRef(null)
@@ -2171,11 +2172,21 @@ const AlbumSidebarCard = memo(
       if (!allowFullCoverRequest || !coverRequestPath) return ''
       if (fullCoverRequestKeyRef.current === coverRequestPath) return ''
       fullCoverRequestKeyRef.current = coverRequestPath
-      const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath)
+      const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath, {
+        onResult: onFullCoverResult
+      })
       if (cover) setAsyncFallbackSource(cover)
       else onCoverFailed?.(album, coverCandidateKey)
       return cover
-    }, [allowFullCoverRequest, album, coverCandidateKey, coverRequestPath, coverRequestSeed, onCoverFailed])
+    }, [
+      allowFullCoverRequest,
+      album,
+      coverCandidateKey,
+      coverRequestPath,
+      coverRequestSeed,
+      onFullCoverResult,
+      onCoverFailed
+    ])
 
     useEffect(() => {
       setCoverIndex(0)
@@ -2298,6 +2309,7 @@ const AlbumSidebarCard = memo(
     prev.onPickAlbum === next.onPickAlbum &&
     prev.onContextMenu === next.onContextMenu &&
     prev.onCoverFailed === next.onCoverFailed &&
+    prev.onFullCoverResult === next.onFullCoverResult &&
     prev.onVisible === next.onVisible
 )
 
@@ -2306,7 +2318,8 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({
   isSelected,
   onPickArtist,
   coverRequestSeed = null,
-  allowFullCoverRequest = false
+  allowFullCoverRequest = false,
+  onFullCoverResult
 }) {
   const [coverIndex, setCoverIndex] = useState(0)
   const [asyncFallbackSource, setAsyncFallbackSource] = useState('')
@@ -2330,10 +2343,12 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({
     if (!allowFullCoverRequest || !coverRequestPath) return ''
     if (fullCoverRequestKeyRef.current === coverRequestPath) return ''
     fullCoverRequestKeyRef.current = coverRequestPath
-    const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath)
+    const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath, {
+      onResult: onFullCoverResult
+    })
     if (cover) setAsyncFallbackSource(cover)
     return cover
-  }, [allowFullCoverRequest, coverRequestPath, coverRequestSeed])
+  }, [allowFullCoverRequest, coverRequestPath, coverRequestSeed, onFullCoverResult])
 
   useEffect(() => {
     setCoverIndex(0)
@@ -3123,6 +3138,34 @@ export default function App() {
   const [queueUndoStack, setQueueUndoStack] = useState([])
   const [selectedSidebarTrackPaths, setSelectedSidebarTrackPaths] = useState([])
   const lastSelectedSidebarTrackPathRef = useRef('')
+
+  const mergeFullCoverThumbMetadata = useCallback((seed = {}, result = {}) => {
+    const path = typeof seed?.path === 'string' ? seed.path.trim() : ''
+    if (!path || !result || typeof result !== 'object') return
+    const thumbEntry = {
+      path,
+      coverKey: result.coverKey || null,
+      coverThumbPath: result.coverThumbPath || null,
+      coverThumbUrl: result.coverThumbUrl || null,
+      coverCacheVersion: result.coverCacheVersion ?? null,
+      coverThumbBytes: result.coverThumbBytes ?? null,
+      coverThumbWidth: result.coverThumbWidth ?? null,
+      coverThumbHeight: result.coverThumbHeight ?? null,
+      coverSource: result.coverSource || null,
+      coverChecked: true
+    }
+    if (!thumbEntry.coverThumbUrl && !thumbEntry.coverThumbPath && !thumbEntry.coverKey) return
+    setTrackMetaMap((prev) => {
+      const mergedEntry = mergeTrackMetaEntryPreservingCover(prev?.[path] || {}, thumbEntry)
+      if (JSON.stringify(prev?.[path] || {}) === JSON.stringify(mergedEntry)) return prev
+      return {
+        ...(prev || {}),
+        [path]: mergedEntry
+      }
+    })
+    writeTrackMetaCache({ [path]: thumbEntry }).catch(() => {})
+    setCoverVersion((version) => version + 1)
+  }, [])
   const autoLocateHandledTrackPathRef = useRef('')
 
   // Hi-Fi & Navigation States
@@ -19717,6 +19760,7 @@ export default function App() {
           onContextMenu={openGroupContextMenuForAlbum}
           coverRequestSeed={album.tracks?.find((track) => track?.path) || null}
           allowFullCoverRequest={true}
+          onFullCoverResult={mergeFullCoverThumbMetadata}
           coverLoading={
             absoluteIndex >= visibleAlbumRange.startIndex &&
             absoluteIndex < visibleAlbumRange.endIndex
@@ -19731,6 +19775,7 @@ export default function App() {
       handleAlbumCoverFailed,
       handlePickAlbumFromSidebar,
       openGroupContextMenuForAlbum,
+      mergeFullCoverThumbMetadata,
       requestVisibleAlbumCoverHydration,
       selectedAlbum,
       selectedAlbumKey,
@@ -22828,6 +22873,7 @@ export default function App() {
                           onPickArtist={handlePickArtistFromSidebar}
                           coverRequestSeed={artist.tracks?.[0] || null}
                           allowFullCoverRequest={true}
+                          onFullCoverResult={mergeFullCoverThumbMetadata}
                         />
                       ))}
                     </div>
@@ -23154,6 +23200,7 @@ export default function App() {
                                 }
                                 fullCoverSeed={track}
                                 allowFullCoverRequest={true}
+                                onFullCoverResult={mergeFullCoverThumbMetadata}
                               />
                               <div className="track-text-group">
                                 <div className="track-name" title={track.info.title}>

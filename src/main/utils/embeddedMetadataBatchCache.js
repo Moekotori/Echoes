@@ -466,7 +466,11 @@ function getCachedRecord(db, path, options = {}) {
   return readEmbeddedMetadataCacheRecord(row)
 }
 
-export function readTrackFullCoverFromEmbeddedMetadataCache({ userDataPath = '', path = '' } = {}) {
+export async function readTrackFullCoverFromEmbeddedMetadataCache({
+  userDataPath = '',
+  path = '',
+  coverThumbnailImageAdapter
+} = {}) {
   const trackPath = typeof path === 'string' ? path.trim() : ''
   if (!userDataPath || !trackPath) {
     return { ok: false, cover: null, error: 'invalid_request' }
@@ -475,24 +479,58 @@ export function readTrackFullCoverFromEmbeddedMetadataCache({ userDataPath = '',
   let db = null
   try {
     db = openEmbeddedMetadataCacheDb(userDataPath)
-    const row = db
-      .prepare(
-        'SELECT path, sizeBytes, mtimeMs, meta_json, updatedAt FROM embedded_metadata_cache WHERE path = ?'
-      )
-      .get(trackPath)
-    const record = readEmbeddedMetadataCacheRecord(row)
+    const hasLegacyMetaJson = hasLegacyMetaJsonColumn(db)
+    const record = getCachedRecord(db, trackPath, { hasLegacyMetaJson })
     const entry = record?.meta || null
     const cover = normalizeText(entry?.cover)
     if (!cover) {
-      return { ok: false, cover: null, error: row ? 'cover_not_found' : 'cache_miss' }
+      return { ok: false, cover: null, error: record ? 'cover_not_found' : 'cache_miss' }
+    }
+    let entryWithThumb = entry
+    const existingThumbState = readValidCoverThumb(entryWithThumb.coverThumbPath)
+    if (!existingThumbState.ok) {
+      const thumbnail = await ensureCoverThumbnailCache({
+        userDataPath,
+        coverDataUrl: cover,
+        coverSource: entryWithThumb.coverSource,
+        imageAdapter: coverThumbnailImageAdapter
+      })
+      if (thumbnail) {
+        entryWithThumb = {
+          ...entryWithThumb,
+          ...thumbnail
+        }
+        try {
+          upsertCachedRecord(db, { path: trackPath, ...record }, entryWithThumb)
+        } catch {
+          /* keep returning the full cover even if thumbnail write-back fails */
+        }
+      }
+    } else {
+      entryWithThumb = {
+        ...attachCoverThumbUrl(entryWithThumb),
+        coverThumbBytes: normalizeNumber(entryWithThumb.coverThumbBytes) || existingThumbState.bytes
+      }
+      if (entryWithThumb !== entry) {
+        try {
+          upsertCachedRecord(db, { path: trackPath, ...record }, entryWithThumb)
+        } catch {
+          /* ignore thumbnail url write-back errors */
+        }
+      }
     }
     return {
       ok: true,
       cover,
-      coverKey: normalizeText(entry.coverKey) || null,
-      coverThumbPath: normalizeText(entry.coverThumbPath) || null,
-      coverThumbUrl: normalizeText(entry.coverThumbUrl) || getCoverThumbUrl(entry.coverThumbPath),
-      coverSource: normalizeText(entry.coverSource) || null
+      coverKey: normalizeText(entryWithThumb.coverKey) || null,
+      coverThumbPath: normalizeText(entryWithThumb.coverThumbPath) || null,
+      coverThumbUrl:
+        normalizeText(entryWithThumb.coverThumbUrl) || getCoverThumbUrl(entryWithThumb.coverThumbPath),
+      coverCacheVersion: normalizeNumber(entryWithThumb.coverCacheVersion),
+      coverThumbBytes: normalizeNumber(entryWithThumb.coverThumbBytes),
+      coverThumbWidth: normalizeNumber(entryWithThumb.coverThumbWidth),
+      coverThumbHeight: normalizeNumber(entryWithThumb.coverThumbHeight),
+      coverSource: normalizeText(entryWithThumb.coverSource) || null
     }
   } catch (error) {
     return { ok: false, cover: null, error: error?.message || String(error) }

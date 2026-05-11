@@ -237,7 +237,7 @@ test('track full cover reads entry cover from sqlite meta_json without reparsing
     }
   })
 
-  const result = readTrackFullCoverFromEmbeddedMetadataCache({
+  const result = await readTrackFullCoverFromEmbeddedMetadataCache({
     userDataPath,
     path: seed.path
   })
@@ -259,7 +259,7 @@ test('track full cover returns a soft miss when sqlite meta_json has no cover', 
       createMetadataReader({ common: { cover: null, embeddedPictureCount: 0 } }).readMetadata(seed.path)
   })
 
-  const result = readTrackFullCoverFromEmbeddedMetadataCache({
+  const result = await readTrackFullCoverFromEmbeddedMetadataCache({
     userDataPath,
     path: seed.path
   })
@@ -269,6 +269,71 @@ test('track full cover returns a soft miss when sqlite meta_json has no cover', 
     cover: null,
     error: 'cover_not_found'
   })
+})
+
+test('track full cover generates and writes back thumbnail metadata when sqlite cover lacks thumb', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/full-cover-missing-thumb.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const cover = dataUrlFromText('full-cover-needs-thumb')
+  const adapter = createFakeThumbnailAdapter()
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    readMetadata: async () => createMetadataReader({ common: { cover } }).readMetadata(seed.path)
+  })
+  mutateCacheRecord(userDataPath, seed.path, (meta) => {
+    delete meta.coverKey
+    delete meta.coverThumbPath
+    delete meta.coverThumbUrl
+    delete meta.coverCacheVersion
+    delete meta.coverThumbBytes
+    delete meta.coverThumbWidth
+    delete meta.coverThumbHeight
+  })
+
+  const result = await readTrackFullCoverFromEmbeddedMetadataCache({
+    userDataPath,
+    path: seed.path,
+    coverThumbnailImageAdapter: adapter
+  })
+  const cached = readCacheMeta(userDataPath, seed.path)
+
+  assert.equal(result.ok, true)
+  assert.equal(result.cover, cover)
+  assert.equal(result.coverThumbUrl.startsWith('file://'), true)
+  assert.equal(result.coverThumbPath.endsWith('.jpg'), true)
+  assert.equal(result.coverKey, cached.coverKey)
+  assert.equal(cached.cover, cover)
+  assert.equal(cached.coverThumbUrl, result.coverThumbUrl)
+  assert.equal(cached.coverThumbPath, result.coverThumbPath)
+  assert.equal(adapter.encodeCalls.length, 1)
+})
+
+test('track full cover reuses existing valid thumbnail metadata', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/full-cover-existing-thumb.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const cover = dataUrlFromText('full-cover-existing-thumb')
+  const adapter = createFakeThumbnailAdapter()
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    coverThumbnailImageAdapter: adapter,
+    readMetadata: async () => createMetadataReader({ common: { cover } }).readMetadata(seed.path)
+  })
+  adapter.encodeCalls.length = 0
+
+  const result = await readTrackFullCoverFromEmbeddedMetadataCache({
+    userDataPath,
+    path: seed.path,
+    coverThumbnailImageAdapter: adapter
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.cover, cover)
+  assert.equal(result.coverThumbUrl.startsWith('file://'), true)
+  assert.equal(adapter.encodeCalls.length, 0)
 })
 
 test('cover thumb batch reads sqlite only and does not return full cover dataURL', async () => {

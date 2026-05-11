@@ -6718,7 +6718,7 @@ app.whenReady().then(async () => {
       if (!resolvedPath || !existsSync(resolvedPath)) {
         return { ok: false, cover: null, error: 'file_not_found' }
       }
-      return readTrackFullCoverFromEmbeddedMetadataCache({
+      return await readTrackFullCoverFromEmbeddedMetadataCache({
         userDataPath: app.getPath('userData'),
         path: resolvedPath
       })

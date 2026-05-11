@@ -27,7 +27,8 @@ export default function TrackArtwork({
   observeVisibility = false,
   onVisible,
   fullCoverSeed = null,
-  allowFullCoverRequest = false
+  allowFullCoverRequest = false,
+  onFullCoverResult
 }) {
   const rootRef = useRef(null)
   const onVisibleRef = useRef(onVisible)
@@ -59,11 +60,13 @@ export default function TrackArtwork({
       if (!allowFullCoverRequest || !fullCoverSeedPath) return ''
       if (fullCoverRequestKeyRef.current === fullCoverSeedPath) return ''
       fullCoverRequestKeyRef.current = fullCoverSeedPath
-      const cover = await requestTrackFullCover(fullCoverSeed || fullCoverSeedPath)
+      const cover = await requestTrackFullCover(fullCoverSeed || fullCoverSeedPath, {
+        onResult: onFullCoverResult
+      })
       if (cover) setAsyncFallbackSource(cover)
       return cover
     }
-  }, [allowFullCoverRequest, fullCoverSeed, fullCoverSeedPath])
+  }, [allowFullCoverRequest, fullCoverSeed, fullCoverSeedPath, onFullCoverResult])
 
   useEffect(() => {
     setSourceIndex(0)

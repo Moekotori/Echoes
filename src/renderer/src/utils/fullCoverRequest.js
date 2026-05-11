@@ -1,5 +1,6 @@
 const fullCoverInFlight = new Map()
 const fullCoverCache = new Map()
+const fullCoverResultCache = new Map()
 const fullCoverStats = {
   requestCount: 0,
   cacheHitCount: 0
@@ -31,18 +32,34 @@ export function getFullCoverRequestStats() {
   }
 }
 
-export async function requestTrackFullCover(trackOrSeed = {}) {
+function notifyFullCoverResult(callback, seed, result) {
+  if (typeof callback !== 'function' || !seed?.path || !result) return
+  try {
+    callback(seed, result)
+  } catch {
+    /* ignore callback errors so artwork fallback stays soft */
+  }
+}
+
+export async function requestTrackFullCover(trackOrSeed = {}, options = {}) {
   const seed = normalizeTrackSeed(trackOrSeed)
   if (!seed?.path) return ''
 
   const cached = fullCoverCache.get(seed.path)
   if (cached) {
     fullCoverStats.cacheHitCount += 1
+    notifyFullCoverResult(options?.onResult, seed, fullCoverResultCache.get(seed.path))
     return cached
   }
 
   const existing = fullCoverInFlight.get(seed.path)
-  if (existing) return existing
+  if (existing) {
+    if (typeof options?.onResult !== 'function') return existing
+    return existing.then((cover) => {
+      notifyFullCoverResult(options.onResult, seed, fullCoverResultCache.get(seed.path))
+      return cover
+    })
+  }
 
   const request = (async () => {
     try {
@@ -52,7 +69,11 @@ export async function requestTrackFullCover(trackOrSeed = {}) {
       fullCoverStats.requestCount += 1
       const result = await window.api.getTrackFullCover(seed)
       const cover = typeof result?.cover === 'string' ? result.cover.trim() : ''
-      if (cover) fullCoverCache.set(seed.path, cover)
+      if (cover) {
+        fullCoverCache.set(seed.path, cover)
+        fullCoverResultCache.set(seed.path, { ...result, cover })
+        notifyFullCoverResult(options?.onResult, seed, { ...result, cover })
+      }
       return cover
     } catch {
       return ''
@@ -64,4 +85,3 @@ export async function requestTrackFullCover(trackOrSeed = {}) {
   fullCoverInFlight.set(seed.path, request)
   return request
 }
-
