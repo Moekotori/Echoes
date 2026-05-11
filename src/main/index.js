@@ -153,7 +153,8 @@ import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
 import {
   readEmbeddedMetadataBatch,
   readCoverThumbBatchFromEmbeddedMetadataCache,
-  readTrackFullCoverFromEmbeddedMetadataCache
+  readTrackFullCoverFromEmbeddedMetadataCache,
+  cacheExternalCoverForTrack
 } from './utils/embeddedMetadataBatchCache.js'
 import { recoverEmbeddedCoverForBatch } from './utils/embeddedCoverRecovery.js'
 import { createLimiter, getCoverConcurrency } from './utils/concurrency.js'
@@ -6777,6 +6778,26 @@ app.whenReady().then(async () => {
       return {
         ok: false,
         cover: null,
+        error: error?.message || String(error)
+      }
+    }
+  })
+
+  ipcMain.handle('metadata:cacheExternalCoverForTrack', async (_, payload = {}) => {
+    try {
+      const filePath = typeof payload?.path === 'string' ? payload.path : ''
+      const resolvedPath = resolveMetadataFilePath(filePath)
+      if (!resolvedPath || !existsSync(resolvedPath)) {
+        return { ok: false, error: 'file_not_found' }
+      }
+      return await cacheExternalCoverForTrack({
+        ...payload,
+        path: resolvedPath,
+        userDataPath: app.getPath('userData')
+      })
+    } catch (error) {
+      return {
+        ok: false,
         error: error?.message || String(error)
       }
     }

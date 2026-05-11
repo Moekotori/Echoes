@@ -11,6 +11,14 @@ const DEFAULT_COVER_THUMB_MAX_DIMENSION = 320
 const MAX_COVER_THUMB_MAX_DIMENSION = 384
 const COVER_THUMB_JPEG_QUALITY = 80
 const LOCAL_COVER_SOURCES = new Set(['embedded', 'embedded-batch', 'folder'])
+const EXTERNAL_COVER_SOURCES = new Set([
+  'network',
+  'manual-network',
+  'remote',
+  'netease',
+  'qqmusic',
+  'external'
+])
 
 function normalizeThumbMaxDimension(value) {
   const raw = Number(value || process.env.ECHO_ALBUM_THUMBNAIL_SIZE)
@@ -135,15 +143,27 @@ function isLocalCacheableCoverSource(source) {
   return LOCAL_COVER_SOURCES.has(String(source || '').trim())
 }
 
+export function isExternalCacheableCoverSource(source) {
+  return EXTERNAL_COVER_SOURCES.has(String(source || '').trim())
+}
+
 export async function ensureCoverThumbnailCache({
   userDataPath = '',
   coverDataUrl = '',
   coverSource = '',
+  allowExternalCover = false,
   imageAdapter = defaultImageAdapter,
   maxDimension,
   logger = console.debug
 } = {}) {
-  if (!userDataPath || !isLocalCacheableCoverSource(coverSource)) return null
+  const normalizedSource = String(coverSource || '').trim()
+  if (
+    !userDataPath ||
+    (!isLocalCacheableCoverSource(normalizedSource) &&
+      !(allowExternalCover && isExternalCacheableCoverSource(normalizedSource)))
+  ) {
+    return null
+  }
   const sourceBuffer = parseCoverDataUrl(coverDataUrl)
   if (!sourceBuffer) return null
 
@@ -206,4 +226,11 @@ export async function ensureCoverThumbnailCache({
     })
     return null
   }
+}
+
+export function ensureDisplayCoverThumbnailCache(options = {}) {
+  return ensureCoverThumbnailCache({
+    ...options,
+    allowExternalCover: true
+  })
 }
