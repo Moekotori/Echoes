@@ -3096,8 +3096,6 @@ export default function App() {
   const [artistSortMode, setArtistSortMode] = useState('default')
   const [artistSortOpen, setArtistSortOpen] = useState(false)
   const artistSortRef = useRef(null)
-  const [artistBucketsDeferred, setArtistBucketsDeferred] = useState(false)
-  const artistBucketsDeferredRef = useRef(false)
   const [folderSortMode, setFolderSortMode] = useState('default') // 'default' | 'dateAsc' | 'dateDesc'
   const [folderSortOpen, setFolderSortOpen] = useState(false)
   const folderSortRef = useRef(null)
@@ -14800,37 +14798,8 @@ export default function App() {
 
   const folderGroups = listMode === 'folders' ? folderBuckets : []
 
-  useEffect(() => {
-    if (listMode === 'artists') {
-      if (!artistBucketsDeferredRef.current) {
-        const scheduleBuild = () => {
-          if (typeof window.requestIdleCallback === 'function') {
-            window.requestIdleCallback(() => {
-              startTransition(() => {
-                setArtistBucketsDeferred(true)
-              })
-            }, { timeout: 500 })
-          } else {
-            window.setTimeout(() => {
-              startTransition(() => {
-                setArtistBucketsDeferred(true)
-              })
-            }, 100)
-          }
-        }
-        scheduleBuild()
-      }
-    } else {
-      artistBucketsDeferredRef.current = false
-      setArtistBucketsDeferred(false)
-    }
-  }, [listMode])
-
-  const shouldBuildArtistBucketsDeferred =
-    listMode === 'artists' ? artistBucketsDeferred : shouldBuildArtistBuckets
-
   const artistBucketBase = useMemo(() => {
-    if (!shouldBuildArtistBucketsDeferred) return []
+    if (!shouldBuildArtistBuckets) return []
     return measureLibraryPerf('artist-buckets-build', () => {
       const unknownArtist = t('artists.unknown', 'Unknown Artist')
       const identityTrackMetaMap = trackMetaMapRef.current || {}
