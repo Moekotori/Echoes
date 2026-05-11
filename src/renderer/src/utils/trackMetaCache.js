@@ -654,27 +654,22 @@ function normalizeTrackMetaEntry(entry) {
   }
   for (const key of [
     'trackNo',
-    'trackTotal',
     'discNo',
-    'discTotal',
-    'year',
     'duration',
-    'bitrate',
     'bitrateKbps',
-    'sampleRate',
     'sampleRateHz',
     'bitDepth',
     'channels',
     'bpm',
-    'sizeBytes',
-    'mtimeMs',
-    'coverCacheVersion',
-    'coverThumbBytes',
-    'coverThumbWidth',
-    'coverThumbHeight'
+    'replaygainTrackPeak',
+    'replaygainAlbumPeak'
   ]) {
     const value = Number(entry[key])
     next[key] = Number.isFinite(value) && value > 0 ? value : null
+  }
+  for (const key of ['replaygainTrackGain', 'replaygainAlbumGain']) {
+    const value = Number(entry[key])
+    next[key] = Number.isFinite(value) ? value : null
   }
   {
     const value = Number(entry.coverExtractorVersion)
@@ -721,6 +716,7 @@ function normalizeTrackMetaEntry(entry) {
   next.bpmMeasured = entry.bpmMeasured === true
   next.mqaChecked = entry.mqaChecked === true
   next.isMqa = entry.isMqa === true
+  next.replaygainChecked = entry.replaygainChecked === true
   next.lossless = entry.lossless === true
   return next
 }
@@ -876,7 +872,9 @@ export async function writeTrackMetaCache(entries = {}, options = {}) {
       const fingerprint = buildTrackMetaCacheFingerprint({ path, ...(entry || {}) })
       const putRecord = (existingRecord = null) => {
         const existingMeta = normalizeTrackMetaEntry(existingRecord?.meta) || {}
-        const mergedMeta = shouldMerge ? mergeTrackMetaEntryPreservingCover(existingMeta, meta) : meta
+        const mergedMeta = shouldMerge
+          ? mergeTrackMetaEntryPreservingCover(existingMeta, meta)
+          : meta
         store.put({
           path,
           meta: mergedMeta,
@@ -1136,4 +1134,53 @@ export async function pruneTrackMetaCache() {
   })
 
   return prunePromise
+}
+
+/**
+ * Clear all metadata cache stores (track meta, album covers, artist avatars).
+ * Returns the number of stores cleared.
+ */
+export async function clearMetadataCache() {
+  if (!hasIndexedDb()) return 0
+  const db = await openTrackMetaDb()
+  if (!db) return 0
+
+  let deleted = 0
+  const storeNames = [STORE_NAME, ALBUM_COVER_STORE_NAME, ARTIST_AVATAR_STORE_NAME]
+
+  for (const name of storeNames) {
+    if (!db.objectStoreNames.contains(name)) continue
+    await new Promise((resolve) => {
+      const tx = db.transaction(name, 'readwrite')
+      const store = tx.objectStore(name)
+      const request = store.clear()
+      request.onsuccess = () => {
+        deleted += 1
+        resolve()
+      }
+      request.onerror = () => resolve()
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    })
+  }
+
+  return deleted
+}
+
+/**
+ * Temporarily override cache limits to allow unlimited entries.
+ * Pass false to restore defaults.
+ */
+export function setMetadataCacheUnlimited(unlimited) {
+  if (unlimited) {
+    TRACK_META_CACHE_LIMITS.maxEntries = 99999999
+    TRACK_META_CACHE_LIMITS.maxCoverEntries = 99999999
+    TRACK_META_CACHE_LIMITS.maxAlbumCoverEntries = 99999999
+    TRACK_META_CACHE_LIMITS.maxArtistAvatarEntries = 99999999
+  } else {
+    TRACK_META_CACHE_LIMITS.maxEntries = MAX_CACHE_ENTRIES
+    TRACK_META_CACHE_LIMITS.maxCoverEntries = MAX_CACHE_COVER_ENTRIES
+    TRACK_META_CACHE_LIMITS.maxAlbumCoverEntries = MAX_ALBUM_COVER_CACHE_ENTRIES
+    TRACK_META_CACHE_LIMITS.maxArtistAvatarEntries = MAX_ARTIST_AVATAR_CACHE_ENTRIES
+  }
 }

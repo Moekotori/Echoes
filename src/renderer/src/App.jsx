@@ -79,7 +79,8 @@ import {
   RotateCcw,
   Smartphone,
   Cast,
-  PictureInPicture2
+  PictureInPicture2,
+  Database
 } from 'lucide-react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import {
@@ -90,7 +91,6 @@ import {
 } from '@dnd-kit/sortable'
 import LyricsSettingsDrawer from './components/LyricsSettingsDrawer'
 import MediaDownloaderDrawer from './components/MediaDownloaderDrawer'
-import BgImageEditor from './components/BgImageEditor'
 import MvSettingsDrawer from './components/MvSettingsDrawer'
 import AudioSettingsDrawer from './components/AudioSettingsDrawer'
 import CastReceiveDrawer from './components/CastReceiveDrawer'
@@ -348,7 +348,9 @@ import {
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
-  writeTrackMetaCache
+  writeTrackMetaCache,
+  clearMetadataCache,
+  setMetadataCacheUnlimited
 } from './utils/trackMetaCache'
 import {
   getMetadataSourcePriority,
@@ -3177,9 +3179,6 @@ export default function App() {
   const [view, setView] = useState('player') // 'player', 'lyrics', 'settings'
   const [settingsQuery, setSettingsQuery] = useState('')
   const [activeSettingsSection, setActiveSettingsSection] = useState('language')
-  const [bgEditorOpen, setBgEditorOpen] = useState(false)
-  const [bgEditorImage, setBgEditorImage] = useState(null)
-  const [bgLivePreview, setBgLivePreview] = useState(null)
   const [config, setConfig] = useState(() => {
     const saved = getInitialAppStateValue('config')
     if (saved && typeof saved === 'object') return normalizeConfigState(saved)
@@ -11789,6 +11788,38 @@ export default function App() {
         : {},
     [currentTrack?.path, effectiveTrackMetaMap, trackMetaMap]
   )
+
+  useEffect(() => {
+    void window.api?.setReplayGainPreamp?.(config.replaygainPreamp ?? 0)
+  }, [config.replaygainPreamp])
+
+  useEffect(() => {
+    setMetadataCacheUnlimited(config.metadataCacheUnlimited === true)
+  }, [config.metadataCacheUnlimited])
+
+  useEffect(() => {
+    const mode = config.replaygainMode || 'off'
+    if (!window.api?.setReplayGain || mode === 'off' || !currentTrack?.path) {
+      void window.api?.setReplayGain?.(null)
+      return
+    }
+    const meta = trackMetaMap[currentTrack.path]
+    if (!meta) {
+      void window.api?.setReplayGain?.(null)
+      return
+    }
+    const gain =
+      mode === 'album'
+        ? (meta.replaygainAlbumGain ?? meta.replaygainTrackGain ?? null)
+        : (meta.replaygainTrackGain ?? null)
+    void window.api.setReplayGain(gain)
+  }, [
+    config.replaygainMode,
+    currentTrack?.path,
+    trackMetaMap[currentTrack?.path]?.replaygainTrackGain,
+    trackMetaMap[currentTrack?.path]?.replaygainAlbumGain
+  ])
+
   const listenTogetherSyncContent = useMemo(
     () => ({
       coverUrl: coverUrl || '',
@@ -12682,43 +12713,6 @@ export default function App() {
     [config.customBgOpacity]
   )
   const hasVisibleWallpaper = wallpaperOpacity > 0.001
-  const isBgEditing = bgEditorOpen && !!customWallpaperUrl && !config.themeCoverAsBackground
-  const liveOpacity = bgLivePreview ? bgLivePreview.opacity / 100 : (config.customBgOpacity ?? 1)
-  const liveBlur = bgLivePreview ? bgLivePreview.blur : (config.customBgBlur ?? 0)
-  const liveEditState = bgLivePreview
-    ? {
-        zoomPct: bgLivePreview.zoom,
-        posX: bgLivePreview.posX,
-        posY: bgLivePreview.posY,
-        vw: window.innerWidth,
-        vh: window.innerHeight,
-        natW: bgLivePreview.natW || config.customBgEditState?.natW,
-        natH: bgLivePreview.natH || config.customBgEditState?.natH
-      }
-    : config.customBgEditState
-  const customWallpaperStyle = useMemo(() => {
-    if (!customWallpaperUrl || !liveEditState) return null
-    const s = liveEditState
-    if (!s.natW || !s.natH) return null
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const z = s.zoomPct / 100
-    const fillScale = Math.max(vw / s.natW, vh / s.natH)
-    const scale = fillScale * z
-    const imgW = s.natW * scale
-    const imgH = s.natH * scale
-    const offX = (s.posX || 0) * (vw / s.vw)
-    const offY = (s.posY || 0) * (vh / s.vh)
-    return {
-      position: 'absolute',
-      width: imgW + 'px',
-      height: imgH + 'px',
-      left: ((vw - imgW) / 2 + offX) + 'px',
-      top: ((vh - imgH) / 2 + offY) + 'px',
-      pointerEvents: 'none',
-      userSelect: 'none'
-    }
-  }, [customWallpaperUrl, liveEditState])
   const uiPanelOpacity = useMemo(
     () => normalizeUnitOpacity(config.uiBgOpacity, DEFAULT_CONFIG.uiBgOpacity ?? 0.6),
     [config.uiBgOpacity]
@@ -18459,7 +18453,12 @@ export default function App() {
       bitDepth: null,
       channels: null,
       isMqa: false,
-      bpm: null
+      bpm: null,
+      replaygainTrackGain: null,
+      replaygainTrackPeak: null,
+      replaygainAlbumGain: null,
+      replaygainAlbumPeak: null,
+      replaygainChecked: false
     })
 
     const loadMetadata = async () => {
@@ -18530,6 +18529,7 @@ export default function App() {
         if (shouldRefreshInfoSidecarTrackMeta(track.path, cachedMeta)) return true
         if (!cachedMeta.bpmChecked) return true
         if (!cachedMeta.mqaChecked) return true
+        if (!cachedMeta.replaygainChecked) return true
         const cachedHasUsefulArtist = !isUnknownArtistName(
           cachedMeta.albumArtist ||
             cachedMeta.artist ||
@@ -18679,7 +18679,12 @@ export default function App() {
                 bitDepth: technical.bitDepth || cachedMeta.bitDepth || null,
                 channels: technical.channels || cachedMeta.channels || null,
                 isMqa: technical.isMqa === true || cachedMeta.isMqa === true,
-                bpm: cachedMeta.bpmMeasured ? cachedMeta.bpm || null : null
+                bpm: cachedMeta.bpmMeasured ? cachedMeta.bpm || null : null,
+                replaygainTrackGain: common.replaygainTrackGain ?? cachedMeta.replaygainTrackGain ?? null,
+                replaygainTrackPeak: common.replaygainTrackPeak ?? cachedMeta.replaygainTrackPeak ?? null,
+                replaygainAlbumGain: common.replaygainAlbumGain ?? cachedMeta.replaygainAlbumGain ?? null,
+                replaygainAlbumPeak: common.replaygainAlbumPeak ?? cachedMeta.replaygainAlbumPeak ?? null,
+                replaygainChecked: true
               }
             } else {
               loaded[track.path] = buildEmptyMetaEntry()
@@ -21157,26 +21162,7 @@ export default function App() {
         {!showLyrics &&
           customWallpaperUrl &&
           !config.themeCoverAsBackground &&
-          hasVisibleWallpaper &&
-          (isBgEditing || liveEditState ? (
-            <div
-              className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
-              style={{
-                opacity: liveOpacity,
-                overflow: 'hidden'
-              }}
-            >
-              <img
-                src={customWallpaperUrl}
-                alt=""
-                draggable={false}
-                style={{
-                  ...(customWallpaperStyle || {}),
-                  filter: liveBlur > 0 ? `blur(${liveBlur}px)` : 'none'
-                }}
-              />
-            </div>
-          ) : (
+          hasVisibleWallpaper && (
             <div
               className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
               style={{
@@ -21184,7 +21170,7 @@ export default function App() {
                 backgroundImage: `url("${customWallpaperUrl}")`
               }}
             />
-          ))}
+          )}
         {!showLyrics &&
           config.themeCoverAsBackground &&
           displaySafeCoverUrl &&
@@ -25837,7 +25823,7 @@ export default function App() {
                               <button
                                 className="btn"
                                 onClick={() =>
-                                  setConfig((prev) => ({ ...prev, customBgPath: null, customBgEditState: null, customBgBlur: 0 }))
+                                  setConfig((prev) => ({ ...prev, customBgPath: null }))
                                 }
                                 style={{
                                   width: 'auto',
@@ -25850,38 +25836,10 @@ export default function App() {
                                 {t('settings.clear')}
                               </button>
                             )}
-                            {config.customBgPath && (
-                              <button
-                                className="btn"
-                                onClick={async () => {
-                                  const url = customWallpaperUrl
-                                  if (!url) return
-                                  try {
-                                    const resp = await fetch(url)
-                                    const blob = await resp.blob()
-                                    const reader = new FileReader()
-                                    reader.onloadend = () => setBgEditorImage(reader.result)
-                                    reader.readAsDataURL(blob)
-                                  } catch {
-                                    setBgEditorImage(url)
-                                  }
-                                  setBgEditorOpen(true)
-                                }}
-                                style={{
-                                  width: 'auto',
-                                  height: '36px',
-                                  padding: '0 14px',
-                                  fontSize: 12,
-                                  borderRadius: 18
-                                }}
-                              >
-                                {t('settings.bgEditor.edit')}
-                              </button>
-                            )}
                             <button
                               className="btn"
                               onClick={async () => {
-                                const path = await window.api.openMainPlayerWallpaper(
+                                const path = await window.api.openImageHandler(
                                   configRef.current.uiLocale
                                 )
                                 if (path)
@@ -26882,6 +26840,84 @@ export default function App() {
                     </section>
                   </div>
 
+                    <section className="settings-section">
+                      <div className="section-title">
+                        <Database size={20} />
+                        <h2>Metadata Cache</h2>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>Delete local metadata cache</h3>
+                          <p>Clears all cached track metadata, album covers, and artist avatars. The library will re-scan on next visit.</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                'Clear all cached metadata, album covers, and artist avatars?\n\nTrack tags will be re-read on next library visit.'
+                              )
+                              if (!ok) return
+                              await clearMetadataCache()
+                              alert('Metadata cache cleared.')
+                            }}
+                          >
+                            Clear Cache
+                          </UiButton>
+                        </div>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>Rebuild metadata cache</h3>
+                          <p>Clear the cache and trigger a full library re-scan to rebuild all metadata from scratch.</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                'Clear cache and rebuild all metadata from scratch?\n\nThis will re-read every file in your library.'
+                              )
+                              if (!ok) return
+                              await clearMetadataCache()
+                              if (typeof window.api?.rescanLibrary === 'function') {
+                                await window.api.rescanLibrary()
+                              }
+                              alert('Cache cleared. Library re-scan started.')
+                            }}
+                          >
+                            Rebuild Cache
+                          </UiButton>
+                        </div>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>Remove metadata storage limit</h3>
+                          <p>By default, ECHO caps cached entries at ~50k tracks. Enable this to remove the cap for very large libraries.</p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${config.metadataCacheUnlimited ? 'active' : ''}`}
+                          onClick={() => {
+                            const next = !config.metadataCacheUnlimited
+                            setMetadataCacheUnlimited(next)
+                            setConfig((prev) => ({ ...prev, metadataCacheUnlimited: next }))
+                          }}
+                          aria-pressed={config.metadataCacheUnlimited === true}
+                        >
+                          {config.metadataCacheUnlimited ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
+                    </section>
+
                   <div
                     id="settings-sec-remote-library"
                     data-settings-section="remoteLibrary"
@@ -27718,66 +27754,6 @@ export default function App() {
             }
           }}
         />
-        {bgEditorOpen && bgEditorImage && (
-          <BgImageEditor
-            imageDataUrl={bgEditorImage}
-            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
-            initialBlur={config.customBgBlur ?? 0}
-            initialEditState={config.customBgEditState}
-            viewportW={window.innerWidth}
-            viewportH={window.innerHeight}
-            t={t}
-            onPreview={(p) =>
-              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
-            }
-            onSave={({ opacity, blur, editState }) => {
-              setConfig((prev) => ({
-                ...prev,
-                customBgOpacity: opacity / 100,
-                customBgBlur: blur,
-                customBgEditState: editState
-              }))
-              setBgEditorOpen(false)
-              setBgEditorImage(null)
-              setBgLivePreview(null)
-            }}
-            onClose={() => {
-              setBgEditorOpen(false)
-              setBgEditorImage(null)
-              setBgLivePreview(null)
-            }}
-          />
-        )}
-        {bgEditorOpen && bgEditorImage && (
-          <BgImageEditor
-            imageDataUrl={bgEditorImage}
-            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
-            initialBlur={config.customBgBlur ?? 0}
-            initialEditState={config.customBgEditState}
-            viewportW={window.innerWidth}
-            viewportH={window.innerHeight}
-            t={t}
-            onPreview={(p) =>
-              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
-            }
-            onSave={({ opacity, blur, editState }) => {
-              setConfig((prev) => ({
-                ...prev,
-                customBgOpacity: opacity / 100,
-                customBgBlur: blur,
-                customBgEditState: editState
-              }))
-              setBgEditorOpen(false)
-              setBgEditorImage(null)
-              setBgLivePreview(null)
-            }}
-            onClose={() => {
-              setBgEditorOpen(false)
-              setBgEditorImage(null)
-              setBgLivePreview(null)
-            }}
-          />
-        )}
         <PluginManagerDrawer open={pluginDrawerOpen} onClose={() => setPluginDrawerOpen(false)} />
         <PluginSlot name="drawers" />
         <div className="song-share-capture-root" aria-hidden>
