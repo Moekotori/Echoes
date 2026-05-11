@@ -10,6 +10,7 @@ import Database from 'better-sqlite3'
 import {
   getEmbeddedMetadataCacheDbPath,
   readEmbeddedMetadataBatch,
+  readCoverThumbBatchFromEmbeddedMetadataCache,
   readTrackFullCoverFromEmbeddedMetadataCache
 } from '../../src/main/utils/embeddedMetadataBatchCache.js'
 import {
@@ -179,6 +180,7 @@ test('track full cover reads entry cover from sqlite meta_json without reparsing
   await readEmbeddedMetadataBatch({
     seeds: [seed],
     userDataPath,
+    coverThumbnailImageAdapter: createFakeThumbnailAdapter(),
     readMetadata: async () => {
       readCalls += 1
       return createMetadataReader({ common: { cover } }).readMetadata(seed.path)
@@ -217,6 +219,89 @@ test('track full cover returns a soft miss when sqlite meta_json has no cover', 
     cover: null,
     error: 'cover_not_found'
   })
+})
+
+test('cover thumb batch reads sqlite only and does not return full cover dataURL', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/thumb-only.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const cover = dataUrlFromText('thumb-only-full-cover')
+  let readCalls = 0
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    coverThumbnailImageAdapter: createFakeThumbnailAdapter(),
+    readMetadata: async () => {
+      readCalls += 1
+      return createMetadataReader({ common: { cover } }).readMetadata(seed.path)
+    }
+  })
+  readCalls = 0
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [seed]
+  })
+
+  assert.equal(readCalls, 0)
+  assert.deepEqual(result.hitPaths, [seed.path])
+  assert.equal(result.entries[seed.path].path, seed.path)
+  assert.equal(result.entries[seed.path].cover, undefined)
+  assert.equal(result.entries[seed.path].coverThumbUrl.startsWith('file://'), true)
+  assert.equal(result.entries[seed.path].coverThumbPath.endsWith('.jpg'), true)
+})
+
+test('cover thumb batch derives file URL when sqlite entry lacks coverThumbUrl', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/thumb-url.flac', sizeBytes: 4096, mtimeMs: 5000 }
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    coverThumbnailImageAdapter: createFakeThumbnailAdapter(),
+    readMetadata: createMetadataReader().readMetadata
+  })
+  mutateCacheRecord(userDataPath, seed.path, (meta) => {
+    meta.coverThumbUrl = null
+  })
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [seed]
+  })
+
+  const entry = result.entries[seed.path]
+  assert.equal(result.hitPaths.includes(seed.path), true)
+  assert.equal(entry.coverThumbUrl, getCoverThumbUrl(entry.coverThumbPath))
+})
+
+test('cover thumb batch marks missing or empty thumbnail files as missingThumb', async () => {
+  const userDataPath = createTempUserData()
+  const missingSeed = { path: 'D:/Music/missing-thumb.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const emptySeed = { path: 'D:/Music/empty-thumb.flac', sizeBytes: 4096, mtimeMs: 5000 }
+
+  await readEmbeddedMetadataBatch({
+    seeds: [missingSeed, emptySeed],
+    userDataPath,
+    coverThumbnailImageAdapter: createFakeThumbnailAdapter(),
+    readMetadata: createMetadataReader().readMetadata
+  })
+  const emptyThumbPath = readCacheMeta(userDataPath, emptySeed.path).coverThumbPath
+  fs.writeFileSync(emptyThumbPath, Buffer.alloc(0))
+  mutateCacheRecord(userDataPath, missingSeed.path, (meta) => {
+    fs.rmSync(meta.coverThumbPath, { force: true })
+  })
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [missingSeed, emptySeed]
+  })
+
+  assert.deepEqual(result.hitPaths, [])
+  assert.equal(result.missingThumbPaths.includes(missingSeed.path), true)
+  assert.equal(result.missingThumbPaths.includes(emptySeed.path), true)
+  assert.equal(result.entries[missingSeed.path], undefined)
+  assert.equal(result.entries[emptySeed.path], undefined)
 })
 
 test('embedded metadata batch round-trips complex entries through sqlite without mutation', async () => {

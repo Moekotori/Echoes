@@ -152,6 +152,7 @@ import {
 import { readMusicMetadataForLocalFile } from './utils/musicMetadataReader.js'
 import {
   readEmbeddedMetadataBatch,
+  readCoverThumbBatchFromEmbeddedMetadataCache,
   readTrackFullCoverFromEmbeddedMetadataCache
 } from './utils/embeddedMetadataBatchCache.js'
 import { recoverEmbeddedCoverForBatch } from './utils/embeddedCoverRecovery.js'
@@ -6694,6 +6695,14 @@ app.whenReady().then(async () => {
           maxDimension: getAlbumThumbnailDimension()
         })
       }
+    })
+  })
+
+  ipcMain.handle('metadata:readCoverThumbBatch', async (_, seeds = [], options = {}) => {
+    return readCoverThumbBatchFromEmbeddedMetadataCache({
+      seeds,
+      options,
+      userDataPath: app.getPath('userData')
     })
   })
 

@@ -308,7 +308,10 @@ import { getAutoMvSearchHit, getBestEffortMvSearchHit } from './utils/mvAutoAcce
 import { orderMvSearchItems } from './utils/mvSearchCandidates'
 import {
   createCoverHydrationManager,
+  createCoverThumbOnlyPrewarmManager,
   selectListCoverHydrationPrewarmTracks,
+  selectListCoverHydrationIdlePrewarmTracks,
+  scheduleListCoverHydrationIdlePrewarm,
   selectAlbumCoverHydrationTracks
 } from './utils/coverHydrationQueue'
 import {
@@ -521,8 +524,11 @@ const PLAYING_METADATA_PARSE_WORKERS = 1
 const VISIBLE_ROW_HYDRATE_AHEAD_LIMIT = 96
 const VISIBLE_ROW_COVER_HYDRATE_AHEAD_LIMIT = 120
 const VISIBLE_ROW_COVER_HYDRATE_VISIBLE_LIMIT = 48
-const LIST_COVER_HYDRATION_INITIAL_LIMIT = 64
-const LIST_COVER_HYDRATION_WINDOW_LIMIT = 32
+const LIST_COVER_HYDRATION_INITIAL_LIMIT = 120
+const LIST_COVER_HYDRATION_WINDOW_LIMIT = 64
+const LIST_COVER_HYDRATION_IDLE_DELAY_MS = 2000
+const LIST_COVER_HYDRATION_IDLE_LIMIT = 160
+const LIST_COVER_HYDRATION_IDLE_SCAN_LIMIT = 640
 const ALBUM_COVER_HYDRATION_PREWARM_LIMIT = 32
 const VISIBLE_ROW_METADATA_STARTUP_DELAY_MS = 800
 const BULK_METADATA_PREFETCH_STARTUP_DELAY_MS = 5000
@@ -2739,6 +2745,7 @@ export default function App() {
   const visibleRowCoverHydrationInFlightPathsRef = useRef(new Set())
   const visibleRowCoverHydrationSeqRef = useRef(0)
   const coverHydrationManagerRef = useRef(null)
+  const coverThumbOnlyPrewarmManagerRef = useRef(null)
   const albumCoverBackfillRunKeyRef = useRef('')
   const [albumCoverManualLoadRequest, setAlbumCoverManualLoadRequest] = useState({
     id: 0,
@@ -6233,6 +6240,8 @@ export default function App() {
   const visibleCoverHydrationTimerRef = useRef(null)
   const lastVisibleCoverHydrationKeyRef = useRef('')
   const lastListCoverHydrationPrewarmKeyRef = useRef('')
+  const listCoverHydrationIdleTimerRef = useRef(null)
+  const lastListCoverHydrationIdleKeyRef = useRef('')
   const lastAlbumCoverHydrationPrewarmKeyRef = useRef('')
   const metadataCoverKeepPathSetRef = useRef(EMPTY_SET)
   const pendingAlbumOverviewRestoreRef = useRef(false)
@@ -17029,7 +17038,9 @@ export default function App() {
       const stats = buildTrackCoverDebugStats(parsedPlaylist, {
         trackMetaMap,
         effectiveTrackMetaMap,
-        limit: 100
+        limit: 100,
+        includeCacheCover: false,
+        cacheTrackMetaMap: trackMetaMap
       })
       const visibleDebugTracks =
         showTrackList
@@ -17040,8 +17051,11 @@ export default function App() {
       const visibleStats = buildTrackCoverDebugStats(visibleDebugTracks, {
         trackMetaMap,
         effectiveTrackMetaMap,
-        limit: 100
+        limit: 100,
+        includeCacheCover: false,
+        cacheTrackMetaMap: trackMetaMap
       })
+      const fullCoverRequestStats = getFullCoverRequestStats()
       return {
         ...stats,
         ...(coverHydrationManagerRef.current?.getDebugStats?.() || {
@@ -17069,9 +17083,24 @@ export default function App() {
           embeddedCoverRecoveryError: 0,
           hydrationCandidateCount: 0,
           hydrationPrewarmCandidateCount: 0,
+          hydrationIdlePrewarmCandidateCount: 0,
+          hydrationIdlePrewarmQueuedCount: 0,
           hydrationObserverCandidateCount: 0,
           hydrationSkippedAlreadyHasRealCover: 0,
-          hydrationSkippedInFlight: 0
+          hydrationSkippedInFlight: 0,
+          hydrationAverageBatchElapsedMs: 0,
+          hydrationTotalElapsedMs: 0,
+          hydrationThroughputPerSecond: 0,
+          hydrationQueuePeakSize: 0
+        }),
+        ...(coverThumbOnlyPrewarmManagerRef.current?.getDebugStats?.() || {
+          thumbOnlyRequestCount: 0,
+          thumbOnlyHitCount: 0,
+          thumbOnlyMissCount: 0,
+          thumbOnlyMissingFileCount: 0,
+          thumbOnlyMergedCount: 0,
+          thumbOnlyElapsedMs: 0,
+          heavyHydrationAvoidedCount: 0
         }),
         visibleWithoutCoverCount: visibleStats.missingCover,
         visibleCoverSampleTotal: visibleStats.total,
@@ -17080,7 +17109,9 @@ export default function App() {
           : listMode === 'album' && albumOverviewDisplayActive
             ? 'visible-album-wall'
             : 'none',
-        coverDebugSamplesDiffer: visibleStats.total !== stats.total
+        coverDebugSamplesDiffer: visibleStats.total !== stats.total,
+        fullCoverOnDemandRequestCount: fullCoverRequestStats.requestCount,
+        fullCoverOnDemandCacheHitCount: fullCoverRequestStats.cacheHitCount
       }
     }
     debugCovers.__echoDebugCovers = true
@@ -17346,6 +17377,30 @@ export default function App() {
     [persistAlbumCoverCacheItems]
   )
 
+  const applyCoverThumbOnlyEntries = useCallback((entries) => {
+    const paths = Object.keys(entries || {})
+    if (paths.length === 0) return { mergedCount: 0, mergeMissCount: 0 }
+    setTrackMetaMap((prev) => {
+      const merged = mergeTrackMetaMapPreservingCovers(prev, entries)
+      const trimmed = trimTrackMetaCoverEntries(merged, metadataCoverKeepPathSetRef.current)
+      trackMetaMapRef.current = trimmed
+      return trimmed
+    })
+    writeTrackMetaCache(entries).catch(() => {})
+    return { mergedCount: paths.length, mergeMissCount: 0 }
+  }, [])
+
+  const getCoverThumbOnlyPrewarmManager = useCallback(() => {
+    if (!coverThumbOnlyPrewarmManagerRef.current) {
+      coverThumbOnlyPrewarmManagerRef.current = createCoverThumbOnlyPrewarmManager({
+        readCoverThumbBatch: (seeds, options) => window.api.readCoverThumbBatch(seeds, options),
+        getCurrentMeta: (path) => trackMetaMapRef.current?.[path] || {},
+        mergeEntries: applyCoverThumbOnlyEntries
+      })
+    }
+    return coverThumbOnlyPrewarmManagerRef.current
+  }, [applyCoverThumbOnlyEntries])
+
   const getCoverHydrationManager = useCallback(() => {
     if (!coverHydrationManagerRef.current) {
       coverHydrationManagerRef.current = createCoverHydrationManager({
@@ -17353,9 +17408,9 @@ export default function App() {
           window.api.readEmbeddedMetadataBatch(seeds, options),
         getCurrentMeta: (path) => trackMetaMapRef.current?.[path] || {},
         mergeEntries: applyCoverHydrationEntries,
-        maxBatchSize: 16,
-        maxConcurrentBatches: 2,
-        debounceMs: 180,
+        maxBatchSize: 24,
+        maxConcurrentBatches: 3,
+        debounceMs: 100,
         isDebugEnabled: isCoverDebugEnabled
       })
     }
@@ -17366,6 +17421,12 @@ export default function App() {
     return () => {
       coverHydrationManagerRef.current?.dispose?.()
       coverHydrationManagerRef.current = null
+      coverThumbOnlyPrewarmManagerRef.current?.cancelScope?.('list-prewarm')
+      coverThumbOnlyPrewarmManagerRef.current?.cancelScope?.('list-idle-prewarm')
+      coverThumbOnlyPrewarmManagerRef.current?.cancelScope?.('album-prewarm')
+      coverThumbOnlyPrewarmManagerRef.current?.cancelScope?.('visible-track')
+      coverThumbOnlyPrewarmManagerRef.current?.cancelScope?.('visible-album')
+      coverThumbOnlyPrewarmManagerRef.current = null
     }
   }, [])
 
@@ -17382,9 +17443,33 @@ export default function App() {
       }
       if (hasRealTrackCover(track, trackMetaMapRef.current?.[track.path] || {})) return
       if (visibleRowCoverHydrationInFlightPathsRef.current.has(track.path)) return
+      if (typeof window.api?.readCoverThumbBatch === 'function') {
+        const runKey = `visible-track:${track.path}:${track.sizeBytes || track.info?.sizeBytes || ''}:${track.mtimeMs || track.info?.mtimeMs || ''}`
+        getCoverThumbOnlyPrewarmManager()
+          .prewarmThumbsBeforeHydration([track], {
+            runKey,
+            reason: 'visible-track',
+            scope: 'visible-track'
+          })
+          .then((result) => {
+            if (result?.stale || !result?.tracksToHydrate?.length) return
+            getCoverHydrationManager().requestCoverHydration(result.tracksToHydrate, {
+              reason: 'visible-track'
+            })
+          })
+          .catch(() => {
+            getCoverHydrationManager().requestCoverHydration(track, { reason: 'visible-track' })
+          })
+        return
+      }
       getCoverHydrationManager().requestCoverHydration(track, { reason: 'visible-track' })
     },
-    [config.autoLoadEmbeddedMetadata, getCoverHydrationManager, libraryStateReady]
+    [
+      config.autoLoadEmbeddedMetadata,
+      getCoverHydrationManager,
+      getCoverThumbOnlyPrewarmManager,
+      libraryStateReady
+    ]
   )
 
   const requestVisibleAlbumCoverHydration = useCallback(
@@ -17401,9 +17486,34 @@ export default function App() {
           !isStreamingTrackPath(track.path)
       })
       if (candidates.length === 0) return
+      if (typeof window.api?.readCoverThumbBatch === 'function') {
+        const runKey = `visible-album:${candidates.map((track) => track.path).join('\n')}`
+        getCoverThumbOnlyPrewarmManager()
+          .prewarmThumbsBeforeHydration(candidates, {
+            runKey,
+            reason: 'visible-album',
+            scope: 'visible-album'
+          })
+          .then((result) => {
+            if (result?.stale || !result?.tracksToHydrate?.length) return
+            getCoverHydrationManager().requestCoverHydration(result.tracksToHydrate, {
+              reason: 'visible-album'
+            })
+          })
+          .catch(() => {
+            getCoverHydrationManager().requestCoverHydration(candidates, { reason: 'visible-album' })
+          })
+        return
+      }
       getCoverHydrationManager().requestCoverHydration(candidates, { reason: 'visible-album' })
     },
-    [config.autoLoadEmbeddedMetadata, effectiveTrackMetaMap, getCoverHydrationManager, libraryStateReady]
+    [
+      config.autoLoadEmbeddedMetadata,
+      effectiveTrackMetaMap,
+      getCoverHydrationManager,
+      getCoverThumbOnlyPrewarmManager,
+      libraryStateReady
+    ]
   )
 
   const listCoverHydrationPrewarmTracks = useMemo(() => {
@@ -17438,14 +17548,159 @@ export default function App() {
     const prewarmKey = listCoverHydrationPrewarmTracks.map((track) => track.path).join('\n')
     if (lastListCoverHydrationPrewarmKeyRef.current === prewarmKey) return
     lastListCoverHydrationPrewarmKeyRef.current = prewarmKey
-    getCoverHydrationManager().requestCoverHydration(listCoverHydrationPrewarmTracks, {
-      reason: 'list-prewarm'
-    })
+    let cancelled = false
+    const runKey = `list-prewarm:${prewarmKey}`
+    const requestHeavyHydration = (tracks) => {
+      if (!tracks?.length || cancelled) return
+      getCoverHydrationManager().requestCoverHydration(tracks, {
+        reason: 'list-prewarm'
+      })
+    }
+    if (typeof window.api?.readCoverThumbBatch !== 'function') {
+      requestHeavyHydration(listCoverHydrationPrewarmTracks)
+      return () => {
+        cancelled = true
+      }
+    }
+    getCoverThumbOnlyPrewarmManager()
+      .prewarmThumbsBeforeHydration(listCoverHydrationPrewarmTracks, {
+        runKey,
+        reason: 'list-prewarm',
+        scope: 'list-prewarm'
+      })
+      .then((result) => {
+        if (cancelled || result?.stale) return
+        requestHeavyHydration(result?.tracksToHydrate || [])
+      })
+      .catch(() => {
+        requestHeavyHydration(listCoverHydrationPrewarmTracks)
+      })
+    return () => {
+      cancelled = true
+      getCoverThumbOnlyPrewarmManager().cancelScope('list-prewarm')
+    }
   }, [
     config.autoLoadEmbeddedMetadata,
     getCoverHydrationManager,
+    getCoverThumbOnlyPrewarmManager,
     libraryStateReady,
     listCoverHydrationPrewarmTracks
+  ])
+
+  useEffect(() => {
+    if (listCoverHydrationIdleTimerRef.current) {
+      window.clearTimeout(listCoverHydrationIdleTimerRef.current)
+      listCoverHydrationIdleTimerRef.current = null
+    }
+    if (!libraryStateReady || config.autoLoadEmbeddedMetadata !== true) return undefined
+    if (typeof window.api?.readEmbeddedMetadataBatch !== 'function') return undefined
+    if (!showTrackList || !libraryDetailPrefetchAllowed) return undefined
+    if (tracksForSidebarListFiltered.length === 0) return undefined
+
+    const activityKey = [
+      listMode,
+      selectedAlbum,
+      selectedFolder,
+      selectedArtist,
+      selectedUserPlaylistId || '',
+      selectedSmartCollectionId || '',
+      deferredSearchQuery,
+      songSortMode,
+      visibleSidebarRange.startIndex,
+      visibleSidebarRange.endIndex,
+      tracksForSidebarListFiltered.length
+    ].join('\u0001')
+    const candidateOptions = {
+      visibleRange: visibleSidebarRange,
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      maxTracks: LIST_COVER_HYDRATION_IDLE_LIMIT,
+      maxScanTracks: LIST_COVER_HYDRATION_IDLE_SCAN_LIMIT,
+      excludePaths: new Set(listCoverHydrationPrewarmTracks.map((track) => track.path)),
+      isLocalTrack: (track) =>
+        isLocalAudioFilePath(track?.path) &&
+        !isRemoteTrackPath(track.path) &&
+        !isStreamingTrackPath(track.path)
+    }
+    const candidates = selectListCoverHydrationIdlePrewarmTracks(
+      tracksForSidebarListFiltered,
+      candidateOptions
+    )
+    if (candidates.length === 0) {
+      lastListCoverHydrationIdleKeyRef.current = ''
+      return undefined
+    }
+    const idleKey = `${activityKey}\u0002${candidates.map((track) => track.path).join('\n')}`
+    if (lastListCoverHydrationIdleKeyRef.current === idleKey) return undefined
+
+    const cancelIdlePrewarm = scheduleListCoverHydrationIdlePrewarm({
+      delayMs: LIST_COVER_HYDRATION_IDLE_DELAY_MS,
+      setTimeoutFn: (callback, delay) => {
+        const timer = window.setTimeout(() => {
+          if (listCoverHydrationIdleTimerRef.current === timer) {
+            listCoverHydrationIdleTimerRef.current = null
+          }
+          callback()
+        }, delay)
+        listCoverHydrationIdleTimerRef.current = timer
+        return timer
+      },
+      clearTimeoutFn: (timer) => window.clearTimeout(timer),
+      getCandidates: () =>
+        selectListCoverHydrationIdlePrewarmTracks(tracksForSidebarListFiltered, {
+          ...candidateOptions,
+          trackMetaMap: trackMetaMapRef.current || trackMetaMap
+        }),
+      requestHydration: (latestCandidates, options) => {
+        lastListCoverHydrationIdleKeyRef.current = idleKey
+        if (typeof window.api?.readCoverThumbBatch !== 'function') {
+          getCoverHydrationManager().requestCoverHydration(latestCandidates, options)
+          return
+        }
+        getCoverThumbOnlyPrewarmManager()
+          .prewarmThumbsBeforeHydration(latestCandidates, {
+            runKey: idleKey,
+            reason: options?.reason || 'list-idle-prewarm',
+            scope: 'list-idle-prewarm'
+          })
+          .then((result) => {
+            if (result?.stale || !result?.tracksToHydrate?.length) return
+            getCoverHydrationManager().requestCoverHydration(result.tracksToHydrate, options)
+          })
+          .catch(() => {
+            getCoverHydrationManager().requestCoverHydration(latestCandidates, options)
+          })
+      }
+    })
+
+    return () => {
+      cancelIdlePrewarm()
+      if (listCoverHydrationIdleTimerRef.current) {
+        window.clearTimeout(listCoverHydrationIdleTimerRef.current)
+        listCoverHydrationIdleTimerRef.current = null
+      }
+      getCoverThumbOnlyPrewarmManager().cancelScope('list-idle-prewarm')
+    }
+  }, [
+    config.autoLoadEmbeddedMetadata,
+    deferredSearchQuery,
+    effectiveTrackMetaMap,
+    getCoverHydrationManager,
+    getCoverThumbOnlyPrewarmManager,
+    libraryDetailPrefetchAllowed,
+    libraryStateReady,
+    listCoverHydrationPrewarmTracks,
+    listMode,
+    selectedAlbum,
+    selectedArtist,
+    selectedFolder,
+    selectedSmartCollectionId,
+    selectedUserPlaylistId,
+    showTrackList,
+    songSortMode,
+    trackMetaMap,
+    tracksForSidebarListFiltered,
+    visibleSidebarRange
   ])
 
   const albumCoverHydrationPrewarmTracks = useMemo(() => {
@@ -17482,13 +17737,42 @@ export default function App() {
     const prewarmKey = albumCoverHydrationPrewarmTracks.map((track) => track.path).join('\n')
     if (lastAlbumCoverHydrationPrewarmKeyRef.current === prewarmKey) return
     lastAlbumCoverHydrationPrewarmKeyRef.current = prewarmKey
-    getCoverHydrationManager().requestCoverHydration(albumCoverHydrationPrewarmTracks, {
-      reason: 'album-prewarm'
-    })
+    let cancelled = false
+    const runKey = `album-prewarm:${prewarmKey}`
+    const requestHeavyHydration = (tracks) => {
+      if (!tracks?.length || cancelled) return
+      getCoverHydrationManager().requestCoverHydration(tracks, {
+        reason: 'album-prewarm'
+      })
+    }
+    if (typeof window.api?.readCoverThumbBatch !== 'function') {
+      requestHeavyHydration(albumCoverHydrationPrewarmTracks)
+      return () => {
+        cancelled = true
+      }
+    }
+    getCoverThumbOnlyPrewarmManager()
+      .prewarmThumbsBeforeHydration(albumCoverHydrationPrewarmTracks, {
+        runKey,
+        reason: 'album-prewarm',
+        scope: 'album-prewarm'
+      })
+      .then((result) => {
+        if (cancelled || result?.stale) return
+        requestHeavyHydration(result?.tracksToHydrate || [])
+      })
+      .catch(() => {
+        requestHeavyHydration(albumCoverHydrationPrewarmTracks)
+      })
+    return () => {
+      cancelled = true
+      getCoverThumbOnlyPrewarmManager().cancelScope('album-prewarm')
+    }
   }, [
     albumCoverHydrationPrewarmTracks,
     config.autoLoadEmbeddedMetadata,
     getCoverHydrationManager,
+    getCoverThumbOnlyPrewarmManager,
     libraryStateReady
   ])
 

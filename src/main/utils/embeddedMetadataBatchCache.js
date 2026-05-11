@@ -16,6 +16,7 @@ import {
 const CACHE_DB_NAME = 'metadata-cache-v1.sqlite'
 const LEGACY_CACHE_DIR_NAME = 'metadata-cache-v1'
 const MAX_BATCH_LIMIT = 256
+const MAX_THUMB_ONLY_BATCH_LIMIT = 500
 const CACHE_STATE_KEY_LEGACY_IMPORTED = 'legacy-json-imported-v1'
 
 function getStateValue(db, key) {
@@ -57,6 +58,12 @@ function normalizeBatchLimit(value) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return 64
   return Math.min(MAX_BATCH_LIMIT, Math.max(1, Math.floor(parsed)))
+}
+
+function normalizeThumbOnlyBatchLimit(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return MAX_THUMB_ONLY_BATCH_LIMIT
+  return Math.min(MAX_THUMB_ONLY_BATCH_LIMIT, Math.max(1, Math.floor(parsed)))
 }
 
 function buildFingerprint(seed) {
@@ -243,6 +250,64 @@ function attachCoverThumbUrl(entry = {}) {
   }
 }
 
+function readValidCoverThumb(coverThumbPath = '') {
+  const thumbPath = normalizeText(coverThumbPath)
+  if (!thumbPath) return { ok: false, missingThumb: false, bytes: null }
+  try {
+    const stat = fs.statSync(thumbPath)
+    if (!stat.isFile() || stat.size <= 0) return { ok: false, missingThumb: true, bytes: null }
+    return { ok: true, missingThumb: false, bytes: stat.size }
+  } catch {
+    return { ok: false, missingThumb: true, bytes: null }
+  }
+}
+
+function buildThumbOnlyEntry(record = {}) {
+  const entry = record?.meta || null
+  if (!entry || typeof entry !== 'object') return null
+  const thumbPath = normalizeText(entry.coverThumbPath)
+  const thumbState = readValidCoverThumb(thumbPath)
+  if (!thumbState.ok) {
+    return {
+      missingThumb: thumbState.missingThumb,
+      entry: null
+    }
+  }
+  const coverThumbUrl = normalizeText(entry.coverThumbUrl) || getCoverThumbUrl(thumbPath)
+  if (!coverThumbUrl) {
+    return {
+      missingThumb: true,
+      entry: null
+    }
+  }
+  return {
+    missingThumb: false,
+    entry: {
+      path: normalizeText(record.path),
+      coverKey: normalizeText(entry.coverKey) || null,
+      coverThumbPath: thumbPath,
+      coverThumbUrl,
+      coverCacheVersion: normalizeNumber(entry.coverCacheVersion),
+      coverThumbBytes: normalizeNumber(entry.coverThumbBytes) || thumbState.bytes,
+      coverThumbWidth: normalizeNumber(entry.coverThumbWidth),
+      coverThumbHeight: normalizeNumber(entry.coverThumbHeight),
+      coverSource: normalizeText(entry.coverSource) || null,
+      coverChecked: entry.coverChecked === true,
+      embeddedPictureCount: normalizeNonNegativeInteger(entry.embeddedPictureCount)
+    }
+  }
+}
+
+function writeThumbOnlyDebugSummary(summary = {}) {
+  console.debug('[embeddedMetadataBatchCache] thumb-only summary', {
+    requestCount: summary.requestCount,
+    hitCount: summary.hitCount,
+    missCount: summary.missCount,
+    missingThumbCount: summary.missingThumbCount,
+    elapsedMs: summary.elapsedMs
+  })
+}
+
 async function maybeAttachCoverThumbnailCache(entry, { userDataPath, imageAdapter } = {}) {
   if (!entry?.cover) return entry
   if (hasCurrentCoverThumbnailCache(entry)) return attachCoverThumbUrl(entry)
@@ -394,6 +459,103 @@ export function readTrackFullCoverFromEmbeddedMetadataCache({ userDataPath = '',
     } catch {
       /* ignore db close errors */
     }
+  }
+}
+
+export function readCoverThumbBatchFromEmbeddedMetadataCache({
+  userDataPath = '',
+  seeds = [],
+  options = {}
+} = {}) {
+  const limit = normalizeThumbOnlyBatchLimit(options?.limit)
+  const unique = new Map()
+  for (const seed of Array.isArray(seeds) ? seeds : []) {
+    const normalized = normalizeSeed(seed)
+    if (!normalized || unique.has(normalized.path)) continue
+    unique.set(normalized.path, normalized)
+    if (unique.size >= limit) break
+  }
+
+  const entries = {}
+  const hitPaths = []
+  const missPaths = []
+  const missingThumbPaths = []
+  const errors = {}
+  const startedAt = Date.now()
+
+  if (!userDataPath || unique.size === 0) {
+    return {
+      ok: true,
+      entries,
+      hitPaths,
+      missPaths,
+      missingThumbPaths,
+      errors,
+      elapsedMs: 0
+    }
+  }
+
+  let db = null
+  try {
+    db = openEmbeddedMetadataCacheDb(userDataPath)
+    try {
+      importLegacyEmbeddedMetadataCache(db, userDataPath)
+    } catch (error) {
+      errors.__legacyImport = error?.message || String(error)
+    }
+
+    for (const seed of unique.values()) {
+      let cachedRecord = null
+      try {
+        cachedRecord = getCachedRecord(db, seed.path)
+      } catch (error) {
+        missPaths.push(seed.path)
+        errors[seed.path] = error?.message || String(error)
+        continue
+      }
+      if (!cachedRecord || !fingerprintsMatch(cachedRecord, seed)) {
+        missPaths.push(seed.path)
+        continue
+      }
+      const thumb = buildThumbOnlyEntry(cachedRecord)
+      if (thumb?.entry) {
+        entries[seed.path] = thumb.entry
+        hitPaths.push(seed.path)
+      } else {
+        missPaths.push(seed.path)
+        if (thumb?.missingThumb) missingThumbPaths.push(seed.path)
+      }
+    }
+  } catch (error) {
+    errors.__global = error?.message || String(error)
+    for (const seed of unique.values()) {
+      if (!missPaths.includes(seed.path) && !hitPaths.includes(seed.path)) missPaths.push(seed.path)
+    }
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* ignore db close errors */
+    }
+  }
+
+  const elapsedMs = Math.max(0, Date.now() - startedAt)
+  writeThumbOnlyDebugSummary({
+    requestCount: unique.size,
+    hitCount: hitPaths.length,
+    missCount: missPaths.length,
+    missingThumbCount: missingThumbPaths.length,
+    elapsedMs
+  })
+
+  return {
+    ok: true,
+    entries,
+    hitPaths,
+    missPaths,
+    missingThumbPaths,
+    errors,
+    elapsedMs
   }
 }
 

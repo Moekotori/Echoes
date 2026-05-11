@@ -429,6 +429,16 @@ export function isRealTrackCoverDataUrl(value = '') {
   return REAL_DATA_IMAGE_COVER_RE.test(String(value || '').trim())
 }
 
+function pickFirstOwnValue(sources = [], field = '') {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+    if (!Object.prototype.hasOwnProperty.call(source, field)) continue
+    const value = source[field]
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
 function entryHasRealTrackCover(entry = null) {
   if (!entry || typeof entry !== 'object') return false
   const coverThumbUrl = typeof entry.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
@@ -475,20 +485,8 @@ export function buildLightweightTrackForList(track = {}, meta = {}) {
   cloneListCoverFields(mergedCoverFields, nextInfo || {})
   cloneListCoverFields(mergedCoverFields, meta || {})
 
-  const rootCover = stripRealCoverValue(
-    typeof mergedCoverFields.cover === 'string'
-      ? mergedCoverFields.cover
-      : typeof track.cover === 'string'
-        ? track.cover
-        : ''
-  )
-  const infoCover = stripRealCoverValue(
-    typeof mergedCoverFields.cover === 'string'
-      ? mergedCoverFields.cover
-      : typeof track?.info?.cover === 'string'
-        ? track.info.cover
-        : rootCover
-  )
+  const rootCover = stripRealCoverValue(pickFirstOwnValue([meta, track, track.info], 'cover'))
+  const infoCover = stripRealCoverValue(pickFirstOwnValue([meta, track.info, track], 'cover'))
 
   if (nextInfo) {
     if (infoCover) nextInfo.cover = infoCover
@@ -520,6 +518,11 @@ export function buildLightweightTrackForList(track = {}, meta = {}) {
     next.metadataSource = mergedCoverFields.metadataSource
   }
   return next
+}
+
+export function buildLightweightTracksForList(tracks = [], trackMetaMap = {}) {
+  if (!Array.isArray(tracks)) return []
+  return tracks.map((track) => buildLightweightTrackForList(track, trackMetaMap?.[track?.path] || {}))
 }
 
 function convertLocalCoverPathToUrl(filePath = '') {
@@ -559,9 +562,17 @@ export function resolveTrackCoverSrc(entry = {}, options = {}) {
   return resolveTrackCoverSources(entry, options)[0] || ''
 }
 
-function getTrackCoverDebugEntry(track = {}, { trackMetaMap = {}, effectiveTrackMetaMap = {} } = {}) {
+function getTrackCoverDebugEntry(
+  track = {},
+  {
+    trackMetaMap = {},
+    effectiveTrackMetaMap = {},
+    includeCacheCover = true
+  } = {}
+) {
   const path = track?.path || ''
-  const meta = (path ? effectiveTrackMetaMap?.[path] || trackMetaMap?.[path] : null) || {}
+  const meta =
+    includeCacheCover && path ? effectiveTrackMetaMap?.[path] || trackMetaMap?.[path] || {} : {}
   const info = track?.info || {}
   return {
     cover: meta.cover || info.cover || track?.cover || null,
@@ -572,34 +583,68 @@ function getTrackCoverDebugEntry(track = {}, { trackMetaMap = {}, effectiveTrack
 
 export function buildTrackCoverDebugStats(
   tracks = [],
-  { trackMetaMap = {}, effectiveTrackMetaMap = {}, limit = 100 } = {}
+  {
+    trackMetaMap = {},
+    effectiveTrackMetaMap = {},
+    limit = 100,
+    includeCacheCover = true,
+    cacheTrackMetaMap = trackMetaMap
+  } = {}
 ) {
   const items = Array.isArray(tracks) ? tracks.slice(0, Math.max(0, Number(limit) || 0)) : []
   const stats = {
     total: items.length,
     fullCoverCount: 0,
+    listPayloadFullCoverCount: 0,
+    cacheFullCoverCount: 0,
     usingThumbUrl: 0,
     usingThumbPath: 0,
     usingFullCoverFallback: 0,
     missingCover: 0,
     averageCoverLength: 0,
-    maxCoverLength: 0
+    maxCoverLength: 0,
+    listPayloadAverageCoverLength: 0,
+    listPayloadMaxCoverLength: 0
   }
   let coverLengthTotal = 0
   let coverLengthCount = 0
+  let payloadCoverLengthTotal = 0
+  let payloadCoverLengthCount = 0
 
   for (const track of items) {
-    const entry = getTrackCoverDebugEntry(track, { trackMetaMap, effectiveTrackMetaMap })
+    const entry = getTrackCoverDebugEntry(track, {
+      trackMetaMap,
+      effectiveTrackMetaMap,
+      includeCacheCover
+    })
     const cover = typeof entry.cover === 'string' ? entry.cover.trim() : ''
+    const rootPayloadCover = typeof track?.cover === 'string' ? track.cover.trim() : ''
+    const infoPayloadCover = typeof track?.info?.cover === 'string' ? track.info.cover.trim() : ''
+    const payloadCover = isRealTrackCoverDataUrl(rootPayloadCover)
+      ? rootPayloadCover
+      : infoPayloadCover
     const coverThumbUrl = typeof entry.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
     const coverThumbPath =
       typeof entry.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
+    const cacheCover =
+      track?.path && cacheTrackMetaMap?.[track.path]?.cover
+        ? String(cacheTrackMetaMap[track.path].cover || '').trim()
+        : ''
 
     if (isRealTrackCoverDataUrl(cover)) {
       stats.fullCoverCount += 1
       coverLengthTotal += cover.length
       coverLengthCount += 1
       stats.maxCoverLength = Math.max(stats.maxCoverLength, cover.length)
+    }
+    if (isRealTrackCoverDataUrl(payloadCover)) {
+      stats.listPayloadFullCoverCount += 1
+      payloadCoverLengthTotal += payloadCover.length
+      payloadCoverLengthCount += 1
+      stats.listPayloadMaxCoverLength = Math.max(stats.listPayloadMaxCoverLength, payloadCover.length)
+    }
+    if (isRealTrackCoverDataUrl(cacheCover)) {
+      stats.cacheFullCoverCount += 1
     }
 
     if (!hasRealTrackCover(entry)) {
@@ -615,12 +660,19 @@ export function buildTrackCoverDebugStats(
 
   stats.averageCoverLength =
     coverLengthCount > 0 ? Math.round(coverLengthTotal / coverLengthCount) : 0
+  stats.listPayloadAverageCoverLength =
+    payloadCoverLengthCount > 0 ? Math.round(payloadCoverLengthTotal / payloadCoverLengthCount) : 0
   return stats
 }
 
-function pushTrackCoverSources(covers, seen, entry, { preferThumbnail = true } = {}) {
+function pushTrackCoverSources(
+  covers,
+  seen,
+  entry,
+  { preferThumbnail = true, allowFullCover = true } = {}
+) {
   if (entry && typeof entry === 'object') {
-    for (const source of resolveTrackCoverSources(entry, { preferThumbnail })) {
+    for (const source of resolveTrackCoverSources(entry, { preferThumbnail, allowFullCover })) {
       pushUniqueCover(covers, seen, source)
     }
     return
@@ -655,9 +707,9 @@ export function getAlbumCoverCandidates(
   for (const track of tracks) {
     const entry = trackMetaMap?.[track?.path]
     if (entry?.coverScope === 'track') {
-      pushTrackCoverSources(trackScopedMetaCovers, seen, entry)
+      pushTrackCoverSources(trackScopedMetaCovers, seen, entry, { allowFullCover })
     } else {
-      pushTrackCoverSources(covers, seen, entry)
+      pushTrackCoverSources(covers, seen, entry, { allowFullCover })
     }
   }
 

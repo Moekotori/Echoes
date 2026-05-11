@@ -5,6 +5,8 @@ import {
   buildAlbumWallBuckets,
   buildAlbumWallHydrateTargets,
   buildAlbumFolderCoverFallbackMap,
+  buildLightweightTrackForList,
+  buildParsedPlaylistWithCache,
   buildTrackArtworkSources,
   getAlbumCoverCandidates,
   getBestAlbumCover,
@@ -253,6 +255,144 @@ test('track cover debug stats count thumbnail and fallback sources without data 
       globalThis.window = originalWindow
     }
   }
+})
+
+test('buildLightweightTrackForList strips data image covers but keeps thumbnail fields', () => {
+  const track = {
+    path: 'D:/Music/light.flac',
+    name: 'light.flac',
+    cover: 'data:image/jpeg;base64,root-secret',
+    info: {
+      title: 'Light',
+      artist: 'Artist',
+      album: 'Album',
+      cover: 'data:image/jpeg;base64,info-secret',
+      coverThumbUrl: 'file:///thumb.jpg'
+    }
+  }
+  const meta = {
+    cover: 'data:image/jpeg;base64,meta-secret',
+    coverThumbUrl: 'file:///meta-thumb.jpg',
+    coverThumbPath: 'C:/thumb.jpg',
+    coverKey: 'abc123',
+    coverSource: 'embedded-batch',
+    coverChecked: true,
+    embeddedPictureCount: 1,
+    codec: 'FLAC',
+    sampleRateHz: 96000,
+    bitDepth: 24,
+    channels: 2
+  }
+
+  const light = buildLightweightTrackForList(track, meta)
+
+  assert.equal(light.cover, undefined)
+  assert.equal(light.info.cover, undefined)
+  assert.equal(light.coverThumbUrl, 'file:///meta-thumb.jpg')
+  assert.equal(light.info.coverThumbUrl, 'file:///meta-thumb.jpg')
+  assert.equal(light.coverThumbPath, 'C:/thumb.jpg')
+  assert.equal(light.coverKey, 'abc123')
+  assert.equal(light.coverSource, 'embedded-batch')
+  assert.equal(light.coverChecked, true)
+  assert.equal(light.embeddedPictureCount, 1)
+  assert.equal(track.cover, 'data:image/jpeg;base64,root-secret')
+  assert.equal(track.info.cover, 'data:image/jpeg;base64,info-secret')
+  assert.equal(meta.cover, 'data:image/jpeg;base64,meta-secret')
+})
+
+test('song list view model defaults to lightweight cover payload', () => {
+  const track = makeTrack('D:/Music/list.flac', 'Album', '', 'Artist')
+  const fullCover = 'data:image/jpeg;base64,list-secret'
+  const result = buildParsedPlaylistWithCache(null, [track], {
+    [track.path]: {
+      title: 'List title',
+      artist: 'List artist',
+      album: 'List album',
+      cover: fullCover,
+      coverThumbUrl: 'file:///list-thumb.jpg',
+      coverChecked: true
+    }
+  })
+
+  assert.equal(result.items[0].cover, undefined)
+  assert.equal(result.items[0].info.cover, undefined)
+  assert.equal(result.items[0].coverThumbUrl, 'file:///list-thumb.jpg')
+  assert.equal(result.items[0].info.coverThumbUrl, 'file:///list-thumb.jpg')
+})
+
+test('album wall buckets default to thumbnail candidates instead of full cover payloads', () => {
+  const track = makeTrack('D:/Music/album-wall.flac', 'Album', '', 'Artist')
+  const buckets = buildAlbumWallBuckets([track], {
+    trackMetaMap: {
+      [track.path]: {
+        album: 'Album',
+        artist: 'Artist',
+        cover: 'data:image/jpeg;base64,album-wall-secret',
+        coverThumbUrl: 'file:///album-wall-thumb.jpg',
+        coverChecked: true
+      }
+    },
+    allowFullCover: false
+  })
+
+  assert.equal(buckets.length, 1)
+  assert.equal(buckets[0].cover, 'file:///album-wall-thumb.jpg')
+  assert.deepEqual(buckets[0].coverCandidates, ['file:///album-wall-thumb.jpg'])
+  assert.equal(
+    JSON.stringify({
+      cover: buckets[0].cover,
+      coverCandidates: buckets[0].coverCandidates,
+      name: buckets[0].name,
+      artist: buckets[0].artist
+    }).includes('album-wall-secret'),
+    false
+  )
+})
+
+test('hydration merge can keep cache cover while list payload stays lightweight', () => {
+  const track = makeTrack('D:/Music/hydrated.flac', 'Album', '', 'Artist')
+  const fullCover = 'data:image/jpeg;base64,hydrated-secret'
+  const trackMetaMap = {
+    [track.path]: {
+      title: 'Hydrated',
+      artist: 'Artist',
+      album: 'Album',
+      cover: fullCover,
+      coverThumbUrl: 'file:///hydrated-thumb.jpg',
+      coverChecked: true
+    }
+  }
+  const result = buildParsedPlaylistWithCache(null, [track], trackMetaMap)
+
+  assert.equal(trackMetaMap[track.path].cover, fullCover)
+  assert.equal(result.items[0].cover, undefined)
+  assert.equal(result.items[0].info.cover, undefined)
+  assert.equal(result.items[0].coverThumbUrl, 'file:///hydrated-thumb.jpg')
+})
+
+test('debug stats distinguish list payload covers from cache covers without data urls', () => {
+  const track = buildLightweightTrackForList(
+    makeTrack('D:/Music/debug-light.flac', 'Album', '', 'Artist'),
+    {
+      cover: 'data:image/jpeg;base64,debug-secret',
+      coverThumbUrl: 'file:///debug-thumb.jpg'
+    }
+  )
+  const stats = buildTrackCoverDebugStats([track], {
+    trackMetaMap: {
+      [track.path]: {
+        cover: 'data:image/jpeg;base64,debug-secret',
+        coverThumbUrl: 'file:///debug-thumb.jpg'
+      }
+    },
+    includeCacheCover: false
+  })
+
+  assert.equal(stats.listPayloadFullCoverCount, 0)
+  assert.equal(stats.listPayloadAverageCoverLength, 0)
+  assert.equal(stats.cacheFullCoverCount, 1)
+  assert.equal(stats.usingThumbUrl, 1)
+  assert.equal(JSON.stringify(stats).includes('debug-secret'), false)
 })
 
 test('track artwork sources can temporarily use a same-folder single-artist cover', () => {

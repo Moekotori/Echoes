@@ -2,8 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  createCoverThumbOnlyPrewarmManager,
   createCoverHydrationManager,
+  DEFAULT_COVER_HYDRATION_BATCH_SIZE,
+  DEFAULT_COVER_HYDRATION_CONCURRENCY,
+  DEFAULT_COVER_HYDRATION_DEBOUNCE_MS,
+  DEFAULT_LIST_COVER_PREWARM_INITIAL_LIMIT,
+  DEFAULT_LIST_COVER_PREWARM_WINDOW_LIMIT,
   hasHydratableCoverSource,
+  scheduleListCoverHydrationIdlePrewarm,
+  selectListCoverHydrationIdlePrewarmTracks,
   selectListCoverHydrationPrewarmTracks,
   selectAlbumCoverHydrationTracks
 } from '../../src/renderer/src/utils/coverHydrationQueue.js'
@@ -49,6 +57,36 @@ function createImmediateTimer() {
   }
 }
 
+test('cover hydration defaults use faster phase 2c tuning', async () => {
+  assert.equal(DEFAULT_COVER_HYDRATION_BATCH_SIZE, 24)
+  assert.equal(DEFAULT_COVER_HYDRATION_CONCURRENCY, 3)
+  assert.equal(DEFAULT_COVER_HYDRATION_DEBOUNCE_MS, 100)
+
+  const timer = createImmediateTimer()
+  const readCalls = []
+  const tracks = Array.from({ length: 70 }, (_, index) =>
+    makeTrack(`D:/Music/tuned-${String(index + 1).padStart(2, '0')}.flac`)
+  )
+  const manager = createCoverHydrationManager({
+    setTimeoutFn: timer.setTimeoutFn,
+    clearTimeoutFn: timer.clearTimeoutFn,
+    readEmbeddedMetadataBatch: async (seeds) => {
+      readCalls.push(seeds)
+      return { entries: {} }
+    }
+  })
+
+  manager.requestCoverHydration(tracks, { reason: 'list-prewarm' })
+  timer.runAll()
+  await manager.whenIdle()
+
+  assert.deepEqual(
+    readCalls.map((batch) => batch.length),
+    [24, 24, 22]
+  )
+  assert.equal(manager.getDebugStats().hydrationQueuePeakSize, 70)
+})
+
 test('cover hydration manager deduplicates requests for the same path', async () => {
   const timer = createImmediateTimer()
   const readCalls = []
@@ -72,7 +110,147 @@ test('cover hydration manager deduplicates requests for the same path', async ()
   assert.equal(readCalls[0].length, 1)
 })
 
-test('cover hydration manager skips tracks that already have thumbnail or full cover', () => {
+test('thumb-only prewarm merges cached thumbs and skips heavy hydration hits', async () => {
+  const trackWithThumb = makeTrack('D:/Music/thumb-hit.flac')
+  const trackWithoutThumb = makeTrack('D:/Music/thumb-miss.flac')
+  let metaMap = {}
+  const manager = createCoverThumbOnlyPrewarmManager({
+    readCoverThumbBatch: async () => ({
+      entries: {
+        [trackWithThumb.path]: {
+          path: trackWithThumb.path,
+          coverThumbUrl: 'file:///thumb-hit.jpg',
+          coverThumbPath: 'D:/Cache/thumb-hit.jpg',
+          coverKey: 'thumb-key',
+          coverChecked: true
+        }
+      },
+      hitPaths: [trackWithThumb.path],
+      missPaths: [trackWithoutThumb.path],
+      missingThumbPaths: [],
+      elapsedMs: 3
+    }),
+    getCurrentMeta: (path) => metaMap[path] || {},
+    mergeEntries: (entries) => {
+      metaMap = mergeTrackMetaMapPreservingCovers(metaMap, entries)
+      return { mergedCount: Object.keys(entries).length }
+    }
+  })
+
+  const result = await manager.prewarmThumbsBeforeHydration(
+    [trackWithThumb, trackWithoutThumb],
+    {
+      runKey: 'list-a',
+      reason: 'list-prewarm',
+      scope: 'list-prewarm'
+    }
+  )
+
+  assert.deepEqual(
+    result.tracksToHydrate.map((track) => track.path),
+    [trackWithoutThumb.path]
+  )
+  assert.equal(resolveTrackCoverSources(metaMap[trackWithThumb.path])[0], 'file:///thumb-hit.jpg')
+  assert.equal(metaMap[trackWithThumb.path].cover, undefined)
+  assert.deepEqual(manager.getDebugStats(), {
+    thumbOnlyRequestCount: 1,
+    thumbOnlyHitCount: 1,
+    thumbOnlyMissCount: 1,
+    thumbOnlyMissingFileCount: 0,
+    thumbOnlyMergedCount: 1,
+    thumbOnlyElapsedMs: 3,
+    heavyHydrationAvoidedCount: 1
+  })
+})
+
+test('thumb-only miss is the only path forwarded to heavy hydration', async () => {
+  const hit = makeTrack('D:/Music/hit.flac')
+  const miss = makeTrack('D:/Music/miss.flac')
+  const manager = createCoverThumbOnlyPrewarmManager({
+    readCoverThumbBatch: async () => ({
+      entries: {
+        [hit.path]: {
+          path: hit.path,
+          coverThumbUrl: 'file:///hit.jpg',
+          coverThumbPath: 'D:/Cache/hit.jpg'
+        }
+      },
+      hitPaths: [hit.path],
+      missPaths: [miss.path],
+      missingThumbPaths: [miss.path],
+      elapsedMs: 1
+    }),
+    getCurrentMeta: () => ({}),
+    mergeEntries: () => ({ mergedCount: 1 })
+  })
+
+  const result = await manager.prewarmThumbsBeforeHydration([hit, miss], {
+    runKey: 'album-a',
+    reason: 'album-prewarm',
+    scope: 'album-prewarm'
+  })
+
+  assert.deepEqual(result.tracksToHydrate, [miss])
+  assert.equal(manager.getDebugStats().thumbOnlyMissingFileCount, 1)
+})
+
+test('thumb-only stale result is ignored after search or sort switches scope key', async () => {
+  const oldTrack = makeTrack('D:/Music/old.flac')
+  const newTrack = makeTrack('D:/Music/new.flac')
+  let resolveOld = null
+  let merged = {}
+  const manager = createCoverThumbOnlyPrewarmManager({
+    readCoverThumbBatch: async (seeds) => {
+      if (seeds[0].path === oldTrack.path) {
+        return await new Promise((resolve) => {
+          resolveOld = resolve
+        })
+      }
+      return {
+        entries: {
+          [newTrack.path]: { path: newTrack.path, coverThumbUrl: 'file:///new.jpg' }
+        },
+        hitPaths: [newTrack.path],
+        missPaths: [],
+        missingThumbPaths: [],
+        elapsedMs: 1
+      }
+    },
+    getCurrentMeta: () => ({}),
+    mergeEntries: (entries) => {
+      merged = { ...merged, ...entries }
+      return { mergedCount: Object.keys(entries).length }
+    }
+  })
+
+  const oldRun = manager.prewarmThumbsBeforeHydration([oldTrack], {
+    runKey: 'query:old',
+    reason: 'list-prewarm',
+    scope: 'list-prewarm'
+  })
+  const newRun = await manager.prewarmThumbsBeforeHydration([newTrack], {
+    runKey: 'query:new',
+    reason: 'list-prewarm',
+    scope: 'list-prewarm'
+  })
+  resolveOld({
+    entries: {
+      [oldTrack.path]: { path: oldTrack.path, coverThumbUrl: 'file:///old.jpg' }
+    },
+    hitPaths: [oldTrack.path],
+    missPaths: [],
+    missingThumbPaths: [],
+    elapsedMs: 10
+  })
+  const oldResult = await oldRun
+
+  assert.equal(newRun.stale, false)
+  assert.equal(oldResult.stale, true)
+  assert.equal(merged[newTrack.path].coverThumbUrl, 'file:///new.jpg')
+  assert.equal(merged[oldTrack.path], undefined)
+})
+
+test('cover hydration manager skips thumbnail hits but still hydrates full-cover-only cache entries', () => {
   const timer = createImmediateTimer()
   const manager = createCoverHydrationManager({
     setTimeoutFn: timer.setTimeoutFn,
@@ -94,8 +272,8 @@ test('cover hydration manager skips tracks that already have thumbnail or full c
     makeTrack('D:/Music/default.flac')
   ])
 
-  assert.equal(result.queuedCount, 1)
-  assert.equal(result.skippedAlreadyHasCover, 2)
+  assert.equal(result.queuedCount, 2)
+  assert.equal(result.skippedAlreadyHasCover, 1)
 })
 
 test('cover hydration manager merges rapid requests into one batch', async () => {
@@ -304,24 +482,72 @@ test('cover debug stats use the same real-cover missing logic for total and visi
   assert.equal(visibleStats.missingCover, totalStats.missingCover)
 })
 
-test('list cover hydration prewarm scans the first 64 tracks instead of only visible DOM rows', () => {
-  const tracks = Array.from({ length: 100 }, (_, index) =>
+test('list cover hydration prewarm scans the first 120 tracks and visible window without full-library scan', () => {
+  const tracks = Array.from({ length: 260 }, (_, index) =>
     makeTrack(`D:/Music/${String(index + 1).padStart(2, '0')}.flac`)
   )
   const trackMetaMap = {}
-  for (let index = 54; index < 100; index += 1) {
+  for (let index = 110; index < 260; index += 1) {
     trackMetaMap[tracks[index].path] = { coverThumbUrl: `file:///thumb-${index}.jpg` }
   }
 
   const candidates = selectListCoverHydrationPrewarmTracks(tracks, {
-    visibleRange: { startIndex: 0, endIndex: 9 },
+    visibleRange: { startIndex: 160, endIndex: 170 },
     trackMetaMap,
-    maxInitialTracks: 64,
-    maxWindowTracks: 32
+    maxInitialTracks: DEFAULT_LIST_COVER_PREWARM_INITIAL_LIMIT,
+    maxWindowTracks: DEFAULT_LIST_COVER_PREWARM_WINDOW_LIMIT
   })
 
-  assert.equal(candidates.length, 54)
-  assert.equal(candidates.length > 9, true)
+  assert.equal(candidates.length, 110)
+  assert.equal(candidates.length > 64, true)
+  assert.equal(candidates.some((track) => track.path.endsWith('260.flac')), false)
+})
+
+test('idle prewarm selects a capped low-priority window after the visible range', () => {
+  const tracks = Array.from({ length: 1000 }, (_, index) =>
+    makeTrack(`D:/Music/idle-${String(index + 1).padStart(4, '0')}.flac`)
+  )
+  const candidates = selectListCoverHydrationIdlePrewarmTracks(tracks, {
+    visibleRange: { startIndex: 0, endIndex: 20 },
+    maxTracks: 160,
+    maxScanTracks: 200,
+    excludePaths: new Set([tracks[20].path])
+  })
+
+  assert.equal(candidates.length, 160)
+  assert.equal(candidates[0].path, tracks[21].path)
+  assert.equal(candidates.at(-1).path, tracks[180].path)
+  assert.equal(candidates.some((track) => track.path === tracks[999].path), false)
+})
+
+test('idle prewarm scheduler fires after inactivity and can be cancelled', () => {
+  const timer = createImmediateTimer()
+  const requests = []
+  const cancel = scheduleListCoverHydrationIdlePrewarm({
+    delayMs: 2000,
+    setTimeoutFn: timer.setTimeoutFn,
+    clearTimeoutFn: timer.clearTimeoutFn,
+    getCandidates: () => [makeTrack('D:/Music/idle-a.flac')],
+    requestHydration: (tracks, options) => requests.push({ tracks, options })
+  })
+
+  timer.runAll()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].options.reason, 'list-idle-prewarm')
+  cancel()
+
+  const timer2 = createImmediateTimer()
+  const cancelledRequests = []
+  const cancelBeforeRun = scheduleListCoverHydrationIdlePrewarm({
+    delayMs: 2000,
+    setTimeoutFn: timer2.setTimeoutFn,
+    clearTimeoutFn: timer2.clearTimeoutFn,
+    getCandidates: () => [makeTrack('D:/Music/idle-b.flac')],
+    requestHydration: (tracks) => cancelledRequests.push(tracks)
+  })
+  cancelBeforeRun()
+  timer2.runAll()
+  assert.equal(cancelledRequests.length, 0)
 })
 
 test('cover hydration continues queued candidates after a failed batch', async () => {
@@ -413,6 +639,39 @@ test('hydration merge stats increase and hydrated thumb is immediately resolvabl
 
   assert.equal(manager.getDebugStats().hydrationMergedCount, 1)
   assert.equal(resolveTrackCoverSources(metaMap['D:/Music/a.flac'])[0], 'file:///thumb.jpg')
+})
+
+test('idle prewarm reuses queue dedupe and reports throughput debug stats', async () => {
+  const timer = createImmediateTimer()
+  const readCalls = []
+  const manager = createCoverHydrationManager({
+    setTimeoutFn: timer.setTimeoutFn,
+    clearTimeoutFn: timer.clearTimeoutFn,
+    readEmbeddedMetadataBatch: async (seeds) => {
+      readCalls.push(seeds)
+      return {
+        entries: Object.fromEntries(
+          seeds.map((seed) => [seed.path, { coverThumbUrl: `file:///${seed.path}.jpg` }])
+        )
+      }
+    }
+  })
+
+  manager.requestCoverHydration(
+    [makeTrack('D:/Music/idle-a.flac'), makeTrack('D:/Music/idle-a.flac')],
+    { reason: 'list-idle-prewarm' }
+  )
+  timer.runAll()
+  await manager.whenIdle()
+  const stats = manager.getDebugStats()
+
+  assert.equal(readCalls.length, 1)
+  assert.equal(readCalls[0].length, 1)
+  assert.equal(stats.hydrationIdlePrewarmCandidateCount, 2)
+  assert.equal(stats.hydrationIdlePrewarmQueuedCount, 1)
+  assert.equal(stats.hydrationAverageBatchElapsedMs >= 0, true)
+  assert.equal(stats.hydrationTotalElapsedMs >= 0, true)
+  assert.equal(stats.hydrationThroughputPerSecond >= 0, true)
 })
 
 test('album hydration keeps trying later candidates when the first candidate fails', async () => {

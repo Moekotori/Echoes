@@ -1,12 +1,15 @@
 import { mergeTrackMetaEntryPreservingCover } from './trackMetaCache.js'
 import { hasRealTrackCover } from './trackUtils.js'
 
-export const DEFAULT_COVER_HYDRATION_BATCH_SIZE = 16
-export const DEFAULT_COVER_HYDRATION_CONCURRENCY = 2
-export const DEFAULT_COVER_HYDRATION_DEBOUNCE_MS = 180
+export const DEFAULT_COVER_HYDRATION_BATCH_SIZE = 24
+export const DEFAULT_COVER_HYDRATION_CONCURRENCY = 3
+export const DEFAULT_COVER_HYDRATION_DEBOUNCE_MS = 100
 export const DEFAULT_ALBUM_COVER_HYDRATION_TRACK_LIMIT = 5
-export const DEFAULT_LIST_COVER_PREWARM_INITIAL_LIMIT = 64
-export const DEFAULT_LIST_COVER_PREWARM_WINDOW_LIMIT = 32
+export const DEFAULT_LIST_COVER_PREWARM_INITIAL_LIMIT = 120
+export const DEFAULT_LIST_COVER_PREWARM_WINDOW_LIMIT = 64
+export const DEFAULT_LIST_COVER_IDLE_PREWARM_LIMIT = 160
+export const DEFAULT_LIST_COVER_IDLE_PREWARM_SCAN_LIMIT = 640
+export const DEFAULT_COVER_THUMB_ONLY_BATCH_LIMIT = 400
 
 const EMBEDDED_COVER_RECOVERY_STAT_KEYS = [
   'embeddedCoverRecoveryAttempted',
@@ -72,6 +75,24 @@ function normalizeTrackSeed(track, currentMeta = null) {
     ),
     track
   }
+}
+
+function normalizeHydrationSeed(track, currentMeta = null) {
+  return normalizeTrackSeed(track, currentMeta)
+}
+
+function hasTrackThumbnailSource(track = null, ...entries) {
+  for (const entry of [track, ...entries]) {
+    if (!entry || typeof entry !== 'object') continue
+    const thumbUrl = typeof entry.coverThumbUrl === 'string' ? entry.coverThumbUrl.trim() : ''
+    if (thumbUrl) return true
+    const thumbPath = typeof entry.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
+    if (thumbPath) return true
+    if (entry.info && typeof entry.info === 'object' && hasTrackThumbnailSource(entry.info)) {
+      return true
+    }
+  }
+  return false
 }
 
 export function hasHydratableCoverSource(track = null, currentMeta = null) {
@@ -141,7 +162,7 @@ export function selectAlbumCoverHydrationTracks(
   const hasReadyAlbumCover = tracks.some((track) => {
     const path = track?.path || ''
     const entry = path ? effectiveTrackMetaMap[path] || trackMetaMap[path] || null : null
-    return hasRealTrackCover(track, entry)
+    return hasTrackThumbnailSource(track, entry)
   })
   if (hasReadyAlbumCover) return []
 
@@ -177,7 +198,7 @@ export function selectListCoverHydrationPrewarmTracks(
     if (!path || seen.has(path)) return false
     if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) return false
     const entry = effectiveTrackMetaMap[path] || trackMetaMap[path] || null
-    return !hasRealTrackCover(track, entry)
+    return !hasTrackThumbnailSource(track, entry)
   }
   const pushTrack = (track) => {
     if (!shouldSelect(track)) return false
@@ -201,6 +222,180 @@ export function selectListCoverHydrationPrewarmTracks(
   }
 
   return candidates
+}
+
+export function selectListCoverHydrationIdlePrewarmTracks(
+  tracks = [],
+  {
+    visibleRange = null,
+    trackMetaMap = {},
+    effectiveTrackMetaMap = {},
+    maxTracks = DEFAULT_LIST_COVER_IDLE_PREWARM_LIMIT,
+    maxScanTracks = DEFAULT_LIST_COVER_IDLE_PREWARM_SCAN_LIMIT,
+    excludePaths = new Set(),
+    isLocalTrack = null
+  } = {}
+) {
+  const list = Array.isArray(tracks) ? tracks : []
+  const limit = Math.max(0, Number(maxTracks) || 0)
+  const scanLimit = Math.max(limit, Number(maxScanTracks) || DEFAULT_LIST_COVER_IDLE_PREWARM_SCAN_LIMIT)
+  if (list.length === 0 || limit <= 0) return []
+
+  const startIndex = Math.min(
+    list.length,
+    Math.max(0, Number(visibleRange?.endIndex ?? DEFAULT_LIST_COVER_PREWARM_INITIAL_LIMIT) || 0)
+  )
+  const candidates = []
+  const seen = new Set(excludePaths instanceof Set ? excludePaths : [])
+  const scanEnd = Math.min(list.length, startIndex + scanLimit)
+  for (let index = startIndex; index < scanEnd && candidates.length < limit; index += 1) {
+    const track = list[index]
+    const path = typeof track?.path === 'string' ? track.path.trim() : ''
+    if (!path || seen.has(path)) continue
+    if (typeof isLocalTrack === 'function' && !isLocalTrack(track)) continue
+    const entry = effectiveTrackMetaMap[path] || trackMetaMap[path] || null
+    if (hasTrackThumbnailSource(track, entry)) continue
+    seen.add(path)
+    candidates.push(track)
+  }
+  return candidates
+}
+
+export function scheduleListCoverHydrationIdlePrewarm({
+  delayMs = 2000,
+  setTimeoutFn = (callback, delay) => window.setTimeout(callback, delay),
+  clearTimeoutFn = (timer) => window.clearTimeout(timer),
+  getCandidates = () => [],
+  requestHydration = () => {}
+} = {}) {
+  let cancelled = false
+  const timer = setTimeoutFn(() => {
+    if (cancelled) return
+    const candidates = getCandidates()
+    if (!Array.isArray(candidates) || candidates.length === 0) return
+    requestHydration(candidates, { reason: 'list-idle-prewarm' })
+  }, Math.max(0, Number(delayMs) || 0))
+
+  return () => {
+    cancelled = true
+    clearTimeoutFn(timer)
+  }
+}
+
+function createThumbOnlyStats() {
+  return {
+    requestCount: 0,
+    hitCount: 0,
+    missCount: 0,
+    missingFileCount: 0,
+    mergedCount: 0,
+    elapsedMs: 0,
+    heavyHydrationAvoidedCount: 0
+  }
+}
+
+export function createCoverThumbOnlyPrewarmManager({
+  readCoverThumbBatch,
+  getCurrentMeta = () => ({}),
+  mergeEntries = () => {},
+  limit = DEFAULT_COVER_THUMB_ONLY_BATCH_LIMIT
+} = {}) {
+  const stats = createThumbOnlyStats()
+  const latestRunKeyByScope = new Map()
+
+  const prewarmThumbsBeforeHydration = async (
+    tracks = [],
+    { runKey = '', reason = '', scope = 'default' } = {}
+  ) => {
+    const list = normalizeTrackList(tracks)
+    if (list.length === 0) return { tracksToHydrate: [], stale: false }
+    if (typeof readCoverThumbBatch !== 'function') return { tracksToHydrate: list, stale: false }
+
+    const scopeKey = String(scope || 'default')
+    const currentRunKey = String(runKey || `${Date.now()}:${Math.random()}`)
+    latestRunKeyByScope.set(scopeKey, currentRunKey)
+    const seeds = []
+    const trackByPath = new Map()
+    for (const track of list) {
+      const path = typeof track?.path === 'string' ? track.path.trim() : ''
+      if (!path || trackByPath.has(path)) continue
+      if (hasTrackThumbnailSource(track, getCurrentMeta(path) || {})) continue
+      const seed = normalizeHydrationSeed(track, getCurrentMeta(path) || {})
+      if (!seed || !(seed.sizeBytes > 0) || !(seed.mtimeMs > 0)) continue
+      seeds.push({
+        path: seed.path,
+        sizeBytes: seed.sizeBytes,
+        mtimeMs: seed.mtimeMs
+      })
+      trackByPath.set(seed.path, track)
+    }
+    if (seeds.length === 0) return { tracksToHydrate: [], stale: false }
+
+    stats.requestCount += 1
+    const startedAt = Date.now()
+    let result = null
+    try {
+      result = await readCoverThumbBatch(seeds, { limit, reason })
+    } catch (error) {
+      result = {
+        entries: {},
+        hitPaths: [],
+        missPaths: seeds.map((seed) => seed.path),
+        missingThumbPaths: [],
+        errors: { __global: error?.message || String(error || '') }
+      }
+    }
+    stats.elapsedMs += Number(result?.elapsedMs) >= 0 ? Number(result.elapsedMs) : Date.now() - startedAt
+
+    if (latestRunKeyByScope.get(scopeKey) !== currentRunKey) {
+      return { tracksToHydrate: [], stale: true }
+    }
+
+    const entries = result?.entries || {}
+    const hitPaths = Array.isArray(result?.hitPaths) ? result.hitPaths : Object.keys(entries)
+    const missingThumbPaths = Array.isArray(result?.missingThumbPaths)
+      ? result.missingThumbPaths
+      : []
+    const missPathSet = new Set(Array.isArray(result?.missPaths) ? result.missPaths : [])
+    const hitPathSet = new Set(hitPaths)
+    stats.hitCount += hitPathSet.size
+    stats.missingFileCount += missingThumbPaths.length
+    stats.missCount += Math.max(0, missPathSet.size)
+    stats.heavyHydrationAvoidedCount += hitPathSet.size
+
+    let mergedCount = 0
+    if (Object.keys(entries).length > 0) {
+      const mergeResult = mergeEntries(entries) || {}
+      mergedCount = Number.isFinite(Number(mergeResult.mergedCount))
+        ? Number(mergeResult.mergedCount)
+        : Object.keys(entries).length
+      stats.mergedCount += mergedCount
+    }
+
+    const tracksToHydrate = []
+    for (const seed of seeds) {
+      if (hitPathSet.has(seed.path)) continue
+      const track = trackByPath.get(seed.path)
+      if (track) tracksToHydrate.push(track)
+    }
+    return { tracksToHydrate, stale: false, mergedCount }
+  }
+
+  return {
+    prewarmThumbsBeforeHydration,
+    cancelScope: (scope = 'default') => {
+      latestRunKeyByScope.set(String(scope || 'default'), '')
+    },
+    getDebugStats: () => ({
+      thumbOnlyRequestCount: stats.requestCount,
+      thumbOnlyHitCount: stats.hitCount,
+      thumbOnlyMissCount: stats.missCount,
+      thumbOnlyMissingFileCount: stats.missingFileCount,
+      thumbOnlyMergedCount: stats.mergedCount,
+      thumbOnlyElapsedMs: stats.elapsedMs,
+      heavyHydrationAvoidedCount: stats.heavyHydrationAvoidedCount
+    })
+  }
 }
 
 export function createCoverHydrationManager({
@@ -236,11 +431,16 @@ export function createCoverHydrationManager({
     failedOther: 0,
     candidateCount: 0,
     prewarmCandidateCount: 0,
+    idlePrewarmCandidateCount: 0,
+    idlePrewarmQueuedCount: 0,
     observerCandidateCount: 0,
     recoveryStats: Object.fromEntries(EMBEDDED_COVER_RECOVERY_STAT_KEYS.map((key) => [key, 0])),
     batches: 0,
     lastBatchSize: 0,
     lastElapsedMs: 0,
+    totalElapsedMs: 0,
+    batchElapsedMsTotal: 0,
+    queuePeakSize: 0,
     lastErrors: []
   }
 
@@ -349,6 +549,8 @@ export function createCoverHydrationManager({
         }
         stats.completed += completedCount
         stats.lastElapsedMs = Math.max(0, Date.now() - startedAt)
+        stats.totalElapsedMs += stats.lastElapsedMs
+        stats.batchElapsedMsTotal += stats.lastElapsedMs
         log('batch complete', {
           batchSize: seeds.length,
           completedCount,
@@ -362,6 +564,8 @@ export function createCoverHydrationManager({
           recordFailure(seed.path, error?.message || String(error || 'metadata_read_failed'))
         }
         stats.lastElapsedMs = Math.max(0, Date.now() - startedAt)
+        stats.totalElapsedMs += stats.lastElapsedMs
+        stats.batchElapsedMsTotal += stats.lastElapsedMs
         log('batch failed', {
           batchSize: batch.length,
           completedCount: 0,
@@ -406,6 +610,9 @@ export function createCoverHydrationManager({
     stats.candidateCount += tracks.length
     if (reasonKind === 'prewarm') stats.prewarmCandidateCount += tracks.length
     else if (reasonKind === 'observer') stats.observerCandidateCount += tracks.length
+    if (String(options.reason || '').toLowerCase().includes('idle')) {
+      stats.idlePrewarmCandidateCount += tracks.length
+    }
     const result = {
       queuedCount: 0,
       skippedAlreadyHasCover: 0,
@@ -434,7 +641,7 @@ export function createCoverHydrationManager({
         recordFailure(seed.path, 'missing_size_or_mtime', 'noSeedInfo')
         continue
       }
-      if (options.force !== true && hasRealTrackCover(seed.track, currentMeta)) {
+      if (options.force !== true && hasTrackThumbnailSource(seed.track, currentMeta)) {
         result.skippedAlreadyHasCover += 1
         result.skippedAlreadyHasRealCover += 1
         stats.skippedAlreadyHasRealCover += 1
@@ -448,8 +655,12 @@ export function createCoverHydrationManager({
       queue.set(seed.path, seed)
       result.queuedCount += 1
       stats.queued += 1
+      if (String(options.reason || '').toLowerCase().includes('idle')) {
+        stats.idlePrewarmQueuedCount += 1
+      }
     }
     if (result.queuedCount > 0) {
+      stats.queuePeakSize = Math.max(stats.queuePeakSize, queue.size)
       log('queued', {
         queuedCount: result.queuedCount,
         skippedAlreadyHasRealCover: result.skippedAlreadyHasRealCover,
@@ -494,12 +705,20 @@ export function createCoverHydrationManager({
     ...stats.recoveryStats,
     hydrationCandidateCount: stats.candidateCount,
     hydrationPrewarmCandidateCount: stats.prewarmCandidateCount,
+    hydrationIdlePrewarmCandidateCount: stats.idlePrewarmCandidateCount,
+    hydrationIdlePrewarmQueuedCount: stats.idlePrewarmQueuedCount,
     hydrationObserverCandidateCount: stats.observerCandidateCount,
     hydrationSkippedAlreadyHasRealCover: stats.skippedAlreadyHasRealCover,
     hydrationSkippedInFlight: stats.skippedInFlight,
     hydrationBatches: stats.batches,
     hydrationLastBatchSize: stats.lastBatchSize,
-    hydrationLastElapsedMs: stats.lastElapsedMs
+    hydrationLastElapsedMs: stats.lastElapsedMs,
+    hydrationAverageBatchElapsedMs:
+      stats.batches > 0 ? Math.round(stats.batchElapsedMsTotal / stats.batches) : 0,
+    hydrationTotalElapsedMs: stats.totalElapsedMs,
+    hydrationThroughputPerSecond:
+      stats.totalElapsedMs > 0 ? Math.round((stats.completed / stats.totalElapsedMs) * 1000) : 0,
+    hydrationQueuePeakSize: stats.queuePeakSize
   })
 
   const dispose = () => {
