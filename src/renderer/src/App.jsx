@@ -79,7 +79,8 @@ import {
   RotateCcw,
   Smartphone,
   Cast,
-  PictureInPicture2
+  PictureInPicture2,
+  Database
 } from 'lucide-react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import {
@@ -352,7 +353,9 @@ import {
   shouldRefreshTrackMetaCacheForAudioQuality,
   writeAlbumCoverCache,
   writeArtistAvatarCache,
-  writeTrackMetaCache
+  writeTrackMetaCache,
+  clearMetadataCache,
+  setMetadataCacheUnlimited
 } from './utils/trackMetaCache'
 import {
   getMetadataSourcePriority,
@@ -3115,6 +3118,8 @@ export default function App() {
   const [metadataPrefetchParseReady, setMetadataPrefetchParseReady] = useState(false)
   const [playbackSessionRestoreReady, setPlaybackSessionRestoreReady] = useState(false)
   const [libraryCleanupBusy, setLibraryCleanupBusy] = useState(false)
+  const [metadataCacheBusy, setMetadataCacheBusy] = useState(false)
+  const [metadataCacheProgress, setMetadataCacheProgress] = useState({ current: 0, total: 0, active: false })
   const [missingLibraryPaths, setMissingLibraryPaths] = useState([])
   const [trackMetaMap, setTrackMetaMap] = useState({})
   const [albumCoverMap, setAlbumCoverMap] = useState({})
@@ -11800,6 +11805,37 @@ export default function App() {
         : {},
     [currentTrack?.path, effectiveTrackMetaMap, trackMetaMap]
   )
+  useEffect(() => {
+    void window.api?.setReplayGainPreamp?.(config.replaygainPreamp ?? 0)
+  }, [config.replaygainPreamp])
+
+  useEffect(() => {
+    setMetadataCacheUnlimited(config.metadataCacheUnlimited === true)
+  }, [config.metadataCacheUnlimited])
+
+  useEffect(() => {
+    const mode = config.replaygainMode || 'off'
+    if (!window.api?.setReplayGain || mode === 'off' || !currentTrack?.path) {
+      void window.api?.setReplayGain?.(null)
+      return
+    }
+    const meta = trackMetaMap[currentTrack.path]
+    if (!meta) {
+      void window.api?.setReplayGain?.(null)
+      return
+    }
+    const gain =
+      mode === 'album'
+        ? (meta.replaygainAlbumGain ?? meta.replaygainTrackGain ?? null)
+        : (meta.replaygainTrackGain ?? null)
+    void window.api.setReplayGain(gain)
+  }, [
+    config.replaygainMode,
+    currentTrack?.path,
+    trackMetaMap[currentTrack?.path]?.replaygainTrackGain,
+    trackMetaMap[currentTrack?.path]?.replaygainAlbumGain
+  ])
+
   const listenTogetherSyncContent = useMemo(
     () => ({
       coverUrl: coverUrl || '',
@@ -26946,6 +26982,116 @@ export default function App() {
                           ) : null}
                         </div>
                       ) : null}
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.metadataCacheClearTitle', 'Delete local metadata cache')}</h3>
+                          <p>{t('settings.metadataCacheClearDesc', 'Clears all cached track metadata, album covers, and artist avatars.')}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            disabled={metadataCacheBusy}
+                            onClick={async () => {
+                              const ok = window.confirm(t('settings.metadataCacheClearConfirm', 'Clear all cached metadata?'))
+                              if (!ok) return
+                              setMetadataCacheBusy(true)
+                              try {
+                                await clearMetadataCache()
+                                alert(t('settings.metadataCacheClearDone', 'Metadata cache cleared.'))
+                              } finally {
+                                setMetadataCacheBusy(false)
+                              }
+                            }}
+                          >
+                            {t('settings.metadataCacheClearButton', 'Clear Cache')}
+                          </UiButton>
+                        </div>
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.metadataCacheRebuildTitle', 'Rebuild metadata cache')}</h3>
+                          <p>{t('settings.metadataCacheRebuildDesc', 'Clear the cache and re-scan the library.')}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <UiButton
+                            variant="secondary"
+                            size="sm"
+                            disabled={metadataCacheBusy}
+                            onClick={async () => {
+                              const ok = window.confirm(t('settings.metadataCacheRebuildConfirm', 'Rebuild all metadata from scratch?'))
+                              if (!ok) return
+                              setMetadataCacheBusy(true)
+                              setMetadataCacheProgress({ current: 0, total: 0, active: true })
+                              try {
+                                await clearMetadataCache()
+                                const tracks = playlistRef.current || []
+                                if (tracks.length > 0) {
+                                  setMetadataCacheProgress({ current: 0, total: tracks.length, active: true })
+                                  const batchSize = Math.ceil(tracks.length / Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2)))
+                                  for (let i = 0; i < tracks.length; i += batchSize) {
+                                    const batch = tracks.slice(i, i + batchSize)
+                                    await Promise.all(batch.map(async (track) => {
+                                      if (!track?.path) return
+                                      try {
+                                        await window.api.getExtendedMetadataHandler(track.path, buildPlaybackMetadataRequestOptions({ includeCover: false }))
+                                      } catch { /* skip */ }
+                                    }))
+                                    setMetadataCacheProgress({ current: Math.min(i + batchSize, tracks.length), total: tracks.length, active: true })
+                                  }
+                                }
+                                setMetadataCacheProgress({ current: tracks.length, total: tracks.length, active: false })
+                                alert(t('settings.metadataCacheRebuildDone', 'Rebuild complete.'))
+                              } finally {
+                                setMetadataCacheBusy(false)
+                                setMetadataCacheProgress({ current: 0, total: 0, active: false })
+                              }
+                            }}
+                          >
+                            {t('settings.metadataCacheRebuildButton', 'Rebuild Cache')}
+                          </UiButton>
+                        </div>
+                      </div>
+                      {metadataCacheProgress.active && metadataCacheProgress.total > 0 ? (
+                        <div style={{ marginTop: 6, padding: '0 0 8px 0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4, color: 'var(--text-soft)' }}>
+                            <span>Rebuilding metadata cache...</span>
+                            <span>{metadataCacheProgress.current} / {metadataCacheProgress.total}</span>
+                          </div>
+                          <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--color-bg-secondary)', overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${Math.round((metadataCacheProgress.current / metadataCacheProgress.total) * 100)}%`,
+                              height: '100%',
+                              borderRadius: 2,
+                              background: 'var(--accent-pink)',
+                              transition: 'width 0.3s ease'
+                            }} />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="setting-row">
+                        <div className="setting-info">
+                          <h3>{t('settings.metadataCacheUnlimitedTitle', 'Remove metadata storage limit')}</h3>
+                          <p>{t('settings.metadataCacheUnlimitedDesc', 'Enable for very large libraries.')}</p>
+                        </div>
+                        <button
+                          className={`toggle-btn ${config.metadataCacheUnlimited ? 'active' : ''}`}
+                          onClick={() => {
+                            const next = !config.metadataCacheUnlimited
+                            setMetadataCacheUnlimited(next)
+                            setConfig((prev) => ({ ...prev, metadataCacheUnlimited: next }))
+                          }}
+                          aria-pressed={config.metadataCacheUnlimited === true}
+                        >
+                          {config.metadataCacheUnlimited ? (
+                            <ToggleRight size={32} />
+                          ) : (
+                            <ToggleLeft size={32} />
+                          )}
+                        </button>
+                      </div>
                     </section>
                   </div>
 

@@ -1,0 +1,134 @@
+name: Build
+
+on:
+  push:
+    branches: [main, feature/*, fix/*]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows
+            runner: windows-latest
+            arch: x64
+          - os: macos
+            runner: macos-latest
+            arch: x64
+          - os: macos
+            runner: macos-latest
+            arch: arm64
+          - os: linux
+            runner: ubuntu-latest
+            arch: x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ── Linux: system dependencies ──
+      - name: Install Linux build deps
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libpulse-dev \
+            libgtk-3-dev \
+            libnotify-dev \
+            libsecret-1-dev \
+            rpm
+
+      # ── macOS: system dependencies ──
+      - name: Install macOS build deps
+        if: matrix.os == 'macos'
+        run: |
+          # CoreAudio / AudioUnit frameworks are built-in, no extra deps needed.
+          echo "macOS toolchain ready"
+
+      # ── Windows: system dependencies ──
+      - name: Install Windows build deps
+        if: matrix.os == 'windows'
+        run: |
+          # MSVC is pre-installed on windows-latest.
+          # Python is needed for node-gyp (better-sqlite3, naudiodon).
+          echo "Windows toolchain ready"
+
+      # ── Install npm deps ──
+      - name: Setup npm for CI
+        run: cp .npmrc.ci .npmrc
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Build native audio host ──
+      - name: Build native audio host
+        run: npm run build:audio-host
+        env:
+          npm_config_msvs_version: 2022
+
+      # ── Windows: build AirPlay RAOP native addon ──
+      - name: Build AirPlay RAOP (Windows)
+        if: matrix.os == 'windows'
+        run: npm run build:airplay-raop
+
+      # ── Linux: install ffmpeg-static binary ──
+      - name: Install ffmpeg-static (Linux)
+        if: matrix.os == 'linux'
+        run: node node_modules/ffmpeg-static/install.js
+
+      # ── Encoding guard ──
+      - name: Encoding guard
+        run: npm run guard:encoding
+
+      # ── Build renderer + main ──
+      - name: Build app
+        run: npx electron-vite build
+
+      # ── Package ──
+      - name: Package (Windows)
+        if: matrix.os == 'windows'
+        run: npx electron-builder --win --${{ matrix.arch }} -c.directories.output=release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package (macOS)
+        if: matrix.os == 'macos'
+        run: npx electron-builder --mac --${{ matrix.arch }} -c.directories.output=release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Package (Linux)
+        if: matrix.os == 'linux'
+        run: npx electron-builder --linux --${{ matrix.arch }} -c.directories.output=release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Upload artifacts ──
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ECHO-${{ matrix.os }}-${{ matrix.arch }}
+          path: release/*
+          retention-days: 7
