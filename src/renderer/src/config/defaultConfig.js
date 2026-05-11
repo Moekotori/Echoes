@@ -138,6 +138,8 @@ export const DEFAULT_CONFIG = {
   enableMV: false,
   customBgPath: null,
   customBgOpacity: 1.0,
+  customBgBlur: 0,
+  customBgEditState: null,
   uiBgOpacity: 0.6,
   uiBlur: 20,
   uiFontFamily: 'outfit',

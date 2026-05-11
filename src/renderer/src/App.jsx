@@ -90,6 +90,7 @@ import {
 } from '@dnd-kit/sortable'
 import LyricsSettingsDrawer from './components/LyricsSettingsDrawer'
 import MediaDownloaderDrawer from './components/MediaDownloaderDrawer'
+import BgImageEditor from './components/BgImageEditor'
 import MvSettingsDrawer from './components/MvSettingsDrawer'
 import AudioSettingsDrawer from './components/AudioSettingsDrawer'
 import CastReceiveDrawer from './components/CastReceiveDrawer'
@@ -3176,6 +3177,9 @@ export default function App() {
   const [view, setView] = useState('player') // 'player', 'lyrics', 'settings'
   const [settingsQuery, setSettingsQuery] = useState('')
   const [activeSettingsSection, setActiveSettingsSection] = useState('language')
+  const [bgEditorOpen, setBgEditorOpen] = useState(false)
+  const [bgEditorImage, setBgEditorImage] = useState(null)
+  const [bgLivePreview, setBgLivePreview] = useState(null)
   const [config, setConfig] = useState(() => {
     const saved = getInitialAppStateValue('config')
     if (saved && typeof saved === 'object') return normalizeConfigState(saved)
@@ -12678,6 +12682,43 @@ export default function App() {
     [config.customBgOpacity]
   )
   const hasVisibleWallpaper = wallpaperOpacity > 0.001
+  const isBgEditing = bgEditorOpen && !!customWallpaperUrl && !config.themeCoverAsBackground
+  const liveOpacity = bgLivePreview ? bgLivePreview.opacity / 100 : (config.customBgOpacity ?? 1)
+  const liveBlur = bgLivePreview ? bgLivePreview.blur : (config.customBgBlur ?? 0)
+  const liveEditState = bgLivePreview
+    ? {
+        zoomPct: bgLivePreview.zoom,
+        posX: bgLivePreview.posX,
+        posY: bgLivePreview.posY,
+        vw: window.innerWidth,
+        vh: window.innerHeight,
+        natW: bgLivePreview.natW || config.customBgEditState?.natW,
+        natH: bgLivePreview.natH || config.customBgEditState?.natH
+      }
+    : config.customBgEditState
+  const customWallpaperStyle = useMemo(() => {
+    if (!customWallpaperUrl || !liveEditState) return null
+    const s = liveEditState
+    if (!s.natW || !s.natH) return null
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const z = s.zoomPct / 100
+    const fillScale = Math.max(vw / s.natW, vh / s.natH)
+    const scale = fillScale * z
+    const imgW = s.natW * scale
+    const imgH = s.natH * scale
+    const offX = (s.posX || 0) * (vw / s.vw)
+    const offY = (s.posY || 0) * (vh / s.vh)
+    return {
+      position: 'absolute',
+      width: imgW + 'px',
+      height: imgH + 'px',
+      left: ((vw - imgW) / 2 + offX) + 'px',
+      top: ((vh - imgH) / 2 + offY) + 'px',
+      pointerEvents: 'none',
+      userSelect: 'none'
+    }
+  }, [customWallpaperUrl, liveEditState])
   const uiPanelOpacity = useMemo(
     () => normalizeUnitOpacity(config.uiBgOpacity, DEFAULT_CONFIG.uiBgOpacity ?? 0.6),
     [config.uiBgOpacity]
@@ -21116,7 +21157,26 @@ export default function App() {
         {!showLyrics &&
           customWallpaperUrl &&
           !config.themeCoverAsBackground &&
-          hasVisibleWallpaper && (
+          hasVisibleWallpaper &&
+          (isBgEditing || liveEditState ? (
+            <div
+              className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
+              style={{
+                opacity: liveOpacity,
+                overflow: 'hidden'
+              }}
+            >
+              <img
+                src={customWallpaperUrl}
+                alt=""
+                draggable={false}
+                style={{
+                  ...(customWallpaperStyle || {}),
+                  filter: liveBlur > 0 ? `blur(${liveBlur}px)` : 'none'
+                }}
+              />
+            </div>
+          ) : (
             <div
               className="app-wallpaper-backdrop app-wallpaper-backdrop--custom"
               style={{
@@ -21124,7 +21184,7 @@ export default function App() {
                 backgroundImage: `url("${customWallpaperUrl}")`
               }}
             />
-          )}
+          ))}
         {!showLyrics &&
           config.themeCoverAsBackground &&
           displaySafeCoverUrl &&
@@ -25777,7 +25837,7 @@ export default function App() {
                               <button
                                 className="btn"
                                 onClick={() =>
-                                  setConfig((prev) => ({ ...prev, customBgPath: null }))
+                                  setConfig((prev) => ({ ...prev, customBgPath: null, customBgEditState: null, customBgBlur: 0 }))
                                 }
                                 style={{
                                   width: 'auto',
@@ -25790,10 +25850,38 @@ export default function App() {
                                 {t('settings.clear')}
                               </button>
                             )}
+                            {config.customBgPath && (
+                              <button
+                                className="btn"
+                                onClick={async () => {
+                                  const url = customWallpaperUrl
+                                  if (!url) return
+                                  try {
+                                    const resp = await fetch(url)
+                                    const blob = await resp.blob()
+                                    const reader = new FileReader()
+                                    reader.onloadend = () => setBgEditorImage(reader.result)
+                                    reader.readAsDataURL(blob)
+                                  } catch {
+                                    setBgEditorImage(url)
+                                  }
+                                  setBgEditorOpen(true)
+                                }}
+                                style={{
+                                  width: 'auto',
+                                  height: '36px',
+                                  padding: '0 14px',
+                                  fontSize: 12,
+                                  borderRadius: 18
+                                }}
+                              >
+                                {t('settings.bgEditor.edit')}
+                              </button>
+                            )}
                             <button
                               className="btn"
                               onClick={async () => {
-                                const path = await window.api.openImageHandler(
+                                const path = await window.api.openMainPlayerWallpaper(
                                   configRef.current.uiLocale
                                 )
                                 if (path)
@@ -27630,6 +27718,66 @@ export default function App() {
             }
           }}
         />
+        {bgEditorOpen && bgEditorImage && (
+          <BgImageEditor
+            imageDataUrl={bgEditorImage}
+            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
+            initialBlur={config.customBgBlur ?? 0}
+            initialEditState={config.customBgEditState}
+            viewportW={window.innerWidth}
+            viewportH={window.innerHeight}
+            t={t}
+            onPreview={(p) =>
+              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
+            }
+            onSave={({ opacity, blur, editState }) => {
+              setConfig((prev) => ({
+                ...prev,
+                customBgOpacity: opacity / 100,
+                customBgBlur: blur,
+                customBgEditState: editState
+              }))
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+            onClose={() => {
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+          />
+        )}
+        {bgEditorOpen && bgEditorImage && (
+          <BgImageEditor
+            imageDataUrl={bgEditorImage}
+            initialOpacity={Math.round((config.customBgOpacity ?? 1) * 100)}
+            initialBlur={config.customBgBlur ?? 0}
+            initialEditState={config.customBgEditState}
+            viewportW={window.innerWidth}
+            viewportH={window.innerHeight}
+            t={t}
+            onPreview={(p) =>
+              setBgLivePreview({ zoom: p.zoom, opacity: p.opacity, blur: p.blur, posX: p.posX, posY: p.posY })
+            }
+            onSave={({ opacity, blur, editState }) => {
+              setConfig((prev) => ({
+                ...prev,
+                customBgOpacity: opacity / 100,
+                customBgBlur: blur,
+                customBgEditState: editState
+              }))
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+            onClose={() => {
+              setBgEditorOpen(false)
+              setBgEditorImage(null)
+              setBgLivePreview(null)
+            }}
+          />
+        )}
         <PluginManagerDrawer open={pluginDrawerOpen} onClose={() => setPluginDrawerOpen(false)} />
         <PluginSlot name="drawers" />
         <div className="song-share-capture-root" aria-hidden>

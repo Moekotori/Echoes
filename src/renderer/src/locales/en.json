@@ -704,6 +704,18 @@
     "bgImageDesc": "Select a local image to use as your application backdrop.",
     "selectImage": "Select Image",
     "changeImage": "Change Image",
+    "bgEditor": {
+      "title": "Background Editor",
+      "previewLabel": "Preview = final background effect",
+      "edit": "Edit",
+      "zoom": "Zoom",
+      "opacity": "Opacity",
+      "blur": "Blur",
+      "offset": "Offset",
+      "autoFit": "Auto fit",
+      "reset": "Reset",
+      "save": "Save"
+    },
     "wallpaperOpacity": "Wallpaper Opacity",
     "wallpaperOpacityDesc": "Adjust the visibility of your custom background image.",
     "panelTransparency": "Panel Transparency",

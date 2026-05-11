@@ -659,6 +659,18 @@
     "bgImageDesc": "アプリの背景に使うローカル画像を選びます。",
     "selectImage": "画像を選択",
     "changeImage": "画像を変更",
+    "bgEditor": {
+      "title": "背景エディター",
+      "previewLabel": "プレビュー = 最終背景効果",
+      "edit": "編集",
+      "zoom": "ズーム",
+      "opacity": "不透明度",
+      "blur": "ぼかし",
+      "offset": "オフセット",
+      "autoFit": "自動調整",
+      "reset": "リセット",
+      "save": "保存"
+    },
     "wallpaperOpacity": "壁紙の不透明度",
     "wallpaperOpacityDesc": "カスタム背景画像の表示濃度を調整します。",
     "panelTransparency": "パネルの透明度",
