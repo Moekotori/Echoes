@@ -290,7 +290,15 @@ function createThumbOnlyStats() {
     missingFileCount: 0,
     mergedCount: 0,
     elapsedMs: 0,
-    heavyHydrationAvoidedCount: 0
+    heavyHydrationAvoidedCount: 0,
+    missNoRecord: 0,
+    missFingerprintMismatch: 0,
+    missNoThumbPath: 0,
+    missInvalidMeta: 0,
+    missMissingThumbFile: 0,
+    missZeroByteThumb: 0,
+    seedMissingFingerprint: 0,
+    requestUniqueCount: 0
   }
 }
 
@@ -332,6 +340,7 @@ export function createCoverThumbOnlyPrewarmManager({
     if (seeds.length === 0) return { tracksToHydrate: [], stale: false }
 
     stats.requestCount += 1
+    stats.requestUniqueCount += seeds.length
     const startedAt = Date.now()
     let result = null
     try {
@@ -362,6 +371,13 @@ export function createCoverThumbOnlyPrewarmManager({
     stats.missingFileCount += missingThumbPaths.length
     stats.missCount += Math.max(0, missPathSet.size)
     stats.heavyHydrationAvoidedCount += hitPathSet.size
+    stats.missNoRecord += Number(result?.thumbOnlyMissNoRecord || 0)
+    stats.missFingerprintMismatch += Number(result?.thumbOnlyMissFingerprintMismatch || 0)
+    stats.missNoThumbPath += Number(result?.thumbOnlyMissNoThumbPath || 0)
+    stats.missInvalidMeta += Number(result?.thumbOnlyMissInvalidMeta || 0)
+    stats.missMissingThumbFile += Number(result?.thumbOnlyMissMissingThumbFile || 0)
+    stats.missZeroByteThumb += Number(result?.thumbOnlyMissZeroByteThumb || 0)
+    stats.seedMissingFingerprint += Number(result?.thumbOnlySeedMissingFingerprint || 0)
 
     let mergedCount = 0
     if (Object.keys(entries).length > 0) {
@@ -393,7 +409,15 @@ export function createCoverThumbOnlyPrewarmManager({
       thumbOnlyMissingFileCount: stats.missingFileCount,
       thumbOnlyMergedCount: stats.mergedCount,
       thumbOnlyElapsedMs: stats.elapsedMs,
-      heavyHydrationAvoidedCount: stats.heavyHydrationAvoidedCount
+      heavyHydrationAvoidedCount: stats.heavyHydrationAvoidedCount,
+      thumbOnlyMissNoRecord: stats.missNoRecord,
+      thumbOnlyMissFingerprintMismatch: stats.missFingerprintMismatch,
+      thumbOnlyMissNoThumbPath: stats.missNoThumbPath,
+      thumbOnlyMissInvalidMeta: stats.missInvalidMeta,
+      thumbOnlyMissMissingThumbFile: stats.missMissingThumbFile,
+      thumbOnlyMissZeroByteThumb: stats.missZeroByteThumb,
+      thumbOnlySeedMissingFingerprint: stats.seedMissingFingerprint,
+      thumbOnlyRequestUniqueCount: stats.requestUniqueCount
     })
   }
 }

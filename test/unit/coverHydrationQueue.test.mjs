@@ -159,7 +159,15 @@ test('thumb-only prewarm merges cached thumbs and skips heavy hydration hits', a
     thumbOnlyMissingFileCount: 0,
     thumbOnlyMergedCount: 1,
     thumbOnlyElapsedMs: 3,
-    heavyHydrationAvoidedCount: 1
+    heavyHydrationAvoidedCount: 1,
+    thumbOnlyMissNoRecord: 0,
+    thumbOnlyMissFingerprintMismatch: 0,
+    thumbOnlyMissNoThumbPath: 0,
+    thumbOnlyMissInvalidMeta: 0,
+    thumbOnlyMissMissingThumbFile: 0,
+    thumbOnlyMissZeroByteThumb: 0,
+    thumbOnlySeedMissingFingerprint: 0,
+    thumbOnlyRequestUniqueCount: 2
   })
 })
 
@@ -178,6 +186,8 @@ test('thumb-only miss is the only path forwarded to heavy hydration', async () =
       hitPaths: [hit.path],
       missPaths: [miss.path],
       missingThumbPaths: [miss.path],
+      thumbOnlyMissMissingThumbFile: 1,
+      thumbOnlyRequestUniqueCount: 2,
       elapsedMs: 1
     }),
     getCurrentMeta: () => ({}),
@@ -192,6 +202,8 @@ test('thumb-only miss is the only path forwarded to heavy hydration', async () =
 
   assert.deepEqual(result.tracksToHydrate, [miss])
   assert.equal(manager.getDebugStats().thumbOnlyMissingFileCount, 1)
+  assert.equal(manager.getDebugStats().thumbOnlyMissMissingThumbFile, 1)
+  assert.equal(manager.getDebugStats().thumbOnlyRequestUniqueCount, 2)
 })
 
 test('thumb-only stale result is ignored after search or sort switches scope key', async () => {

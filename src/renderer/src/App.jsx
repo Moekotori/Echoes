@@ -17100,7 +17100,15 @@ export default function App() {
           thumbOnlyMissingFileCount: 0,
           thumbOnlyMergedCount: 0,
           thumbOnlyElapsedMs: 0,
-          heavyHydrationAvoidedCount: 0
+          heavyHydrationAvoidedCount: 0,
+          thumbOnlyMissNoRecord: 0,
+          thumbOnlyMissFingerprintMismatch: 0,
+          thumbOnlyMissNoThumbPath: 0,
+          thumbOnlyMissInvalidMeta: 0,
+          thumbOnlyMissMissingThumbFile: 0,
+          thumbOnlyMissZeroByteThumb: 0,
+          thumbOnlySeedMissingFingerprint: 0,
+          thumbOnlyRequestUniqueCount: 0
         }),
         visibleWithoutCoverCount: visibleStats.missingCover,
         visibleCoverSampleTotal: visibleStats.total,

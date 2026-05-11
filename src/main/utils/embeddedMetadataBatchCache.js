@@ -93,9 +93,14 @@ function readJsonFile(filePath) {
 }
 
 function parseJsonObject(value) {
-  if (typeof value !== 'string' || !value) return null
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  const rawValue = Buffer.isBuffer(value) ? value.toString('utf8') : value
+  if (typeof rawValue !== 'string' || !rawValue) return null
+  const text = rawValue.replace(/^\uFEFF/, '').trim()
+  if (!text) return null
   try {
-    const parsed = JSON.parse(value)
+    const parsed = JSON.parse(text)
+    if (typeof parsed === 'string') return parseJsonObject(parsed)
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
   } catch {
     return null
@@ -211,8 +216,15 @@ function hasCurrentMetadataVersion(entry = {}) {
 }
 
 function readEmbeddedMetadataCacheRecord(record = {}) {
-  const meta = parseJsonObject(record?.meta_json || record?.metaJson)
-  if (!meta) return null
+  if (!record) return null
+  const meta = parseJsonObject(record?.meta_json) || parseJsonObject(record?.metaJson)
+  if (!meta) {
+    return {
+      ...record,
+      meta: null,
+      invalidMeta: true
+    }
+  }
   return {
     ...record,
     meta
@@ -252,23 +264,31 @@ function attachCoverThumbUrl(entry = {}) {
 
 function readValidCoverThumb(coverThumbPath = '') {
   const thumbPath = normalizeText(coverThumbPath)
-  if (!thumbPath) return { ok: false, missingThumb: false, bytes: null }
+  if (!thumbPath) return { ok: false, reason: 'noThumbPath', missingThumb: false, bytes: null }
   try {
     const stat = fs.statSync(thumbPath)
-    if (!stat.isFile() || stat.size <= 0) return { ok: false, missingThumb: true, bytes: null }
+    if (!stat.isFile()) {
+      return { ok: false, reason: 'missingThumbFile', missingThumb: true, bytes: null }
+    }
+    if (stat.size <= 0) {
+      return { ok: false, reason: 'zeroByteThumb', missingThumb: true, bytes: null }
+    }
     return { ok: true, missingThumb: false, bytes: stat.size }
   } catch {
-    return { ok: false, missingThumb: true, bytes: null }
+    return { ok: false, reason: 'missingThumbFile', missingThumb: true, bytes: null }
   }
 }
 
 function buildThumbOnlyEntry(record = {}) {
   const entry = record?.meta || null
-  if (!entry || typeof entry !== 'object') return null
+  if (!entry || typeof entry !== 'object') {
+    return { reason: 'invalidMeta', missingThumb: false, entry: null }
+  }
   const thumbPath = normalizeText(entry.coverThumbPath)
   const thumbState = readValidCoverThumb(thumbPath)
   if (!thumbState.ok) {
     return {
+      reason: thumbState.reason || 'missingThumbFile',
       missingThumb: thumbState.missingThumb,
       entry: null
     }
@@ -276,6 +296,7 @@ function buildThumbOnlyEntry(record = {}) {
   const coverThumbUrl = normalizeText(entry.coverThumbUrl) || getCoverThumbUrl(thumbPath)
   if (!coverThumbUrl) {
     return {
+      reason: 'missingThumbFile',
       missingThumb: true,
       entry: null
     }
@@ -301,9 +322,17 @@ function buildThumbOnlyEntry(record = {}) {
 function writeThumbOnlyDebugSummary(summary = {}) {
   console.debug('[embeddedMetadataBatchCache] thumb-only summary', {
     requestCount: summary.requestCount,
+    uniqueCount: summary.uniqueCount,
     hitCount: summary.hitCount,
     missCount: summary.missCount,
     missingThumbCount: summary.missingThumbCount,
+    missNoRecord: summary.missNoRecord,
+    missFingerprintMismatch: summary.missFingerprintMismatch,
+    missNoThumbPath: summary.missNoThumbPath,
+    missInvalidMeta: summary.missInvalidMeta,
+    missMissingThumbFile: summary.missMissingThumbFile,
+    missZeroByteThumb: summary.missZeroByteThumb,
+    seedMissingFingerprint: summary.seedMissingFingerprint,
     elapsedMs: summary.elapsedMs
   })
 }
@@ -355,6 +384,12 @@ function openEmbeddedMetadataCacheDb(userDataPath = '') {
       UPDATE embedded_metadata_cache
       SET meta_json = metaJson
       WHERE meta_json IS NULL AND metaJson IS NOT NULL;
+    `)
+  } else if (columnNames.has('metaJson') && columnNames.has('meta_json')) {
+    db.exec(`
+      UPDATE embedded_metadata_cache
+      SET meta_json = metaJson
+      WHERE (meta_json IS NULL OR meta_json = '') AND metaJson IS NOT NULL AND metaJson != '';
     `)
   }
   return db
@@ -413,10 +448,18 @@ function deleteCachedRecord(db, path) {
   db.prepare('DELETE FROM embedded_metadata_cache WHERE path = ?').run(path)
 }
 
-function getCachedRecord(db, path) {
+function hasLegacyMetaJsonColumn(db) {
+  const columns = db.prepare('PRAGMA table_info(embedded_metadata_cache)').all()
+  return columns.some((column) => column.name === 'metaJson')
+}
+
+function getCachedRecord(db, path, options = {}) {
+  const hasLegacyMetaJson = options.hasLegacyMetaJson === true
   const row = db
     .prepare(
-      'SELECT path, sizeBytes, mtimeMs, meta_json, updatedAt FROM embedded_metadata_cache WHERE path = ?'
+      hasLegacyMetaJson
+        ? 'SELECT path, sizeBytes, mtimeMs, meta_json, metaJson, updatedAt FROM embedded_metadata_cache WHERE path = ?'
+        : 'SELECT path, sizeBytes, mtimeMs, meta_json, updatedAt FROM embedded_metadata_cache WHERE path = ?'
     )
     .get(path)
   if (!row) return null
@@ -469,9 +512,11 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
 } = {}) {
   const limit = normalizeThumbOnlyBatchLimit(options?.limit)
   const unique = new Map()
+  let seedMissingFingerprintCount = 0
   for (const seed of Array.isArray(seeds) ? seeds : []) {
     const normalized = normalizeSeed(seed)
     if (!normalized || unique.has(normalized.path)) continue
+    if (!(normalized.sizeBytes > 0) || !(normalized.mtimeMs > 0)) seedMissingFingerprintCount += 1
     unique.set(normalized.path, normalized)
     if (unique.size >= limit) break
   }
@@ -481,8 +526,24 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
   const missPaths = []
   const missingThumbPaths = []
   const missingThumb = {}
+  const missReasons = {
+    noRecord: [],
+    fingerprintMismatch: [],
+    noThumbPath: [],
+    invalidMeta: [],
+    missingThumbFile: [],
+    zeroByteThumb: []
+  }
   const errors = {}
   const startedAt = Date.now()
+  const recordMiss = (path, reason) => {
+    if (path) missPaths.push(path)
+    if (Array.isArray(missReasons[reason])) missReasons[reason].push(path)
+    if (reason === 'missingThumbFile' || reason === 'zeroByteThumb') {
+      missingThumbPaths.push(path)
+      missingThumb[path] = true
+    }
+  }
 
   if (!userDataPath || unique.size === 0) {
     return {
@@ -492,6 +553,15 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
       missPaths,
       missingThumbPaths,
       missingThumb,
+      missReasons,
+      thumbOnlyMissNoRecord: 0,
+      thumbOnlyMissFingerprintMismatch: 0,
+      thumbOnlyMissNoThumbPath: 0,
+      thumbOnlyMissInvalidMeta: 0,
+      thumbOnlyMissMissingThumbFile: 0,
+      thumbOnlyMissZeroByteThumb: 0,
+      thumbOnlySeedMissingFingerprint: seedMissingFingerprintCount,
+      thumbOnlyRequestUniqueCount: unique.size,
       errors,
       elapsedMs: 0
     }
@@ -500,18 +570,27 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
   let db = null
   try {
     db = openEmbeddedMetadataCacheDb(userDataPath)
+    const hasLegacyMetaJson = hasLegacyMetaJsonColumn(db)
 
     for (const seed of unique.values()) {
       let cachedRecord = null
       try {
-        cachedRecord = getCachedRecord(db, seed.path)
+        cachedRecord = getCachedRecord(db, seed.path, { hasLegacyMetaJson })
       } catch (error) {
-        missPaths.push(seed.path)
+        recordMiss(seed.path, 'invalidMeta')
         errors[seed.path] = error?.message || String(error)
         continue
       }
-      if (!cachedRecord || !fingerprintsMatch(cachedRecord, seed)) {
-        missPaths.push(seed.path)
+      if (!cachedRecord) {
+        recordMiss(seed.path, 'noRecord')
+        continue
+      }
+      if (cachedRecord.invalidMeta || !cachedRecord.meta) {
+        recordMiss(seed.path, 'invalidMeta')
+        continue
+      }
+      if (!fingerprintsMatch(cachedRecord, seed)) {
+        recordMiss(seed.path, 'fingerprintMismatch')
         continue
       }
       const thumb = buildThumbOnlyEntry(cachedRecord)
@@ -519,17 +598,15 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
         entries[seed.path] = thumb.entry
         hitPaths.push(seed.path)
       } else {
-        missPaths.push(seed.path)
-        if (thumb?.missingThumb) {
-          missingThumbPaths.push(seed.path)
-          missingThumb[seed.path] = true
-        }
+        recordMiss(seed.path, thumb?.reason || 'invalidMeta')
       }
     }
   } catch (error) {
     errors.__global = error?.message || String(error)
     for (const seed of unique.values()) {
-      if (!missPaths.includes(seed.path) && !hitPaths.includes(seed.path)) missPaths.push(seed.path)
+      if (!missPaths.includes(seed.path) && !hitPaths.includes(seed.path)) {
+        recordMiss(seed.path, 'invalidMeta')
+      }
     }
   } finally {
     try {
@@ -542,9 +619,17 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
   const elapsedMs = Math.max(0, Date.now() - startedAt)
   writeThumbOnlyDebugSummary({
     requestCount: unique.size,
+    uniqueCount: unique.size,
     hitCount: hitPaths.length,
     missCount: missPaths.length,
     missingThumbCount: missingThumbPaths.length,
+    missNoRecord: missReasons.noRecord.length,
+    missFingerprintMismatch: missReasons.fingerprintMismatch.length,
+    missNoThumbPath: missReasons.noThumbPath.length,
+    missInvalidMeta: missReasons.invalidMeta.length,
+    missMissingThumbFile: missReasons.missingThumbFile.length,
+    missZeroByteThumb: missReasons.zeroByteThumb.length,
+    seedMissingFingerprint: seedMissingFingerprintCount,
     elapsedMs
   })
 
@@ -555,6 +640,15 @@ export function readCoverThumbBatchFromEmbeddedMetadataCache({
     missPaths,
     missingThumbPaths,
     missingThumb,
+    missReasons,
+    thumbOnlyMissNoRecord: missReasons.noRecord.length,
+    thumbOnlyMissFingerprintMismatch: missReasons.fingerprintMismatch.length,
+    thumbOnlyMissNoThumbPath: missReasons.noThumbPath.length,
+    thumbOnlyMissInvalidMeta: missReasons.invalidMeta.length,
+    thumbOnlyMissMissingThumbFile: missReasons.missingThumbFile.length,
+    thumbOnlyMissZeroByteThumb: missReasons.zeroByteThumb.length,
+    thumbOnlySeedMissingFingerprint: seedMissingFingerprintCount,
+    thumbOnlyRequestUniqueCount: unique.size,
     errors,
     elapsedMs
   }
@@ -626,9 +720,11 @@ export async function readEmbeddedMetadataBatch({
   }
 
   let db = null
+  let hasLegacyMetaJson = false
   try {
     try {
       db = openEmbeddedMetadataCacheDb(userDataPath)
+      hasLegacyMetaJson = hasLegacyMetaJsonColumn(db)
     } catch (error) {
       batchStats.sqliteErrorCount += 1
       console.debug('[embeddedMetadataBatchCache] sqlite open failed', error?.message || error)
@@ -647,7 +743,7 @@ export async function readEmbeddedMetadataBatch({
       let cachedRecord = null
       if (db) {
         try {
-          cachedRecord = getCachedRecord(db, seed.path)
+          cachedRecord = getCachedRecord(db, seed.path, { hasLegacyMetaJson })
         } catch (error) {
           batchStats.sqliteErrorCount += 1
           console.debug('[embeddedMetadataBatchCache] sqlite read failed', error?.message || error)

@@ -95,6 +95,56 @@ function mutateCacheRecord(userDataPath, trackPath, mutate) {
   }
 }
 
+function writeRawCacheRecord(userDataPath, record) {
+  const db = new Database(getEmbeddedMetadataCacheDbPath(userDataPath))
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS embedded_metadata_cache (
+        path TEXT PRIMARY KEY,
+        sizeBytes INTEGER NOT NULL,
+        mtimeMs INTEGER NOT NULL,
+        meta_json TEXT NOT NULL,
+        updatedAt INTEGER NOT NULL
+      );
+    `)
+    if (Object.prototype.hasOwnProperty.call(record, 'metaJson')) {
+      const columns = db.prepare('PRAGMA table_info(embedded_metadata_cache)').all()
+      const columnNames = new Set(columns.map((column) => column.name))
+      if (!columnNames.has('metaJson')) {
+        db.exec('ALTER TABLE embedded_metadata_cache ADD COLUMN metaJson TEXT;')
+      }
+    }
+    db.prepare(
+      `INSERT INTO embedded_metadata_cache (path, sizeBytes, mtimeMs, meta_json, updatedAt${
+        Object.prototype.hasOwnProperty.call(record, 'metaJson') ? ', metaJson' : ''
+      })
+       VALUES (?, ?, ?, ?, ?${
+         Object.prototype.hasOwnProperty.call(record, 'metaJson') ? ', ?' : ''
+       })
+       ON CONFLICT(path) DO UPDATE SET
+         sizeBytes = excluded.sizeBytes,
+         mtimeMs = excluded.mtimeMs,
+         meta_json = excluded.meta_json,
+         updatedAt = excluded.updatedAt${
+           Object.prototype.hasOwnProperty.call(record, 'metaJson')
+             ? ', metaJson = excluded.metaJson'
+             : ''
+         }`
+    ).run(
+      ...[
+        record.path,
+        Number(record.sizeBytes || 0),
+        Number(record.mtimeMs || 0),
+        record.meta_json,
+        Number(record.updatedAt || Date.now()),
+        ...(Object.prototype.hasOwnProperty.call(record, 'metaJson') ? [record.metaJson] : [])
+      ]
+    )
+  } finally {
+    db.close()
+  }
+}
+
 function readCacheMeta(userDataPath, trackPath) {
   const db = new Database(getEmbeddedMetadataCacheDbPath(userDataPath))
   try {
@@ -304,6 +354,146 @@ test('cover thumb batch marks missing or empty thumbnail files as missingThumb',
   assert.equal(result.missingThumb[emptySeed.path], true)
   assert.equal(result.entries[missingSeed.path], undefined)
   assert.equal(result.entries[emptySeed.path], undefined)
+})
+
+test('cover thumb batch reports detailed miss reasons without returning cover data', async () => {
+  const userDataPath = createTempUserData()
+  const validStoredSeed = { path: 'D:/Music/valid-thumb.flac', sizeBytes: 100, mtimeMs: 200 }
+  const validSeed = { ...validStoredSeed }
+  const mismatchStoredSeed = { path: 'D:/Music/mismatch.flac', sizeBytes: 101, mtimeMs: 201 }
+  const mismatchSeed = { ...mismatchStoredSeed, sizeBytes: 999 }
+  const noThumbSeed = { path: 'D:/Music/no-thumb.flac', sizeBytes: 102, mtimeMs: 202 }
+  const invalidMetaSeed = { path: 'D:/Music/invalid-meta.flac', sizeBytes: 103, mtimeMs: 203 }
+  const missingFileSeed = { path: 'D:/Music/missing-file.flac', sizeBytes: 104, mtimeMs: 204 }
+  const zeroByteSeed = { path: 'D:/Music/zero-byte.flac', sizeBytes: 105, mtimeMs: 205 }
+  const noRecordSeed = { path: 'D:/Music/no-record.flac', sizeBytes: 106, mtimeMs: 206 }
+  const missingFingerprintSeed = { path: 'D:/Music/missing-fingerprint.flac', sizeBytes: 0, mtimeMs: 0 }
+
+  const validThumbPath = path.join(userDataPath, 'valid-thumb.jpg')
+  fs.writeFileSync(validThumbPath, Buffer.from('valid-thumb'))
+  writeRawCacheRecord(userDataPath, {
+    path: validStoredSeed.path,
+    sizeBytes: validStoredSeed.sizeBytes,
+    mtimeMs: validStoredSeed.mtimeMs,
+    meta_json: JSON.stringify({
+      cover: dataUrlFromText('must-not-return'),
+      coverThumbPath: validThumbPath,
+      coverKey: sha1Text('valid-thumb'),
+      coverChecked: true,
+      embeddedPictureCount: 1
+    })
+  })
+  writeRawCacheRecord(userDataPath, {
+    path: mismatchStoredSeed.path,
+    sizeBytes: mismatchStoredSeed.sizeBytes,
+    mtimeMs: mismatchStoredSeed.mtimeMs,
+    meta_json: JSON.stringify({
+      coverThumbPath: validThumbPath,
+      coverChecked: true
+    })
+  })
+  writeRawCacheRecord(userDataPath, {
+    path: noThumbSeed.path,
+    sizeBytes: noThumbSeed.sizeBytes,
+    mtimeMs: noThumbSeed.mtimeMs,
+    meta_json: JSON.stringify({
+      cover: dataUrlFromText('no-thumb-full-cover'),
+      coverChecked: true
+    })
+  })
+  const missingThumbPath = path.join(userDataPath, 'missing-thumb.jpg')
+  writeRawCacheRecord(userDataPath, {
+    path: missingFileSeed.path,
+    sizeBytes: missingFileSeed.sizeBytes,
+    mtimeMs: missingFileSeed.mtimeMs,
+    meta_json: JSON.stringify({
+      coverThumbPath: missingThumbPath,
+      coverChecked: true
+    })
+  })
+  const zeroByteThumbPath = path.join(userDataPath, 'zero-byte-thumb.jpg')
+  fs.writeFileSync(zeroByteThumbPath, Buffer.alloc(0))
+  writeRawCacheRecord(userDataPath, {
+    path: zeroByteSeed.path,
+    sizeBytes: zeroByteSeed.sizeBytes,
+    mtimeMs: zeroByteSeed.mtimeMs,
+    meta_json: JSON.stringify({
+      coverThumbPath: zeroByteThumbPath,
+      coverChecked: true
+    })
+  })
+  writeRawCacheRecord(userDataPath, {
+    path: invalidMetaSeed.path,
+    sizeBytes: invalidMetaSeed.sizeBytes,
+    mtimeMs: invalidMetaSeed.mtimeMs,
+    meta_json: '{bad json'
+  })
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [
+      validSeed,
+      mismatchSeed,
+      noThumbSeed,
+      invalidMetaSeed,
+      missingFileSeed,
+      zeroByteSeed,
+      noRecordSeed,
+      missingFingerprintSeed
+    ]
+  })
+
+  assert.equal(result.hitPaths.includes(validSeed.path), true)
+  assert.equal(result.entries[validSeed.path].cover, undefined)
+  assert.equal(result.thumbOnlyRequestUniqueCount, 8)
+  assert.equal(result.thumbOnlySeedMissingFingerprint, 1)
+  assert.equal(result.thumbOnlyMissNoRecord, 2)
+  assert.equal(result.thumbOnlyMissFingerprintMismatch, 1)
+  assert.equal(result.thumbOnlyMissNoThumbPath, 1)
+  assert.equal(result.thumbOnlyMissInvalidMeta, 1)
+  assert.equal(result.thumbOnlyMissMissingThumbFile, 1)
+  assert.equal(result.thumbOnlyMissZeroByteThumb, 1)
+  assert.equal(result.missReasons.noRecord.includes(noRecordSeed.path), true)
+  assert.equal(result.missReasons.noRecord.includes(missingFingerprintSeed.path), true)
+  assert.deepEqual(result.missReasons.fingerprintMismatch, [mismatchSeed.path])
+  assert.deepEqual(result.missReasons.noThumbPath, [noThumbSeed.path])
+  assert.deepEqual(result.missReasons.invalidMeta, [invalidMetaSeed.path])
+  assert.deepEqual(result.missReasons.missingThumbFile, [missingFileSeed.path])
+  assert.deepEqual(result.missReasons.zeroByteThumb, [zeroByteSeed.path])
+})
+
+test('cover thumb batch reads valid legacy metaJson when meta_json is empty', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/legacy-meta-json.flac', sizeBytes: 700, mtimeMs: 800 }
+  const thumbPath = path.join(userDataPath, 'legacy-thumb.jpg')
+  fs.writeFileSync(thumbPath, Buffer.from('legacy-thumb'))
+
+  writeRawCacheRecord(userDataPath, {
+    path: seed.path,
+    sizeBytes: seed.sizeBytes,
+    mtimeMs: seed.mtimeMs,
+    meta_json: '',
+    metaJson: JSON.stringify({
+      cover: dataUrlFromText('legacy-full-cover-must-not-return'),
+      coverThumbPath: thumbPath,
+      coverThumbUrl: getCoverThumbUrl(thumbPath),
+      coverKey: sha1Text('legacy-thumb'),
+      coverChecked: true,
+      embeddedPictureCount: 1
+    })
+  })
+
+  const result = readCoverThumbBatchFromEmbeddedMetadataCache({
+    userDataPath,
+    seeds: [seed]
+  })
+
+  assert.deepEqual(result.hitPaths, [seed.path])
+  assert.equal(result.thumbOnlyMissInvalidMeta, 0)
+  assert.equal(result.thumbOnlyMissNoThumbPath, 0)
+  assert.equal(result.entries[seed.path].cover, undefined)
+  assert.equal(result.entries[seed.path].coverThumbPath, thumbPath)
+  assert.equal(result.entries[seed.path].coverThumbUrl, getCoverThumbUrl(thumbPath))
 })
 
 test('embedded metadata batch round-trips complex entries through sqlite without mutation', async () => {
