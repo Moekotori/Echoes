@@ -9,7 +9,8 @@ import Database from 'better-sqlite3'
 
 import {
   getEmbeddedMetadataCacheDbPath,
-  readEmbeddedMetadataBatch
+  readEmbeddedMetadataBatch,
+  readTrackFullCoverFromEmbeddedMetadataCache
 } from '../../src/main/utils/embeddedMetadataBatchCache.js'
 import {
   COVER_THUMB_CACHE_VERSION,
@@ -167,6 +168,55 @@ test('embedded metadata batch caches parsed entries by path fingerprint', async 
   assert.deepEqual(second.cachedPaths, [seed.path])
   assert.deepEqual(second.entries[seed.path], first.entries[seed.path])
   assert.equal(reader.calls.length, 1)
+})
+
+test('track full cover reads entry cover from sqlite meta_json without reparsing', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/full-cover.flac', sizeBytes: 4096, mtimeMs: 5000 }
+  const cover = dataUrlFromText('full-cover-source')
+  let readCalls = 0
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    readMetadata: async () => {
+      readCalls += 1
+      return createMetadataReader({ common: { cover } }).readMetadata(seed.path)
+    }
+  })
+
+  const result = readTrackFullCoverFromEmbeddedMetadataCache({
+    userDataPath,
+    path: seed.path
+  })
+
+  assert.equal(readCalls, 1)
+  assert.equal(result.ok, true)
+  assert.equal(result.cover, cover)
+  assert.equal(result.coverSource, 'embedded-batch')
+})
+
+test('track full cover returns a soft miss when sqlite meta_json has no cover', async () => {
+  const userDataPath = createTempUserData()
+  const seed = { path: 'D:/Music/no-full-cover.flac', sizeBytes: 4096, mtimeMs: 5000 }
+
+  await readEmbeddedMetadataBatch({
+    seeds: [seed],
+    userDataPath,
+    readMetadata: async () =>
+      createMetadataReader({ common: { cover: null, embeddedPictureCount: 0 } }).readMetadata(seed.path)
+  })
+
+  const result = readTrackFullCoverFromEmbeddedMetadataCache({
+    userDataPath,
+    path: seed.path
+  })
+
+  assert.deepEqual(result, {
+    ok: false,
+    cover: null,
+    error: 'cover_not_found'
+  })
 })
 
 test('embedded metadata batch round-trips complex entries through sqlite without mutation', async () => {

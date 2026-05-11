@@ -358,6 +358,45 @@ function getCachedRecord(db, path) {
   return readEmbeddedMetadataCacheRecord(row)
 }
 
+export function readTrackFullCoverFromEmbeddedMetadataCache({ userDataPath = '', path = '' } = {}) {
+  const trackPath = typeof path === 'string' ? path.trim() : ''
+  if (!userDataPath || !trackPath) {
+    return { ok: false, cover: null, error: 'invalid_request' }
+  }
+
+  let db = null
+  try {
+    db = openEmbeddedMetadataCacheDb(userDataPath)
+    const row = db
+      .prepare(
+        'SELECT path, sizeBytes, mtimeMs, meta_json, updatedAt FROM embedded_metadata_cache WHERE path = ?'
+      )
+      .get(trackPath)
+    const record = readEmbeddedMetadataCacheRecord(row)
+    const entry = record?.meta || null
+    const cover = normalizeText(entry?.cover)
+    if (!cover) {
+      return { ok: false, cover: null, error: row ? 'cover_not_found' : 'cache_miss' }
+    }
+    return {
+      ok: true,
+      cover,
+      coverKey: normalizeText(entry.coverKey) || null,
+      coverThumbPath: normalizeText(entry.coverThumbPath) || null,
+      coverThumbUrl: normalizeText(entry.coverThumbUrl) || getCoverThumbUrl(entry.coverThumbPath),
+      coverSource: normalizeText(entry.coverSource) || null
+    }
+  } catch (error) {
+    return { ok: false, cover: null, error: error?.message || String(error) }
+  } finally {
+    try {
+      db?.close()
+    } catch {
+      /* ignore db close errors */
+    }
+  }
+}
+
 function upsertCachedRecord(db, seed, entry) {
   db.prepare(`
     INSERT INTO embedded_metadata_cache (path, sizeBytes, mtimeMs, meta_json, updatedAt)
