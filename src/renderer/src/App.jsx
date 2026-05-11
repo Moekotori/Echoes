@@ -26837,15 +26837,6 @@ export default function App() {
                           ) : null}
                         </div>
                       ) : null}
-                    </section>
-                  </div>
-
-                    <section className="settings-section">
-                      <div className="section-title">
-                        <Database size={20} />
-                        <h2>Metadata Cache</h2>
-                      </div>
-
                       <div className="setting-row">
                         <div className="setting-info">
                           <h3>Delete local metadata cache</h3>
@@ -26916,7 +26907,9 @@ export default function App() {
                           )}
                         </button>
                       </div>
+
                     </section>
+                  </div>
 
                   <div
                     id="settings-sec-remote-library"
