@@ -1,4 +1,0 @@
-registry=https://registry.npmjs.org/
-disturl=https://nodejs.org/download/release/
-electron_mirror=https://github.com/electron/electron/releases/download/v
-msvs_version=2022
