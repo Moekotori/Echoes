@@ -176,6 +176,7 @@ import {
 } from './utils/metadataAutoComplete'
 import {
   buildParsedPlaylistWithCache,
+  buildLightweightTrackForList,
   parseTrackInfo,
   compareTrackOrder,
   compareTrackFrequent,
@@ -310,6 +311,10 @@ import {
   selectListCoverHydrationPrewarmTracks,
   selectAlbumCoverHydrationTracks
 } from './utils/coverHydrationQueue'
+import {
+  getFullCoverRequestStats,
+  requestTrackFullCover
+} from './utils/fullCoverRequest'
 import {
   isImmersiveLyricsMvEnabled,
   isSideLyricsMvEnabled,
@@ -2131,27 +2136,46 @@ const AlbumSidebarCard = memo(
     onContextMenu,
     onCoverFailed,
     onVisible,
-    coverLoading = 'lazy'
+    coverLoading = 'lazy',
+    coverRequestSeed = null,
+    allowFullCoverRequest = false
   }) {
     const { t } = useTranslation()
     const cardRef = useRef(null)
     const albumRef = useRef(album)
     const onVisibleRef = useRef(onVisible)
     const [coverIndex, setCoverIndex] = useState(0)
+    const [asyncFallbackSource, setAsyncFallbackSource] = useState('')
+    const fullCoverRequestKeyRef = useRef('')
     const coverCandidates =
       Array.isArray(album.coverCandidates) && album.coverCandidates.length > 0
         ? album.coverCandidates
-        : album.cover
-          ? [album.cover]
+        : asyncFallbackSource
+          ? [asyncFallbackSource]
           : []
+    const coverRequestPath =
+      typeof coverRequestSeed?.path === 'string' ? coverRequestSeed.path.trim() : ''
     const coverCandidateKey = coverCandidates.join('\u0001')
     const coverSource = normalizeArtworkSource(coverCandidates[coverIndex] || '')
     const [coverLoaded, setCoverLoaded] = useState(() =>
       coverSource ? loadedAlbumCoverSources.has(coverSource) : false
     )
 
+    const requestAsyncFallback = useCallback(async () => {
+      if (!allowFullCoverRequest || !coverRequestPath) return ''
+      if (fullCoverRequestKeyRef.current === coverRequestPath) return ''
+      fullCoverRequestKeyRef.current = coverRequestPath
+      const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath)
+      if (cover) setAsyncFallbackSource(cover)
+      else onCoverFailed?.(album, coverCandidateKey)
+      return cover
+    }, [allowFullCoverRequest, album, coverCandidateKey, coverRequestPath, coverRequestSeed, onCoverFailed])
+
     useEffect(() => {
       setCoverIndex(0)
+      setCoverLoaded(false)
+      setAsyncFallbackSource('')
+      fullCoverRequestKeyRef.current = ''
     }, [coverCandidateKey])
 
     useEffect(() => {
@@ -2162,6 +2186,12 @@ const AlbumSidebarCard = memo(
       albumRef.current = album
       onVisibleRef.current = onVisible
     }, [album, onVisible])
+
+    useEffect(() => {
+      if (!allowFullCoverRequest || !coverRequestPath) return undefined
+      if (coverCandidates.length > 0) return undefined
+      void requestAsyncFallback()
+    }, [allowFullCoverRequest, coverCandidates.length, coverRequestPath, requestAsyncFallback])
 
     useEffect(() => {
       const element = cardRef.current
@@ -2221,7 +2251,7 @@ const AlbumSidebarCard = memo(
                 const nextIndex =
                   index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
                 if (nextIndex >= coverCandidates.length) {
-                  onCoverFailed?.(album, coverCandidateKey)
+                  void requestAsyncFallback()
                 }
                 return nextIndex
               })
@@ -2265,8 +2295,16 @@ const AlbumSidebarCard = memo(
     prev.onVisible === next.onVisible
 )
 
-const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, onPickArtist }) {
+const ArtistSidebarCard = memo(function ArtistSidebarCard({
+  artist,
+  isSelected,
+  onPickArtist,
+  coverRequestSeed = null,
+  allowFullCoverRequest = false
+}) {
   const [coverIndex, setCoverIndex] = useState(0)
+  const [asyncFallbackSource, setAsyncFallbackSource] = useState('')
+  const fullCoverRequestKeyRef = useRef('')
   const avatarStyle = useMemo(
     () => ({ '--artist-avatar-hue': `${Number(artist.avatarHue || 0)}` }),
     [artist.avatarHue]
@@ -2274,15 +2312,34 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, 
   const coverCandidates =
     Array.isArray(artist.coverCandidates) && artist.coverCandidates.length > 0
       ? artist.coverCandidates
-      : artist.cover
-        ? [artist.cover]
+      : asyncFallbackSource
+        ? [asyncFallbackSource]
         : []
+  const coverRequestPath =
+    typeof coverRequestSeed?.path === 'string' ? coverRequestSeed.path.trim() : ''
   const coverCandidateKey = coverCandidates.join('\u0001')
   const coverSource = normalizeArtworkSource(coverCandidates[coverIndex] || '')
 
+  const requestAsyncFallback = useCallback(async () => {
+    if (!allowFullCoverRequest || !coverRequestPath) return ''
+    if (fullCoverRequestKeyRef.current === coverRequestPath) return ''
+    fullCoverRequestKeyRef.current = coverRequestPath
+    const cover = await requestTrackFullCover(coverRequestSeed || coverRequestPath)
+    if (cover) setAsyncFallbackSource(cover)
+    return cover
+  }, [allowFullCoverRequest, coverRequestPath, coverRequestSeed])
+
   useEffect(() => {
     setCoverIndex(0)
+    setAsyncFallbackSource('')
+    fullCoverRequestKeyRef.current = ''
   }, [coverCandidateKey])
+
+  useEffect(() => {
+    if (!allowFullCoverRequest || !coverRequestPath) return undefined
+    if (coverCandidates.length > 0) return undefined
+    void requestAsyncFallback()
+  }, [allowFullCoverRequest, coverCandidates.length, coverRequestPath, requestAsyncFallback])
 
   return (
     <button
@@ -2302,9 +2359,11 @@ const ArtistSidebarCard = memo(function ArtistSidebarCard({ artist, isSelected, 
           loading={String(coverSource).startsWith('data:') ? 'eager' : 'lazy'}
           decoding="async"
           onError={() => {
-            setCoverIndex((index) =>
-              index + 1 < coverCandidates.length ? index + 1 : coverCandidates.length
-            )
+            setCoverIndex((index) => {
+              if (index + 1 < coverCandidates.length) return index + 1
+              void requestAsyncFallback()
+              return coverCandidates.length
+            })
           }}
         />
       ) : (
@@ -14345,7 +14404,8 @@ export default function App() {
         trackMetaMap: trackMetaMapRef.current || {},
         displayMetadataOverrides,
         albumCoverMap,
-        mergeAlbumsByCoverAndAlbumArtist: config.mergeAlbumsByCoverAndAlbumArtist === true
+        mergeAlbumsByCoverAndAlbumArtist: config.mergeAlbumsByCoverAndAlbumArtist === true,
+        allowFullCover: false
       })
 
       const getAlbumAddedAt = (album) =>
@@ -14610,7 +14670,8 @@ export default function App() {
       })
       const buckets = buildArtistBucketsWithAvatars(identityTracks, {
         unknownArtist,
-        trackMetaMap: identityTrackMetaMap
+        trackMetaMap: identityTrackMetaMap,
+        allowFullCover: false
       })
 
       const getArtistAddedAt = (artist) =>
@@ -19362,6 +19423,8 @@ export default function App() {
           onCoverFailed={handleAlbumCoverFailed}
           onVisible={requestVisibleAlbumCoverHydration}
           onContextMenu={openGroupContextMenuForAlbum}
+          coverRequestSeed={album.tracks?.find((track) => track?.path) || null}
+          allowFullCoverRequest={true}
           coverLoading={
             absoluteIndex >= visibleAlbumRange.startIndex &&
             absoluteIndex < visibleAlbumRange.endIndex
@@ -22471,6 +22534,8 @@ export default function App() {
                           artist={artist}
                           isSelected={selectedArtist === artist.name}
                           onPickArtist={handlePickArtistFromSidebar}
+                          coverRequestSeed={artist.tracks?.[0] || null}
+                          allowFullCoverRequest={true}
                         />
                       ))}
                     </div>
@@ -22740,7 +22805,8 @@ export default function App() {
                             effectiveTrackMetaMap,
                             albumCoverMap,
                             albumFolderCoverFallbackMap,
-                            albumTracks: trackAlbumTracksByKey.get(trackAlbumKey) || []
+                            albumTracks: trackAlbumTracksByKey.get(trackAlbumKey) || [],
+                            allowFullCover: false
                           })
 
                           const liked = likedSet.has(track.path)
@@ -22794,6 +22860,8 @@ export default function App() {
                                     ? undefined
                                     : () => requestVisibleTrackCoverHydration(track)
                                 }
+                                fullCoverSeed={track}
+                                allowFullCoverRequest={true}
                               />
                               <div className="track-text-group">
                                 <div className="track-name" title={track.info.title}>

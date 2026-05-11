@@ -6694,6 +6694,73 @@ app.whenReady().then(async () => {
     })
   })
 
+  ipcMain.handle('metadata:getTrackFullCover', async (_, filePath) => {
+    try {
+      const resolvedPath = resolveMetadataFilePath(filePath)
+      if (!resolvedPath || !existsSync(resolvedPath)) {
+        return { ok: false, error: 'file_not_found' }
+      }
+      const stat = fs.statSync(resolvedPath)
+      const result = await readEmbeddedMetadataBatch({
+        seeds: [
+          {
+            path: resolvedPath,
+            sizeBytes: stat.size,
+            mtimeMs: stat.mtimeMs
+          }
+        ],
+        options: { limit: 1, force: false },
+        userDataPath: app.getPath('userData'),
+        readMetadata: async (readPath) => {
+          const metadataPath = resolveMetadataFilePath(readPath)
+          if (!existsSync(metadataPath)) {
+            return { success: false, error: 'file_not_found' }
+          }
+          return await buildExtendedMetadataResponse(metadataPath, {
+            mode: 'album-wall',
+            includeCover: true,
+            includeTechnicalProbe: false,
+            includeLyrics: false,
+            includeBpm: false,
+            includeMqa: false,
+            coverSize: 'album-thumbnail'
+          })
+        },
+        recoverCover: async (readPath, recoveryOptions = {}) => {
+          const metadataPath = resolveMetadataFilePath(readPath)
+          if (!existsSync(metadataPath)) {
+            return { ok: false, error: 'file_not_found' }
+          }
+          return await recoverEmbeddedCoverForBatch(getCueAudioPath(metadataPath), {
+            ...recoveryOptions,
+            coverMaxDimension: getAlbumThumbnailDimension(),
+            maxDimension: getAlbumThumbnailDimension()
+          })
+        }
+      })
+      const entry = result?.entries?.[resolvedPath] || null
+      if (!entry?.cover) {
+        return {
+          ok: false,
+          error: result?.errors?.[resolvedPath] || 'cover_not_found'
+        }
+      }
+      return {
+        ok: true,
+        cover: entry.cover,
+        coverKey: entry.coverKey || null,
+        coverThumbPath: entry.coverThumbPath || null,
+        coverThumbUrl: entry.coverThumbUrl || null,
+        coverSource: entry.coverSource || null
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error?.message || String(error)
+      }
+    }
+  })
+
   ipcMain.handle('file:detectBpm', async (_, filePath) => {
     try {
       if (isSubsonicTrackPath(filePath) || isJellyfinTrackPath(filePath)) {

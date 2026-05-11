@@ -407,6 +407,23 @@ function pushUniqueCover(covers, seen, cover) {
 }
 
 const REAL_DATA_IMAGE_COVER_RE = /^data:image\/[a-z0-9.+-]+;base64,/i
+const LIST_COVER_FIELDS = [
+  'coverKey',
+  'coverThumbPath',
+  'coverThumbUrl',
+  'coverSource',
+  'coverChecked',
+  'coverExtractorVersion',
+  'coverCacheVersion',
+  'coverThumbBytes',
+  'coverThumbWidth',
+  'coverThumbHeight',
+  'coverScope',
+  'coverThumbnailOnly',
+  'embeddedPictureCount',
+  'fieldSources',
+  'metadataSource'
+]
 
 export function isRealTrackCoverDataUrl(value = '') {
   return REAL_DATA_IMAGE_COVER_RE.test(String(value || '').trim())
@@ -431,6 +448,80 @@ export function hasRealTrackCover(track = null, ...entries) {
   return candidates.some(entryHasRealTrackCover)
 }
 
+function cloneListCoverFields(target = {}, source = {}) {
+  for (const field of LIST_COVER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(source || {}, field)) continue
+    const value = source?.[field]
+    if (field === 'fieldSources' && value && typeof value === 'object') {
+      target[field] = { ...value }
+    } else if (value !== undefined) {
+      target[field] = value
+    }
+  }
+  return target
+}
+
+function stripRealCoverValue(value = '') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return isRealTrackCoverDataUrl(text) ? '' : text
+}
+
+export function buildLightweightTrackForList(track = {}, meta = {}) {
+  if (!track || typeof track !== 'object') return track
+  const next = { ...track }
+  const nextInfo = track.info && typeof track.info === 'object' ? { ...track.info } : null
+  const mergedCoverFields = {}
+  cloneListCoverFields(mergedCoverFields, track)
+  cloneListCoverFields(mergedCoverFields, nextInfo || {})
+  cloneListCoverFields(mergedCoverFields, meta || {})
+
+  const rootCover = stripRealCoverValue(
+    typeof mergedCoverFields.cover === 'string'
+      ? mergedCoverFields.cover
+      : typeof track.cover === 'string'
+        ? track.cover
+        : ''
+  )
+  const infoCover = stripRealCoverValue(
+    typeof mergedCoverFields.cover === 'string'
+      ? mergedCoverFields.cover
+      : typeof track?.info?.cover === 'string'
+        ? track.info.cover
+        : rootCover
+  )
+
+  if (nextInfo) {
+    if (infoCover) nextInfo.cover = infoCover
+    else delete nextInfo.cover
+    for (const field of LIST_COVER_FIELDS) {
+      if (field === 'fieldSources' || field === 'metadataSource') continue
+      if (!Object.prototype.hasOwnProperty.call(mergedCoverFields, field)) continue
+      const value = mergedCoverFields[field]
+      if (value === undefined) continue
+      nextInfo[field] = value
+    }
+    next.info = nextInfo
+  }
+
+  if (rootCover) next.cover = rootCover
+  else delete next.cover
+  for (const field of LIST_COVER_FIELDS) {
+    if (field === 'fieldSources' || field === 'metadataSource') continue
+    if (!Object.prototype.hasOwnProperty.call(mergedCoverFields, field)) continue
+    const value = mergedCoverFields[field]
+    if (value === undefined) continue
+    next[field] = value
+  }
+
+  if (mergedCoverFields.fieldSources) {
+    next.fieldSources = { ...mergedCoverFields.fieldSources }
+  }
+  if (Object.prototype.hasOwnProperty.call(mergedCoverFields, 'metadataSource')) {
+    next.metadataSource = mergedCoverFields.metadataSource
+  }
+  return next
+}
+
 function convertLocalCoverPathToUrl(filePath = '') {
   const value = typeof filePath === 'string' ? filePath.trim() : ''
   if (!value) return ''
@@ -451,13 +542,16 @@ function getCoverThumbnailSource(entry = {}) {
   return coverThumbPath ? convertLocalCoverPathToUrl(coverThumbPath) : ''
 }
 
-export function resolveTrackCoverSources(entry = {}, { preferThumbnail = true } = {}) {
+export function resolveTrackCoverSources(
+  entry = {},
+  { preferThumbnail = true, allowFullCover = true } = {}
+) {
   const sources = []
   const seen = new Set()
   if (preferThumbnail !== false) {
     pushUniqueCover(sources, seen, getCoverThumbnailSource(entry))
   }
-  pushUniqueCover(sources, seen, entry?.cover)
+  if (allowFullCover !== false) pushUniqueCover(sources, seen, entry?.cover)
   return sources
 }
 
@@ -483,6 +577,7 @@ export function buildTrackCoverDebugStats(
   const items = Array.isArray(tracks) ? tracks.slice(0, Math.max(0, Number(limit) || 0)) : []
   const stats = {
     total: items.length,
+    fullCoverCount: 0,
     usingThumbUrl: 0,
     usingThumbPath: 0,
     usingFullCoverFallback: 0,
@@ -501,6 +596,7 @@ export function buildTrackCoverDebugStats(
       typeof entry.coverThumbPath === 'string' ? entry.coverThumbPath.trim() : ''
 
     if (isRealTrackCoverDataUrl(cover)) {
+      stats.fullCoverCount += 1
       coverLengthTotal += cover.length
       coverLengthCount += 1
       stats.maxCoverLength = Math.max(stats.maxCoverLength, cover.length)
@@ -534,7 +630,13 @@ function pushTrackCoverSources(covers, seen, entry, { preferThumbnail = true } =
 
 export function getAlbumCoverCandidates(
   tracks = [],
-  { albumName = '', albumKey = '', albumCoverMap = {}, trackMetaMap = {} } = {}
+  {
+    albumName = '',
+    albumKey = '',
+    albumCoverMap = {},
+    trackMetaMap = {},
+    allowFullCover = true
+  } = {}
 ) {
   const normalizedAlbumName =
     String(
@@ -544,8 +646,10 @@ export function getAlbumCoverCandidates(
   const seen = new Set()
   const normalizedAlbumKey = String(albumKey || '').trim()
 
-  pushUniqueCover(covers, seen, normalizedAlbumKey ? albumCoverMap?.[normalizedAlbumKey] : null)
-  pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
+  if (allowFullCover !== false) {
+    pushUniqueCover(covers, seen, normalizedAlbumKey ? albumCoverMap?.[normalizedAlbumKey] : null)
+    pushUniqueCover(covers, seen, albumCoverMap?.[normalizedAlbumName])
+  }
 
   const trackScopedMetaCovers = []
   for (const track of tracks) {
@@ -558,8 +662,10 @@ export function getAlbumCoverCandidates(
   }
 
   for (const track of tracks) {
-    pushUniqueCover(covers, seen, track?.cover)
-    pushUniqueCover(covers, seen, track?.info?.cover)
+    if (allowFullCover !== false) {
+      pushUniqueCover(covers, seen, track?.cover)
+      pushUniqueCover(covers, seen, track?.info?.cover)
+    }
   }
 
   if (covers.length === 0) covers.push(...trackScopedMetaCovers)
@@ -675,7 +781,8 @@ export function buildTrackArtworkSources(
     effectiveTrackMetaMap = {},
     albumCoverMap = {},
     albumFolderCoverFallbackMap = {},
-    albumTracks = []
+    albumTracks = [],
+    allowFullCover = true
   } = {}
 ) {
   if (!track) return []
@@ -688,10 +795,13 @@ export function buildTrackArtworkSources(
   const effectiveMetaCover =
     (path ? effectiveTrackMetaMap?.[path] || trackMetaMap?.[path] : null) || null
 
-  pushTrackCoverSources(sources, seen, effectiveMetaCover)
-  pushTrackCoverSources(sources, seen, track?.info)
-  pushTrackCoverSources(sources, seen, track)
-  if (!allowAlbumFallback) return sources
+  pushTrackCoverSources(sources, seen, effectiveMetaCover, {
+    preferThumbnail: true,
+    allowFullCover
+  })
+  pushTrackCoverSources(sources, seen, track?.info, { preferThumbnail: true, allowFullCover })
+  pushTrackCoverSources(sources, seen, track, { preferThumbnail: true, allowFullCover })
+  if (!allowAlbumFallback || allowFullCover === false) return sources
 
   pushUniqueCover(sources, seen, albumKey ? albumCoverMap?.[albumKey] : null)
   pushUniqueCover(sources, seen, path ? albumFolderCoverFallbackMap?.[path] : null)
@@ -907,7 +1017,8 @@ export function buildAlbumWallBuckets(
     trackMetaMap = {},
     displayMetadataOverrides = {},
     albumCoverMap = {},
-    mergeAlbumsByCoverAndAlbumArtist = false
+    mergeAlbumsByCoverAndAlbumArtist = false,
+    allowFullCover = true
   } = {}
 ) {
   const identityTrackMetaMap = trackMetaMap || {}
@@ -1005,7 +1116,8 @@ export function buildAlbumWallBuckets(
       albumName: name,
       albumKey: key,
       albumCoverMap,
-      trackMetaMap: identityTrackMetaMap
+      trackMetaMap: identityTrackMetaMap,
+      allowFullCover
     })
     return {
       key,
@@ -1083,7 +1195,13 @@ export function resolveAlbumWallTrackMeta(track, trackMetaMap = {}) {
 
 export function resolveAlbumWallDisplayInfo(
   albumTracks = [],
-  { trackMetaMap = {}, albumCoverMap = {}, albumName = '', albumKey = '' } = {}
+  {
+    trackMetaMap = {},
+    albumCoverMap = {},
+    albumName = '',
+    albumKey = '',
+    allowFullCover = true
+  } = {}
 ) {
   const tracks = Array.isArray(albumTracks) ? albumTracks.filter(Boolean) : []
   const resolved = tracks.map((track) => ({
@@ -1111,7 +1229,8 @@ export function resolveAlbumWallDisplayInfo(
     albumName: displayName,
     albumKey,
     albumCoverMap,
-    trackMetaMap
+    trackMetaMap,
+    allowFullCover
   })
 
   return {
@@ -1409,11 +1528,14 @@ export function buildParsedPlaylistWithCache(
     const meta = manualOverride
       ? mergeTrackMetaWithPriority(baseMeta || {}, manualOverride || {})
       : baseMeta
-    const item = {
-      ...track,
-      originalIdx,
-      info: parseTrackInfo(track, meta)
-    }
+    const item = buildLightweightTrackForList(
+      {
+        ...track,
+        originalIdx,
+        info: parseTrackInfo(track, meta)
+      },
+      meta || {}
+    )
     nextEntries.set(cacheKey, {
       track,
       baseMeta,

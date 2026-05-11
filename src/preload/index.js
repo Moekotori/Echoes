@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('file:getExtendedMetadata', path, options),
   readEmbeddedMetadataBatch: (seeds, options) =>
     ipcRenderer.invoke('metadata:readEmbeddedBatch', seeds, options),
+  getTrackFullCover: (filePath) => ipcRenderer.invoke('metadata:getTrackFullCover', filePath),
   detectBpmHandler: (path) => ipcRenderer.invoke('file:detectBpm', path),
   updateExtendedMetadataHandler: (payload) =>
     ipcRenderer.invoke('file:updateExtendedMetadata', payload),

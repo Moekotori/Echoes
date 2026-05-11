@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Music } from 'lucide-react'
+import { requestTrackFullCover } from '../utils/fullCoverRequest'
 
 const LOCAL_ABSOLUTE_PATH_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
 const SUPPORTED_URL_RE = /^(?:data:image\/|https?:\/\/|file:\/\/|blob:)/i
@@ -24,28 +25,54 @@ export default function TrackArtwork({
   className = '',
   fallbackSize = 17,
   observeVisibility = false,
-  onVisible
+  onVisible,
+  fullCoverSeed = null,
+  allowFullCoverRequest = false
 }) {
   const rootRef = useRef(null)
   const onVisibleRef = useRef(onVisible)
+  const fullCoverRequestKeyRef = useRef('')
+  const [asyncFallbackSource, setAsyncFallbackSource] = useState('')
   const coverSources = useMemo(() => {
     const seen = new Set()
     const unique = []
-    for (const source of sources) {
+    for (const source of [...sources, asyncFallbackSource]) {
       const value = normalizeArtworkSource(source)
       if (!value || seen.has(value)) continue
       seen.add(value)
       unique.push(value)
     }
     return unique
-  }, [sources])
+  }, [asyncFallbackSource, sources])
 
   const [sourceIndex, setSourceIndex] = useState(0)
   const sourceKey = coverSources.join('\u0001')
+  const fullCoverSeedPath =
+    typeof fullCoverSeed === 'string'
+      ? fullCoverSeed.trim()
+      : typeof fullCoverSeed?.path === 'string'
+        ? fullCoverSeed.path.trim()
+        : ''
+
+  const requestAsyncFallback = useMemo(() => {
+    return async () => {
+      if (!allowFullCoverRequest || !fullCoverSeedPath) return ''
+      if (fullCoverRequestKeyRef.current === fullCoverSeedPath) return ''
+      fullCoverRequestKeyRef.current = fullCoverSeedPath
+      const cover = await requestTrackFullCover(fullCoverSeed || fullCoverSeedPath)
+      if (cover) setAsyncFallbackSource(cover)
+      return cover
+    }
+  }, [allowFullCoverRequest, fullCoverSeed, fullCoverSeedPath])
 
   useEffect(() => {
     setSourceIndex(0)
   }, [sourceKey])
+
+  useEffect(() => {
+    setAsyncFallbackSource('')
+    fullCoverRequestKeyRef.current = ''
+  }, [fullCoverSeedPath])
 
   const currentSource = coverSources[sourceIndex] || ''
 
@@ -80,6 +107,12 @@ export default function TrackArtwork({
     return () => observer.disconnect()
   }, [observeVisibility])
 
+  useEffect(() => {
+    if (!allowFullCoverRequest || !fullCoverSeedPath) return undefined
+    if (coverSources.length > 0) return undefined
+    void requestAsyncFallback()
+  }, [allowFullCoverRequest, coverSources.length, fullCoverSeedPath, requestAsyncFallback])
+
   return (
     <div
       ref={rootRef}
@@ -92,7 +125,11 @@ export default function TrackArtwork({
           alt=""
           draggable={false}
           onError={() => {
-            setSourceIndex((index) => (index + 1 < coverSources.length ? index + 1 : coverSources.length))
+            setSourceIndex((index) => {
+              if (index + 1 < coverSources.length) return index + 1
+              void requestAsyncFallback()
+              return coverSources.length
+            })
           }}
         />
       ) : (

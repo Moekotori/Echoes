@@ -114,15 +114,19 @@ function normalizeAlbumKey(value) {
     .toLowerCase()
 }
 
-function getTrackCoverCandidate(track, trackMetaMap = {}, albumCoverMap = {}) {
+function getTrackCoverCandidate(track, trackMetaMap = {}, albumCoverMap = {}, allowFullCover = true) {
   const meta = trackMetaMap[track?.path] || {}
   const albumName = meta.album || track?.info?.album || 'Singles'
-  const metaSources = resolveTrackCoverSources(meta)
-  const trackInfoSources = resolveTrackCoverSources(track?.info)
+  const metaSources = resolveTrackCoverSources(meta, { allowFullCover })
+  const trackInfoSources = resolveTrackCoverSources(track?.info, { allowFullCover })
   const cover =
     metaSources[0] ||
     trackInfoSources[0] ||
-    (albumName && typeof albumCoverMap[albumName] === 'string' ? albumCoverMap[albumName] : '') ||
+    (allowFullCover !== false &&
+    albumName &&
+    typeof albumCoverMap[albumName] === 'string'
+      ? albumCoverMap[albumName]
+      : '') ||
     null
   if (!cover) return null
   const coverSources =
@@ -190,7 +194,8 @@ export function buildArtistBucketsWithAvatars(
     unknownArtist = 'Unknown Artist',
     trackMetaMap = {},
     albumCoverMap = {},
-    artistAvatarMap = {}
+    artistAvatarMap = {},
+    allowFullCover = true
   } = {}
 ) {
   const groups = new Map()
@@ -223,7 +228,12 @@ export function buildArtistBucketsWithAvatars(
     if (!albumArtistSets.has(albumKey)) albumArtistSets.set(albumKey, new Set())
     if (artistToken && !unknown) albumArtistSets.get(albumKey).add(artistToken)
 
-    const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
+    const coverCandidate = getTrackCoverCandidate(
+      track,
+      trackMetaMap,
+      albumCoverMap,
+      allowFullCover
+    )
     const fingerprint = coverFingerprint(coverCandidate?.fullCover || coverCandidate?.cover)
     if (fingerprint && artistToken && !unknown) {
       if (!coverArtistSets.has(fingerprint)) coverArtistSets.set(fingerprint, new Set())
@@ -240,7 +250,12 @@ export function buildArtistBucketsWithAvatars(
     let best = null
 
     for (const track of artistBucket.tracks) {
-      const coverCandidate = getTrackCoverCandidate(track, trackMetaMap, albumCoverMap)
+      const coverCandidate = getTrackCoverCandidate(
+        track,
+        trackMetaMap,
+        albumCoverMap,
+        allowFullCover
+      )
       if (!coverCandidate?.cover) continue
       const fingerprint = coverFingerprint(coverCandidate.fullCover || coverCandidate.cover)
       const sharedArtistCount = coverArtistSets.get(fingerprint)?.size || 0
