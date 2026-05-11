@@ -850,6 +850,17 @@ function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
+
+  // On Linux some window managers need extra help to bring the window forward.
+  if (process.platform === 'linux') {
+    try {
+      mainWindow.setAlwaysOnTop(true)
+      mainWindow.setAlwaysOnTop(false)
+    } catch {
+      /* best-effort */
+    }
+  }
+
   mainWindow.focus()
 }
 
@@ -884,7 +895,14 @@ function restoreMainWindowAfterMiniPlayer() {
 
 function toggleMainWindowVisibility() {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  if (mainWindow.isVisible()) {
+
+  // On some Linux DEs / Wayland, isVisible() may not be reliable.
+  // Use a combination of checks: isMinimized implies the window exists
+  // but is not on-screen, so we should show it regardless.
+  const visible = mainWindow.isVisible()
+  const minimized = mainWindow.isMinimized()
+
+  if (visible && !minimized) {
     mainWindow.hide()
     return
   }
@@ -1028,6 +1046,8 @@ function createTray() {
   tray.setToolTip('ECHO')
   refreshTrayMenu(audioEngine.getStatus())
 
+  // Left-click toggles window visibility; right-click opens context menu.
+  // This behaviour is consistent across platforms.
   tray.on('click', () => {
     toggleMainWindowVisibility()
   })
