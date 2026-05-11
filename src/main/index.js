@@ -7150,6 +7150,26 @@ app.whenReady().then(async () => {
     audioEngine.showVstPluginUI()
   })
 
+  // Rebuild metadata cache: collect all audio file paths from imported folders.
+  ipcMain.handle('metadata:rebuildCache', async () => {
+    const state = readAppStateJson()
+    const folders = state?.importedFolders || []
+    if (!folders.length) return { success: false, error: 'no imported folders' }
+
+    const allFiles = []
+    for (const folder of folders) {
+      try {
+        const files = await collectAudioFilesRecursive(folder)
+        allFiles.push(...files.map((f) => (typeof f === 'string' ? f : f?.path || '')))
+      } catch {
+        // skip inaccessible folders
+      }
+    }
+
+    const paths = [...new Set(allFiles.filter(Boolean))]
+    return { success: true, paths, total: paths.length }
+  })
+
   // Start polling playback status
   let lastBroadcastAudioStatus = null
   let lastBroadcastAudioStatusAt = 0
