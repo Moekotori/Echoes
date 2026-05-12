@@ -1,6 +1,6 @@
 {
   "name": "echo-next",
-  "version": "0.0.0",
+  "version": "1.0.1",
   "description": "ECHO Next Phase 0 desktop music app shell.",
   "main": "out/main/index.js",
   "type": "module",
@@ -14,7 +14,7 @@
     "rebuild:native:node": "npm rebuild better-sqlite3",
     "sync:audio-host": "node scripts/sync-audio-host.mjs",
     "build": "npm run typecheck && electron-vite build",
-    "build:win": "npm run rebuild:native && npm run build:audio-host && npm run build",
+    "build:win": "npm run rebuild:native && npm run build:audio-host && npm run build && electron-builder --win",
     "check:encoding": "node scripts/check-encoding.mjs",
     "lint": "npm run check:encoding && eslint .",
     "pretest": "npm run rebuild:native:node",
@@ -50,11 +50,54 @@
     "@typescript-eslint/eslint-plugin": "^7.1.0",
     "@typescript-eslint/parser": "^7.1.0",
     "electron": "^37.10.3",
+    "electron-builder": "^26.8.1",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.3.3",
     "vite": "^7.3.3",
     "vitest": "^4.1.6"
+  },
+  "build": {
+    "appId": "app.echo.next",
+    "productName": "ECHO Next",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron-app/build/echo-audio-host.exe",
+        "to": "echo-audio-host.exe"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/build/Release/*.node",
+      "node_modules/sharp/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

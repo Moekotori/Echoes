@@ -355,25 +355,58 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('exclusive ready sample-rate mismatch fails before decoder resampling can start', async () => {
-    const { decoder, session } = createSessionHarness([probe('441.flac', 44100)], [48000]);
+  it('falls back to shared output when exclusive opens at the wrong sample rate', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100)], [48000, 48000]);
 
-    await expect(
-      session.playLocalFile({
-        filePath: '441.flac',
-        output: { outputMode: 'exclusive' },
-      }),
-    ).rejects.toThrow('exclusive_output_sample_rate_mismatch:44100->48000');
+    const status = await session.playLocalFile({
+      filePath: '441.flac',
+      output: { outputMode: 'exclusive' },
+    });
 
-    const status = session.getStatus();
-
-    expect(status.requestedOutputSampleRate).toBe(44100);
-    expect(status.decoderOutputSampleRate).toBe(44100);
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges[0].startOptions).toMatchObject({ exclusive: true, requestedOutputSampleRate: 44100 });
+    expect(bridges[1].startOptions).toMatchObject({ exclusive: false, requestedOutputSampleRate: 44100 });
+    expect(status.outputMode).toBe('shared');
+    expect(status.outputBackend).toBe('wasapi-shared');
     expect(status.actualDeviceSampleRate).toBe(48000);
-    expect(status.sampleRateMismatch).toBe(true);
-    expect(status.warnings).toContain('actual_device_sample_rate_mismatch:44100->48000');
-    expect(status.error).toBe('exclusive_output_sample_rate_mismatch:44100->48000');
-    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.requestedOutputSampleRate).toBe(48000);
+    expect(status.sampleRateMismatch).toBe(false);
+    expect(status.resampling).toBe(true);
+    expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
+    expect(status.warnings).toContain('shared_output_resampling_or_mixer_rate_difference');
+    expect(status.error).toBeNull();
+    expect(decoder.decodeRequests[0]).toMatchObject({
+      filePath: '441.flac',
+      decoderOutputSampleRate: 48000,
+    });
+  });
+
+  it('falls back to shared output when exclusive startup fails', async () => {
+    const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
+    const failingBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
+    const fallbackBridge = new FakeBridge(48000);
+    const bridges = [failingBridge, fallbackBridge];
+    const session = new AudioSession({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'exclusive' },
+    });
+
+    expect(failingBridge.stop).toHaveBeenCalledTimes(1);
+    expect(failingBridge.startOptions).toMatchObject({ exclusive: true });
+    expect(fallbackBridge.startOptions).toMatchObject({ exclusive: false });
+    expect(status.state).toBe('playing');
+    expect(status.outputMode).toBe('shared');
+    expect(status.outputBackend).toBe('wasapi-shared');
+    expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
+    expect(status.error).toBeNull();
   });
 
   it('ASIO ready metadata is exposed in AudioStatus', async () => {
@@ -867,6 +900,15 @@ describe('DecoderPipeline ffmpeg resolution', () => {
         systemFfmpegPath: 'system-ffmpeg',
       }),
     ).toBe('static-ffmpeg');
+  });
+
+  it('uses app.asar.unpacked for packaged ffmpeg-static paths', () => {
+    expect(
+      resolveDecoderFfmpegPath({
+        env: {},
+        staticFfmpegPath: join('C:', 'App', 'resources', 'app.asar', 'node_modules', 'ffmpeg-static', 'ffmpeg.exe'),
+      }),
+    ).toBe(join('C:', 'App', 'resources', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg.exe'));
   });
 
   it('normalizes missing spawn errors to ffmpeg_missing', async () => {

@@ -74,6 +74,12 @@ const hasExplicitDeviceSelection = (settings: AudioOutputSettings): boolean => {
   return Number.isInteger(Number(settings.deviceIndex)) || Boolean(settings.deviceName);
 };
 
+const createSharedFallbackSettings = (settings: AudioOutputSettings): AudioOutputSettings => ({
+  ...settings,
+  outputMode: 'shared',
+  requestedOutputSampleRate: undefined,
+});
+
 const createProbeFromHint = (filePath: string, hint: AudioSessionPlayRequest['probe']): AudioProbeResult | null => {
   if (!hint) {
     return null;
@@ -284,6 +290,7 @@ export class AudioSession extends EventEmitter {
   private decoderRun: DecoderRun | null = null;
   private gainTransform: PcmVolumeTransform | null = null;
   private errorMessage: string | null = null;
+  private outputWarnings: string[] = [];
   private pausedPositionSeconds: number | null = null;
   private runToken = 0;
 
@@ -376,6 +383,7 @@ export class AudioSession extends EventEmitter {
     this.state = 'loading';
     this.hostStatus = 'starting';
     this.errorMessage = null;
+    this.outputWarnings = [];
     this.currentFilePath = request.filePath;
     this.currentTrackId = request.trackId ?? null;
     this.pausedPositionSeconds = null;
@@ -404,10 +412,29 @@ export class AudioSession extends EventEmitter {
       const probe = createProbeFromHint(request.filePath, request.probe) ?? await this.decoder.probeLocalFile(request.filePath);
       this.assertCurrentRun(token);
       this.currentProbe = probe;
-      const { bridge, plan, ready } = await this.startOutputBridgeForProbe(probe, token, request.startSeconds ?? 0);
+      let { bridge, plan, ready } = await this.startOutputBridgeForProbe(probe, token, request.startSeconds ?? 0);
       this.assertCurrentRun(token);
       this.applyReadyResult(ready);
-      this.assertReadySampleRateConsistent();
+      try {
+        this.assertReadySampleRateConsistent();
+      } catch (error) {
+        const failedPlan = this.currentPlan as SampleRatePlan | null;
+        if (failedPlan?.outputMode !== 'exclusive') {
+          throw error;
+        }
+
+        const fallback = await this.startSharedFallbackForProbe(
+          probe,
+          token,
+          request.startSeconds ?? 0,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        bridge = fallback.bridge;
+        plan = fallback.plan;
+        ready = fallback.ready;
+        this.assertCurrentRun(token);
+        this.applyReadyResult(ready);
+      }
       this.logger(
         `[AudioSession] host ready: requested=${ready.requestedOutputSampleRate} actual=${
           ready.actualDeviceSampleRate ?? 'n/a'
@@ -576,6 +603,11 @@ export class AudioSession extends EventEmitter {
     const dspActive = eqState.enabled;
     const bitPerfectDisabledReason = dspActive ? 'eq_enabled' : null;
     const warnings = [...(plan?.warnings ?? [])];
+    for (const warning of this.outputWarnings) {
+      if (!warnings.includes(warning)) {
+        warnings.push(warning);
+      }
+    }
 
     if (dspActive) {
       warnings.push('eq_enabled_bit_perfect_disabled');
@@ -883,13 +915,111 @@ export class AudioSession extends EventEmitter {
           this.bridge = null;
         }
 
-        if (hasExplicitDeviceSelection(this.currentOutputSettings) && outputMode !== 'asio') {
+        if (hasExplicitDeviceSelection(this.currentOutputSettings) && outputMode === 'shared') {
           throw lastError;
         }
       }
     }
 
+    if (normalizeOutputMode(this.currentOutputSettings.outputMode) === 'exclusive') {
+      const fallbackSettings = createSharedFallbackSettings(this.currentOutputSettings);
+      const fallbackDevice = createDeviceFromOutputSettings(fallbackSettings);
+      this.assertCurrentRun(token);
+      this.currentOutputSettings = fallbackSettings;
+      this.currentDevice = fallbackDevice;
+      this.currentPlan = this.createSampleRatePlan(probe, fallbackSettings, fallbackDevice);
+      this.outputWarnings.push('exclusive_output_fell_back_to_shared');
+      this.logger(
+        `[AudioSession] exclusive output failed; falling back to shared output: ${
+          lastError?.message ?? 'unknown exclusive output error'
+        }`,
+      );
+      this.clock.reset(startSeconds, this.currentPlan.requestedOutputSampleRate);
+
+      const bridge = this.createBridge();
+      this.bridge = bridge;
+      this.attachBridgeEvents(bridge, token);
+
+      try {
+        const ready = await bridge.start({
+          requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+          channels: probe.channels,
+          deviceIndex: fallbackDevice?.index ?? fallbackSettings.deviceIndex,
+          deviceName: fallbackDevice?.name ?? fallbackSettings.deviceName,
+          asio: false,
+          exclusive: false,
+          volume: fallbackSettings.volume,
+          startSeconds,
+          playbackRate: fallbackSettings.playbackRate,
+          playbackSpeedMode: fallbackSettings.playbackSpeedMode,
+        });
+
+        return { bridge, plan: this.currentPlan, ready };
+      } catch (error) {
+        const fallbackError = error instanceof Error ? error : new Error(String(error));
+        this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
+        bridge.stop();
+        if (this.bridge === bridge) {
+          this.bridge = null;
+        }
+        throw lastError ?? fallbackError;
+      }
+    }
+
     throw lastError ?? new Error('no output device candidates available');
+  }
+
+  private async startSharedFallbackForProbe(
+    probe: AudioProbeResult,
+    token: number,
+    startSeconds: number,
+    cause: Error,
+  ): Promise<BridgeStartResult> {
+    if (!this.currentOutputSettings) {
+      throw new Error('audio output settings unavailable');
+    }
+
+    this.bridge?.stop();
+    this.bridge = null;
+
+    const fallbackSettings = createSharedFallbackSettings(this.currentOutputSettings);
+    const fallbackDevice = createDeviceFromOutputSettings(fallbackSettings);
+    this.assertCurrentRun(token);
+    this.currentOutputSettings = fallbackSettings;
+    this.currentDevice = fallbackDevice;
+    this.currentPlan = this.createSampleRatePlan(probe, fallbackSettings, fallbackDevice);
+    this.outputWarnings.push('exclusive_output_fell_back_to_shared');
+    this.logger(`[AudioSession] exclusive output failed; falling back to shared output: ${cause.message}`);
+    this.clock.reset(startSeconds, this.currentPlan.requestedOutputSampleRate);
+
+    const bridge = this.createBridge();
+    this.bridge = bridge;
+    this.attachBridgeEvents(bridge, token);
+
+    try {
+      const ready = await bridge.start({
+        requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+        channels: probe.channels,
+        deviceIndex: fallbackDevice?.index ?? fallbackSettings.deviceIndex,
+        deviceName: fallbackDevice?.name ?? fallbackSettings.deviceName,
+        asio: false,
+        exclusive: false,
+        volume: fallbackSettings.volume,
+        startSeconds,
+        playbackRate: fallbackSettings.playbackRate,
+        playbackSpeedMode: fallbackSettings.playbackSpeedMode,
+      });
+
+      return { bridge, plan: this.currentPlan, ready };
+    } catch (error) {
+      const fallbackError = error instanceof Error ? error : new Error(String(error));
+      this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
+      bridge.stop();
+      if (this.bridge === bridge) {
+        this.bridge = null;
+      }
+      throw cause;
+    }
   }
 
   private attachBridgeEvents(bridge: OutputBridgeLike, token: number): void {

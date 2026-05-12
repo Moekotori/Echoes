@@ -30,6 +30,12 @@ const normalizePath = (value: unknown): string | null => {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 };
 
+const normalizeAsarUnpackedPath = (path: string): string => {
+  return path.includes('app.asar') && !path.includes('app.asar.unpacked')
+    ? path.replace('app.asar', 'app.asar.unpacked')
+    : path;
+};
+
 const defaultLogger = (message: string): void => {
   console.warn(message);
 };
@@ -66,21 +72,22 @@ const createDecoderError = (
 export const resolveDecoderFfmpegPath = (dependencies: DecoderPipelineDependencies = {}): string => {
   const explicitPath = normalizePath(dependencies.ffmpegPath);
   if (explicitPath) {
-    return explicitPath;
+    return normalizeAsarUnpackedPath(explicitPath);
   }
 
   const envPath = normalizePath(dependencies.env?.ECHO_FFMPEG_PATH ?? process.env.ECHO_FFMPEG_PATH);
   if (envPath) {
-    return envPath;
+    return normalizeAsarUnpackedPath(envPath);
   }
 
   const staticPath =
     dependencies.staticFfmpegPath === undefined ? normalizePath(ffmpegStatic) : normalizePath(dependencies.staticFfmpegPath);
   if (staticPath) {
-    return staticPath;
+    return normalizeAsarUnpackedPath(staticPath);
   }
 
-  return normalizePath(dependencies.systemFfmpegPath) ?? 'ffmpeg';
+  const systemPath = normalizePath(dependencies.systemFfmpegPath) ?? 'ffmpeg';
+  return normalizeAsarUnpackedPath(systemPath);
 };
 
 const normalizeSpawnError = (error: Error & { code?: string }): Error => {
