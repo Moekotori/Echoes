@@ -15,9 +15,11 @@ import type {
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  MissingMetadataScanOptions,
   MissingMetadataScanResult,
   NetworkApplyResult,
   NetworkCandidateList,
+  NetworkMetadataScanJobStatus,
   NetworkRepairResult,
   NetworkTagCandidate,
   NetworkTagCandidateSearchRequest,
@@ -92,7 +94,9 @@ export type EchoApi = {
     pruneMissingTracks: () => Promise<LibraryCleanupResult>;
     clearTracks: () => Promise<LibraryCleanupResult>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
-    scanMissingMetadata: (limit?: number) => Promise<MissingMetadataScanResult>;
+    scanMissingMetadata: (options?: number | MissingMetadataScanOptions) => Promise<MissingMetadataScanResult>;
+    startMissingMetadataScan: (options?: number | MissingMetadataScanOptions) => Promise<NetworkMetadataScanJobStatus>;
+    getMissingMetadataScanStatus: (jobId: string) => Promise<NetworkMetadataScanJobStatus>;
     showNetworkCandidates: (trackId: string) => Promise<NetworkCandidateList>;
     searchNetworkTagCandidates: (
       trackId: string,

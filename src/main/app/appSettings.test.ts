@@ -21,6 +21,7 @@ describe('app settings normalization', () => {
 
     expect(settings.coverCacheDir).toBeNull();
     expect(settings.albumMergeStrategy).toBe('standard');
+    expect(settings.artistWallAlbumArtwork).toBe(false);
     expect(settings.hideToTrayOnClose).toBe(true);
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
   });
@@ -43,6 +44,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).albumMergeStrategy).toBe('standard');
     expect(normalizeSettings({ albumMergeStrategy: 'sameTitleAndCover' }).albumMergeStrategy).toBe('sameTitleAndCover');
     expect(normalizeSettings({ albumMergeStrategy: 'loose' as never }).albumMergeStrategy).toBe('standard');
+  });
+
+  it('normalizes artist wall album artwork setting as disabled by default', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).artistWallAlbumArtwork).toBe(false);
+    expect(normalizeSettings({ artistWallAlbumArtwork: 'yes' as never }).artistWallAlbumArtwork).toBe(false);
+    expect(normalizeSettings({ artistWallAlbumArtwork: true }).artistWallAlbumArtwork).toBe(true);
   });
 
   it('normalizes channel balance settings for old and malformed settings files', async () => {

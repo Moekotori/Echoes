@@ -2,6 +2,7 @@ import type { ChannelBalanceState, PlaybackSpeedMode } from './audio';
 
 export type AppSettings = {
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
+  artistWallAlbumArtwork: boolean;
   coverCacheDir: string | null;
   hideToTrayOnClose: boolean;
   networkMetadataEnabled: boolean;

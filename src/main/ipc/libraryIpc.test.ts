@@ -178,7 +178,16 @@ describe('library IPC', () => {
 
   it('registers artist detail IPC handlers with normalized queries', async () => {
     const service = installLibraryService();
-    service.getArtist.mockReturnValue({ id: 'artist-1', name: 'Suara', sortName: 'suara', role: 'both', trackCount: 2, albumCount: 1 });
+    service.getArtist.mockReturnValue({
+      id: 'artist-1',
+      name: 'Suara',
+      sortName: 'suara',
+      role: 'both',
+      trackCount: 2,
+      albumCount: 1,
+      coverId: null,
+      coverThumb: null,
+    });
     service.getArtistTracks.mockReturnValue({ items: [], page: 1, pageSize: 50, total: 0, hasMore: false });
     service.getArtistAlbums.mockReturnValue({ items: [], page: 1, pageSize: 12, total: 0, hasMore: false });
 

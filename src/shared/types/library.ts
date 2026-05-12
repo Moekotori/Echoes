@@ -261,6 +261,8 @@ export type LibraryArtist = {
   role: 'track' | 'album' | 'both';
   trackCount: number;
   albumCount: number;
+  coverId: string | null;
+  coverThumb: string | null;
 };
 
 export type LibraryPage<T> = {
@@ -322,7 +324,35 @@ export type NetworkRepairResult = NetworkCandidateList & {
   errors: string[];
 };
 
-export type MissingMetadataReason = 'missing_cover' | 'unknown_artist' | 'filename_fallback' | 'unknown_field';
+export type MissingMetadataField =
+  | 'cover'
+  | 'title'
+  | 'artist'
+  | 'album'
+  | 'albumArtist'
+  | 'trackNo'
+  | 'discNo'
+  | 'year'
+  | 'genre';
+
+export type MissingMetadataScanOptions = {
+  limit?: number;
+  fields?: MissingMetadataField[];
+};
+
+export type MissingMetadataReason =
+  | 'missing_cover'
+  | 'missing_title'
+  | 'missing_artist'
+  | 'missing_album'
+  | 'missing_album_artist'
+  | 'missing_track_no'
+  | 'missing_disc_no'
+  | 'missing_year'
+  | 'missing_genre'
+  | 'unknown_artist'
+  | 'filename_fallback'
+  | 'unknown_field';
 
 export type MissingMetadataScanItem = {
   track: LibraryTrack;
@@ -335,4 +365,14 @@ export type MissingMetadataScanResult = {
   scannedCount: number;
   candidateCount: number;
   errors: string[];
+};
+
+export type NetworkMetadataScanJobStatus = MissingMetadataScanResult & {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  totalTracks: number;
+  processedTracks: number;
+  startedAt: string;
+  finishedAt: string | null;
+  currentTrackTitle: string | null;
 };

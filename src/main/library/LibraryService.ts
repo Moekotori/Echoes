@@ -36,7 +36,9 @@ import type {
 } from './libraryTypes';
 import type {
   EmbeddedTrackTagsLoadResult,
+  MissingMetadataField,
   MissingMetadataScanResult,
+  NetworkMetadataScanJobStatus,
   NetworkApplyResult,
   NetworkTagCandidate,
   NetworkTagCandidateSearchRequest,
@@ -358,12 +360,36 @@ export class LibraryService {
     return this.networkMetadataService.repairMissingMetadata(trackId, providerNames);
   }
 
-  async scanMissingMetadata(limit: number, providerNames?: AppSettings['networkMetadataProviders']): Promise<MissingMetadataScanResult> {
+  async scanMissingMetadata(
+    limit: number,
+    providerNames?: AppSettings['networkMetadataProviders'],
+    fields?: MissingMetadataField[],
+  ): Promise<MissingMetadataScanResult> {
     if (!this.networkMetadataService) {
       throw new Error('Network metadata service is unavailable');
     }
 
-    return this.networkMetadataService.scanMissingMetadata(limit, providerNames);
+    return this.networkMetadataService.scanMissingMetadata(limit, providerNames, fields);
+  }
+
+  startMissingMetadataScan(
+    limit: number,
+    providerNames?: AppSettings['networkMetadataProviders'],
+    fields?: MissingMetadataField[],
+  ): NetworkMetadataScanJobStatus {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.startMissingMetadataScan(limit, providerNames, fields);
+  }
+
+  getMissingMetadataScanStatus(jobId: string): NetworkMetadataScanJobStatus {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.getMissingMetadataScanStatus(jobId);
   }
 
   showNetworkCandidates(trackId: string): NetworkCandidateList {

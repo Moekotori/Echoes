@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { RefreshCw, Search, Wand2 } from 'lucide-react';
-import type { LibraryTrack, MissingMetadataScanItem, NetworkCandidateList } from '../../../shared/types/library';
+import type {
+  LibraryTrack,
+  MissingMetadataField,
+  MissingMetadataScanItem,
+  NetworkCandidateList,
+  NetworkMetadataScanJobStatus,
+} from '../../../shared/types/library';
 import { useI18n } from '../../i18n/I18nProvider';
+import type { TranslationKey } from '../../i18n/locales';
 import { getAudioBridge, getLibraryBridge, getPlaybackBridge } from '../../utils/echoBridge';
 import { NetworkCandidateCard } from './NetworkCandidateCard';
 
@@ -16,6 +23,18 @@ const fieldLabels: Record<string, string> = {
   trackNo: '音轨',
   year: '年份',
 };
+
+const missingFilterOptions: Array<{ field: MissingMetadataField; label: string }> = [
+  { field: 'cover', label: '封面' },
+  { field: 'title', label: '标题' },
+  { field: 'artist', label: '艺人' },
+  { field: 'album', label: '专辑' },
+  { field: 'albumArtist', label: '专辑艺人' },
+  { field: 'trackNo', label: '音轨号' },
+  { field: 'discNo', label: '碟号' },
+  { field: 'year', label: '年份' },
+  { field: 'genre', label: '流派' },
+];
 
 const resultReasonText = (reason: string | undefined): string => {
   switch (reason) {
@@ -36,6 +55,41 @@ const resultReasonText = (reason: string | undefined): string => {
   }
 };
 
+const delay = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const scanPercent = (status: NetworkMetadataScanJobStatus): number => {
+  if (status.status === 'completed') {
+    return 100;
+  }
+
+  if (status.status === 'failed') {
+    return status.totalTracks > 0 ? Math.round((status.processedTracks / status.totalTracks) * 100) : 100;
+  }
+
+  if (status.totalTracks <= 0) {
+    return status.status === 'queued' ? 5 : 10;
+  }
+
+  return Math.max(1, Math.min(99, Math.round((status.processedTracks / status.totalTracks) * 100)));
+};
+
+const scanLabel = (status: NetworkMetadataScanJobStatus, t: (key: TranslationKey) => string): string => {
+  if (status.status === 'queued') {
+    return t('settings.library.networkPanel.scanPreparing');
+  }
+
+  if (status.status === 'completed') {
+    return t('settings.library.networkPanel.scanComplete');
+  }
+
+  if (status.status === 'failed') {
+    return 'Scan failed';
+  }
+
+  const currentTrack = status.currentTrackTitle ? `: ${status.currentTrackTitle}` : '';
+  return `${t('settings.library.networkPanel.scanRunning')} ${status.processedTracks}/${status.totalTracks}${currentTrack}`;
+};
+
 export const NetworkMetadataPanel = (): JSX.Element => {
   const { t } = useI18n();
   const [trackId, setTrackId] = useState('');
@@ -45,27 +99,15 @@ export const NetworkMetadataPanel = (): JSX.Element => {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [selectedMissingFields, setSelectedMissingFields] = useState<MissingMetadataField[]>(['cover']);
   const [scanProgress, setScanProgress] = useState<{ label: string; percent: number } | null>(null);
   const [candidateFeedback, setCandidateFeedback] = useState<Record<string, { tone: 'success' | 'info' | 'warning'; text: string }>>({});
 
-  useEffect(() => {
-    if (!busy || !scanProgress || scanProgress.percent >= 100) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      setScanProgress((current) => {
-        if (!current || current.percent >= 92) {
-          return current;
-        }
-
-        const increment = current.percent < 55 ? 7 : current.percent < 78 ? 4 : 1;
-        return { ...current, percent: Math.min(92, current.percent + increment) };
-      });
-    }, 450);
-
-    return () => window.clearInterval(timer);
-  }, [busy, scanProgress]);
+  const toggleMissingField = useCallback((field: MissingMetadataField): void => {
+    setSelectedMissingFields((current) =>
+      current.includes(field) ? current.filter((item) => item !== field) : [...current, field],
+    );
+  }, []);
 
   const findTrackByExactId = useCallback(async (targetTrackId: string): Promise<LibraryTrack | null> => {
     const library = getLibraryBridge();
@@ -223,10 +265,11 @@ export const NetworkMetadataPanel = (): JSX.Element => {
 
   const scanMissing = useCallback(async (): Promise<void> => {
     setBusy(true);
-    setScanProgress({ label: t('settings.library.networkPanel.scanPreparing'), percent: 8 });
-    setMessage('正在扫描缺失元数据，网络来源较慢时可能需要几十秒...');
+    setScanProgress({ label: t('settings.library.networkPanel.scanPreparing'), percent: 5 });
+    setMessage('正在后台筛选缺失文字元数据的曲目，然后扫描网络来源。切去听歌也会继续跑。');
     setTrack(null);
     setCandidates({ metadata: [], covers: [] });
+    setScanItems([]);
     setCandidateFeedback({});
 
     try {
@@ -238,16 +281,30 @@ export const NetworkMetadataPanel = (): JSX.Element => {
         return;
       }
 
-      setScanProgress({ label: t('settings.library.networkPanel.scanRunning'), percent: 18 });
-      const result = await library.scanMissingMetadata(500);
-      setScanItems(result.items);
-      setScanProgress({ label: t('settings.library.networkPanel.scanComplete'), percent: 100 });
+      let status = await library.startMissingMetadataScan({ limit: 500, fields: selectedMissingFields });
+      setScanItems(status.items);
+      setScanProgress({ label: scanLabel(status, t), percent: scanPercent(status) });
+
+      while (status.status === 'queued' || status.status === 'running') {
+        await delay(1000);
+        status = await library.getMissingMetadataScanStatus(status.id);
+        setScanItems(status.items);
+        setScanProgress({ label: scanLabel(status, t), percent: scanPercent(status) });
+        setMessage(
+          status.totalTracks > 0
+            ? `${t('settings.library.networkPanel.scanDone')} ${status.processedTracks}/${status.totalTracks}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}`
+            : '没有需要网络扫描的缺失文字元数据曲目。',
+        );
+      }
+
+      setScanItems(status.items);
+      setScanProgress({ label: scanLabel(status, t), percent: scanPercent(status) });
       setMessage(
-        result.errors.length
-          ? `${t('settings.library.networkPanel.scanDone')} ${result.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${result.candidateCount}; ${t('settings.library.networkPanel.providerErrors')} ${result.errors.length}`
-          : result.candidateCount
-            ? `${t('settings.library.networkPanel.scanDone')} ${result.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${result.candidateCount}`
-            : `${t('settings.library.networkPanel.scanDone')} ${result.scannedCount}; no candidates found from the enabled providers`,
+        status.errors.length
+          ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}; ${t('settings.library.networkPanel.providerErrors')} ${status.errors.length}`
+          : status.candidateCount
+            ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}`
+            : `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; no candidates found from the enabled providers`,
       );
     } catch (scanError) {
       setMessage(scanError instanceof Error ? scanError.message : String(scanError));
@@ -255,7 +312,7 @@ export const NetworkMetadataPanel = (): JSX.Element => {
     } finally {
       setBusy(false);
     }
-  }, [t]);
+  }, [selectedMissingFields, t]);
 
   const mutateCandidate = useCallback(
     async (candidateId: string, action: 'missing' | 'selected' | 'reject'): Promise<void> => {
@@ -456,6 +513,31 @@ export const NetworkMetadataPanel = (): JSX.Element => {
           placeholder={`${t('settings.library.networkPanel.trackId')} / title / artist`}
         />
       </label>
+
+      <div className="network-missing-filter">
+        <span>筛选缺失</span>
+        <div className="settings-chip-row settings-chip-row--left">
+          <button
+            className={`network-missing-filter-chip ${selectedMissingFields.length === 0 ? 'active' : ''}`}
+            disabled={busy}
+            type="button"
+            onClick={() => setSelectedMissingFields([])}
+          >
+            全部
+          </button>
+          {missingFilterOptions.map((option) => (
+            <button
+              className={`network-missing-filter-chip ${selectedMissingFields.includes(option.field) ? 'active' : ''}`}
+              disabled={busy}
+              key={option.field}
+              type="button"
+              onClick={() => toggleMissingField(option.field)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="settings-chip-row">
         <button className="settings-action-button" type="button" disabled={busy} onClick={() => void scanMissing()}>

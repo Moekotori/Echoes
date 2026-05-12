@@ -291,6 +291,42 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 9,
+    apply: (database) => {
+      addColumnIfMissing(database, 'artists', 'cover_id', 'cover_id TEXT');
+    },
+  },
+  {
+    id: 10,
+    apply: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS artist_tracks (
+          artist_id TEXT NOT NULL,
+          track_id TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (artist_id, track_id),
+          FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+          FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS artist_albums (
+          artist_id TEXT NOT NULL,
+          album_id TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          PRIMARY KEY (artist_id, album_id),
+          FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+          FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_artist_tracks_artist_id ON artist_tracks(artist_id);
+        CREATE INDEX IF NOT EXISTS idx_artist_tracks_track_id ON artist_tracks(track_id);
+        CREATE INDEX IF NOT EXISTS idx_artist_albums_artist_id ON artist_albums(artist_id);
+        CREATE INDEX IF NOT EXISTS idx_artist_albums_album_id ON artist_albums(album_id);
+      `);
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

@@ -249,6 +249,7 @@ const createHarness = (
     coverCacheDir,
     appSettings: () => ({
       albumMergeStrategy,
+      artistWallAlbumArtwork: false,
       coverCacheDir,
       hideToTrayOnClose: false,
       networkMetadataEnabled: false,
@@ -345,6 +346,8 @@ describe('Library Core', () => {
         'albums',
         'album_tracks',
         'artists',
+        'artist_tracks',
+        'artist_albums',
         'covers',
         'scan_jobs',
         'playback_history',
@@ -361,6 +364,10 @@ describe('Library Core', () => {
         'idx_albums_album_key',
         'idx_album_tracks_album_id',
         'idx_album_tracks_track_id',
+        'idx_artist_tracks_artist_id',
+        'idx_artist_tracks_track_id',
+        'idx_artist_albums_artist_id',
+        'idx_artist_albums_album_id',
         'idx_folders_path',
         'idx_covers_id',
         'idx_playback_history_started_at',
@@ -377,7 +384,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     reopened.close();
   });
 
@@ -1312,6 +1319,129 @@ describe('Library Core', () => {
     expect(firstPage.hasMore).toBe(true);
     expect(secondPage.items).toHaveLength(1);
     expect(secondPage.items[0].title).toBe('Second Album');
+    harness.cleanup();
+  });
+
+  it('splits collaboration artists into shared artist entries without splitting Japanese group punctuation', async () => {
+    const harness = createHarness();
+    const duet = writeAudioFile(harness.folder, 'Duet.flac');
+    const solo = writeAudioFile(harness.folder, 'Solo.flac');
+    const comma = writeAudioFile(harness.folder, 'Comma.flac');
+    const japaneseGroup = writeAudioFile(harness.folder, 'JapaneseGroup.flac');
+    const repeated = writeAudioFile(harness.folder, 'Repeated.flac');
+    harness.metadataService.overrides.set(
+      duet,
+      baseMetadata({ title: 'Duet Song', artist: '2PM/尹恩惠', album: 'Duet Album', albumArtist: '2PM/尹恩惠' }),
+    );
+    harness.metadataService.overrides.set(
+      solo,
+      baseMetadata({ title: 'Solo Song', artist: '2PM', album: 'Solo Album', albumArtist: '2PM' }),
+    );
+    harness.metadataService.overrides.set(
+      comma,
+      baseMetadata({ title: 'Comma Song', artist: 'Afterglow,FLOW', album: 'Split Album', albumArtist: 'Afterglow,FLOW' }),
+    );
+    harness.metadataService.overrides.set(
+      japaneseGroup,
+      baseMetadata({
+        title: 'Group Song',
+        artist: '25時、ナイトコードで。',
+        album: 'Night Album',
+        albumArtist: '25時、ナイトコードで。',
+      }),
+    );
+    harness.metadataService.overrides.set(
+      repeated,
+      baseMetadata({ title: 'Repeated Song', artist: 'Repeat/Repeat', album: 'Repeat Album', albumArtist: 'Repeat/Repeat' }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [twoPm] = harness.service.getArtists({ search: '2PM', pageSize: 10 }).items;
+    const [yoon] = harness.service.getArtists({ search: '尹恩惠', pageSize: 10 }).items;
+    const [afterglow] = harness.service.getArtists({ search: 'Afterglow', pageSize: 10 }).items;
+    const flow = harness.service.getArtists({ search: 'FLOW', pageSize: 10 }).items.find((artist) => artist.name === 'FLOW')!;
+    const [nightCode] = harness.service.getArtists({ search: '25時 ナイトコード', pageSize: 10 }).items;
+    const [repeat] = harness.service.getArtists({ search: 'Repeat', pageSize: 10 }).items;
+
+    expect(harness.service.getArtists({ search: '2PM/尹恩惠', pageSize: 10 }).total).toBe(0);
+    expect(twoPm).toMatchObject({ name: '2PM', trackCount: 2, albumCount: 2 });
+    expect(yoon).toMatchObject({ name: '尹恩惠', trackCount: 1, albumCount: 1 });
+    expect(afterglow).toMatchObject({ name: 'Afterglow', trackCount: 1, albumCount: 1 });
+    expect(flow).toMatchObject({ name: 'FLOW', trackCount: 1, albumCount: 1 });
+    expect(nightCode).toMatchObject({ name: '25時、ナイトコードで。', trackCount: 1, albumCount: 1 });
+    expect(repeat).toMatchObject({ name: 'Repeat', trackCount: 1, albumCount: 1 });
+    expect(harness.service.getArtistTracks(twoPm.id, { pageSize: 10 }).items.map((track) => track.title)).toEqual([
+      'Duet Song',
+      'Solo Song',
+    ]);
+    expect(harness.service.getArtistTracks(yoon.id, { pageSize: 10 }).items.map((track) => track.title)).toEqual(['Duet Song']);
+    expect(harness.service.getArtistAlbums(twoPm.id, { pageSize: 10 }).items.map((album) => album.title)).toEqual([
+      'Duet Album',
+      'Solo Album',
+    ]);
+    expect(harness.service.getArtistAlbums(yoon.id, { pageSize: 10 }).items.map((album) => album.title)).toEqual(['Duet Album']);
+    harness.cleanup();
+  });
+
+  it('getArtists returns a representative album cover when one is available', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Cover Artist.flac');
+    harness.metadataService.overrides.set(
+      filePath,
+      baseMetadata({
+        title: 'Covered Song',
+        artist: 'Cover Artist',
+        album: 'Covered Album',
+        albumArtist: 'Cover Artist',
+        embeddedCover: {
+          data: validCoverPng(),
+          mimeType: 'image/png',
+        },
+      }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [artist] = harness.service.getArtists({ search: 'Cover Artist', pageSize: 1 }).items;
+
+    expect(artist.coverId).toBeTruthy();
+    expect(artist.coverThumb).toContain('echo-cover://album/');
+    harness.cleanup();
+  });
+
+  it('getArtists keeps cover fields empty when an artist has no album cover', async () => {
+    const harness = createHarness({ coverExtractor: new ThrowingCoverExtractor() });
+    const filePath = writeAudioFile(harness.folder, 'Plain Artist.flac');
+    harness.metadataService.overrides.set(
+      filePath,
+      baseMetadata({ title: 'Plain Song', artist: 'Plain Artist', album: 'Plain Album', albumArtist: 'Plain Artist' }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [artist] = harness.service.getArtists({ search: 'Plain Artist', pageSize: 1 }).items;
+
+    expect(artist.coverId).toBeNull();
+    expect(artist.coverThumb).toBeNull();
+    harness.cleanup();
+  });
+
+  it('getArtists representative album cover selection is stable across reads', async () => {
+    const coverExtractor = new FakeCoverExtractor();
+    const harness = createHarness({ coverExtractor });
+    const first = writeAudioFile(harness.folder, 'Stable A.flac');
+    const second = writeAudioFile(harness.folder, 'Stable B.flac');
+    harness.metadataService.overrides.set(first, baseMetadata({ title: 'A', artist: 'Stable Artist', album: 'First Album', albumArtist: 'Stable Artist' }));
+    harness.metadataService.overrides.set(second, baseMetadata({ title: 'B', artist: 'Stable Artist', album: 'Second Album', albumArtist: 'Stable Artist' }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const firstRead = harness.service.getArtists({ search: 'Stable Artist', pageSize: 1 }).items[0];
+    const secondRead = harness.service.getArtists({ search: 'Stable Artist', pageSize: 1 }).items[0];
+
+    expect(firstRead.coverId).toBeTruthy();
+    expect(secondRead.coverId).toBe(firstRead.coverId);
     harness.cleanup();
   });
 

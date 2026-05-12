@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, UIEvent } from 'react';
+import type { KeyboardEvent, UIEvent } from 'react';
 import { ChevronDown, Play, RefreshCw, Search } from 'lucide-react';
 import type { LibraryArtist, LibrarySort } from '../../shared/types/library';
 import { ArtistDetailView } from '../components/artist/ArtistDetailView';
-import { artistHue, artistMark } from '../components/artist/artistVisual';
+import { artistMark } from '../components/artist/artistVisual';
 
 const pageSize = 96;
 
@@ -30,6 +30,8 @@ export const ArtistsPage = (): JSX.Element => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [selectedArtist, setSelectedArtist] = useState<LibraryArtist | null>(null);
+  const [artistWallAlbumArtwork, setArtistWallAlbumArtwork] = useState(false);
+  const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -109,6 +111,26 @@ export const ArtistsPage = (): JSX.Element => {
     return () => window.removeEventListener('library:changed', handleLibraryChanged);
   }, [loadArtists]);
 
+  useEffect(() => {
+    const loadSettings = (): void => {
+      const app = window.echo?.app;
+
+      if (!app?.getSettings) {
+        setArtistWallAlbumArtwork(false);
+        return;
+      }
+
+      void app
+        .getSettings()
+        .then((settings) => setArtistWallAlbumArtwork(settings.artistWallAlbumArtwork === true))
+        .catch(() => setArtistWallAlbumArtwork(false));
+    };
+
+    loadSettings();
+    window.addEventListener('settings:changed', loadSettings);
+    return () => window.removeEventListener('settings:changed', loadSettings);
+  }, []);
+
   const handleArtistWallScroll = useCallback(
     (event: UIEvent<HTMLElement>): void => {
       if (isLoadingRef.current || !hasMore) {
@@ -128,6 +150,21 @@ export const ArtistsPage = (): JSX.Element => {
   const handleRefresh = useCallback((): void => {
     void loadArtists(1, 'replace');
   }, [loadArtists]);
+
+  const handleArtistCoverError = useCallback((artist: LibraryArtist): void => {
+    if (!artist.coverThumb) {
+      return;
+    }
+
+    setFailedCoverUrls((current) =>
+      current[artist.id] === artist.coverThumb
+        ? current
+        : {
+            ...current,
+            [artist.id]: artist.coverThumb!,
+          },
+    );
+  }, []);
 
   const handleArtistKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, artist: LibraryArtist): void => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -178,28 +215,47 @@ export const ArtistsPage = (): JSX.Element => {
       </div>
 
       <section className="artist-wall" aria-label="Artist list" onScroll={handleArtistWallScroll}>
-        {artists.map((artist) => (
-          <article
-            className="artist-card"
-            key={artist.id}
-            role="button"
-            tabIndex={0}
-            style={{ '--artist-hue': artistHue(artist.name) } as CSSProperties}
-            onClick={() => setSelectedArtist(artist)}
-            onKeyDown={(event) => handleArtistKeyDown(event, artist)}
-          >
-            <div className="artist-avatar" aria-hidden="true">
-              <span>{artistMark(artist.name)}</span>
-            </div>
-            <div className="artist-copy">
-              <strong>{artist.name}</strong>
-              <small>{artistMeta(artist)}</small>
-            </div>
-            <span className="artist-card-action" aria-hidden="true">
-              <Play size={14} fill="currentColor" />
-            </span>
-          </article>
-        ))}
+        {artists.map((artist) => {
+          const shouldShowCover = Boolean(
+            artistWallAlbumArtwork && artist.coverThumb && failedCoverUrls[artist.id] !== artist.coverThumb,
+          );
+
+          return (
+            <article
+              className="artist-card"
+              data-cover={shouldShowCover}
+              key={artist.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedArtist(artist)}
+              onKeyDown={(event) => handleArtistKeyDown(event, artist)}
+            >
+              <div className="artist-avatar" data-cover={shouldShowCover} aria-hidden="true">
+                {shouldShowCover ? (
+                  <img
+                    alt=""
+                    decoding="async"
+                    draggable={false}
+                    height={320}
+                    loading="lazy"
+                    src={artist.coverThumb!}
+                    width={320}
+                    onError={() => handleArtistCoverError(artist)}
+                  />
+                ) : (
+                  <span>{artistMark(artist.name)}</span>
+                )}
+              </div>
+              <div className="artist-copy">
+                <strong>{artist.name}</strong>
+                <small>{artistMeta(artist)}</small>
+              </div>
+              <span className="artist-card-action" aria-hidden="true">
+                <Play size={14} fill="currentColor" />
+              </span>
+            </article>
+          );
+        })}
       </section>
 
       {error || isLoading ? (

@@ -22,6 +22,8 @@ const artist = (id: string, overrides: Partial<LibraryArtist> = {}): LibraryArti
   role: 'track',
   trackCount: 4,
   albumCount: 1,
+  coverId: null,
+  coverThumb: null,
   ...overrides,
 });
 
@@ -34,8 +36,14 @@ const page = (items: LibraryArtist[], overrides: Partial<LibraryPage<LibraryArti
   ...overrides,
 });
 
-const installLibrary = (getArtists: ReturnType<typeof vi.fn>): void => {
+const installLibrary = (
+  getArtists: ReturnType<typeof vi.fn>,
+  getSettings: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({ artistWallAlbumArtwork: false }),
+): void => {
   window.echo = {
+    app: {
+      getSettings,
+    },
     library: {
       getArtists,
       getAlbums: vi.fn(),
@@ -154,5 +162,44 @@ describe('ArtistsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to artists' }));
     fireEvent.keyDown(screen.getByText('Artist 2').closest('[role="button"]')!, { key: ' ' });
     expect(screen.getByText('Detail: Artist 2')).toBeTruthy();
+  });
+
+  it('keeps the letter avatar when album artwork setting is disabled', async () => {
+    const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
+    installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: false }));
+
+    render(<ArtistsPage />);
+
+    await screen.findByText('Artist 1');
+    expect(screen.getByText('AR')).toBeTruthy();
+    expect(document.querySelector('.artist-avatar img')).toBeNull();
+  });
+
+  it('renders album artwork when the artist wall artwork setting is enabled', async () => {
+    const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
+    installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: true }));
+
+    render(<ArtistsPage />);
+
+    await screen.findByText('Artist 1');
+    await waitFor(() => expect(document.querySelector('.artist-avatar img')).toBeTruthy());
+    const image = document.querySelector('.artist-avatar img') as HTMLImageElement | null;
+    expect(image?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(screen.queryByText('AR')).toBeNull();
+  });
+
+  it('falls back to the letter avatar when artist artwork fails to load', async () => {
+    const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
+    installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: true }));
+
+    render(<ArtistsPage />);
+
+    await screen.findByText('Artist 1');
+    await waitFor(() => expect(document.querySelector('.artist-avatar img')).toBeTruthy());
+    fireEvent.error(document.querySelector('.artist-avatar img')!);
+
+    expect(screen.getByText('AR')).toBeTruthy();
+    expect(document.querySelector('.artist-avatar img')).toBeNull();
   });
 });

@@ -45,6 +45,8 @@ const artist = (overrides: Partial<LibraryArtist> = {}): LibraryArtist => ({
   role: 'both',
   trackCount: 3,
   albumCount: 2,
+  coverId: null,
+  coverThumb: null,
   ...overrides,
 });
 

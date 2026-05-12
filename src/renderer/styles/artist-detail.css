@@ -49,15 +49,13 @@
   width: 160px;
   aspect-ratio: 1;
   place-items: center;
-  color: #182538;
+  color: #243348;
   border: 1px solid rgba(35, 55, 80, 0.08);
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 27%, rgba(255, 255, 255, 0.9), transparent 29%),
-    linear-gradient(145deg, hsl(var(--artist-hue, 210) 34% 88%), hsl(calc(var(--artist-hue, 210) + 30) 27% 78%));
+  background: #edf3f8;
   box-shadow:
-    0 24px 54px rgba(35, 55, 80, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.66);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 1px 2px rgba(35, 55, 80, 0.04);
 }
 
 .artist-hero-avatar span {

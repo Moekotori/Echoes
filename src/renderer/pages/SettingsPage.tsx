@@ -548,6 +548,26 @@ export const SettingsPage = (): JSX.Element => {
     patchAppSettings({ hideToTrayOnClose: nextHideToTrayOnClose });
   };
 
+  const handleArtistWallAlbumArtworkToggle = (): void => {
+    const nextArtistWallAlbumArtwork = !(appSettings?.artistWallAlbumArtwork ?? false);
+    const app = getAppBridge();
+
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save app settings.');
+      return;
+    }
+
+    void app
+      .setSettings({ artistWallAlbumArtwork: nextArtistWallAlbumArtwork })
+      .then((settings) => {
+        setAppSettings(settings);
+        window.dispatchEvent(new Event('settings:changed'));
+      })
+      .catch((settingsError) => {
+        setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
+  };
+
   const handleAlbumMergeStrategyApply = async (): Promise<void> => {
     const nextStrategy = pendingAlbumMergeStrategy ?? appSettings?.albumMergeStrategy ?? 'standard';
     const app = getAppBridge();
@@ -833,6 +853,9 @@ export const SettingsPage = (): JSX.Element => {
                   <ChipButton active>{t('settings.appearance.density.compact')}</ChipButton>
                   <ChipButton>{t('settings.appearance.density.standard')}</ChipButton>
                 </div>
+              </SettingRow>
+              <SettingRow title="艺术家墙封面" description="用艺术家的一张专辑封面替代字母占位。">
+                <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
               </SettingRow>
               <SettingRow title={t('settings.appearance.font.main.title')} description={t('settings.appearance.font.main.description')}>
                 <button className="settings-font-picker-button" type="button" onClick={() => handleFontPickerOpen('main')}>

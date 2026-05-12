@@ -1,5 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import type { EchoDatabase } from '../../database/createDatabase';
-import type { MissingMetadataScanResult, NetworkTagCandidate, NetworkTagCandidateSearchRequest } from '../../../shared/types/library';
+import type {
+  MissingMetadataScanItem,
+  MissingMetadataScanResult,
+  MissingMetadataField,
+  NetworkMetadataScanJobStatus,
+  NetworkTagCandidate,
+  NetworkTagCandidateSearchRequest,
+} from '../../../shared/types/library';
 import type { NetworkMetadataProvider } from './NetworkMetadataProvider';
 import { NetworkMetadataJobQueue } from './NetworkMetadataJobQueue';
 import { NetworkMetadataMerge } from './NetworkMetadataMerge';
@@ -22,6 +30,16 @@ export type NetworkRepairResult = NetworkCandidateList & {
   errors: string[];
 };
 
+type MutableNetworkMetadataScanJobStatus = NetworkMetadataScanJobStatus;
+
+type MissingMetadataScanProgress = {
+  totalTracks?: number;
+  processedTracks?: number;
+  currentTrackTitle?: string | null;
+  item?: MissingMetadataScanItem;
+  error?: string;
+};
+
 const NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD = 0.45;
 
 const runWithConcurrency = async (tasks: Array<() => Promise<void>>, concurrency: number): Promise<void> => {
@@ -42,6 +60,7 @@ export class NetworkMetadataService {
   private readonly merge: NetworkMetadataMerge;
   private readonly queue = new NetworkMetadataJobQueue(2);
   private readonly providers: NetworkMetadataProvider[];
+  private readonly backgroundScans = new Map<string, MutableNetworkMetadataScanJobStatus>();
 
   constructor(
     private readonly database: EchoDatabase,
@@ -101,48 +120,69 @@ export class NetworkMetadataService {
     });
   }
 
-  async scanMissingMetadata(limit = 25, providerNames?: NetworkProviderName[]): Promise<MissingMetadataScanResult> {
+  async scanMissingMetadata(
+    limit = 25,
+    providerNames?: NetworkProviderName[],
+    fields?: MissingMetadataField[],
+  ): Promise<MissingMetadataScanResult> {
     return this.queue.run(async () => {
-      const targets = this.store.findMissingMetadataTargets(limit);
-      const providers = this.providers.filter((provider) => !providerNames?.length || providerNames.includes(provider.name));
-      const errors: string[] = [];
-      const tasks = targets.flatMap((target) => {
-        if (target.embeddedMetadataStatus === 'pending' || target.embeddedMetadataStatus === 'reading') {
-          return [];
-        }
+      return this.runMissingMetadataScan(limit, providerNames, fields);
+    });
+  }
 
-        return providers.map((provider) => async () => {
-          try {
-            const candidates = await provider.findMetadata(target);
-            for (const candidate of candidates) {
-              const score = matchScore(target, candidate);
-              const missingArtistCandidate = target.reasons.includes('unknown_artist') && Boolean(candidate.artist);
-              const missingCoverCandidate = target.reasons.includes('missing_cover') && Boolean(candidate.coverUrl);
-              if (score >= NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD || missingCoverCandidate || (missingArtistCandidate && score >= 0.6)) {
-                this.store.upsertMetadataCandidate(target.trackId, null, candidate, score);
-              }
-            }
-          } catch (error) {
-            errors.push(`${target.track.title || target.track.path}: ${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
-          }
+  startMissingMetadataScan(
+    limit = 25,
+    providerNames?: NetworkProviderName[],
+    fields?: MissingMetadataField[],
+  ): NetworkMetadataScanJobStatus {
+    const activeJob = [...this.backgroundScans.values()].find((job) => job.status === 'queued' || job.status === 'running');
+    if (activeJob) {
+      return this.cloneScanJob(activeJob);
+    }
+
+    const timestamp = new Date().toISOString();
+    const job: MutableNetworkMetadataScanJobStatus = {
+      id: randomUUID(),
+      status: 'queued',
+      totalTracks: 0,
+      processedTracks: 0,
+      scannedCount: 0,
+      candidateCount: 0,
+      items: [],
+      errors: [],
+      startedAt: timestamp,
+      finishedAt: null,
+      currentTrackTitle: null,
+    };
+
+    this.backgroundScans.set(job.id, job);
+    void this.queue
+      .run(async () => {
+        job.status = 'running';
+        await this.runMissingMetadataScan(limit, providerNames, fields, (progress) => {
+          this.updateScanJob(job, progress);
         });
+        job.status = 'completed';
+        job.currentTrackTitle = null;
+        job.finishedAt = new Date().toISOString();
+      })
+      .catch((error: unknown) => {
+        job.status = 'failed';
+        job.currentTrackTitle = null;
+        job.finishedAt = new Date().toISOString();
+        job.errors.push(error instanceof Error ? error.message : String(error));
       });
 
-      await runWithConcurrency(tasks, 2);
+    return this.cloneScanJob(job);
+  }
 
-      const items = targets.map((target) => ({
-        track: target.track,
-        reasons: target.reasons,
-        candidates: this.showCandidates(target.trackId),
-      }));
+  getMissingMetadataScanStatus(jobId: string): NetworkMetadataScanJobStatus {
+    const job = this.backgroundScans.get(jobId);
+    if (!job) {
+      throw new Error(`Unknown network metadata scan job ${jobId}`);
+    }
 
-      return {
-        items,
-        scannedCount: targets.length,
-        candidateCount: items.reduce((total, item) => total + item.candidates.metadata.length + item.candidates.covers.length, 0),
-        errors,
-      };
-    });
+    return this.cloneScanJob(job);
   }
 
   showCandidates(trackId: string): NetworkCandidateList {
@@ -175,26 +215,28 @@ export class NetworkMetadataService {
         throw new Error('Network metadata provider is unavailable');
       }
 
-      for (const provider of providers) {
-        try {
-          const metadataCandidates = await provider.findMetadata(searchTrack);
-          for (const candidate of metadataCandidates) {
-            const score = matchScore(track, candidate);
-            if (score >= NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD) {
-              this.store.upsertMetadataCandidate(track.trackId, null, candidate, score);
+      await Promise.all(
+        providers.map(async (provider) => {
+          try {
+            const metadataCandidates = await provider.findMetadata(searchTrack);
+            for (const candidate of metadataCandidates) {
+              const score = matchScore(track, candidate);
+              if (score >= NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD) {
+                this.store.upsertMetadataCandidate(track.trackId, null, candidate, score);
+              }
             }
-          }
 
-          if (provider.findCovers) {
-            const coverCandidates = await provider.findCovers(searchTrack);
-            for (const cover of coverCandidates) {
-              this.store.upsertCoverCandidate(track.trackId, null, cover);
+            if (provider.findCovers) {
+              const coverCandidates = await provider.findCovers(searchTrack);
+              for (const cover of coverCandidates) {
+                this.store.upsertCoverCandidate(track.trackId, null, cover);
+              }
             }
+          } catch (error) {
+            errors.push(`${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
           }
-        } catch (error) {
-          errors.push(`${provider.name}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
+        }),
+      );
 
       const candidates = this.store
         .listTrackMetadataCandidates(track.trackId)
@@ -242,5 +284,95 @@ export class NetworkMetadataService {
 
   reject(candidateId: string): NetworkApplyResult {
     return this.merge.reject(candidateId);
+  }
+
+  private async runMissingMetadataScan(
+    limit = 25,
+    providerNames?: NetworkProviderName[],
+    fields?: MissingMetadataField[],
+    onProgress?: (progress: MissingMetadataScanProgress) => void,
+  ): Promise<MissingMetadataScanResult> {
+    const targets = this.store.findMissingMetadataTargets(limit, { includeCoverOnly: true, fields });
+    const providers = this.providers.filter((provider) => !providerNames?.length || providerNames.includes(provider.name));
+    const items: MissingMetadataScanItem[] = [];
+    const errors: string[] = [];
+
+    onProgress?.({ totalTracks: targets.length, processedTracks: 0 });
+
+    const tasks = targets.map((target) => async () => {
+      onProgress?.({ currentTrackTitle: target.track.title || target.track.path });
+
+      if (target.embeddedMetadataStatus !== 'pending' && target.embeddedMetadataStatus !== 'reading') {
+        await Promise.all(
+          providers.map(async (provider) => {
+            try {
+              const candidates = await provider.findMetadata(target);
+              for (const candidate of candidates) {
+                const score = matchScore(target, candidate);
+                const missingArtistCandidate = target.reasons.includes('unknown_artist') && Boolean(candidate.artist);
+                const missingCoverCandidate = target.reasons.includes('missing_cover') && Boolean(candidate.coverUrl);
+                if (score >= NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD || missingCoverCandidate || (missingArtistCandidate && score >= 0.6)) {
+                  this.store.upsertMetadataCandidate(target.trackId, null, candidate, score);
+                }
+              }
+            } catch (error) {
+              const message = `${target.track.title || target.track.path}: ${provider.name}: ${error instanceof Error ? error.message : String(error)}`;
+              errors.push(message);
+              onProgress?.({ error: message });
+            }
+          }),
+        );
+      }
+
+      const item = {
+        track: target.track,
+        reasons: target.reasons,
+        candidates: this.showCandidates(target.trackId),
+      };
+      items.push(item);
+      onProgress?.({ item, processedTracks: items.length });
+    });
+
+    const concurrency = Math.min(12, Math.max(4, providers.length * 2));
+    await runWithConcurrency(tasks, concurrency);
+
+    return {
+      items,
+      scannedCount: targets.length,
+      candidateCount: items.reduce((total, item) => total + item.candidates.metadata.length + item.candidates.covers.length, 0),
+      errors,
+    };
+  }
+
+  private updateScanJob(job: MutableNetworkMetadataScanJobStatus, progress: MissingMetadataScanProgress): void {
+    if (typeof progress.totalTracks === 'number') {
+      job.totalTracks = progress.totalTracks;
+    }
+
+    if (typeof progress.processedTracks === 'number') {
+      job.processedTracks = progress.processedTracks;
+      job.scannedCount = progress.processedTracks;
+    }
+
+    if (progress.currentTrackTitle !== undefined) {
+      job.currentTrackTitle = progress.currentTrackTitle;
+    }
+
+    if (progress.item) {
+      job.items = [...job.items, progress.item];
+      job.candidateCount += progress.item.candidates.metadata.length + progress.item.candidates.covers.length;
+    }
+
+    if (progress.error) {
+      job.errors = [...job.errors, progress.error];
+    }
+  }
+
+  private cloneScanJob(job: MutableNetworkMetadataScanJobStatus): NetworkMetadataScanJobStatus {
+    return {
+      ...job,
+      items: [...job.items],
+      errors: [...job.errors],
+    };
   }
 }

@@ -700,6 +700,7 @@
 }
 
 .list-filter-chip,
+.network-missing-filter-chip,
 .settings-action-button,
 .settings-icon-button,
 .settings-danger-button {
@@ -722,6 +723,7 @@
 }
 
 .list-filter-chip,
+.network-missing-filter-chip,
 .settings-action-button {
   padding: 0 14px;
 }
@@ -732,13 +734,15 @@
 }
 
 .list-filter-chip:hover,
+.network-missing-filter-chip:hover,
 .settings-action-button:hover,
 .settings-icon-button:hover {
   color: #2d4f74;
   background: rgba(255, 255, 255, 0.88);
 }
 
-.list-filter-chip.active {
+.list-filter-chip.active,
+.network-missing-filter-chip.active {
   color: #ffffff;
   border-color: rgba(95, 123, 153, 0.2);
   background: linear-gradient(135deg, #92a6bf, #7189a6);
@@ -748,10 +752,23 @@
 }
 
 .settings-action-button:disabled,
+.network-missing-filter-chip:disabled,
 .settings-icon-button:disabled,
 .settings-danger-button:disabled {
   cursor: default;
   opacity: 0.52;
+}
+
+.network-missing-filter {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.network-missing-filter > span {
+  color: #65768c;
+  font-size: 12px;
+  font-weight: 760;
 }
 
 .settings-danger-button {

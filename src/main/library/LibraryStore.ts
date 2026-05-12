@@ -27,6 +27,15 @@ import type {
 import { COVER_CACHE_VERSION as currentCoverCacheVersion } from './libraryTypes';
 
 type DbRow = Record<string, unknown>;
+type ArtistIndexStats = {
+  id: string;
+  key: string;
+  name: string;
+  trackIds: Set<string>;
+  albumIds: Set<string>;
+  coverId: string | null;
+  coverScore: number;
+};
 
 const defaultPageSize = 100;
 const maxPageSize = 500;
@@ -126,12 +135,50 @@ const numberOrNull = (value: unknown): number | null => (typeof value === 'numbe
 const playbackHistoryKey = (trackId: string | null, trackPath: string): string => trackId ?? trackPath;
 const coverSourceOrNull = (value: unknown): CoverSource | null =>
   value === 'manual' || value === 'embedded' || value === 'folder' || value === 'network' || value === 'default' ? value : null;
+const artistNameSeparatorPattern = /\s*(?:\/|,|;|；|&|×)\s*|\s+\b(?:feat\.?|ft\.?|featuring|with|x)\b\s+/iu;
 const coverSourceRank: Record<CoverSource, number> = {
   default: 0,
   network: 1,
   folder: 2,
   embedded: 3,
   manual: 4,
+};
+
+const stableArtistAlbumScore = (artistKey: string, albumId: string): number => {
+  let hash = 2166136261;
+  const value = `${artistKey}:${albumId}`;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+};
+
+const normalizeArtistDisplayName = (value: unknown): string =>
+  typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+
+const artistKeyForName = (name: string): string => name.normalize('NFKC').toLocaleLowerCase();
+
+const splitArtistNames = (value: unknown): string[] => {
+  const normalized = normalizeArtistDisplayName(value);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const names = normalized.split(artistNameSeparatorPattern).map(normalizeArtistDisplayName).filter(Boolean);
+  const uniqueNames = new Map<string, string>();
+
+  for (const name of names.length > 0 ? names : [normalized]) {
+    const key = artistKeyForName(name);
+    if (!uniqueNames.has(key)) {
+      uniqueNames.set(key, name);
+    }
+  }
+
+  return Array.from(uniqueNames.values());
 };
 
 const preferredCoverSource = (current: unknown, next: CoverSource): CoverSource => {
@@ -902,6 +949,8 @@ export class LibraryStore {
 
   deleteAllTracks(): number {
     const changed = Number(this.run('DELETE FROM tracks').changes ?? 0);
+    this.run('DELETE FROM artist_tracks');
+    this.run('DELETE FROM artist_albums');
     this.run('DELETE FROM album_tracks');
     this.run('DELETE FROM albums');
     this.run('DELETE FROM artists');
@@ -909,63 +958,153 @@ export class LibraryStore {
   }
 
   refreshArtists(): void {
-    const timestamp = nowIso();
-    this.run('DELETE FROM artists');
-    const trackRows = this.allRows(
-      `SELECT artist AS name, COUNT(*) AS track_count
-       FROM tracks
-       WHERE missing = 0 AND artist IS NOT NULL AND TRIM(artist) != ''
-       GROUP BY artist`,
-    );
-    const albumRows = this.allRows(
-      `SELECT album_artist AS name, COUNT(*) AS album_count
-       FROM albums
-       WHERE album_artist IS NOT NULL AND TRIM(album_artist) != ''
-       GROUP BY album_artist`,
-    );
-    const stats = new Map<string, { name: string; trackCount: number; albumCount: number }>();
+    this.transaction(() => {
+      const timestamp = nowIso();
+      const stats = new Map<string, ArtistIndexStats>();
+      const trackLinks = new Map<string, { artistId: string; trackId: string; sourceName: string; position: number }>();
+      const albumLinks = new Map<string, { artistId: string; albumId: string; sourceName: string }>();
+      const ensureArtist = (name: string): ArtistIndexStats => {
+        const key = artistKeyForName(name);
+        const current = stats.get(key);
 
-    for (const row of trackRows) {
-      const name = String(row.name ?? '').trim();
-      if (!name) {
-        continue;
-      }
+        if (current) {
+          return current;
+        }
 
-      stats.set(name.toLocaleLowerCase(), {
-        name,
-        trackCount: Number(row.track_count ?? 0),
-        albumCount: 0,
-      });
-    }
+        const next = {
+          id: randomUUID(),
+          key,
+          name,
+          trackIds: new Set<string>(),
+          albumIds: new Set<string>(),
+          coverId: null,
+          coverScore: Number.MAX_SAFE_INTEGER,
+        };
+        stats.set(key, next);
 
-    for (const row of albumRows) {
-      const name = String(row.name ?? '').trim();
-      if (!name) {
-        continue;
-      }
+        return next;
+      };
+      const linkAlbum = (artist: ArtistIndexStats, albumId: string | null, sourceName: string): void => {
+        if (!albumId) {
+          return;
+        }
 
-      const key = name.toLocaleLowerCase();
-      const current = stats.get(key) ?? { name, trackCount: 0, albumCount: 0 };
-      current.albumCount = Number(row.album_count ?? 0);
-      stats.set(key, current);
-    }
+        artist.albumIds.add(albumId);
+        albumLinks.set(`${artist.id}:${albumId}`, {
+          artistId: artist.id,
+          albumId,
+          sourceName,
+        });
+      };
+      const considerCover = (artist: ArtistIndexStats, albumId: string | null, coverId: string | null): void => {
+        if (!albumId || !coverId) {
+          return;
+        }
 
-    for (const artist of stats.values()) {
-      this.run(
-        `INSERT OR REPLACE INTO artists (
-          id, artist_key, name, sort_name, role, track_count, album_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        randomUUID(),
-        artist.name.toLocaleLowerCase(),
-        artist.name,
-        artist.name.toLocaleLowerCase(),
-        'track',
-        artist.trackCount,
-        artist.albumCount,
-        timestamp,
-        timestamp,
+        const score = stableArtistAlbumScore(artist.key, albumId);
+        if (score < artist.coverScore) {
+          artist.coverId = coverId;
+          artist.coverScore = score;
+        }
+      };
+
+      this.run('DELETE FROM artist_tracks');
+      this.run('DELETE FROM artist_albums');
+      this.run('DELETE FROM artists');
+
+      const trackRows = this.allRows(
+        `SELECT
+          tracks.id AS track_id,
+          tracks.artist AS artist,
+          album_tracks.album_id AS album_id,
+          albums.cover_id AS album_cover_id
+        FROM tracks
+        LEFT JOIN album_tracks ON album_tracks.track_id = tracks.id
+        LEFT JOIN albums ON albums.id = album_tracks.album_id
+        WHERE tracks.missing = 0
+          AND tracks.artist IS NOT NULL
+          AND TRIM(tracks.artist) != ''
+        ORDER BY tracks.created_at ASC, tracks.id ASC`,
       );
-    }
+
+      trackRows.forEach((row, position) => {
+        const trackId = String(row.track_id);
+        const sourceName = normalizeArtistDisplayName(row.artist);
+        const albumId = textOrNull(row.album_id);
+        const coverId = textOrNull(row.album_cover_id);
+
+        for (const name of splitArtistNames(sourceName)) {
+          const artist = ensureArtist(name);
+
+          artist.trackIds.add(trackId);
+          trackLinks.set(`${artist.id}:${trackId}`, {
+            artistId: artist.id,
+            trackId,
+            sourceName,
+            position,
+          });
+          linkAlbum(artist, albumId, sourceName);
+          considerCover(artist, albumId, coverId);
+        }
+      });
+
+      const albumRows = this.allRows(
+        `SELECT id, album_artist, cover_id
+         FROM albums
+         WHERE album_artist IS NOT NULL AND TRIM(album_artist) != ''`,
+      );
+
+      for (const row of albumRows) {
+        const albumId = String(row.id);
+        const sourceName = normalizeArtistDisplayName(row.album_artist);
+        const coverId = textOrNull(row.cover_id);
+
+        for (const name of splitArtistNames(sourceName)) {
+          const artist = ensureArtist(name);
+          linkAlbum(artist, albumId, sourceName);
+          considerCover(artist, albumId, coverId);
+        }
+      }
+
+      for (const artist of stats.values()) {
+        this.run(
+          `INSERT OR REPLACE INTO artists (
+            id, artist_key, name, sort_name, role, track_count, album_count, cover_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          artist.id,
+          artist.key,
+          artist.name,
+          artist.key,
+          'track',
+          artist.trackIds.size,
+          artist.albumIds.size,
+          artist.coverId,
+          timestamp,
+          timestamp,
+        );
+      }
+
+      for (const link of trackLinks.values()) {
+        this.run(
+          `INSERT OR IGNORE INTO artist_tracks (artist_id, track_id, source_name, position)
+           VALUES (?, ?, ?, ?)`,
+          link.artistId,
+          link.trackId,
+          link.sourceName,
+          link.position,
+        );
+      }
+
+      for (const link of albumLinks.values()) {
+        this.run(
+          `INSERT OR IGNORE INTO artist_albums (artist_id, album_id, source_name)
+           VALUES (?, ?, ?)`,
+          link.artistId,
+          link.albumId,
+          link.sourceName,
+        );
+      }
+    });
   }
 
   refreshAlbums(
@@ -1198,7 +1337,7 @@ export class LibraryStore {
     const orderSql = this.artistOrderSql(sort);
     const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM artists ${whereSql}`, ...searchFilter.params);
     const rows = this.allRows(
-      `SELECT id, name, sort_name, role, track_count, album_count
+      `SELECT id, name, sort_name, role, track_count, album_count, cover_id
        FROM artists
        ${whereSql}
        ${orderSql}
@@ -1220,7 +1359,7 @@ export class LibraryStore {
 
   getArtist(artistId: string): LibraryArtist | null {
     const row = this.getRow(
-      `SELECT id, name, sort_name, role, track_count, album_count
+      `SELECT id, name, sort_name, role, track_count, album_count, cover_id
        FROM artists
        WHERE id = ?`,
       artistId,
@@ -1247,10 +1386,11 @@ export class LibraryStore {
     const orderSql = this.artistTrackOrderSql(sort);
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
-       FROM tracks
-       WHERE tracks.missing = 0
-         AND TRIM(tracks.artist) = TRIM(?) COLLATE NOCASE`,
-      artist.name,
+       FROM artist_tracks
+       INNER JOIN tracks ON tracks.id = artist_tracks.track_id
+       WHERE artist_tracks.artist_id = ?
+         AND tracks.missing = 0`,
+      artist.id,
     );
     const rows = this.allRows(
       `SELECT
@@ -1259,12 +1399,13 @@ export class LibraryStore {
         tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
         tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
         tracks.network_metadata_status, tracks.field_sources_json
-      FROM tracks
-      WHERE tracks.missing = 0
-        AND TRIM(tracks.artist) = TRIM(?) COLLATE NOCASE
+      FROM artist_tracks
+      INNER JOIN tracks ON tracks.id = artist_tracks.track_id
+      WHERE artist_tracks.artist_id = ?
+        AND tracks.missing = 0
       ${orderSql}
       LIMIT ? OFFSET ?`,
-      artist.name,
+      artist.id,
       pageSize,
       offset,
     );
@@ -1297,19 +1438,21 @@ export class LibraryStore {
     const orderSql = this.albumOrderSql(sort);
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
-       FROM albums
-       WHERE TRIM(albums.album_artist) = TRIM(?) COLLATE NOCASE`,
-      artist.name,
+       FROM artist_albums
+       INNER JOIN albums ON albums.id = artist_albums.album_id
+       WHERE artist_albums.artist_id = ?`,
+      artist.id,
     );
     const rows = this.allRows(
       `SELECT
         albums.id, albums.album_key, albums.title, albums.album_artist, albums.year, albums.track_count,
         albums.duration, albums.cover_id
-      FROM albums
-      WHERE TRIM(albums.album_artist) = TRIM(?) COLLATE NOCASE
+      FROM artist_albums
+      INNER JOIN albums ON albums.id = artist_albums.album_id
+      WHERE artist_albums.artist_id = ?
       ${orderSql}
       LIMIT ? OFFSET ?`,
-      artist.name,
+      artist.id,
       pageSize,
       offset,
     );
@@ -1685,6 +1828,8 @@ export class LibraryStore {
       role: trackCount > 0 && albumCount > 0 ? 'both' : albumCount > 0 ? 'album' : 'track',
       trackCount,
       albumCount,
+      coverId: textOrNull(row.cover_id),
+      coverThumb: this.toCoverUrl(row.cover_id, 'album'),
     };
   }
 

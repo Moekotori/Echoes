@@ -103,8 +103,29 @@ CREATE TABLE IF NOT EXISTS artists (
   role TEXT NOT NULL DEFAULT 'track',
   track_count INTEGER NOT NULL DEFAULT 0,
   album_count INTEGER NOT NULL DEFAULT 0,
+  cover_id TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (cover_id) REFERENCES covers(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS artist_tracks (
+  artist_id TEXT NOT NULL,
+  track_id TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (artist_id, track_id),
+  FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+  FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS artist_albums (
+  artist_id TEXT NOT NULL,
+  album_id TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  PRIMARY KEY (artist_id, album_id),
+  FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+  FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS scan_jobs (
@@ -233,6 +254,10 @@ CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
 CREATE INDEX IF NOT EXISTS idx_albums_album_key ON albums(album_key);
 CREATE INDEX IF NOT EXISTS idx_album_tracks_album_id ON album_tracks(album_id);
 CREATE INDEX IF NOT EXISTS idx_album_tracks_track_id ON album_tracks(track_id);
+CREATE INDEX IF NOT EXISTS idx_artist_tracks_artist_id ON artist_tracks(artist_id);
+CREATE INDEX IF NOT EXISTS idx_artist_tracks_track_id ON artist_tracks(track_id);
+CREATE INDEX IF NOT EXISTS idx_artist_albums_artist_id ON artist_albums(artist_id);
+CREATE INDEX IF NOT EXISTS idx_artist_albums_album_id ON artist_albums(album_id);
 CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path);
 CREATE INDEX IF NOT EXISTS idx_covers_id ON covers(id);
 CREATE INDEX IF NOT EXISTS idx_network_metadata_candidates_track_id ON network_metadata_candidates(track_id);

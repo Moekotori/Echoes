@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { ArrowLeft, ListPlus, Play, Shuffle } from 'lucide-react';
 import type { LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { ArtistAlbumGrid } from './ArtistAlbumGrid';
 import { ArtistTrackList } from './ArtistTrackList';
-import { artistHue, artistMark } from './artistVisual';
+import { artistMark } from './artistVisual';
 
 type ArtistDetailViewProps = {
   artist: LibraryArtist;
@@ -37,8 +36,6 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [areTracksLoading, setAreTracksLoading] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const source = useMemo(() => ({ type: 'artist' as const, label: artist.name, artistId: artist.id }), [artist.id, artist.name]);
-  const hue = useMemo(() => artistHue(artist.name), [artist.name]);
-  const avatarStyle = useMemo(() => ({ '--artist-hue': hue } as CSSProperties), [hue]);
   const displayArtist = verifiedArtist ?? artist;
 
   useEffect(() => {
@@ -164,7 +161,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
       </button>
 
       <section className="artist-hero" aria-label={`${displayArtist.name} artist details`}>
-        <div className="artist-hero-avatar" style={avatarStyle} aria-hidden="true">
+        <div className="artist-hero-avatar" aria-hidden="true">
           <span>{artistMark(displayArtist.name)}</span>
         </div>
 

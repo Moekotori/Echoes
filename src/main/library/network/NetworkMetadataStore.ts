@@ -12,7 +12,7 @@ import type {
   StoredNetworkCoverCandidate,
   StoredNetworkMetadataCandidate,
 } from './networkTypes';
-import type { LibraryTrack, MissingMetadataReason } from '../../../shared/types/library';
+import type { LibraryTrack, MissingMetadataField, MissingMetadataReason } from '../../../shared/types/library';
 
 type DbRow = Record<string, unknown>;
 
@@ -84,8 +84,59 @@ export class NetworkMetadataStore {
     };
   }
 
-  findMissingMetadataTargets(limit = 25): NetworkMissingMetadataTarget[] {
+  findMissingMetadataTargets(
+    limit = 25,
+    options: { includeCoverOnly?: boolean; fields?: MissingMetadataField[] } = {},
+  ): NetworkMissingMetadataTarget[] {
     this.repairStaleReadiness();
+
+    const selectedFields = [...new Set(options.fields ?? [])];
+    const includeAllFields = selectedFields.length === 0;
+    const fieldEnabled = (field: MissingMetadataField): boolean =>
+      includeAllFields ? field !== 'cover' || Boolean(options.includeCoverOnly) : selectedFields.includes(field);
+    const predicates: string[] = [];
+
+    if (fieldEnabled('cover')) {
+      predicates.push(`covers.id IS NULL OR covers.source_type IS NULL OR covers.source_type = 'default'`);
+    }
+
+    if (fieldEnabled('title')) {
+      predicates.push(`trim(tracks.title) = '' OR json_extract(tracks.field_sources_json, '$.title') IN ('unknown', 'filename_fallback')`);
+    }
+
+    if (fieldEnabled('artist')) {
+      predicates.push(
+        `lower(trim(tracks.artist)) = '' OR lower(trim(tracks.artist)) = 'unknown artist' OR json_extract(tracks.field_sources_json, '$.artist') IN ('unknown', 'filename_fallback')`,
+      );
+    }
+
+    if (fieldEnabled('album')) {
+      predicates.push(`trim(tracks.album) = '' OR json_extract(tracks.field_sources_json, '$.album') IN ('unknown', 'filename_fallback')`);
+    }
+
+    if (fieldEnabled('albumArtist')) {
+      predicates.push(
+        `trim(tracks.album_artist) = '' OR json_extract(tracks.field_sources_json, '$.albumArtist') IN ('unknown', 'artist_fallback', 'filename_fallback')`,
+      );
+    }
+
+    if (fieldEnabled('trackNo')) {
+      predicates.push(`tracks.track_no IS NULL OR json_extract(tracks.field_sources_json, '$.trackNo') = 'unknown'`);
+    }
+
+    if (fieldEnabled('discNo')) {
+      predicates.push(`tracks.disc_no IS NULL OR json_extract(tracks.field_sources_json, '$.discNo') = 'unknown'`);
+    }
+
+    if (fieldEnabled('year')) {
+      predicates.push(`tracks.year IS NULL OR json_extract(tracks.field_sources_json, '$.year') = 'unknown'`);
+    }
+
+    if (fieldEnabled('genre')) {
+      predicates.push(`tracks.genre IS NULL OR trim(tracks.genre) = '' OR json_extract(tracks.field_sources_json, '$.genre') = 'unknown'`);
+    }
+
+    const missingPredicate = predicates.length ? predicates.map((predicate) => `(${predicate})`).join('\n        OR ') : '1 = 0';
 
     const rows = this.allRows(
       `SELECT
@@ -97,17 +148,7 @@ export class NetworkMetadataStore {
        FROM tracks
        LEFT JOIN covers ON covers.id = tracks.cover_id
        WHERE tracks.missing = 0
-       AND (
-        covers.id IS NULL
-        OR covers.source_type IS NULL
-        OR covers.source_type = 'default'
-        OR lower(trim(tracks.artist)) = ''
-        OR lower(trim(tracks.artist)) = 'unknown artist'
-        OR json_extract(tracks.field_sources_json, '$.title') IN ('unknown', 'filename_fallback')
-        OR json_extract(tracks.field_sources_json, '$.artist') IN ('unknown', 'filename_fallback')
-        OR json_extract(tracks.field_sources_json, '$.album') IN ('unknown', 'filename_fallback')
-        OR json_extract(tracks.field_sources_json, '$.albumArtist') IN ('unknown', 'artist_fallback', 'filename_fallback')
-       )
+       AND (${missingPredicate})
        ORDER BY tracks.path COLLATE NOCASE ASC
        LIMIT ?`,
       Math.max(1, Math.min(500, limit)),
@@ -119,6 +160,10 @@ export class NetworkMetadataStore {
       const reasons = this.missingReasons(row, fieldSources);
 
       if (!reasons.length) {
+        continue;
+      }
+
+      if (selectedFields.length && !selectedFields.some((field) => this.rowHasMissingField(row, fieldSources, field))) {
         continue;
       }
 
@@ -380,6 +425,38 @@ export class NetworkMetadataStore {
     }
 
     return [...reasons];
+  }
+
+  private rowHasMissingField(row: DbRow, fieldSources: FieldSources, field: MissingMetadataField): boolean {
+    switch (field) {
+      case 'cover':
+        return !textOrNull(row.source_type) || row.source_type === 'default';
+      case 'title':
+        return !String(row.title ?? '').trim() || fieldSources.title === 'unknown' || fieldSources.title === 'filename_fallback';
+      case 'artist': {
+        const artist = String(row.artist ?? '').trim().toLocaleLowerCase();
+        return !artist || artist === 'unknown artist' || fieldSources.artist === 'unknown' || fieldSources.artist === 'filename_fallback';
+      }
+      case 'album':
+        return !String(row.album ?? '').trim() || fieldSources.album === 'unknown' || fieldSources.album === 'filename_fallback';
+      case 'albumArtist':
+        return (
+          !String(row.album_artist ?? '').trim() ||
+          fieldSources.albumArtist === 'unknown' ||
+          fieldSources.albumArtist === 'artist_fallback' ||
+          fieldSources.albumArtist === 'filename_fallback'
+        );
+      case 'trackNo':
+        return row.track_no == null || fieldSources.trackNo === 'unknown';
+      case 'discNo':
+        return row.disc_no == null || fieldSources.discNo === 'unknown';
+      case 'year':
+        return row.year == null || fieldSources.year === 'unknown';
+      case 'genre':
+        return !String(row.genre ?? '').trim() || fieldSources.genre === 'unknown';
+      default:
+        return false;
+    }
   }
 
   private mapTrack(row: DbRow, fieldSources: FieldSources): LibraryTrack {

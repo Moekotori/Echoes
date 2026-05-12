@@ -264,8 +264,15 @@ export const HistoryPage = (): JSX.Element => {
     async (entry: PlaybackHistoryEntry): Promise<void> => {
       try {
         await queue.playTrack(trackFromHistory(entry), {
+          forceNewQueueItem: true,
           source: { type: 'manual', label: '播放历史' },
         });
+        setItems((current) =>
+          current
+            .map((item) => (item.id === entry.id ? { ...item, playCount: item.playCount + 1, startedAt: new Date().toISOString() } : item))
+            .sort((left, right) => right.playCount - left.playCount || Date.parse(right.startedAt) - Date.parse(left.startedAt)),
+        );
+        setSummary(await window.echo?.library?.getPlaybackHistorySummary?.() ?? null);
       } catch (playError) {
         setError(playError instanceof Error ? playError.message : String(playError));
       }

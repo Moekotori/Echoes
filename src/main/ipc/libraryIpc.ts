@@ -7,6 +7,8 @@ import type {
   LibraryPageQuery,
   LibrarySort,
   LibraryTrackTagUpdateRequest,
+  MissingMetadataField,
+  MissingMetadataScanOptions,
   NetworkTagCandidateSearchRequest,
   NetworkTagProvider,
   PlaybackHistoryQuery,
@@ -155,6 +157,33 @@ const optionalLimit = (value: unknown, fallback: number): number => {
 };
 
 const networkTagProviders = new Set<NetworkTagProvider>(['mock', 'musicbrainz', 'cover-art-archive', 'netease-cloud-music', 'qq-music']);
+const missingMetadataFields = new Set<MissingMetadataField>([
+  'cover',
+  'title',
+  'artist',
+  'album',
+  'albumArtist',
+  'trackNo',
+  'discNo',
+  'year',
+  'genre',
+]);
+
+const normalizeMissingMetadataScanOptions = (value: unknown, fallback: number): Required<MissingMetadataScanOptions> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { limit: optionalLimit(value, fallback), fields: [] };
+  }
+
+  const input = value as Record<string, unknown>;
+  const fields = Array.isArray(input.fields)
+    ? input.fields.filter((field): field is MissingMetadataField => typeof field === 'string' && missingMetadataFields.has(field as MissingMetadataField))
+    : [];
+
+  return {
+    limit: optionalLimit(input.limit, fallback),
+    fields: [...new Set(fields)],
+  };
+};
 
 const normalizeTagUpdateRequest = (value: unknown): LibraryTrackTagUpdateRequest => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -402,15 +431,30 @@ export const registerLibraryIpc = (): void => {
       return getLibraryService().repairMissingMetadata(requireText(trackId, 'trackId'), settings.networkMetadataProviders);
     },
   );
-  ipcMain.handle(IpcChannels.LibraryNetworkScanMissingMetadata, (_event, limit: unknown) =>
+  ipcMain.handle(IpcChannels.LibraryNetworkScanMissingMetadata, (_event, request: unknown) =>
     {
       const settings = getAppSettings();
       if (!settings.networkMetadataEnabled) {
         throw new Error('Network metadata completion is disabled in Settings');
       }
 
-      return getLibraryService().scanMissingMetadata(optionalLimit(limit, 25), settings.networkMetadataProviders);
+      const options = normalizeMissingMetadataScanOptions(request, 25);
+      return getLibraryService().scanMissingMetadata(options.limit, settings.networkMetadataProviders, options.fields);
     },
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkStartMissingMetadataScan, (_event, request: unknown) =>
+    {
+      const settings = getAppSettings();
+      if (!settings.networkMetadataEnabled) {
+        throw new Error('Network metadata completion is disabled in Settings');
+      }
+
+      const options = normalizeMissingMetadataScanOptions(request, 25);
+      return getLibraryService().startMissingMetadataScan(options.limit, settings.networkMetadataProviders, options.fields);
+    },
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkGetMissingMetadataScanStatus, (_event, jobId: unknown) =>
+    getLibraryService().getMissingMetadataScanStatus(requireText(jobId, 'jobId')),
   );
   ipcMain.handle(IpcChannels.LibraryNetworkShowCandidates, (_event, trackId: unknown) =>
     getLibraryService().showNetworkCandidates(requireText(trackId, 'trackId')),

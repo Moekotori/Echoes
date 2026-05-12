@@ -353,6 +353,102 @@ describe('Network metadata required guards', () => {
     database.close();
   });
 
+  it('bulk scans tracks that only miss cover art', async () => {
+    const database = db();
+    insertTrack(database, {
+      artist: 'Embedded Artist',
+      album: 'Embedded Album',
+      fieldSources: sources({ title: 'embedded', artist: 'embedded', album: 'embedded', albumArtist: 'embedded' }),
+      embeddedMetadataStatus: 'present',
+      embeddedCoverStatus: 'missing',
+    });
+    const provider: NetworkMetadataProvider = {
+      name: 'mock',
+      async findMetadata() {
+        return [
+          {
+            provider: 'mock',
+            providerItemId: 'cover-candidate',
+            title: 'Local Title',
+            artist: 'Embedded Artist',
+            album: 'Embedded Album',
+            albumArtist: 'Embedded Artist',
+            year: null,
+            genre: null,
+            duration: 180,
+            trackNo: null,
+            discNo: null,
+            coverUrl: 'https://example.invalid/cover.jpg',
+            raw: {},
+          },
+        ];
+      },
+    };
+
+    const result = await new NetworkMetadataService(database, [provider]).scanMissingMetadata(10, ['mock']);
+
+    expect(result.scannedCount).toBe(1);
+    expect(result.items[0].reasons).toEqual(['missing_cover']);
+    expect(result.items[0].candidates.metadata[0].coverUrl).toBe('https://example.invalid/cover.jpg');
+    database.close();
+  });
+
+  it('filters bulk scan targets by selected missing fields', async () => {
+    const database = db();
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO folders (id, path, name, status, enabled, created_at, updated_at)
+         VALUES ('folder', 'C:/Music', 'Music', 'active', 1, ?, ?)`,
+      )
+      .run(now, now);
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO covers (
+          id, source_type, source_hash, mime_type, thumb_path, album_path, large_path, original_ref,
+          cache_version, warnings_json, errors_json, cover_thumb, cover_large, cover_original, created_at, updated_at
+        ) VALUES ('cover-embedded', 'embedded', 'hash-embedded', 'image/jpeg', 'thumb', 'album', 'large', 'original', 1, '[]', '[]', 'thumb', 'large', 'original', ?, ?)`,
+      )
+      .run(now, now);
+    const statement = database.prepare(
+      `INSERT INTO tracks (
+        id, path, folder_id, size_bytes, mtime_ms, title, artist, album, album_artist,
+        duration, codec, sample_rate, bit_depth, bitrate, cover_id, metadata_status,
+        embedded_metadata_status, embedded_cover_status, network_metadata_status,
+        field_sources_json, missing, created_at, updated_at
+      ) VALUES (?, ?, 'folder', 1, 1, ?, ?, ?, ?, 180, 'FLAC', 44100, 16, 1000, ?, 'ok',
+        'missing', 'missing', 'none', ?, 0, ?, ?)`,
+    );
+    statement.run(
+      'missing-cover',
+      'C:/Music/missing-cover.flac',
+      'Cover Track',
+      'Known Artist',
+      'Known Album',
+      'Known Artist',
+      null,
+      JSON.stringify(sources({ title: 'embedded', artist: 'embedded', album: 'embedded', albumArtist: 'embedded' })),
+      now,
+      now,
+    );
+    statement.run(
+      'missing-artist',
+      'C:/Music/missing-artist.flac',
+      'Artist Track',
+      'Unknown Artist',
+      'Known Album',
+      'Unknown Artist',
+      'cover-embedded',
+      JSON.stringify(sources({ title: 'embedded', album: 'embedded', albumArtist: 'embedded' })),
+      now,
+      now,
+    );
+
+    const result = await new NetworkMetadataService(database, []).scanMissingMetadata(10, [], ['cover']);
+
+    expect(result.items.map((item) => item.track.id)).toEqual(['missing-cover']);
+    database.close();
+  });
+
   it('scans missing metadata across the library before applying the result limit', async () => {
     const database = db();
     database

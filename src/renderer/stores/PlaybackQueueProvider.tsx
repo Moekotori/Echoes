@@ -27,6 +27,7 @@ type ReplaceQueueOptions = {
 type PlayTrackOptions = {
   source?: QueueSource;
   replaceQueueWith?: LibraryTrack[];
+  forceNewQueueItem?: boolean;
 };
 
 type PlaybackQueueContextValue = {
@@ -440,7 +441,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         return status;
       }
 
-      const existingItem = itemsRef.current.find((item) => item.track.id === track.id);
+      const existingItem = options.forceNewQueueItem ? null : itemsRef.current.find((item) => item.track.id === track.id);
       const itemToPlay = existingItem ?? createQueueItem(track, source);
       const status = await playLocalTrack(itemToPlay);
 

@@ -48,6 +48,8 @@ export const IpcChannels = {
   LibraryClearTracks: 'library:clear-tracks',
   LibraryNetworkRepairMissingMetadata: 'library:network-repair-missing-metadata',
   LibraryNetworkScanMissingMetadata: 'library:network-scan-missing-metadata',
+  LibraryNetworkStartMissingMetadataScan: 'library:network-start-missing-metadata-scan',
+  LibraryNetworkGetMissingMetadataScanStatus: 'library:network-get-missing-metadata-scan-status',
   LibraryNetworkShowCandidates: 'library:network-show-candidates',
   LibrarySearchNetworkTagCandidates: 'library:search-network-tag-candidates',
   LibraryNetworkApplyMissingOnly: 'library:network-apply-missing-only',

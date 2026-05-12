@@ -54,7 +54,9 @@ const echoApi: EchoApi = {
     pruneMissingTracks: () => ipcRenderer.invoke(IpcChannels.LibraryPruneMissingTracks),
     clearTracks: () => ipcRenderer.invoke(IpcChannels.LibraryClearTracks),
     repairMissingMetadata: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryNetworkRepairMissingMetadata, trackId),
-    scanMissingMetadata: (limit) => ipcRenderer.invoke(IpcChannels.LibraryNetworkScanMissingMetadata, limit),
+    scanMissingMetadata: (options) => ipcRenderer.invoke(IpcChannels.LibraryNetworkScanMissingMetadata, options),
+    startMissingMetadataScan: (options) => ipcRenderer.invoke(IpcChannels.LibraryNetworkStartMissingMetadataScan, options),
+    getMissingMetadataScanStatus: (jobId) => ipcRenderer.invoke(IpcChannels.LibraryNetworkGetMissingMetadataScanStatus, jobId),
     showNetworkCandidates: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryNetworkShowCandidates, trackId),
     searchNetworkTagCandidates: (trackId, options) =>
       ipcRenderer.invoke(IpcChannels.LibrarySearchNetworkTagCandidates, { trackId, ...options }),
