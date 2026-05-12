@@ -5,7 +5,7 @@
   <h1>ECHO</h1>
 
   <p><strong>为本地音乐收藏设计的桌面播放器</strong></p>
-  <p><strong>目前ECHO仓库更新强度较高,如果要PR代码烦请提前联系我!处理conflicts实在超级麻烦! QQ群:1053560752 Discord:Moekotori 也可以在Bilibili DM我</strong></p>
+  <p><strong>目前ECHO暂时更新,更高性能的"ECHO Next" Coming Soon!</strong></p>
   <p>
     ECHO 将高保真播放、沉浸歌词、MV、投屏、插件扩展与远程共听收束到同一个桌面工作流中。
   </p>
