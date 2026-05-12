@@ -2,11 +2,9 @@
   display: grid;
   min-height: 100%;
   align-content: start;
-  gap: 42px;
+  gap: 36px;
   color: #202733;
-  background:
-    radial-gradient(circle at 22% 8%, rgba(246, 236, 220, 0.52), transparent 34%),
-    linear-gradient(180deg, rgba(255, 253, 249, 0.86), rgba(248, 247, 244, 0.72));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.78));
 }
 
 .album-back-button {
@@ -30,10 +28,11 @@
 
 .album-detail-hero {
   display: grid;
-  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 360px) minmax(0, 1.35fr);
   align-items: center;
-  gap: clamp(42px, 7vw, 96px);
-  max-width: 1120px;
+  gap: clamp(46px, 5vw, 76px);
+  width: min(100%, 1400px);
+  max-width: none;
 }
 
 .album-detail-cover {
@@ -46,8 +45,8 @@
   color: #8a887f;
   border: 1px solid rgba(45, 46, 50, 0.08);
   border-radius: 6px;
-  background: linear-gradient(145deg, #f8f4ec, #ebe7dc);
-  box-shadow: 0 24px 60px rgba(42, 38, 30, 0.16);
+  background: linear-gradient(145deg, #f7f9fc, #edf1f6);
+  box-shadow: 0 22px 54px rgba(38, 52, 68, 0.13);
 }
 
 .album-detail-cover img {
@@ -60,11 +59,11 @@
   display: grid;
   min-width: 0;
   align-content: center;
-  gap: 20px;
+  gap: 18px;
 }
 
 .album-detail-kicker {
-  color: #8a8177;
+  color: #828894;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -72,20 +71,20 @@
 }
 
 .album-detail-copy h1 {
-  max-width: 780px;
+  max-width: min(980px, 62vw);
   margin: 0;
   color: #24262b;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(54px, 7vw, 92px);
+  font-size: clamp(44px, 4.8vw, 72px);
   font-weight: 500;
-  line-height: 0.98;
+  line-height: 1.04;
   letter-spacing: 0;
 }
 
 .album-detail-copy p {
   margin: 0;
   color: #353941;
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1.35;
 }
 

@@ -163,7 +163,13 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         </div>
       </header>
 
-      <EqCurveView bands={state.bands} preampDb={state.preampDb} enabled={state.enabled} />
+      <EqCurveView
+        bands={state.bands}
+        preampDb={state.preampDb}
+        enabled={state.enabled}
+        onBandChange={handleBandChange}
+        onBandCommit={handleBandCommit}
+      />
 
       <div className="eq-workbench">
         <label className="eq-preamp-slider">
