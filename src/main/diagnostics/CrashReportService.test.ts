@@ -85,6 +85,10 @@ vi.mock('../library/LibraryService', () => ({
       coverCachePath: 'D:\\Music\\covers',
       coverCacheSizeBytes: 2048,
       coverCacheVersion: 1,
+      cpuCount: 8,
+      scanPerformanceMode: 'balanced',
+      metadataConcurrency: 4,
+      coverConcurrency: 2,
     }),
   }),
 }));

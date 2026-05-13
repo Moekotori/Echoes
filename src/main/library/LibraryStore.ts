@@ -2099,6 +2099,10 @@ export class LibraryStore {
     databaseSizeBytes: number | null;
     coverCachePath: string | null;
     coverCacheSizeBytes: number | null;
+    cpuCount: number;
+    scanPerformanceMode: LibraryDiagnostics['scanPerformanceMode'];
+    metadataConcurrency: number;
+    coverConcurrency: number;
   }): LibraryDiagnostics {
     const lastScanRow = this.getRow(
       `SELECT status, phase, discovered_count, parsed_count, skipped_count, cover_count, error_count, started_at, finished_at

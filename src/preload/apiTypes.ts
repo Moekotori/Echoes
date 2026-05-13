@@ -45,6 +45,7 @@ import type {
 } from '../shared/types/library';
 import type { PlaybackStartRequest, PlaybackStatus } from '../shared/types/playback';
 import type { LastCrashSummary, RendererErrorPayload } from '../shared/types/diagnostics';
+import type { SmtcCommand } from '../shared/types/smtc';
 
 export type FontFileAsset = {
   path: string;
@@ -145,6 +146,9 @@ export type EchoApi = {
     stop: () => Promise<PlaybackStatus>;
     seek: (positionSeconds: number) => Promise<PlaybackStatus>;
     openLocalAudioFile: () => Promise<string | null>;
+  };
+  smtc: {
+    onCommand: (handler: (command: SmtcCommand) => void) => () => void;
   };
   audio: {
     getStatus: () => Promise<AudioStatus>;

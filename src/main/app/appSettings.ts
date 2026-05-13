@@ -36,6 +36,8 @@ export const defaultSettings: AppSettings = {
   playerVolume: 1,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
+  scanPerformanceMode: 'balanced',
+  smtcEnabled: true,
 };
 
 let cachedSettings: AppSettings | null = null;
@@ -98,6 +100,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     settings.playbackSpeedMode === 'daycore' || settings.playbackSpeedMode === 'speed'
       ? settings.playbackSpeedMode
       : defaultSettings.playbackSpeedMode;
+  const scanPerformanceMode =
+    settings.scanPerformanceMode === 'low' ||
+    settings.scanPerformanceMode === 'balanced' ||
+    settings.scanPerformanceMode === 'performance'
+      ? settings.scanPerformanceMode
+      : defaultSettings.scanPerformanceMode;
   const providers = Array.isArray(settings.networkMetadataProviders)
     ? settings.networkMetadataProviders.filter(
         (provider): provider is AppSettings['networkMetadataProviders'][number] =>
@@ -122,6 +130,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ? Math.max(0.5, Math.min(2, playbackSpeed))
       : defaultSettings.playbackSpeed,
     playbackSpeedMode,
+    scanPerformanceMode,
+    smtcEnabled: settings.smtcEnabled !== false,
   };
 };
 

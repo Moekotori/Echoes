@@ -1,5 +1,7 @@
 import type { ChannelBalanceState, PlaybackSpeedMode } from './audio';
 
+export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
+
 export type AppSettings = {
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   artistWallAlbumArtwork: boolean;
@@ -11,4 +13,6 @@ export type AppSettings = {
   playerVolume: number;
   playbackSpeed: number;
   playbackSpeedMode: PlaybackSpeedMode;
+  scanPerformanceMode: ScanPerformanceMode;
+  smtcEnabled: boolean;
 };

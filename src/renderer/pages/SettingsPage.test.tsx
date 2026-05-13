@@ -25,6 +25,8 @@ const settings: AppSettings = {
   playerVolume: 1,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
+  scanPerformanceMode: 'balanced',
+  smtcEnabled: true,
 };
 
 const getSettingsMock = vi.fn();

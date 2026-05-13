@@ -268,6 +268,8 @@ const createHarness = (
       playerVolume: 1,
       playbackSpeed: 1,
       playbackSpeedMode: 'nightcore',
+      scanPerformanceMode: 'balanced',
+      smtcEnabled: true,
     }),
     ...overrides,
   });
@@ -1657,6 +1659,10 @@ describe('Library Core', () => {
     expect(typeof diagnostics.coverCacheSizeBytes).toBe('number');
     expect(diagnostics.coverCacheVersion).toBe(1);
     expect(diagnostics.databasePath).toBe(harness.databasePath);
+    expect(diagnostics.scanPerformanceMode).toBe('balanced');
+    expect(diagnostics.metadataConcurrency).toBeGreaterThan(0);
+    expect(diagnostics.coverConcurrency).toBeGreaterThan(0);
+    expect(diagnostics.cpuCount).toBeGreaterThanOrEqual(0);
     expect(serialized).not.toContain('"items"');
     expect(serialized).not.toContain('coverLarge');
     expect(serialized).not.toContain('coverOriginal');

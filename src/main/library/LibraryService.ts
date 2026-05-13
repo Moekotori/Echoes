@@ -9,6 +9,7 @@ import type { AlbumMergeStrategy } from './AlbumService';
 import { getDefaultCoverCacheDir, migrateCoverCache, resolveConfiguredCoverCacheDir, resolveCoverCacheDir } from './CoverCacheManager';
 import { LibraryStore } from './LibraryStore';
 import { inflateMetadataResult } from './MetadataService';
+import { getRecommendedScanConcurrency } from './ScanConcurrency';
 import { ScanJobQueue } from './ScanJobQueue';
 import { NetworkMetadataService, type NetworkCandidateList, type NetworkRepairResult } from './network/NetworkMetadataService';
 import type { MetadataService } from './MetadataService';
@@ -57,6 +58,7 @@ import type {
 } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { CoverCacheMigrationResult } from '../../shared/types/coverCache';
+import type { ScanConcurrencyRecommendation } from './ScanConcurrency';
 import type { CoverExtractor } from './workers/CoverExtractor';
 import type { FileScanner } from './workers/FileScanner';
 import type { MetadataReader } from './workers/MetadataReader';
@@ -87,6 +89,7 @@ export class LibraryService {
     private readonly metadataReader: MetadataReader = new TsMetadataReader(),
     private readonly networkMetadataService: NetworkMetadataService | null = null,
     private readonly readAppSettings: () => AppSettings = getAppSettingsSafe,
+    private readonly scanConcurrency: ScanConcurrencyRecommendation = getRecommendedScanConcurrency(),
   ) {}
 
   addFolder(folderPath: string): LibraryFolder {
@@ -228,6 +231,10 @@ export class LibraryService {
       databaseSizeBytes: pathSize(this.databasePath),
       coverCachePath: this.coverCacheDir,
       coverCacheSizeBytes: directorySize(this.coverCacheDir),
+      cpuCount: this.scanConcurrency.cpuCount,
+      scanPerformanceMode: this.scanConcurrency.mode === 'custom' ? 'balanced' : this.scanConcurrency.mode,
+      metadataConcurrency: this.scanConcurrency.metadataConcurrency,
+      coverConcurrency: this.scanConcurrency.coverConcurrency,
     });
   }
 
@@ -661,11 +668,21 @@ export const createLibraryService = (
     ? resolveCoverCacheDir(databasePath, dependencies.coverCacheDir)
     : resolveConfiguredCoverCacheDir(databasePath, (dependencies.appSettings ?? getAppSettingsSafe)());
   const albumService = new AlbumService();
+  const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
+  const appSettings = readSettings();
+  const recommendedScanConcurrency = getRecommendedScanConcurrency({
+    mode: appSettings.scanPerformanceMode ?? 'balanced',
+  });
+  const scanConcurrency: ScanConcurrencyRecommendation = {
+    ...recommendedScanConcurrency,
+    metadataConcurrency: dependencies.metadataConcurrency ?? recommendedScanConcurrency.metadataConcurrency,
+    coverConcurrency: dependencies.coverConcurrency ?? recommendedScanConcurrency.coverConcurrency,
+  };
   const scanJobQueue = new ScanJobQueue(store, fileScanner, metadataReader, coverExtractor, albumService, {
     coverCacheDir,
-    metadataConcurrency: dependencies.metadataConcurrency,
-    coverConcurrency: dependencies.coverConcurrency,
-    getAlbumMergeStrategy: () => (dependencies.appSettings ?? getAppSettingsSafe)().albumMergeStrategy,
+    metadataConcurrency: scanConcurrency.metadataConcurrency,
+    coverConcurrency: scanConcurrency.coverConcurrency,
+    getAlbumMergeStrategy: () => readSettings().albumMergeStrategy,
   });
 
   const networkMetadataService = new NetworkMetadataService(database);
@@ -680,7 +697,8 @@ export const createLibraryService = (
     coverExtractor,
     metadataReader,
     networkMetadataService,
-    dependencies.appSettings ?? getAppSettingsSafe,
+    readSettings,
+    scanConcurrency,
   );
 };
 

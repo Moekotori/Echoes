@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "prebenchmark:library": "node scripts/ensure-native-abi.mjs node",
     "benchmark:library": "node scripts/benchmark-library.mjs",
+    "benchmark:scan-concurrency": "node scripts/benchmark-scan-concurrency.mjs",
     "postbenchmark:library": "node scripts/ensure-native-abi.mjs electron",
     "repair:electron": "node scripts/install-electron.cjs"
   },

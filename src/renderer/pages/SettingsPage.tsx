@@ -1169,6 +1169,26 @@ export const SettingsPage = (): JSX.Element => {
                   ) : null}
                 </div>
               </SettingRow>
+              <SettingRow
+                title="Scan performance"
+                description="Choose how many files ECHO Next reads in parallel during library scans."
+              >
+                <div className="settings-chip-row">
+                  {[
+                    ['low', 'Low impact'],
+                    ['balanced', 'Balanced'],
+                    ['performance', 'Performance'],
+                  ].map(([mode, label]) => (
+                    <ChipButton
+                      active={(appSettings?.scanPerformanceMode ?? 'balanced') === mode}
+                      key={mode}
+                      onClick={() => patchAppSettings({ scanPerformanceMode: mode as AppSettings['scanPerformanceMode'] })}
+                    >
+                      {label}
+                    </ChipButton>
+                  ))}
+                </div>
+              </SettingRow>
               <SettingRow title={t('settings.library.network.title')} description={t('settings.library.network.description')}>
                 <button
                   className={`toggle-btn ${appSettings?.networkMetadataEnabled ? 'active' : ''}`}

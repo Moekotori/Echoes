@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateFakeTracks, runAlbumBenchmark, runBenchmark } from './benchmark-library.mjs';
+import { runScanConcurrencyMatrix } from './benchmark-scan-concurrency.mjs';
 
 describe('benchmark-library', () => {
   it('generates fake tracks', () => {
@@ -35,5 +36,24 @@ describe('benchmark-library', () => {
     expect(result.getAlbumsPage10ItemCount).toBe(0);
     expect(result.averageCoverThumbLength).toBeGreaterThan(0);
     expect(result.getAlbumsReturnsForbiddenCoverPayload).toBe(false);
+  });
+
+  it('runs a small scan concurrency matrix benchmark', async () => {
+    const results = await runScanConcurrencyMatrix({
+      tracks: 12,
+      changedTracks: 4,
+      metadataDelayMs: 1,
+      coverDelayMs: 1,
+    });
+
+    expect(results).toHaveLength(4);
+    expect(results[0]).toMatchObject({ metadataConcurrency: 2, coverConcurrency: 2 });
+    expect(results[1]).toMatchObject({ metadataConcurrency: 4, coverConcurrency: 2 });
+    expect(results[2]).toMatchObject({ metadataConcurrency: 4, coverConcurrency: 3 });
+    expect(results[3]).toMatchObject({ metadataConcurrency: 6, coverConcurrency: 3 });
+    expect(results[0].metadataCalls).toBeGreaterThan(0);
+    expect(results[0].coverCalls).toBeGreaterThan(0);
+    expect(results[0].memory.rss).toBeGreaterThan(0);
+    expect(results[0].memory.heapUsed).toBeGreaterThan(0);
   });
 });

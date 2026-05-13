@@ -44,6 +44,10 @@ export type LibraryDiagnostics = {
   coverCachePath: string | null;
   coverCacheSizeBytes: number | null;
   coverCacheVersion: number;
+  cpuCount: number;
+  scanPerformanceMode: 'low' | 'balanced' | 'performance';
+  metadataConcurrency: number;
+  coverConcurrency: number;
 };
 
 export type LibraryFolder = {

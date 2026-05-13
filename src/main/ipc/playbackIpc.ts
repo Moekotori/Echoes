@@ -3,6 +3,7 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { PlaybackProbeHint, PlaybackStartRequest, PlaybackStatus } from '../../shared/types/playback';
 import { getAudioSession } from '../audio/AudioSession';
+import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
 const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
@@ -152,22 +153,27 @@ export const registerPlaybackIpc = (): void => {
   ipcMain.handle(IpcChannels.PlaybackGetStatus, (): PlaybackStatus => toPlaybackStatus());
   ipcMain.handle(IpcChannels.PlaybackPlayLocalFile, async (_event, request: unknown): Promise<PlaybackStatus> => {
     await getAudioSession().playLocalFile(normalizePlayRequest(request));
+    void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackPlay, async (): Promise<PlaybackStatus> => {
     await getAudioSession().play();
+    void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackPause, (): PlaybackStatus => {
     getAudioSession().pause();
+    void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackStop, (): PlaybackStatus => {
     getAudioSession().stop();
+    void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackSeek, async (_event, positionSeconds: unknown): Promise<PlaybackStatus> => {
     await getAudioSession().seek(optionalNonNegativeNumber(positionSeconds) ?? 0);
+    void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackOpenLocalAudioFile, async (): Promise<string | null> => {

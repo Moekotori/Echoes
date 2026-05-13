@@ -48,6 +48,8 @@ vi.mock('../app/appSettings', () => ({
     playerVolume: 1,
     playbackSpeed: 1,
     playbackSpeedMode: 'nightcore',
+    scanPerformanceMode: 'balanced',
+    smtcEnabled: true,
   },
   getAppSettings: vi.fn(() => ({ coverCacheDir: null, hideToTrayOnClose: false })),
   setAppSettings: setAppSettingsMock,

@@ -38,6 +38,10 @@ describe('LibraryDiagnosticsPanel', () => {
       coverCachePath: 'D:\\Echo\\cover-cache',
       coverCacheSizeBytes: 2048,
       coverCacheVersion: 1,
+      cpuCount: 8,
+      scanPerformanceMode: 'balanced',
+      metadataConcurrency: 4,
+      coverConcurrency: 2,
     });
 
     window.echo = {

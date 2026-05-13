@@ -21,6 +21,7 @@ const idlePollingIntervalMs = 2000;
 export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
   const queue = usePlaybackQueue();
   const setQueueCurrentTrackId = queue.setCurrentTrackId;
+  const playQueueTrack = queue.playTrack;
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +155,58 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const handleNext = useCallback((): void => {
     void runPlaybackAction(queue.playNext);
   }, [queue.playNext, runPlaybackAction]);
+
+  const handleSmtcCommand = useCallback(
+    (command: 'play' | 'pause' | 'playPause' | 'previous' | 'next' | 'stop'): void => {
+      const playback = window.echo?.playback;
+
+      if (!playback) {
+        setError('Desktop bridge unavailable');
+        return;
+      }
+
+      if (command === 'playPause') {
+        void handlePlayPause();
+        return;
+      }
+
+      if (command === 'play') {
+        if (!isPlaying) {
+          void runPlaybackAction(() =>
+            (state === 'idle' || state === 'stopped') && currentTrack ? playQueueTrack(currentTrack) : playback.play(),
+          );
+        }
+        return;
+      }
+
+      if (command === 'pause') {
+        if (isPlaying) {
+          void runPlaybackAction(() => playback.pause());
+        }
+        return;
+      }
+
+      if (command === 'previous') {
+        handlePrevious();
+        return;
+      }
+
+      if (command === 'next') {
+        handleNext();
+        return;
+      }
+
+      if (command === 'stop') {
+        void runPlaybackAction(() => playback.stop());
+      }
+    },
+    [currentTrack, handleNext, handlePlayPause, handlePrevious, isPlaying, playQueueTrack, runPlaybackAction, state],
+  );
+
+  useEffect(() => {
+    const unsubscribe = window.echo?.smtc?.onCommand(handleSmtcCommand);
+    return () => unsubscribe?.();
+  }, [handleSmtcCommand]);
 
   const handleCycleRepeatMode = useCallback((): void => {
     queue.setRepeatMode(queue.repeatMode === 'off' ? 'all' : queue.repeatMode === 'all' ? 'one' : 'off');

@@ -85,6 +85,7 @@ export const IpcChannels = {
   PlaybackStop: 'playback:stop',
   PlaybackSeek: 'playback:seek',
   PlaybackOpenLocalAudioFile: 'playback:open-local-audio-file',
+  SmtcCommand: 'smtc:command',
   AudioGetStatus: 'audio:get-status',
   AudioListDevices: 'audio:list-devices',
   AudioSetOutput: 'audio:set-output',

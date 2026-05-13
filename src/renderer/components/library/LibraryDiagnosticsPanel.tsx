@@ -66,6 +66,10 @@ export const LibraryDiagnosticsPanel = (): JSX.Element => {
     { label: 'cover cache path', value: diagnostics?.coverCachePath ?? 'n/a' },
     { label: 'cover cache size', value: formatBytes(diagnostics?.coverCacheSizeBytes ?? null) },
     { label: 'cover cache version', value: String(diagnostics?.coverCacheVersion ?? 0) },
+    { label: 'scan CPU count', value: String(diagnostics?.cpuCount ?? 0) },
+    { label: 'scan performance mode', value: diagnostics?.scanPerformanceMode ?? 'balanced' },
+    { label: 'metadata concurrency', value: String(diagnostics?.metadataConcurrency ?? 0) },
+    { label: 'cover concurrency', value: String(diagnostics?.coverConcurrency ?? 0) },
   ];
 
   return (

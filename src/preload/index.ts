@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
+import type { SmtcCommand } from '../shared/types/smtc';
 
 const echoApi: EchoApi = {
   app: {
@@ -93,6 +94,15 @@ const echoApi: EchoApi = {
     stop: () => ipcRenderer.invoke(IpcChannels.PlaybackStop),
     seek: (positionSeconds) => ipcRenderer.invoke(IpcChannels.PlaybackSeek, positionSeconds),
     openLocalAudioFile: () => ipcRenderer.invoke(IpcChannels.PlaybackOpenLocalAudioFile),
+  },
+  smtc: {
+    onCommand: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: SmtcCommand): void => {
+        handler(command);
+      };
+      ipcRenderer.on(IpcChannels.SmtcCommand, listener);
+      return () => ipcRenderer.off(IpcChannels.SmtcCommand, listener);
+    },
   },
   audio: {
     getStatus: () => ipcRenderer.invoke(IpcChannels.AudioGetStatus),

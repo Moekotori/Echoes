@@ -22,6 +22,7 @@ describe('app settings normalization', () => {
     expect(settings.coverCacheDir).toBeNull();
     expect(settings.albumMergeStrategy).toBe('standard');
     expect(settings.artistWallAlbumArtwork).toBe(false);
+    expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.hideToTrayOnClose).toBe(true);
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
   });
@@ -52,6 +53,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: 'yes' as never }).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: true }).artistWallAlbumArtwork).toBe(true);
+  });
+
+  it('normalizes scan performance mode', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).scanPerformanceMode).toBe('balanced');
+    expect(normalizeSettings({ scanPerformanceMode: 'low' }).scanPerformanceMode).toBe('low');
+    expect(normalizeSettings({ scanPerformanceMode: 'performance' }).scanPerformanceMode).toBe('performance');
+    expect(normalizeSettings({ scanPerformanceMode: 'turbo' as never }).scanPerformanceMode).toBe('balanced');
   });
 
   it('normalizes channel balance settings for old and malformed settings files', async () => {
