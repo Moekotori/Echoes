@@ -776,9 +776,15 @@ export const SettingsPage = (): JSX.Element => {
       return;
     }
 
-    void app.setSettings(patch).then(setAppSettings).catch((settingsError) => {
-      setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
-    });
+    void app
+      .setSettings(patch)
+      .then((settings) => {
+        setAppSettings(settings);
+        window.dispatchEvent(new Event('settings:changed'));
+      })
+      .catch((settingsError) => {
+        setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
   };
 
   const handleDiscordPresenceToggle = async (): Promise<void> => {
@@ -1686,6 +1692,13 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => void handleDiscordPresenceToggle()}
                   />
                 </div>
+              </SettingRow>
+              <SettingRow title={t('settings.integrations.smtc.title')} description={t('settings.integrations.smtc.description')}>
+                <ToggleButton
+                  active={appSettings?.smtcEnabled ?? true}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ smtcEnabled: !(appSettings?.smtcEnabled ?? true) })}
+                />
               </SettingRow>
               <SettingRow title={t('settings.integrations.lastfm.title')} description={t('settings.integrations.lastfm.description')}>
                 <div className="settings-chip-row">

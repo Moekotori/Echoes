@@ -155,7 +155,7 @@ describe('MvService', () => {
     expect(service.getVideoCandidates(track.id)).toHaveLength(1);
   });
 
-  it('automatically searches and caches network MV candidates when enabled', async () => {
+  it('automatically searches and applies a network MV candidate at 70 percent or higher when enabled', async () => {
     const candidate: MvMatchCandidate = {
       id: 'bilibili:BV1auto',
       provider: 'bilibili',
@@ -183,13 +183,12 @@ describe('MvService', () => {
     const selected = await service.getSelectedOrAutoApplyVideo(track.id);
 
     expect(provider.search).toHaveBeenCalledOnce();
-    expect(selected).toBeNull();
-    expect(service.getSelectedVideo(track.id)).toBeNull();
-    expect(service.getVideoCandidates(track.id)[0]).toMatchObject({
+    expect(selected).toMatchObject({
       provider: 'bilibili',
-      selected: false,
+      selected: true,
       title: 'Echo Song Official MV',
     });
+    expect(service.getSelectedVideo(track.id)?.id).toBe(selected?.id);
   });
 
   it('does not automatically apply an MV candidate below 70 percent', async () => {
@@ -273,6 +272,48 @@ describe('MvService', () => {
     await service.openVideoExternal(video.id);
 
     expect(shellOpener.openPath).toHaveBeenCalledWith(videoPath);
+  });
+
+  it('binds a custom Bilibili MV URL as the selected video', () => {
+    const { service, track } = createHarness();
+
+    const video = service.bindUrl(track.id, 'https://www.bilibili.com/video/BV1ECHO?p=1');
+
+    expect(video).toMatchObject({
+      provider: 'bilibili',
+      sourceType: 'manual',
+      sourceId: 'BV1ECHO',
+      providerUrl: 'https://www.bilibili.com/video/BV1ECHO',
+      selected: true,
+    });
+    expect(service.getSelectedVideo(track.id)?.id).toBe(video.id);
+  });
+
+  it('binds a raw Bilibili BV id as the selected video', () => {
+    const { service, track } = createHarness();
+
+    const video = service.bindUrl(track.id, 'BV1RAW');
+
+    expect(video.provider).toBe('bilibili');
+    expect(video.providerUrl).toBe('https://www.bilibili.com/video/BV1RAW');
+    expect(video.selected).toBe(true);
+  });
+
+  it('binds a custom YouTube MV URL as an external video', async () => {
+    const { service, shellOpener, track } = createHarness();
+
+    const video = service.bindUrl(track.id, 'https://youtu.be/abc123');
+
+    expect(video).toMatchObject({
+      provider: 'youtube',
+      sourceId: 'abc123',
+      providerUrl: 'https://www.youtube.com/watch?v=abc123',
+      selected: true,
+      playableInApp: false,
+    });
+
+    await service.openVideoExternal(video.id);
+    expect(shellOpener.openExternal).toHaveBeenCalledWith('https://www.youtube.com/watch?v=abc123');
   });
 
   it('searches, binds, resolves, and proxies a network MV candidate', async () => {

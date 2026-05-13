@@ -91,6 +91,9 @@ export const sortLyricsCandidates = <T extends DedupableLyricsCandidate>(queryDu
     if (right.score !== left.score) return right.score - left.score;
     if (right.hasSynced !== left.hasSynced) return right.hasSynced ? 1 : -1;
 
+    const priorityDelta = (right.providerPriority ?? 0) - (left.providerPriority ?? 0);
+    if (priorityDelta !== 0) return priorityDelta;
+
     const providerDelta = providerRank(left.provider) - providerRank(right.provider);
     if (providerDelta !== 0) return providerDelta;
 
@@ -98,5 +101,5 @@ export const sortLyricsCandidates = <T extends DedupableLyricsCandidate>(queryDu
     const rightDelta = getDurationDelta(queryDuration, right.durationSeconds) ?? Number.MAX_SAFE_INTEGER;
     if (leftDelta !== rightDelta) return leftDelta - rightDelta;
 
-    return (right.providerPriority ?? 0) - (left.providerPriority ?? 0);
+    return 0;
   });

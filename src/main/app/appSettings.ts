@@ -17,6 +17,8 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 const lyricsWallpaperExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const defaultLyricsColor = '#314054';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
+const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
+const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
 
 export const getLyricsWallpaperDirectory = (): string => join(app.getPath('userData'), 'lyrics-wallpapers');
 
@@ -46,14 +48,18 @@ export const defaultSettings: AppSettings = {
   networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: 'lrclib',
-  lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsEnabledProviders: [...defaultLyricsProviderOrder],
+  lyricsProviderOrder: [...defaultLyricsProviderOrder],
   lyricsProviderTimeoutMs: 4500,
   lyricsTotalMatchTimeoutMs: 6000,
   lyricsCoverAutoAcceptScore: 0.97,
+  lyricsDeepSearchEnabled: true,
   lyricsAutoSearch: true,
   lyricsAutoAcceptScore: 0.7,
   lyricsDefaultOffsetMs: 0,
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsColor: defaultLyricsColor,
@@ -66,6 +72,8 @@ export const defaultSettings: AppSettings = {
   mvEnabledProviders: ['bilibili', 'youtube'],
   mvProviderOrder: ['bilibili', 'youtube'],
   mvAutoSearch: true,
+  mvAutoPreload: true,
+  mvRestartAudioOnLoad: false,
   mvMaxQuality: '1080p',
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
@@ -133,6 +141,15 @@ const normalizeMvProviderList = (value: unknown, fallback: NetworkMvProviderId[]
   const providers = value.filter((provider): provider is NetworkMvProviderId =>
     mvNetworkProviders.includes(provider as NetworkMvProviderId),
   );
+  return [...new Set(providers)];
+};
+
+const normalizeLyricsProviderList = (value: unknown, fallback: LyricsProviderId[]): LyricsProviderId[] => {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+
+  const providers = value.filter((provider): provider is LyricsProviderId => lyricsProviders.includes(provider as LyricsProviderId));
   return [...new Set(providers)];
 };
 
@@ -227,18 +244,11 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   const lyricsProviderTimeoutMs = Number(settings.lyricsProviderTimeoutMs);
   const lyricsTotalMatchTimeoutMs = Number(settings.lyricsTotalMatchTimeoutMs);
   const mvProviderOrder = normalizeMvProviderList(settings.mvProviderOrder, defaultSettings.mvProviderOrder);
-  const lyricsEnabledProviders: LyricsProviderId[] = Array.isArray(settings.lyricsEnabledProviders)
-    ? settings.lyricsEnabledProviders.filter(
-        (provider): provider is LyricsProviderId =>
-          provider === 'local' ||
-          provider === 'lrclib' ||
-          provider === 'netease' ||
-          provider === 'qqmusic' ||
-          provider === 'musixmatch' ||
-          provider === 'genius' ||
-          provider === 'manual',
-      )
-    : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']);
+  const lyricsEnabledProviders = normalizeLyricsProviderList(settings.lyricsEnabledProviders, defaultSettings.lyricsEnabledProviders ?? defaultLyricsProviderOrder);
+  const lyricsProviderOrder = normalizeLyricsProviderList(
+    settings.lyricsProviderOrder,
+    Array.isArray(settings.lyricsEnabledProviders) ? settings.lyricsEnabledProviders : defaultSettings.lyricsProviderOrder,
+  );
 
   return {
     albumMergeStrategy,
@@ -250,6 +260,10 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
     lyricsPreferredProvider: 'lrclib',
     lyricsEnabledProviders: lyricsEnabledProviders.length ? lyricsEnabledProviders : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']),
+    lyricsProviderOrder: [
+      ...lyricsProviderOrder,
+      ...defaultLyricsProviderOrder.filter((provider) => !lyricsProviderOrder.includes(provider)),
+    ],
     lyricsProviderTimeoutMs: Number.isFinite(lyricsProviderTimeoutMs)
       ? Math.round(clamp(lyricsProviderTimeoutMs, 1000, 10000))
       : defaultSettings.lyricsProviderTimeoutMs,
@@ -259,6 +273,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsCoverAutoAcceptScore: Number.isFinite(lyricsCoverAutoAcceptScore)
       ? clamp(lyricsCoverAutoAcceptScore, 0.5, 1)
       : defaultSettings.lyricsCoverAutoAcceptScore,
+    lyricsDeepSearchEnabled: settings.lyricsDeepSearchEnabled !== false,
     lyricsAutoSearch: settings.lyricsAutoSearch !== false,
     lyricsAutoAcceptScore: Number.isFinite(lyricsAutoAcceptScore)
       ? clamp(lyricsAutoAcceptScore, 0.5, 0.7)
@@ -267,6 +282,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ? Math.round(clamp(lyricsDefaultOffsetMs, -10000, 10000))
       : defaultSettings.lyricsDefaultOffsetMs,
     lyricsEnabled: settings.lyricsEnabled !== false,
+    lyricsHeaderHidden: settings.lyricsHeaderHidden === true,
+    lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden !== false,
     lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
     lyricsFontSizePx: Number.isFinite(lyricsFontSizePx)
       ? Math.round(clamp(lyricsFontSizePx, 22, 56))
@@ -292,6 +309,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ...mvNetworkProviders.filter((provider) => !mvProviderOrder.includes(provider)),
     ],
     mvAutoSearch: settings.mvAutoSearch !== false,
+    mvAutoPreload: settings.mvAutoPreload !== false,
+    mvRestartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     mvMaxQuality: normalizeMvMaxQuality(settings.mvMaxQuality),
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),

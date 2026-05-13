@@ -100,10 +100,15 @@ const makeAppSettings = (
   networkMetadataProviders: ["netease-cloud-music", "qq-music"],
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: "lrclib",
+  lyricsEnabledProviders: ["local", "lrclib", "netease", "qqmusic"],
+  lyricsProviderOrder: ["local", "lrclib", "netease", "qqmusic"],
+  lyricsDeepSearchEnabled: true,
   lyricsAutoSearch: true,
   lyricsAutoAcceptScore: 0.7,
   lyricsDefaultOffsetMs: 0,
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsColor: "#314054",
@@ -289,6 +294,24 @@ describe("LyricsPage", () => {
     expect(screen.queryByText(/FLAC \/ 2400 kbps \/ 96 kHz/)).toBeNull();
   });
 
+  it("hides the lyrics page song header when configured", async () => {
+    const track = makeTrack();
+    mockEcho(track, 0, { lyricsHeaderHidden: true });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText("First line");
+
+    expect(container.querySelector(".lyrics-track-header")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Test Song" })).toBeNull();
+  });
+
   it("shows an empty state when no song is playing", async () => {
     mockEcho(null);
 
@@ -369,7 +392,7 @@ describe("LyricsPage", () => {
     expect(container.querySelector(".lyrics-mv-placeholder")).toBeTruthy();
   });
 
-  it("uses the original cover only for the lyrics header when a cover id is available", async () => {
+  it("uses the original cover for the lyrics header and cover-following background", async () => {
     const track = makeTrack({ coverId: "cover 1" });
     mockEcho(track);
     const { container } = render(
@@ -389,6 +412,20 @@ describe("LyricsPage", () => {
         .querySelector('.lyrics-mv-card[data-cover="true"] img')
         ?.getAttribute("src"),
     ).toBe("echo-cover://large/cover%201");
+
+    window.dispatchEvent(
+      new CustomEvent("settings:changed", {
+        detail: {
+          lyricsBackgroundMode: "cover",
+        },
+      }),
+    );
+
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+    await waitFor(() => expect(page.dataset.background).toBe("cover"));
+    expect(page.style.getPropertyValue("--lyrics-cover")).toBe(
+      'url("echo-cover://original/cover%201")',
+    );
   });
 
   it("loads lyrics through the lyrics bridge when trackId changes", async () => {
@@ -417,6 +454,143 @@ describe("LyricsPage", () => {
 
     expect(await screen.findByText("Loaded from service")).toBeTruthy();
     expect(window.echo.lyrics.getForTrack).toHaveBeenCalledWith("track-1");
+  });
+
+  it("clears the previous lyrics immediately when the track changes", async () => {
+    const firstTrack = makeTrack({
+      id: "track-1",
+      title: "First Song",
+      path: "D:\\Music\\first.flac",
+    });
+    const secondTrack = makeTrack({
+      id: "track-2",
+      title: "Second Song",
+      path: "D:\\Music\\second.flac",
+    });
+    let activeTrack = firstTrack;
+    let resolveSecondLyrics: (value: TrackLyrics | null) => void = () => undefined;
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeAppSettings()),
+        setSettings: vi.fn(),
+        chooseLyricsWallpaper: vi.fn(),
+      },
+      playback: {
+        getStatus: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            state: "playing",
+            currentTrackId: activeTrack.id,
+            positionMs: 0,
+            durationMs: activeTrack.duration * 1000,
+            filePath: activeTrack.path,
+          }),
+        ),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockImplementation(() => Promise.resolve(makeAudioStatus(activeTrack))),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      lyrics: {
+        getForTrack: vi.fn().mockImplementation((trackId: string) => {
+          if (trackId === firstTrack.id) {
+            return Promise.resolve(
+              makeTrackLyrics({
+                trackId,
+                lines: [{ timeMs: 0, text: "First track lyric" }],
+              }),
+            );
+          }
+
+          return new Promise<TrackLyrics | null>((resolve) => {
+            resolveSecondLyrics = resolve;
+          });
+        }),
+        searchCandidates: vi.fn().mockResolvedValue([]),
+        applyCandidate: vi.fn(),
+        rejectCandidate: vi.fn(),
+        setOffset: vi.fn(),
+        clearCache: vi.fn(),
+      },
+      mv: {
+        getSelected: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as Window["echo"];
+
+    const SwitchTrack = (): JSX.Element => {
+      const { replaceQueue, setCurrentTrackId } = usePlaybackQueue();
+
+      useEffect(() => {
+        replaceQueue([firstTrack, secondTrack]);
+        setCurrentTrackId(firstTrack.id);
+      }, [replaceQueue, setCurrentTrackId]);
+
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              activeTrack = secondTrack;
+              setCurrentTrackId(secondTrack.id);
+            }}
+          >
+            switch
+          </button>
+          <LyricsPage />
+        </>
+      );
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <SwitchTrack />
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("First track lyric")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+
+    await waitFor(() => expect(screen.queryByText("First track lyric")).toBeNull());
+    expect(container.querySelector(".lyrics-empty")).toBeTruthy();
+
+    resolveSecondLyrics(null);
+  });
+
+  it("uses only the centered empty lyrics state when no lyrics are found", async () => {
+    const track = makeTrack();
+    mockEcho(track);
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(null),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.getForTrack).toHaveBeenCalledWith("track-1"),
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".lyrics-empty")).toBeTruthy(),
+    );
+    expect(container.querySelector(".lyrics-match-panel")).toBeNull();
   });
 
   it("lets users switch lyrics source without clearing the current lyrics first", async () => {
@@ -601,7 +775,7 @@ describe("LyricsPage", () => {
     );
   });
 
-  it("does not highlight plain lyrics as the active timed line", async () => {
+  it("shows plain lyrics in the centered karaoke layout", async () => {
     const track = makeTrack();
     mockEcho(track, 120);
     window.echo.lyrics = {
@@ -632,7 +806,7 @@ describe("LyricsPage", () => {
 
     await screen.findByText("Plain second");
     expect(
-      container.querySelector('.lyrics-line[data-active="true"]'),
-    ).toBeNull();
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Plain second");
   });
 });

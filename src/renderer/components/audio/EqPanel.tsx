@@ -527,13 +527,20 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         return;
       }
 
-      await eq.savePreset({
+      const savedPreset = await eq.savePreset({
         name: saveName,
         preampDb: state.preampDb,
         bands: state.bands,
       });
       setSaveName('');
       setPresets(await eq.listPresets());
+      commitState({
+        ...state,
+        presetId: savedPreset.id,
+        presetName: savedPreset.name,
+        preampDb: savedPreset.preampDb,
+        bands: savedPreset.bands.map((band) => ({ ...band })),
+      });
       setError(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
@@ -581,7 +588,14 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         bands: state.bands,
       });
       setPresets(await eq.listPresets());
-      setSaveName(duplicated.name);
+      setSaveName('');
+      commitState({
+        ...state,
+        presetId: duplicated.id,
+        presetName: duplicated.name,
+        preampDb: duplicated.preampDb,
+        bands: duplicated.bands.map((band) => ({ ...band })),
+      });
       setError(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));

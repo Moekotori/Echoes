@@ -5,7 +5,7 @@ import type { LibraryTrack } from '../../shared/types/library';
 import type { PlaybackStatus } from '../../shared/types/playback';
 
 export type QueueSource =
-  | { type: 'songs'; label: string; search?: string; sort?: string }
+  | { type: 'songs'; label: string; search?: string; sort?: string; hideDuplicates?: boolean }
   | { type: 'album'; label: string; albumId: string }
   | { type: 'artist'; label: string; artistId?: string }
   | { type: 'folder'; label: string; folderId: string; path: string; recursive: boolean }
@@ -122,6 +122,11 @@ const getShuffleCandidates = (items: QueueItem[], activeItem: QueueItem | null, 
 
   return items.filter((item) => !excludedQueueIds.has(item.queueId));
 };
+
+const isLibraryRandomSource = (source: QueueSource | null | undefined): source is Extract<QueueSource, { type: 'songs' }> =>
+  source?.type === 'songs';
+
+const pickRandom = <Item,>(items: Item[]): Item | null => items[Math.floor(Math.random() * items.length)] ?? null;
 
 const clampMoveIndex = (index: number, length: number): number => Math.max(0, Math.min(index, length - 1));
 
@@ -461,6 +466,48 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [commitPlayedItem, playLocalTrack],
   );
 
+  const fetchLibraryShuffleTarget = useCallback(
+    async (source: Extract<QueueSource, { type: 'songs' }>, activeItem: QueueItem | null): Promise<QueueItem | null> => {
+      const library = window.echo?.library;
+
+      if (!library?.getTracks) {
+        return null;
+      }
+
+      try {
+        const excludedTrackIds = new Set<string>();
+        if (activeItem) {
+          excludedTrackIds.add(activeItem.track.id);
+        }
+
+        for (const item of historyRef.current) {
+          excludedTrackIds.add(item.track.id);
+        }
+
+        const result = await library.getTracks({
+          page: 1,
+          pageSize: 50,
+          search: source.search,
+          sort: 'random',
+          hideDuplicates: source.hideDuplicates,
+          duplicateMode: 'strict',
+        });
+        const freshTrack = pickRandom(result.items.filter((track) => !excludedTrackIds.has(track.id))) ?? null;
+        const fallbackTrack = result.items.find((track) => activeItem?.track.id !== track.id) ?? result.items[0] ?? null;
+        const targetTrack = freshTrack ?? fallbackTrack;
+
+        if (!targetTrack) {
+          return null;
+        }
+
+        return itemsRef.current.find((item) => item.track.id === targetTrack.id) ?? createQueueItem(targetTrack, source);
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
   const playTrack = useCallback(
     async (track: LibraryTrack, options: PlayTrackOptions = {}): Promise<PlaybackStatus> => {
       const source = options.source ?? manualSource;
@@ -553,13 +600,19 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     let target: QueueItem | null = null;
 
     if (isShuffleEnabledRef.current) {
-      let candidates = getShuffleCandidates(current, activeItem ?? null, historyRef.current);
+      const source = activeItem?.source ?? null;
+
+      if (isLibraryRandomSource(source)) {
+        target = await fetchLibraryShuffleTarget(source, activeItem ?? null);
+      }
+
+      let candidates = target ? [] : getShuffleCandidates(current, activeItem ?? null, historyRef.current);
 
       if (candidates.length === 0 && activeRepeatMode === 'all') {
         candidates = activeItem ? current.filter((item) => item.queueId !== activeItem.queueId) : current;
       }
 
-      target = candidates[Math.floor(Math.random() * candidates.length)] ?? null;
+      target = target ?? pickRandom(candidates);
 
       if (!target && activeRepeatMode === 'all') {
         target = activeItem ?? current[0] ?? null;
@@ -577,9 +630,12 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     }
 
     const status = await playLocalTrack(target);
+    if (!itemsRef.current.some((item) => item.queueId === target.queueId)) {
+      setItems((items) => [...items, target]);
+    }
     commitPlayedItem(target, status);
     return status;
-  }, [commitPlayedItem, playLocalTrack, playTrack]);
+  }, [commitPlayedItem, fetchLibraryShuffleTarget, playLocalTrack, playTrack, setItems]);
 
   const setCurrentTrackId = useCallback(
     (trackId: string | null): void => {
@@ -622,6 +678,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     if (isShuffleEnabled) {
       const activeItem = currentIndex >= 0 ? items[currentIndex] : findItemByQueueId(items, currentQueueId);
+      if (isLibraryRandomSource(activeItem?.source)) {
+        return true;
+      }
       return getShuffleCandidates(items, activeItem ?? null, history).length > 0 || repeatMode === 'all';
     }
 

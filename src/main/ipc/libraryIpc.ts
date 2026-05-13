@@ -500,6 +500,9 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryCancelScan, (_event, jobId: unknown) =>
     getLibraryService().cancelScan(requireText(jobId, 'jobId')),
   );
+  ipcMain.handle(IpcChannels.LibraryGetTrack, (_event, trackId: unknown) =>
+    getLibraryService().getTrack(requireText(trackId, 'trackId')),
+  );
   ipcMain.handle(IpcChannels.LibraryGetTracks, (_event, query: unknown) =>
     getLibraryService().getTracks(normalizeQuery(query)),
   );

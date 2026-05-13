@@ -26,6 +26,8 @@ const track: LibraryTrack = {
 
 const settings: MvSettings = {
   autoSearch: true,
+  autoPreload: true,
+  restartAudioOnLoad: false,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
   maxQuality: '1080p',
@@ -81,6 +83,7 @@ describe('BilibiliMvProvider', () => {
               title: '<em class="keyword">Echo</em> Song MV',
               author: 'Echo Channel',
               pic: '//i.example/echo.jpg',
+              play: '12.3万',
             },
           ],
         },
@@ -100,13 +103,59 @@ describe('BilibiliMvProvider', () => {
       providerUrl: 'https://www.bilibili.com/video/BV1echo',
       thumbnailUrl: 'https://i.example/echo.jpg',
       uploader: 'Echo Channel',
+      viewCount: 123000,
     });
+    expect(candidates[0]?.reasons).toContain('播放 123000');
     expect(fetchImpl).toHaveBeenCalledWith(
       expect.stringContaining('api.bilibili.com/x/web-interface/search/type'),
       expect.objectContaining({
         headers: expect.objectContaining({ Cookie: 'SESSDATA=secret' }),
       }),
     );
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('order=click'), expect.anything());
+  });
+
+  it('sorts Bilibili search results by match score first and play count second', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        data: {
+          result: [
+            {
+              bvid: 'BV1popular',
+              title: 'Popular unrelated video',
+              author: 'Echo Channel',
+              pic: '//i.example/popular.jpg',
+              play: '99万',
+            },
+            {
+              bvid: 'BV1low',
+              title: 'Echo Song Low Play',
+              author: 'Echo Channel',
+              pic: '//i.example/low.jpg',
+              play: '9000',
+            },
+            {
+              bvid: 'BV1high',
+              title: 'Echo Song High Play',
+              author: 'Echo Channel',
+              pic: '//i.example/high.jpg',
+              play: '3.2万',
+            },
+          ],
+        },
+      }),
+    ) as typeof fetch;
+    const provider = new BilibiliMvProvider({
+      fetchImpl,
+      getCredentials: () => ({ provider: 'bilibili' }),
+    });
+
+    const candidates = await provider.search(track, settings);
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(['bilibili:BV1high', 'bilibili:BV1low', 'bilibili:BV1popular']);
+    expect(candidates.map((candidate) => candidate.viewCount)).toEqual([32000, 9000, 990000]);
+    expect(candidates[0]?.score).toBe(candidates[1]?.score);
+    expect(candidates[1]!.score).toBeGreaterThan(candidates[2]!.score);
   });
 
   it('resolves direct MP4 stream variants within the quality cap', async () => {
@@ -180,6 +229,25 @@ describe('BilibiliMvProvider', () => {
 });
 
 describe('YouTubeMvProvider', () => {
+  it('requests YouTube results ordered by view count when an API key is configured', async () => {
+    const originalEchoKey = process.env.ECHO_YOUTUBE_API_KEY;
+    process.env.ECHO_YOUTUBE_API_KEY = 'test-key';
+    const fetchImpl = vi.fn(async () => jsonResponse({ items: [] })) as typeof fetch;
+    const provider = new YouTubeMvProvider({ fetchImpl });
+
+    try {
+      await provider.search(track, settings);
+
+      expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('order=viewCount'), expect.anything());
+    } finally {
+      if (originalEchoKey === undefined) {
+        delete process.env.ECHO_YOUTUBE_API_KEY;
+      } else {
+        process.env.ECHO_YOUTUBE_API_KEY = originalEchoKey;
+      }
+    }
+  });
+
   it('does not scrape YouTube when no official API key is configured', async () => {
     const originalEchoKey = process.env.ECHO_YOUTUBE_API_KEY;
     const originalYouTubeKey = process.env.YOUTUBE_DATA_API_KEY;

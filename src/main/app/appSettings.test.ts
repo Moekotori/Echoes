@@ -27,10 +27,14 @@ describe('app settings normalization', () => {
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
     expect(settings.lyricsNetworkEnabled).toBe(true);
     expect(settings.lyricsEnabledProviders).toEqual(['local', 'lrclib', 'netease', 'qqmusic']);
+    expect(settings.lyricsProviderOrder).toEqual(['local', 'lrclib', 'netease', 'qqmusic']);
+    expect(settings.lyricsDeepSearchEnabled).toBe(true);
     expect(settings.lyricsAutoSearch).toBe(true);
     expect(settings.lyricsAutoAcceptScore).toBe(0.7);
     expect(settings.lyricsDefaultOffsetMs).toBe(0);
     expect(settings.lyricsEnabled).toBe(true);
+    expect(settings.lyricsHeaderHidden).toBe(false);
+    expect(settings.lyricsEmptyStateHidden).toBe(true);
     expect(settings.lyricsRomanizationEnabled).toBe(true);
     expect(settings.lyricsFontSizePx).toBe(36);
     expect(settings.lyricsColor).toBe('#314054');
@@ -141,13 +145,17 @@ describe('app settings normalization', () => {
       normalizeSettings({
         lyricsNetworkEnabled: false,
         lyricsEnabledProviders: ['local', 'qqmusic', 'bad-provider'] as never,
+        lyricsProviderOrder: ['qqmusic', 'lrclib', 'bad-provider'] as never,
         lyricsProviderTimeoutMs: 50,
         lyricsTotalMatchTimeoutMs: 99999,
         lyricsCoverAutoAcceptScore: 2,
+        lyricsDeepSearchEnabled: false,
         lyricsAutoSearch: false,
         lyricsAutoAcceptScore: 2,
         lyricsDefaultOffsetMs: -24000,
         lyricsEnabled: false,
+        lyricsHeaderHidden: true,
+        lyricsEmptyStateHidden: false,
         lyricsRomanizationEnabled: false,
         lyricsFontSizePx: 999,
         lyricsColor: 'red',
@@ -162,13 +170,17 @@ describe('app settings normalization', () => {
       lyricsNetworkEnabled: false,
       lyricsPreferredProvider: 'lrclib',
       lyricsEnabledProviders: ['local', 'qqmusic'],
+      lyricsProviderOrder: ['qqmusic', 'lrclib', 'local', 'netease'],
       lyricsProviderTimeoutMs: 1000,
       lyricsTotalMatchTimeoutMs: 15000,
       lyricsCoverAutoAcceptScore: 1,
+      lyricsDeepSearchEnabled: false,
       lyricsAutoSearch: false,
       lyricsAutoAcceptScore: 0.7,
       lyricsDefaultOffsetMs: -10000,
       lyricsEnabled: false,
+      lyricsHeaderHidden: true,
+      lyricsEmptyStateHidden: false,
       lyricsRomanizationEnabled: false,
       lyricsFontSizePx: 56,
       lyricsColor: '#314054',

@@ -5,8 +5,10 @@ import type { LyricsState } from './lyricsTypes';
 
 type LyricsViewProps = {
   lyrics: LyricsState;
+  durationMs?: number | null;
   positionMs: number;
   onSeek: (timeMs: number) => void;
+  hideEmptyState?: boolean;
   showRomanization?: boolean;
 };
 
@@ -34,16 +36,42 @@ export const getActiveLyricIndex = (lines: LyricsState['lines'], positionMs: num
   return activeIndex;
 };
 
-export const LyricsView = ({ lyrics, onSeek, positionMs, showRomanization = true }: LyricsViewProps): JSX.Element => {
+export const getEstimatedPlainLyricIndex = (
+  lines: LyricsState['lines'],
+  positionMs: number,
+  durationMs?: number | null,
+): number => {
+  if (lines.length === 0 || !durationMs || durationMs <= 0 || !Number.isFinite(durationMs)) {
+    return lines.length > 0 ? 0 : -1;
+  }
+
+  const progress = Math.max(0, Math.min(0.999999, positionMs / durationMs));
+  return Math.max(0, Math.min(lines.length - 1, Math.floor(progress * lines.length)));
+};
+
+export const LyricsView = ({
+  durationMs,
+  hideEmptyState = false,
+  lyrics,
+  onSeek,
+  positionMs,
+  showRomanization = true,
+}: LyricsViewProps): JSX.Element => {
   const scrollRef = useRef<HTMLElement | null>(null);
   const isSynced = lyrics.kind === 'synced';
+  const isPlain = lyrics.kind === 'plain';
   const activeIndex = useMemo(
-    () => (isSynced ? getActiveLyricIndex(lyrics.lines, positionMs, lyrics.offsetMs) : -1),
-    [isSynced, lyrics.lines, lyrics.offsetMs, positionMs],
+    () =>
+      isSynced
+        ? getActiveLyricIndex(lyrics.lines, positionMs, lyrics.offsetMs)
+        : isPlain
+          ? getEstimatedPlainLyricIndex(lyrics.lines, positionMs, durationMs)
+          : -1,
+    [durationMs, isPlain, isSynced, lyrics.lines, lyrics.offsetMs, positionMs],
   );
 
   useEffect(() => {
-    if (!isSynced || activeIndex < 0) {
+    if (activeIndex < 0) {
       return;
     }
 
@@ -64,9 +92,13 @@ export const LyricsView = ({ lyrics, onSeek, positionMs, showRomanization = true
     } else {
       scrollContainer.scrollTop = top;
     }
-  }, [activeIndex, isSynced]);
+  }, [activeIndex]);
 
   if (lyrics.lines.length === 0) {
+    if (hideEmptyState) {
+      return <section className="lyrics-empty lyrics-empty--hidden" aria-label="Lyrics" />;
+    }
+
     return (
       <section className="lyrics-empty" aria-label="Lyrics">
         <Music2 size={26} />
@@ -83,7 +115,7 @@ export const LyricsView = ({ lyrics, onSeek, positionMs, showRomanization = true
           active={index === activeIndex}
           key={`${line.timeMs}-${index}`}
           line={line}
-          past={isSynced && index < activeIndex}
+          past={activeIndex >= 0 && index < activeIndex}
           showRomanization={showRomanization}
           onSeek={onSeek}
           seekable={isSynced && line.timeMs >= 0}

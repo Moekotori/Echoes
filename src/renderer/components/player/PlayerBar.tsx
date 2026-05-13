@@ -9,6 +9,7 @@ import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
 import { PlayerVolumeControl } from './PlayerVolumeControl';
+import { applyMediaSessionSnapshot, bindMediaSessionActions, clearMediaSession } from './mediaSession';
 import { titleFromPath } from './playerFormat';
 
 type PlayerBarProps = {
@@ -19,10 +20,14 @@ const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
 const activePollingIntervalMs = 500;
 const idlePollingIntervalMs = 2000;
 
+const playerArtworkUrl = (track: { coverId: string | null; coverThumb: string | null } | null): string | null =>
+  track?.coverId ? `echo-cover://album/${encodeURIComponent(track.coverId)}` : (track?.coverThumb ?? null);
+
 export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
   const queue = usePlaybackQueue();
   const setQueueCurrentTrackId = queue.setCurrentTrackId;
   const playQueueTrack = queue.playTrack;
+  const appendToQueue = queue.appendToQueue;
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +35,10 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const [openPopover, setOpenPopover] = useState<'volume' | 'speed' | null>(null);
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
   const [isWindowVisible, setIsWindowVisible] = useState(() => document.visibilityState !== 'hidden');
+  const [smtcEnabled, setSmtcEnabled] = useState(true);
   const handledEndedTrackRef = useRef<string | null>(null);
+  const hydratedTrackIdsRef = useRef(new Set<string>());
+  const mvPreloadTrackRef = useRef<string | null>(null);
   const refreshRequestRef = useRef(0);
 
   const refreshStatus = useCallback(async (): Promise<void> => {
@@ -80,6 +88,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const displayedPositionSeconds = seekPreviewSeconds ?? positionSeconds;
   const title = currentTrack?.title ?? titleFromPath(filePath);
   const artist = currentTrack?.artist || currentTrack?.albumArtist || (filePath ? 'Local file' : 'Ready');
+  const artworkUrl = playerArtworkUrl(currentTrack);
 
   const refreshCurrentTrackLiked = useCallback(async (): Promise<void> => {
     if (!trackId || !window.echo?.library) {
@@ -102,6 +111,96 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   useEffect(() => {
     void refreshCurrentTrackLiked();
   }, [refreshCurrentTrackLiked]);
+
+  useEffect(() => {
+    if (!trackId || currentTrack || hydratedTrackIdsRef.current.has(trackId)) {
+      return;
+    }
+
+    const getTrack = window.echo?.library?.getTrack;
+    if (typeof getTrack !== 'function') {
+      return;
+    }
+
+    hydratedTrackIdsRef.current.add(trackId);
+    let cancelled = false;
+    void getTrack(trackId)
+      .then((track) => {
+        if (cancelled || !track) {
+          return;
+        }
+
+        appendToQueue(track, { type: 'manual', label: 'Restored playback' });
+        setQueueCurrentTrackId(track.id);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appendToQueue, currentTrack, setQueueCurrentTrackId, trackId]);
+
+  useEffect(() => {
+    const mv = window.echo?.mv;
+
+    if (!isPlaying || !trackId || !mv || mvPreloadTrackRef.current === trackId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const settings = await mv.getSettings();
+        if (cancelled || !settings.autoPreload) {
+          return;
+        }
+
+        mvPreloadTrackRef.current = trackId;
+        const selected = await mv.getSelected(trackId);
+        if (cancelled || selected) {
+          return;
+        }
+
+        await mv.searchNetworkCandidates(trackId);
+        if (!cancelled && (await mv.getSelected(trackId))) {
+          window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
+        }
+      } catch {
+        // MV preload should never interrupt audio playback.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPlaying, trackId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshSmtcSetting = (): void => {
+      void window.echo?.app
+        ?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            setSmtcEnabled(settings.smtcEnabled !== false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSmtcEnabled(true);
+          }
+        });
+    };
+
+    refreshSmtcSetting();
+    window.addEventListener('settings:changed', refreshSmtcSetting);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', refreshSmtcSetting);
+    };
+  }, []);
 
   useEffect(() => {
     window.addEventListener(likedTracksChangedEvent, refreshCurrentTrackLiked);
@@ -258,6 +357,31 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     return () => unsubscribe?.();
   }, [handleSmtcCommand]);
 
+  useEffect(() => {
+    applyMediaSessionSnapshot({
+      enabled: smtcEnabled && Boolean(filePath || currentTrack),
+      title,
+      artist,
+      album: currentTrack?.album ?? null,
+      artworkUrl,
+      state,
+      positionSeconds,
+      durationSeconds,
+      playbackRate: audioStatus?.playbackRate ?? 1,
+    });
+  }, [
+    artist,
+    audioStatus?.playbackRate,
+    currentTrack,
+    durationSeconds,
+    filePath,
+    artworkUrl,
+    positionSeconds,
+    smtcEnabled,
+    state,
+    title,
+  ]);
+
   const handleCycleRepeatMode = useCallback((): void => {
     queue.setRepeatMode(queue.repeatMode === 'one' ? 'off' : 'one');
   }, [queue]);
@@ -355,19 +479,36 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     [durationSeconds, refreshStatus],
   );
 
+  useEffect(() => {
+    if (!smtcEnabled) {
+      clearMediaSession();
+      return () => undefined;
+    }
+
+    return bindMediaSessionActions({
+      onPlay: () => handleSmtcCommand('play'),
+      onPause: () => handleSmtcCommand('pause'),
+      onPrevious: () => handleSmtcCommand('previous'),
+      onNext: () => handleSmtcCommand('next'),
+      onStop: () => handleSmtcCommand('stop'),
+      onSeek: (positionSeconds) => void commitSeek(positionSeconds),
+      getPositionSeconds: () => positionSeconds,
+    });
+  }, [commitSeek, handleSmtcCommand, positionSeconds, smtcEnabled]);
+
   return (
     <footer className="player-bar" aria-label="播放控制">
       <div className="player-now">
         <button
           className="player-cover"
-          data-empty={!currentTrack?.coverThumb}
+          data-empty={!artworkUrl}
           type="button"
           aria-label="Open Now Playing"
           title="Open Now Playing"
           onClick={handleOpenNowPlaying}
         >
-          {currentTrack?.coverThumb ? (
-            <img alt="" src={currentTrack.coverThumb} />
+          {artworkUrl ? (
+            <img alt="" src={artworkUrl} />
           ) : (
             <div className="player-cover-placeholder">
               <span className="player-cover-disc" />

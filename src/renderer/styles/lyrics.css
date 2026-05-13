@@ -95,9 +95,14 @@
 .lyrics-left-panel,
 .lyrics-mv-panel,
 .lyrics-no-track,
+.lyrics-empty,
 .lyrics-error {
   position: relative;
   z-index: 1;
+}
+
+.lyrics-empty--hidden {
+  display: none;
 }
 
 .lyrics-drawer-range {
@@ -185,7 +190,7 @@
 
 .lyrics-source-option {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto 42px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   min-height: 44px;
@@ -196,18 +201,69 @@
   cursor: pointer;
 }
 
+.lyrics-source-option[data-dragging="true"] {
+  opacity: 0.6;
+}
+
 .lyrics-source-option[data-enabled="true"] {
-  border-color: rgba(143, 207, 189, 0.36);
-  background: rgba(143, 207, 189, 0.16);
+  border-color: rgba(171, 203, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lyrics-source-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: rgba(220, 231, 255, 0.56);
+  cursor: grab;
+}
+
+.lyrics-source-option:active .lyrics-source-drag-handle {
+  cursor: grabbing;
 }
 
 .lyrics-source-option input {
-  width: 15px;
-  height: 15px;
-  accent-color: #8fcfbd;
+  position: relative;
+  appearance: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(220, 231, 255, 0.24);
+  cursor: pointer;
+  transition: background-color 160ms ease;
 }
 
-.lyrics-source-option span {
+.lyrics-source-option input::before {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(244, 248, 255, 0.9);
+  box-shadow: 0 3px 9px rgba(20, 26, 34, 0.22);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.lyrics-source-option input:checked {
+  background: rgba(104, 151, 226, 0.56);
+}
+
+.lyrics-source-option input:checked::before {
+  transform: translateX(16px);
+}
+
+.lyrics-source-option input:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.lyrics-source-option span:not(.lyrics-source-drag-handle) {
   display: grid;
   min-width: 0;
   gap: 2px;
@@ -226,6 +282,15 @@
   color: #8fcfbd;
 }
 
+.lyrics-background-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.lyrics-background-controls[hidden] {
+  display: none;
+}
+
 .lyrics-color-panel__header,
 .lyrics-color-panel__header span,
 .lyrics-color-input,
@@ -234,6 +299,80 @@
 .lyrics-wallpaper-actions {
   display: flex;
   align-items: center;
+}
+
+.lyrics-search-pill {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 10px 12px;
+  width: 100%;
+  cursor: default;
+}
+
+.lyrics-search-pill > svg {
+  grid-row: 1 / span 2;
+}
+
+.lyrics-search-pill > span {
+  align-self: end;
+}
+
+.lyrics-search-pill__field {
+  grid-column: 2 / -1;
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.lyrics-search-pill__field:focus-within {
+  border-color: rgba(143, 207, 189, 0.46);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lyrics-search-pill__field input {
+  width: 100%;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.82);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.lyrics-search-pill__field input::placeholder {
+  color: rgba(220, 231, 255, 0.5);
+}
+
+.lyrics-search-pill > button {
+  grid-column: 3;
+  grid-row: 1;
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 12px;
+  color: rgba(229, 237, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.lyrics-search-pill > button:disabled,
+.lyrics-search-pill__field input:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .lyrics-color-panel__header {
@@ -395,7 +534,7 @@
   grid-template-columns: clamp(112px, 12vw, 142px) minmax(0, 1fr);
   align-items: center;
   gap: 26px;
-  max-width: 680px;
+  width: min(100%, 760px);
   padding: 0 0 2px 18px;
   transform: translateY(-6px);
 }
@@ -425,7 +564,7 @@
 .lyrics-track-copy {
   display: grid;
   min-width: 0;
-  gap: 8px;
+  gap: 6px;
 }
 
 .lyrics-kicker {
@@ -438,24 +577,29 @@
 }
 
 .lyrics-track-copy h1 {
+  display: -webkit-box;
   overflow: hidden;
   margin: 0;
   color: #172333;
   font-size: clamp(28px, 2.7vw, 38px);
   font-weight: 850;
-  line-height: 1.08;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .lyrics-track-copy p {
+  display: -webkit-box;
   overflow: hidden;
   margin: 0;
   color: rgba(58, 72, 92, 0.58);
   font-size: clamp(16px, 1.45vw, 21px);
   font-weight: 720;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .lyrics-scroll {
@@ -622,29 +766,6 @@
 
 .lyrics-line[data-active="true"] em {
   opacity: 0.58;
-}
-
-.lyrics-scroll[data-kind="plain"] {
-  gap: 12px;
-  justify-self: stretch;
-  padding: 20px 0 34px;
-  -webkit-mask-image: none;
-  mask-image: none;
-}
-
-.lyrics-scroll[data-kind="plain"] .lyrics-line {
-  min-height: 46px;
-  justify-items: start;
-  padding: 7px 8px;
-  color: var(--lyrics-color);
-  opacity: 0.72;
-  text-align: left;
-}
-
-.lyrics-scroll[data-kind="plain"] .lyrics-line span {
-  font-size: calc(var(--lyrics-font-size) * 0.72);
-  font-weight: 760;
-  line-height: 1.45;
 }
 
 .lyrics-match-panel {
@@ -860,9 +981,9 @@
   color: var(--lyrics-color);
   width: min(100%, 640px);
   min-height: 0;
-  align-self: start;
+  align-self: center;
   justify-self: center;
-  padding: clamp(34px, 8vh, 78px) 18px 0;
+  padding: 0 18px clamp(24px, 10vh, 96px);
   opacity: 0.92;
 }
 
@@ -990,7 +1111,7 @@
   display: grid;
   width: min(78vh, 100%);
   max-width: 680px;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   color: #eef3f7;
   border: 1px solid rgba(255, 255, 255, 0.64);

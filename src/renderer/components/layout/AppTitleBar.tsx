@@ -2,12 +2,12 @@ import {
   Captions,
   Film,
   Headphones,
-  Library,
   Minus,
   Settings,
   Square,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { AppRouteId } from '../../app/routes';
 import { useI18n } from '../../i18n/I18nProvider';
 
@@ -28,7 +28,7 @@ type AppTitleBarProps = {
 type TitleBarAction = {
   id: string;
   label: string;
-  icon: typeof Library;
+  icon: LucideIcon;
   active?: boolean;
   onClick: () => void;
 };
@@ -48,13 +48,6 @@ export const AppTitleBar = ({
 }: AppTitleBarProps): JSX.Element => {
   const { t } = useI18n();
   const actions: TitleBarAction[] = [
-    {
-      id: 'songs',
-      label: t('route.songs.label'),
-      icon: Library,
-      active: activeRouteId === 'songs',
-      onClick: () => onRouteChange('songs'),
-    },
     {
       id: 'audio-settings',
       label: t('route.audioSettings.label'),

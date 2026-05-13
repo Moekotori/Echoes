@@ -21,6 +21,7 @@ import type {
   SampleRatePlan,
 } from './audioTypes';
 import type { PlaybackSpeedMode } from '../../shared/types/audio';
+import type { PlaybackMemory } from './PlaybackMemoryStore';
 
 type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'>;
 type DeviceServiceLike = Pick<DeviceService, 'listDevices'>;
@@ -486,6 +487,41 @@ export class AudioSession extends EventEmitter {
 
       throw error;
     }
+  }
+
+  restorePlaybackMemory(memory: PlaybackMemory): AudioStatus {
+    if (this.state !== 'idle' && this.state !== 'stopped') {
+      return this.getStatus();
+    }
+
+    const positionSeconds = Math.max(0, Number(memory.positionSeconds) || 0);
+    this.runToken += 1;
+    this.stopResources();
+    this.resetLevelMeter();
+    this.state = 'paused';
+    this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
+    this.errorMessage = null;
+    this.outputWarnings = [];
+    this.currentFilePath = memory.filePath;
+    this.currentTrackId = memory.trackId;
+    this.currentOutputSettings = { ...this.outputSettings };
+    this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings);
+    this.currentProbe = createProbeFromHint(memory.filePath, {
+      durationSeconds: memory.probe?.durationSeconds ?? memory.durationSeconds,
+      fileSampleRate: memory.probe?.fileSampleRate,
+      channels: memory.probe?.channels,
+      codec: memory.probe?.codec,
+      bitDepth: memory.probe?.bitDepth,
+      bitrate: memory.probe?.bitrate,
+    });
+    this.currentPlan = null;
+    this.currentOutputBackend = null;
+    this.currentOutputDeviceType = null;
+    this.currentOutputDeviceName = null;
+    this.pausedPositionSeconds = positionSeconds;
+    this.clock.reset(positionSeconds, null);
+    this.emitStatus();
+    return this.getStatus();
   }
 
   async play(): Promise<AudioStatus> {

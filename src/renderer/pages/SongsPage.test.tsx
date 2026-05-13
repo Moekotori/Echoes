@@ -165,10 +165,35 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.restoreAllMocks();
 });
 
 describe('SongsPage', () => {
+  it('restores the remembered song sort mode', async () => {
+    window.localStorage.setItem('echo-next.songs.sort', 'recent');
+    installEcho([makeTrack()]);
+
+    await renderSongsPage();
+
+    await waitFor(() =>
+      expect(window.echo.library.getTracks).toHaveBeenCalledWith(expect.objectContaining({ sort: 'recent' })),
+    );
+  });
+
+  it('remembers the selected song sort mode', async () => {
+    installEcho([makeTrack()]);
+
+    await renderSongsPage();
+    fireEvent.click(screen.getByRole('button', { name: /默认排序/ }));
+    fireEvent.click(screen.getAllByRole('option')[11]);
+
+    await waitFor(() => expect(window.localStorage.getItem('echo-next.songs.sort')).toBe('artist'));
+    await waitFor(() =>
+      expect(window.echo.library.getTracks).toHaveBeenCalledWith(expect.objectContaining({ sort: 'artist' })),
+    );
+  });
+
   it('dispatches navigation from the import folder button', async () => {
     installEcho();
     const navigate = vi.fn();

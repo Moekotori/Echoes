@@ -16,13 +16,17 @@ export type AppSettings = {
   lyricsNetworkEnabled: boolean;
   lyricsPreferredProvider: 'lrclib';
   lyricsEnabledProviders?: LyricsProviderId[];
+  lyricsProviderOrder: LyricsProviderId[];
   lyricsProviderTimeoutMs?: number;
   lyricsTotalMatchTimeoutMs?: number;
   lyricsCoverAutoAcceptScore?: number;
+  lyricsDeepSearchEnabled: boolean;
   lyricsAutoSearch: boolean;
   lyricsAutoAcceptScore: number;
   lyricsDefaultOffsetMs: number;
   lyricsEnabled: boolean;
+  lyricsHeaderHidden: boolean;
+  lyricsEmptyStateHidden: boolean;
   lyricsRomanizationEnabled: boolean;
   lyricsFontSizePx: number;
   lyricsColor: string;
@@ -35,6 +39,8 @@ export type AppSettings = {
   mvEnabledProviders: NetworkMvProviderId[];
   mvProviderOrder: NetworkMvProviderId[];
   mvAutoSearch: boolean;
+  mvAutoPreload?: boolean;
+  mvRestartAudioOnLoad?: boolean;
   mvMaxQuality: MvMaxQuality;
   mvAllow60fps: boolean;
   channelBalance: ChannelBalanceState;

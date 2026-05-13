@@ -18,6 +18,19 @@ describe('lyricsParser', () => {
     ]);
   });
 
+  it('splits inline timestamped text into separate lyric lines', () => {
+    expect(parseSyncedLyrics('[00:01.00]First phrase [00:02.00]second phrase')).toEqual([
+      { timeMs: 1000, text: 'First phrase' },
+      { timeMs: 2000, text: 'second phrase' },
+    ]);
+  });
+
+  it('removes enhanced word timestamps from local LRC text', () => {
+    expect(parseSyncedLyrics('[00:01.00]<00:01.00>Hello <00:01.50>world')).toEqual([
+      { timeMs: 1000, text: 'Hello world' },
+    ]);
+  });
+
   it('ignores metadata tags', () => {
     expect(parseSyncedLyrics('[ar:Artist]\n[ti:Title]\n[00:01.00]Line')).toEqual([{ timeMs: 1000, text: 'Line' }]);
   });

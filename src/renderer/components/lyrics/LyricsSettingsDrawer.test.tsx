@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppSettings } from '../../../shared/types/appSettings';
 import { LyricsSettingsDrawer } from './LyricsSettingsDrawer';
 
@@ -14,10 +14,14 @@ const makeSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: 'lrclib',
   lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsDeepSearchEnabled: true,
   lyricsAutoSearch: true,
   lyricsAutoAcceptScore: 0.7,
   lyricsDefaultOffsetMs: 0,
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsColor: '#314054',
@@ -64,6 +68,7 @@ const makeSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -113,6 +118,70 @@ describe('LyricsSettingsDrawer', () => {
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsEnabledProviders: ['local', 'lrclib', 'qqmusic'] }));
   });
 
+  it('previews background tuning immediately but debounces persisted settings writes', async () => {
+    const setSettings = vi.fn((patch: Partial<AppSettings>) => Promise.resolve(makeSettings(patch)));
+    const previewListener = vi.fn();
+    const settingsChangedListener = vi.fn();
+    window.addEventListener('lyrics:display-settings-changed', previewListener);
+    window.addEventListener('settings:changed', settingsChangedListener);
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(container.querySelectorAll('input[type="range"]').length).toBeGreaterThan(4));
+    vi.useFakeTimers();
+    const ranges = container.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    const backgroundScaleSlider = ranges[1];
+    const backgroundOpacitySlider = ranges[2];
+
+    fireEvent.change(backgroundScaleSlider, { target: { value: '120' } });
+    fireEvent.change(backgroundOpacitySlider, { target: { value: '40' } });
+
+    expect(backgroundScaleSlider.value).toBe('120');
+    expect(backgroundOpacitySlider.value).toBe('40');
+    expect(previewListener).toHaveBeenCalledTimes(2);
+    expect(settingsChangedListener).not.toHaveBeenCalled();
+    expect(setSettings).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(240);
+      await Promise.resolve();
+    });
+
+    expect(setSettings).toHaveBeenCalledWith({
+      lyricsBackgroundScalePercent: 120,
+      lyricsCoverOpacityPercent: 40,
+    });
+    expect(settingsChangedListener).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('lyrics:display-settings-changed', previewListener);
+    window.removeEventListener('settings:changed', settingsChangedListener);
+  });
+
+  it('lets users toggle romanization display', async () => {
+    const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsRomanizationEnabled: false }));
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    const toggle = (await screen.findByRole('checkbox', { name: /显示罗马音/ })) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsRomanizationEnabled: false }));
+  });
+
   it('shows the current track lyrics provider instead of enabled sources', async () => {
     window.echo = {
       app: {
@@ -155,10 +224,12 @@ describe('LyricsSettingsDrawer', () => {
     render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(window.echo?.app.getSettings).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: /搜索歌词/ }));
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索歌词文本' }), { target: { value: 'manual query' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     fireEvent.click(screen.getByRole('button', { name: /重新匹配/ }));
 
     expect(searchListener).toHaveBeenCalledTimes(1);
+    expect(searchListener.mock.calls[0][0]).toMatchObject({ detail: { query: 'manual query' } });
     expect(rematchListener).toHaveBeenCalledTimes(1);
 
     window.removeEventListener('lyrics:search-requested', searchListener);

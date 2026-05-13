@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { MvMatchCandidate, MvSettings, TrackVideo } from '../../../shared/types/mv';
 import { I18nProvider } from '../../i18n/I18nProvider';
@@ -77,6 +77,8 @@ const makeCandidate = (): MvMatchCandidate => ({
 
 const defaultMvSettings: MvSettings = {
   autoSearch: true,
+  autoPreload: true,
+  restartAudioOnLoad: false,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
   maxQuality: '1080p',
@@ -94,21 +96,22 @@ const QueueSeed = ({ children, track }: { children: JSX.Element; track: LibraryT
   return children;
 };
 
-const renderDrawer = (settings: MvSettings = defaultMvSettings) => {
+const renderDrawer = (settings: MvSettings = defaultMvSettings, selectedVideo: TrackVideo | null = null) => {
   const track = makeTrack();
   window.localStorage.setItem('echo-next.locale', 'en-US');
   window.echo = {
     mv: {
-      getSelected: vi.fn().mockResolvedValue(null),
+      getSelected: vi.fn().mockResolvedValue(selectedVideo),
       getSettings: vi.fn().mockResolvedValue(settings),
       setSettings: vi.fn().mockImplementation(async (patch: Partial<MvSettings>) => ({ ...settings, ...patch })),
       findLocalCandidates: vi.fn().mockResolvedValue([makeCandidate()]),
       searchNetworkCandidates: vi.fn().mockResolvedValue([]),
       getCandidates: vi.fn().mockResolvedValue([]),
-      resolveStreams: vi.fn().mockResolvedValue({ video: makeVideo(), variants: [] }),
+      resolveStreams: vi.fn().mockImplementation(async () => ({ video: selectedVideo ?? makeVideo(), variants: [] })),
       setQuality: vi.fn(),
       chooseLocalVideo: vi.fn().mockResolvedValue(makeVideo()),
       bindLocalVideo: vi.fn(),
+      bindUrl: vi.fn().mockResolvedValue({ ...makeVideo(), provider: 'bilibili', sourceId: 'BV1ECHO', providerUrl: 'https://www.bilibili.com/video/BV1ECHO' }),
       selectVideo: vi.fn().mockResolvedValue(makeVideo()),
       clearSelected: vi.fn(),
       openExternal: vi.fn(),
@@ -132,20 +135,21 @@ afterEach(() => {
 });
 
 describe('MvSettingsDrawer', () => {
-  it('contains the MV find and choose actions', async () => {
-    renderDrawer();
+  it('shows selected MV title and video quality in the engine meter', async () => {
+    renderDrawer(defaultMvSettings, { ...makeVideo(), width: 1920, height: 1080, fps: 60, qualityLabel: null });
 
-    expect(await screen.findByRole('button', { name: /Find local/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Choose file/ })).toBeTruthy();
+    const engineMeter = within(await screen.findByLabelText('MV engine status'));
+    expect(engineMeter.getByText('MV Title')).toBeTruthy();
+    expect(engineMeter.getByText('Test Song MV')).toBeTruthy();
+    expect(engineMeter.getByText('1080p / 60fps')).toBeTruthy();
+    expect(engineMeter.queryByText('Network')).toBeNull();
   });
 
-  it('finds local candidates from the drawer', async () => {
+  it('contains the MV choose action and omits the local search shortcut', async () => {
     renderDrawer();
 
-    fireEvent.click(await screen.findByRole('button', { name: /Find local/ }));
-
-    await waitFor(() => expect(window.echo.mv.findLocalCandidates).toHaveBeenCalledWith('track-1'));
-    expect(await screen.findByText('same basename')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Choose file/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Find local/ })).toBeNull();
   });
 
   it('chooses a local MV file from the drawer', async () => {
@@ -175,6 +179,16 @@ describe('MvSettingsDrawer', () => {
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoSearch: false }));
   });
 
+  it('toggles MV preload and restart sync from the drawer', async () => {
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Preload MV/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Restart music after MV loads/ }));
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoPreload: false }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ restartAudioOnLoad: true }));
+  });
+
   it('reorders network sources by dragging the priority handle', async () => {
     renderDrawer();
 
@@ -201,6 +215,61 @@ describe('MvSettingsDrawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Auto search network MV/ }));
 
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoSearch: true }));
-    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1'));
+    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Test Song Test Artist'));
+  });
+
+  it('searches network MVs with the custom query input', async () => {
+    renderDrawer();
+
+    const input = await screen.findByRole('textbox', { name: /MV search keywords/ });
+    expect((input as HTMLInputElement).value).toBe('Test Song Test Artist');
+
+    fireEvent.change(input, { target: { value: 'Roselia HEROIC ADVENT' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /Search network MV/ })[1]);
+
+    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Roselia HEROIC ADVENT'));
+  });
+
+  it('binds a pasted custom MV link to the current track', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    renderDrawer();
+
+    const input = await screen.findByRole('textbox', { name: /Custom MV link/ });
+    fireEvent.change(input, { target: { value: 'https://www.bilibili.com/video/BV1ECHO' } });
+    fireEvent.click(screen.getByRole('button', { name: /Apply custom MV/ }));
+
+    await waitFor(() => expect(window.echo.mv.bindUrl).toHaveBeenCalledWith('track-1', 'https://www.bilibili.com/video/BV1ECHO'));
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'mv:changed' }));
+  });
+
+  it('links the custom MV playing status and shows quality with the stream badge', async () => {
+    renderDrawer(defaultMvSettings, {
+      ...makeVideo(),
+      provider: 'bilibili',
+      sourceId: 'BV1MNV',
+      providerUrl: 'https://www.bilibili.com/video/BV1MNV',
+      playableInApp: true,
+      qualityLabel: null,
+      height: 4320,
+    });
+
+    const playingLink = await screen.findByRole('link', { name: /Now playing: Bilibili - BV1MNV/ });
+    expect(playingLink.getAttribute('href')).toBe('https://www.bilibili.com/video/BV1MNV');
+
+    const badgeRow = screen.getByText('Direct stream (DASH)').closest('.mv-custom-badges');
+    expect(badgeRow).toBeTruthy();
+    expect(within(badgeRow as HTMLElement).getByText('8K')).toBeTruthy();
+  });
+
+  it('notifies the MV panel when network search auto-selects a candidate', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    renderDrawer();
+    await screen.findByRole('textbox', { name: /MV search keywords/ });
+    vi.mocked(window.echo.mv.getSelected).mockResolvedValue(makeVideo());
+
+    fireEvent.click(await screen.findAllByRole('button', { name: /Search network MV/ }).then((buttons) => buttons[1]));
+
+    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Test Song Test Artist'));
+    await waitFor(() => expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'mv:changed' })));
   });
 });

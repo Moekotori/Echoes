@@ -10,14 +10,15 @@ import {
   FolderOpen,
   Globe2,
   GripVertical,
+  Link2,
   MonitorPlay,
+  Play,
   RotateCcw,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   X,
 } from 'lucide-react';
-import type { MvMatchCandidate, MvProviderId, MvQualityVariant, MvSettings, NetworkMvProviderId, TrackVideo } from '../../../shared/types/mv';
+import type { MvMatchCandidate, MvProviderId, MvSettings, NetworkMvProviderId, TrackVideo } from '../../../shared/types/mv';
 import { useI18n } from '../../i18n/I18nProvider';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 
@@ -31,6 +32,8 @@ const formatScore = (score: number): string => `${Math.round(score * 100)}%`;
 
 const fallbackSettings: MvSettings = {
   autoSearch: true,
+  autoPreload: true,
+  restartAudioOnLoad: false,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
   maxQuality: '1080p',
@@ -42,10 +45,42 @@ const providerLabels: Record<NetworkMvProviderId, string> = {
   youtube: 'YouTube',
 };
 
+const dispatchSettingsChanged = (patch: Partial<MvSettings>): void => {
+  window.dispatchEvent(new CustomEvent('settings:changed', { detail: patch }));
+};
+
 const qualityCaps: MvSettings['maxQuality'][] = ['720p', '1080p', '1440p', '2160p', 'max'];
 
-const qualityLabel = (variant: Pick<MvQualityVariant, 'label' | 'fps'>): string =>
-  variant.fps && variant.fps >= 55 && !variant.label.includes('60') ? `${variant.label} 60fps` : variant.label;
+const formatVideoTitle = (video: TrackVideo | null, emptyLabel: string): string => {
+  if (!video) {
+    return emptyLabel;
+  }
+
+  return video.title?.trim() || video.sourceId?.trim() || emptyLabel;
+};
+
+const formatVideoQuality = (video: TrackVideo | null, emptyLabel: string): string => {
+  if (!video) {
+    return emptyLabel;
+  }
+
+  const resolutionLabel = video.height
+    ? video.height >= 4320
+      ? '8K'
+      : video.height >= 2160
+        ? '4K'
+        : `${video.height}p`
+    : video.width
+      ? `${video.width}px`
+      : null;
+  const baseLabel = video.qualityLabel ?? resolutionLabel;
+
+  if (!baseLabel) {
+    return emptyLabel;
+  }
+
+  return video.fps && video.fps >= 55 ? `${baseLabel} / 60fps` : baseLabel;
+};
 
 const videoToCandidate = (video: TrackVideo): MvMatchCandidate => ({
   id: video.id,
@@ -58,6 +93,10 @@ const videoToCandidate = (video: TrackVideo): MvMatchCandidate => ({
   providerUrl: video.providerUrl,
   thumbnailUrl: video.thumbnailUrl,
   uploader: null,
+  viewCount:
+    video.rawProviderJson && typeof video.rawProviderJson === 'object' && !Array.isArray(video.rawProviderJson) && typeof (video.rawProviderJson as { viewCount?: unknown }).viewCount === 'number'
+      ? (video.rawProviderJson as { viewCount: number }).viewCount
+      : null,
   availableQualities: [],
   durationSeconds: video.durationSeconds,
   score: video.score,
@@ -73,25 +112,27 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [fallbackTrackId, setFallbackTrackId] = useState<string | null>(null);
   const [settings, setSettings] = useState<MvSettings>(fallbackSettings);
   const [selectedVideo, setSelectedVideo] = useState<TrackVideo | null>(null);
-  const [streamVariants, setStreamVariants] = useState<MvQualityVariant[]>([]);
   const [candidates, setCandidates] = useState<MvMatchCandidate[]>([]);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMaxQualityMenuOpen, setIsMaxQualityMenuOpen] = useState(false);
-  const [isSelectedQualityMenuOpen, setIsSelectedQualityMenuOpen] = useState(false);
+  const [useCurrentSongName, setUseCurrentSongName] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [customMvUrl, setCustomMvUrl] = useState('');
+  const [failedThumbnailIds, setFailedThumbnailIds] = useState<Set<string>>(() => new Set());
   const [draggedProvider, setDraggedProvider] = useState<NetworkMvProviderId | null>(null);
   const [dragOverProvider, setDragOverProvider] = useState<NetworkMvProviderId | null>(null);
 
   const activeTrackId = queue.currentTrackId ?? fallbackTrackId;
+  const activeTrack =
+    queue.currentTrack ??
+    (activeTrackId ? queue.tracks.find((item) => item.id === activeTrackId) ?? null : null) ??
+    (queue.lastPlayedTrack?.id === activeTrackId ? queue.lastPlayedTrack : null);
+  const activeTrackSearchName = activeTrack ? [activeTrack.title, activeTrack.artist || activeTrack.albumArtist].filter(Boolean).join(' ') : '';
   const activeTrackTitle = useMemo(() => {
-    const track =
-      queue.currentTrack ??
-      (activeTrackId ? queue.tracks.find((item) => item.id === activeTrackId) ?? null : null) ??
-      (queue.lastPlayedTrack?.id === activeTrackId ? queue.lastPlayedTrack : null);
-
-    return track ? `${track.title} - ${track.artist || track.albumArtist}` : activeTrackId ? activeTrackId : t('mvSettings.status.noActiveTrack');
-  }, [activeTrackId, queue.currentTrack, queue.lastPlayedTrack, queue.tracks, t]);
+    return activeTrack ? `${activeTrack.title} - ${activeTrack.artist || activeTrack.albumArtist}` : activeTrackId ? activeTrackId : t('mvSettings.status.noActiveTrack');
+  }, [activeTrack, activeTrackId, t]);
 
   const qualityLabels = useMemo<Record<MvSettings['maxQuality'], string>>(
     () => ({
@@ -131,14 +172,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   );
 
   const enabledProviders = new Set(settings.enabledProviders);
-  const selectedQualityLabel = useMemo(() => {
-    if (!selectedVideo || !selectedVideo.selectedQualityId || selectedVideo.selectedQualityId === 'auto') {
-      return t('mvSettings.status.auto');
-    }
-
-    const variant = streamVariants.find((item) => item.id === selectedVideo.selectedQualityId);
-    return variant ? qualityLabel(variant) : selectedVideo.qualityLabel ?? t('mvSettings.status.auto');
-  }, [selectedVideo, streamVariants, t]);
 
   const notifyMvChanged = useCallback((trackId: string): void => {
     window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
@@ -146,16 +179,13 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
   const resolveSelectedStreams = useCallback(async (video: TrackVideo | null): Promise<TrackVideo | null> => {
     if (!video || video.provider === 'local' || !window.echo?.mv?.resolveStreams) {
-      setStreamVariants([]);
       return video;
     }
 
     try {
       const resolved = await window.echo.mv.resolveStreams(video.id);
-      setStreamVariants(resolved.variants);
       return resolved.video;
     } catch {
-      setStreamVariants([]);
       return video;
     }
   }, []);
@@ -176,7 +206,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     async (trackId: string | null): Promise<void> => {
       if (!trackId || !window.echo?.mv) {
         setSelectedVideo(null);
-        setStreamVariants([]);
         setCandidates([]);
         return;
       }
@@ -223,6 +252,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       try {
         if (window.echo?.mv?.setSettings) {
           setSettings(await window.echo.mv.setSettings(patch));
+          dispatchSettingsChanged(patch);
         }
       } catch (settingsError) {
         setSettings(settings);
@@ -259,8 +289,13 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         setIsBusy(true);
         setError(null);
         try {
-          const nextCandidates = await window.echo.mv.searchNetworkCandidates(trackId);
+          const nextCandidates = await window.echo.mv.searchNetworkCandidates(trackId, searchQuery);
           setCandidates(nextCandidates);
+          const selected = await resolveSelectedStreams(await window.echo.mv.getSelected(trackId));
+          setSelectedVideo(selected);
+          if (selected) {
+            notifyMvChanged(trackId);
+          }
           if (nextCandidates.length === 0) {
             setError(t('mvSettings.error.noNetworkCandidates'));
           }
@@ -271,7 +306,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         }
       }
     }
-  }, [patchSettings, refreshActiveTrack, settings.autoSearch, t]);
+  }, [notifyMvChanged, patchSettings, refreshActiveTrack, resolveSelectedStreams, searchQuery, settings.autoSearch, t]);
 
   const reorderProvider = useCallback(
     (provider: NetworkMvProviderId, targetProvider: NetworkMvProviderId): void => {
@@ -328,29 +363,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     setDragOverProvider(null);
   }, []);
 
-  const findLocalCandidates = useCallback(async (): Promise<void> => {
-    const trackId = await refreshActiveTrack();
-    if (!trackId || !window.echo?.mv) {
-      setError(t('mvSettings.error.noActiveTrackMatching'));
-      return;
-    }
-
-    setIsBusy(true);
-    setError(null);
-    try {
-      const nextCandidates = await window.echo.mv.findLocalCandidates(trackId);
-      setCandidates(nextCandidates);
-      setSelectedVideo(await resolveSelectedStreams(await window.echo.mv.getSelected(trackId)));
-      if (nextCandidates.length === 0) {
-        setError(t('mvSettings.error.noLocalCandidates'));
-      }
-    } catch (findError) {
-      setError(findError instanceof Error ? findError.message : String(findError));
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshActiveTrack, resolveSelectedStreams, t]);
-
   const searchNetworkCandidates = useCallback(async (): Promise<void> => {
     const trackId = await refreshActiveTrack();
     if (!trackId || !window.echo?.mv?.searchNetworkCandidates) {
@@ -361,8 +373,13 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     setIsBusy(true);
     setError(null);
     try {
-      const nextCandidates = await window.echo.mv.searchNetworkCandidates(trackId);
+      const nextCandidates = await window.echo.mv.searchNetworkCandidates(trackId, searchQuery);
       setCandidates(nextCandidates);
+      const selected = await resolveSelectedStreams(await window.echo.mv.getSelected(trackId));
+      setSelectedVideo(selected);
+      if (selected) {
+        notifyMvChanged(trackId);
+      }
       if (nextCandidates.length === 0) {
         setError(t('mvSettings.error.noNetworkCandidates'));
       }
@@ -371,7 +388,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     } finally {
       setIsBusy(false);
     }
-  }, [refreshActiveTrack, t]);
+  }, [notifyMvChanged, refreshActiveTrack, resolveSelectedStreams, searchQuery, t]);
 
   const chooseLocalVideo = useCallback(async (): Promise<void> => {
     const trackId = await refreshActiveTrack();
@@ -386,7 +403,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       const video = await window.echo.mv.chooseLocalVideo(trackId);
       if (video) {
         setSelectedVideo(video);
-        setStreamVariants([]);
         setCandidates([]);
         notifyMvChanged(trackId);
       }
@@ -396,6 +412,27 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       setIsBusy(false);
     }
   }, [notifyMvChanged, refreshActiveTrack, t]);
+
+  const bindCustomMvUrl = useCallback(async (): Promise<void> => {
+    const trackId = await refreshActiveTrack();
+    if (!trackId || !window.echo?.mv?.bindUrl) {
+      setError(t('mvSettings.error.noActiveTrackBinding'));
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    try {
+      const video = await window.echo.mv.bindUrl(trackId, customMvUrl);
+      setSelectedVideo(await resolveSelectedStreams(video));
+      setCandidates([]);
+      notifyMvChanged(trackId);
+    } catch (bindError) {
+      setError(bindError instanceof Error ? bindError.message : String(bindError));
+    } finally {
+      setIsBusy(false);
+    }
+  }, [customMvUrl, notifyMvChanged, refreshActiveTrack, resolveSelectedStreams, t]);
 
   const selectCandidate = useCallback(
     async (candidateId: string): Promise<void> => {
@@ -432,7 +469,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     try {
       await window.echo.mv.clearSelected(trackId);
       setSelectedVideo(null);
-      setStreamVariants([]);
       notifyMvChanged(trackId);
     } catch (clearError) {
       setError(clearError instanceof Error ? clearError.message : String(clearError));
@@ -454,26 +490,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     }
   }, [selectedVideo]);
 
-  const setQuality = useCallback(
-    async (qualityId: string): Promise<void> => {
-      if (!selectedVideo || !window.echo?.mv?.setQuality) {
-        return;
-      }
-
-      setError(null);
-      try {
-        const video = await window.echo.mv.setQuality(selectedVideo.id, qualityId);
-        setSelectedVideo(await resolveSelectedStreams(video));
-        if (activeTrackId) {
-          notifyMvChanged(activeTrackId);
-        }
-      } catch (qualityError) {
-        setError(qualityError instanceof Error ? qualityError.message : String(qualityError));
-      }
-    },
-    [activeTrackId, notifyMvChanged, resolveSelectedStreams, selectedVideo],
-  );
-
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
@@ -489,7 +505,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
     setIsMotionOpen(false);
     setIsMaxQualityMenuOpen(false);
-    setIsSelectedQualityMenuOpen(false);
     if (!shouldRender) {
       return undefined;
     }
@@ -497,6 +512,12 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     const timer = window.setTimeout(() => setShouldRender(false), drawerExitAnimationMs);
     return () => window.clearTimeout(timer);
   }, [isOpen, shouldRender]);
+
+  useEffect(() => {
+    if (useCurrentSongName) {
+      setSearchQuery(activeTrackSearchName);
+    }
+  }, [activeTrackSearchName, useCurrentSongName]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -573,21 +594,13 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
           </div>
           <div className="audio-engine-meter__grid">
             <span>
-              <em>{t('mvSettings.engine.selected')}</em>
-              <strong>{providerLabelForVideo(selectedVideo)}</strong>
+              <em>{t('mvSettings.engine.mvTitle')}</em>
+              <strong>{formatVideoTitle(selectedVideo, t('mvSettings.status.none'))}</strong>
             </span>
             <span>
               <em>{t('mvSettings.engine.quality')}</em>
-              <strong>{selectedVideo?.qualityLabel ?? (selectedVideo ? t('mvSettings.status.auto') : t('mvSettings.status.none'))}</strong>
+              <strong>{formatVideoQuality(selectedVideo, t('mvSettings.status.none'))}</strong>
             </span>
-            <span>
-              <em>{t('mvSettings.engine.network')}</em>
-              <strong>{settings.autoSearch ? t('mvSettings.status.auto') : settings.enabledProviders.length ? t('mvSettings.status.on') : t('mvSettings.status.off')}</strong>
-            </span>
-          </div>
-          <div className="audio-engine-meter__badges">
-            <em data-tone="ready">{t('mvSettings.badge.proxyOnly')}</em>
-            <em data-tone="ready">{t('mvSettings.badge.credentialsMain')}</em>
           </div>
         </section>
 
@@ -597,10 +610,6 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
             <h3>{t('mvSettings.binding.title')}</h3>
           </div>
           <div className="mv-settings-actions">
-            <button type="button" onClick={() => void findLocalCandidates()} disabled={isBusy}>
-              <Search size={15} />
-              {t('mvSettings.action.findLocal')}
-            </button>
             <button type="button" onClick={() => void searchNetworkCandidates()} disabled={isBusy}>
               <Globe2 size={15} />
               {t('mvSettings.action.searchNetwork')}
@@ -638,68 +647,114 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
             </div>
           ) : null}
 
-          {selectedVideo && selectedVideo.provider !== 'local' && streamVariants.length > 0 ? (
-            <div className="mv-quality-picker">
-              <SlidersHorizontal size={15} />
-              <div className="mv-quality-menu">
-                <button
-                  type="button"
-                  className="mv-quality-trigger"
-                  aria-expanded={isSelectedQualityMenuOpen}
-                  aria-label={t('mvSettings.aria.selectedQuality', { quality: selectedQualityLabel })}
-                  onClick={() => setIsSelectedQualityMenuOpen((current) => !current)}
-                >
-                  <span>{selectedQualityLabel}</span>
-                  <ChevronDown size={15} />
-                </button>
-                {isSelectedQualityMenuOpen ? (
-                  <div className="mv-quality-popover" role="menu" aria-label={t('mvSettings.aria.selectedQualityOptions')}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      data-selected={!selectedVideo.selectedQualityId || selectedVideo.selectedQualityId === 'auto'}
-                      onClick={() => {
-                        setIsSelectedQualityMenuOpen(false);
-                        void setQuality('auto');
-                      }}
-                    >
-                      <span>{t('mvSettings.status.auto')}</span>
-                      {!selectedVideo.selectedQualityId || selectedVideo.selectedQualityId === 'auto' ? <Check size={13} /> : null}
-                    </button>
-                    {streamVariants.map((variant) => (
-                      <button
-                        type="button"
-                        key={variant.id}
-                        role="menuitem"
-                        data-selected={selectedVideo.selectedQualityId === variant.id}
-                        disabled={!variant.playableInApp}
-                        onClick={() => {
-                          setIsSelectedQualityMenuOpen(false);
-                          void setQuality(variant.id);
-                        }}
-                      >
-                        <span>{qualityLabel(variant)}</span>
-                        {selectedVideo.selectedQualityId === variant.id ? <Check size={13} /> : null}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+          <form
+            className="mv-custom-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void bindCustomMvUrl();
+            }}
+          >
+            <div className="mv-custom-heading">
+              <span>
+                <Link2 size={15} />
+                <strong>{t('mvSettings.custom.title')}</strong>
+              </span>
+              <em>{t('mvSettings.custom.description')}</em>
             </div>
-          ) : null}
+            <div className="mv-custom-controls">
+              <label className="mv-custom-input">
+                <input
+                  value={customMvUrl}
+                  aria-label={t('mvSettings.custom.input')}
+                  placeholder={t('mvSettings.custom.placeholder')}
+                  onChange={(event) => setCustomMvUrl(event.currentTarget.value)}
+                />
+              </label>
+              <button type="submit" aria-label={t('mvSettings.custom.apply')} title={t('mvSettings.custom.apply')} disabled={isBusy || customMvUrl.trim().length === 0}>
+                <Play size={17} />
+              </button>
+            </div>
+            {selectedVideo?.providerUrl ? (
+              <div className="mv-custom-status">
+                <a href={selectedVideo.providerUrl} target="_blank" rel="noreferrer">
+                  {t('mvSettings.custom.playing', { provider: providerLabelForVideo(selectedVideo), sourceId: selectedVideo.sourceId ?? selectedVideo.id })}
+                  <ExternalLink size={12} />
+                </a>
+                <span>{t('mvSettings.custom.videoTitle', { title: selectedVideo.title ?? t('mvSettings.binding.selectedMv') })}</span>
+                <span className="mv-custom-badges">
+                  <em>{selectedVideo.playableInApp ? t('mvSettings.custom.directDash') : t('mvSettings.candidate.external')}</em>
+                  <strong>{formatVideoQuality(selectedVideo, t('mvSettings.status.none'))}</strong>
+                </span>
+              </div>
+            ) : null}
+          </form>
+
+          <form
+            className="mv-search-controls"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchNetworkCandidates();
+            }}
+          >
+            <label className="mv-search-input">
+              <Search size={15} />
+              <input
+                value={searchQuery}
+                aria-label={t('mvSettings.search.input')}
+                placeholder={t('mvSettings.search.placeholder')}
+                onChange={(event) => {
+                  setSearchQuery(event.currentTarget.value);
+                  if (useCurrentSongName) {
+                    setUseCurrentSongName(false);
+                  }
+                }}
+              />
+            </label>
+            <button type="submit" disabled={isBusy || searchQuery.trim().length === 0}>
+              <Search size={15} />
+              {t('mvSettings.action.searchNetwork')}
+            </button>
+            <button
+              type="button"
+              className="mv-source-toggle mv-current-song-toggle"
+              aria-pressed={useCurrentSongName}
+              onClick={() => {
+                const next = !useCurrentSongName;
+                setUseCurrentSongName(next);
+                if (next) {
+                  setSearchQuery(activeTrackSearchName);
+                }
+              }}
+            >
+              <span className="mv-switch-track" aria-hidden="true">
+                <span />
+              </span>
+              <span className="mv-toggle-copy">
+                <strong>{t('mvSettings.search.useCurrentSong')}</strong>
+                <em>{useCurrentSongName ? t('mvSettings.status.on') : t('mvSettings.status.off')}</em>
+              </span>
+            </button>
+          </form>
 
           {candidates.length > 0 ? (
             <div className="mv-settings-candidates" aria-label={t('mvSettings.aria.candidates')}>
               {candidates.map((candidate) => (
-                <button
-                  type="button"
-                  key={candidate.id}
-                  className="mv-settings-candidate"
-                  disabled={busyCandidateId !== null}
-                  onClick={() => void selectCandidate(candidate.id)}
-                >
-                  <span className="mv-candidate-thumb" aria-hidden="true">
-                    {candidate.thumbnailUrl ? <img alt="" draggable={false} src={candidate.thumbnailUrl} /> : <FileVideo size={16} />}
+                <button type="button" key={candidate.id} className="mv-settings-candidate" disabled={busyCandidateId !== null} title={candidate.title} onClick={() => void selectCandidate(candidate.id)}>
+                  <span className="mv-candidate-thumb">
+                    {candidate.thumbnailUrl && !failedThumbnailIds.has(candidate.id) ? (
+                      <img
+                        alt={candidate.title}
+                        draggable={false}
+                        referrerPolicy="no-referrer"
+                        src={candidate.thumbnailUrl}
+                        onError={() => setFailedThumbnailIds((current) => new Set(current).add(candidate.id))}
+                      />
+                    ) : (
+                      <span className="mv-candidate-thumb-fallback" aria-label={candidate.title}>
+                        <FileVideo size={15} />
+                        <em>{candidate.title}</em>
+                      </span>
+                    )}
                   </span>
                   <span>
                     <strong>{candidate.title}</strong>
@@ -720,10 +775,30 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
             <h3>{t('mvSettings.network.title')}</h3>
           </div>
           <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoSearch} onClick={() => void toggleAutoSearch()}>
-            <span className="mv-check-mark">{settings.autoSearch ? <Check size={14} /> : null}</span>
+            <span className="mv-switch-track" aria-hidden="true">
+              <span />
+            </span>
             <span className="mv-toggle-copy">
               <strong>{t('mvSettings.network.autoApply')}</strong>
               <em>{settings.autoSearch ? t('mvSettings.status.on') : t('mvSettings.status.off')}</em>
+            </span>
+          </button>
+          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoPreload} onClick={() => void patchSettings({ autoPreload: !settings.autoPreload })}>
+            <span className="mv-switch-track" aria-hidden="true">
+              <span />
+            </span>
+            <span className="mv-toggle-copy">
+              <strong>{t('mvSettings.network.autoPreload')}</strong>
+              <em>{t('mvSettings.network.autoPreloadDescription')}</em>
+            </span>
+          </button>
+          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.restartAudioOnLoad} onClick={() => void patchSettings({ restartAudioOnLoad: !settings.restartAudioOnLoad })}>
+            <span className="mv-switch-track" aria-hidden="true">
+              <span />
+            </span>
+            <span className="mv-toggle-copy">
+              <strong>{t('mvSettings.network.restartAudioOnLoad')}</strong>
+              <em>{t('mvSettings.network.restartAudioOnLoadDescription')}</em>
             </span>
           </button>
           <div className="mv-source-list" role="list" aria-label={t('mvSettings.aria.networkSources')}>
@@ -751,7 +826,9 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
                   <small>{index + 1}</small>
                 </span>
                 <button type="button" className="mv-source-toggle" aria-pressed={enabledProviders.has(provider)} onClick={() => toggleProvider(provider)}>
-                  <span className="mv-check-mark">{enabledProviders.has(provider) ? <Check size={14} /> : null}</span>
+                  <span className="mv-switch-track" aria-hidden="true">
+                    <span />
+                  </span>
                   {providerLabels[provider]}
                 </button>
               </div>

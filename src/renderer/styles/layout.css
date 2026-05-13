@@ -229,7 +229,7 @@
   grid-template-columns: minmax(280px, 1fr) minmax(460px, 620px) minmax(280px, 1fr);
   align-items: center;
   gap: 20px;
-  padding: 14px 28px;
+  padding: 16px 30px;
   border-width: 1px 0 0;
   border-radius: 0;
   background: rgba(252, 252, 253, 0.94);

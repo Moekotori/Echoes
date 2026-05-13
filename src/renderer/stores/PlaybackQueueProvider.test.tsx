@@ -205,6 +205,82 @@ describe('PlaybackQueueProvider playback modes', () => {
     expect(randomSpy).toHaveBeenCalled();
   });
 
+  it('loads shuffle candidates from the full song library when the current queue came from Songs', async () => {
+    const tracks = [makeTrack(1), makeTrack(2), makeTrack(3)];
+    const getTracks = vi.fn().mockResolvedValue({
+      items: [tracks[0], tracks[1], tracks[2]],
+      page: 1,
+      pageSize: 50,
+      total: 3,
+      hasMore: false,
+    });
+
+    window.echo = {
+      playback: {
+        playLocalFile: vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+          Promise.resolve({
+            state: 'playing',
+            currentTrackId: request.trackId,
+            positionMs: 0,
+            durationMs: 120000,
+            filePath: request.filePath,
+          }),
+        ),
+      },
+      library: {
+        getTracks,
+      },
+    } as unknown as Window['echo'];
+
+    const LibraryShuffleProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.toggleShuffle();
+        void queue.playTrack(tracks[0], {
+          replaceQueueWith: [tracks[0]],
+          source: { type: 'songs', label: 'Songs', sort: 'default' },
+        });
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <button type="button" disabled={!queue.canGoNext} onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <LibraryShuffleProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-1'));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'next' }) as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
+    expect(getTracks).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 50,
+      search: undefined,
+      sort: 'random',
+      hideDuplicates: undefined,
+      duplicateMode: 'strict',
+    });
+  });
+
   it('turns off repeat-all when shuffle is enabled', async () => {
     const ModeProbe = (): JSX.Element => {
       const queue = usePlaybackQueue();

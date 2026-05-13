@@ -3,7 +3,9 @@ import {
   Captions,
   Check,
   Database,
+  EyeOff,
   Globe2,
+  GripVertical,
   Image as ImageIcon,
   Palette,
   RefreshCw,
@@ -15,6 +17,7 @@ import {
   Type,
   Upload,
   X,
+  Zap,
 } from 'lucide-react';
 import type { AppSettings } from '../../../shared/types/appSettings';
 import type { LyricsProviderId, LyricsSource } from '../../../shared/types/lyrics';
@@ -34,7 +37,11 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsDefaultOffsetMs'
   | 'lyricsPreferredProvider'
   | 'lyricsEnabledProviders'
+  | 'lyricsProviderOrder'
+  | 'lyricsDeepSearchEnabled'
   | 'lyricsEnabled'
+  | 'lyricsHeaderHidden'
+  | 'lyricsEmptyStateHidden'
   | 'lyricsRomanizationEnabled'
   | 'lyricsFontSizePx'
   | 'lyricsColor'
@@ -53,7 +60,11 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsDefaultOffsetMs: 0,
   lyricsPreferredProvider: 'lrclib',
   lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsDeepSearchEnabled: true,
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsColor: '#314054',
@@ -67,11 +78,16 @@ const fallbackSettings: LyricsDrawerSettings = {
 
 const colorSwatches = ['#314054', '#FFFFFF', '#F6D365', '#8FCFBD', '#A8C7FA', '#FF8A80'];
 const defaultLyricsEnabledProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
+const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
+type OnlineLyricsProviderId = Extract<LyricsProviderId, 'lrclib' | 'netease' | 'qqmusic'>;
+const onlineLyricsProviderIds: OnlineLyricsProviderId[] = ['lrclib', 'netease', 'qqmusic'];
+const isOnlineLyricsProvider = (provider: LyricsProviderId): provider is OnlineLyricsProviderId => onlineLyricsProviderIds.includes(provider as OnlineLyricsProviderId);
 const lyricsSourceOptions = [
   { id: 'lrclib', label: 'LRCLIB', description: '开放歌词库' },
   { id: 'netease', label: '网易云音乐', description: '中文曲库补充' },
   { id: 'qqmusic', label: 'QQ 音乐', description: '中文曲库补充' },
 ] satisfies Array<{ id: LyricsProviderId; label: string; description: string }>;
+const lyricsSourceOptionById = new Map(lyricsSourceOptions.map((source) => [source.id, source]));
 
 const lyricsProviderLabels: Record<LyricsSource, string> = {
   none: '未应用歌词',
@@ -92,8 +108,14 @@ const dispatchSettingsChanged = (patch?: Partial<AppSettings>): void => {
   window.dispatchEvent(patch ? new CustomEvent('settings:changed', { detail: patch }) : new Event('settings:changed'));
 };
 
-const dispatchLyricsAction = (action: 'search' | 'rematch'): void => {
-  window.dispatchEvent(new Event(action === 'search' ? 'lyrics:search-requested' : 'lyrics:rematch-requested'));
+const dispatchLyricsDisplaySettingsChanged = (patch: Partial<AppSettings>): void => {
+  window.dispatchEvent(new CustomEvent('lyrics:display-settings-changed', { detail: patch }));
+};
+
+const dispatchLyricsAction = (action: 'search' | 'rematch', query?: string): void => {
+  const eventName = action === 'search' ? 'lyrics:search-requested' : 'lyrics:rematch-requested';
+  const normalizedQuery = query?.trim();
+  window.dispatchEvent(normalizedQuery ? new CustomEvent(eventName, { detail: { query: normalizedQuery } }) : new Event(eventName));
 };
 
 const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
@@ -103,7 +125,11 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsDefaultOffsetMs: settings.lyricsDefaultOffsetMs,
   lyricsPreferredProvider: settings.lyricsPreferredProvider,
   lyricsEnabledProviders: settings.lyricsEnabledProviders?.length ? settings.lyricsEnabledProviders : defaultLyricsEnabledProviders,
+  lyricsProviderOrder: settings.lyricsProviderOrder?.length ? settings.lyricsProviderOrder : defaultLyricsProviderOrder,
+  lyricsDeepSearchEnabled: settings.lyricsDeepSearchEnabled !== false,
   lyricsEnabled: settings.lyricsEnabled,
+  lyricsHeaderHidden: settings.lyricsHeaderHidden,
+  lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsColor: settings.lyricsColor,
@@ -122,10 +148,27 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [currentLyricsProviderLabel, setCurrentLyricsProviderLabel] = useState(providerLabelFor(null));
+  const [draggingSourceId, setDraggingSourceId] = useState<LyricsProviderId | null>(null);
+  const [isBackgroundControlsOpen, setIsBackgroundControlsOpen] = useState(true);
+  const [lyricsSearchQuery, setLyricsSearchQuery] = useState('');
   const saveRequestIdRef = useRef(0);
+  const debouncedSaveRequestIdRef = useRef(0);
+  const debouncedSaveTimerRef = useRef<number | null>(null);
+  const pendingDebouncedSettingsRef = useRef<Partial<AppSettings>>({});
 
   const effectiveSettings = settings ?? fallbackSettings;
   const enabledProviderSet = new Set(effectiveSettings.lyricsEnabledProviders ?? defaultLyricsEnabledProviders);
+  const orderedLyricsSourceOptions = useMemo(() => {
+    const orderedIds = [
+      ...effectiveSettings.lyricsProviderOrder.filter(isOnlineLyricsProvider),
+      ...onlineLyricsProviderIds.filter((provider) => !effectiveSettings.lyricsProviderOrder.includes(provider)),
+    ];
+
+    return orderedIds
+      .map((provider) => lyricsSourceOptionById.get(provider))
+      .filter((source): source is (typeof lyricsSourceOptions)[number] => Boolean(source));
+  }, [effectiveSettings.lyricsProviderOrder]);
+  const orderedOnlineProviderIds = useMemo<LyricsProviderId[]>(() => orderedLyricsSourceOptions.map((source) => source.id), [orderedLyricsSourceOptions]);
   const thresholdPercent = Math.round(effectiveSettings.lyricsAutoAcceptScore * 100);
   const offsetSeconds = useMemo(() => (effectiveSettings.lyricsDefaultOffsetMs / 1000).toFixed(1), [effectiveSettings.lyricsDefaultOffsetMs]);
 
@@ -212,6 +255,77 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
     }
   }, []);
 
+  const flushDebouncedSettings = useCallback(async (): Promise<void> => {
+    const app = window.echo?.app;
+    const patch = pendingDebouncedSettingsRef.current;
+    pendingDebouncedSettingsRef.current = {};
+    debouncedSaveTimerRef.current = null;
+
+    if (!app || Object.keys(patch).length === 0) {
+      return;
+    }
+
+    const requestId = debouncedSaveRequestIdRef.current + 1;
+    debouncedSaveRequestIdRef.current = requestId;
+
+    try {
+      const nextSettings = await app.setSettings(patch);
+      if (requestId === debouncedSaveRequestIdRef.current) {
+        const nextLyricsSettings = selectLyricsSettings(nextSettings);
+        setSettings(nextLyricsSettings);
+        setError(null);
+        dispatchSettingsChanged(nextLyricsSettings);
+      }
+    } catch (settingsError) {
+      if (requestId === debouncedSaveRequestIdRef.current) {
+        setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+        dispatchSettingsChanged();
+      }
+    }
+  }, []);
+
+  const patchSettingsDebounced = useCallback(
+    (patch: Partial<AppSettings>): void => {
+      const app = window.echo?.app;
+      if (!app) {
+        setError('Desktop bridge unavailable');
+        return;
+      }
+
+      pendingDebouncedSettingsRef.current = {
+        ...pendingDebouncedSettingsRef.current,
+        ...patch,
+      };
+      setSettings((current) => ({ ...(current ?? fallbackSettings), ...(patch as Partial<LyricsDrawerSettings>) }));
+      dispatchLyricsDisplaySettingsChanged(patch);
+
+      if (debouncedSaveTimerRef.current !== null) {
+        window.clearTimeout(debouncedSaveTimerRef.current);
+      }
+
+      debouncedSaveTimerRef.current = window.setTimeout(() => {
+        void flushDebouncedSettings();
+      }, 240);
+    },
+    [flushDebouncedSettings],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (debouncedSaveTimerRef.current !== null) {
+        window.clearTimeout(debouncedSaveTimerRef.current);
+        debouncedSaveTimerRef.current = null;
+      }
+
+      const patch = pendingDebouncedSettingsRef.current;
+      pendingDebouncedSettingsRef.current = {};
+      if (Object.keys(patch).length > 0) {
+        const savePromise = window.echo?.app?.setSettings?.(patch);
+        void savePromise?.catch(() => undefined);
+      }
+    };
+  }, []);
+
   const chooseWallpaper = useCallback(async (): Promise<void> => {
     const app = window.echo?.app;
     if (!app?.chooseLyricsWallpaper) {
@@ -238,6 +352,27 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
       setIsBusy(false);
     }
   }, []);
+
+  const patchLyricsProviderOrder = useCallback((onlineOrder: LyricsProviderId[]): void => {
+    void patchSettings({ lyricsProviderOrder: ['local', ...onlineOrder] });
+  }, [patchSettings]);
+
+  const moveLyricsSource = useCallback((sourceId: LyricsProviderId, targetId: LyricsProviderId): void => {
+    if (sourceId === targetId) {
+      return;
+    }
+
+    const nextOrder = [...orderedOnlineProviderIds];
+    const sourceIndex = nextOrder.indexOf(sourceId);
+    const targetIndex = nextOrder.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const [source] = nextOrder.splice(sourceIndex, 1);
+    nextOrder.splice(targetIndex, 0, source);
+    patchLyricsProviderOrder(nextOrder);
+  }, [orderedOnlineProviderIds, patchLyricsProviderOrder]);
 
   useEffect(() => {
     if (isOpen) {
@@ -348,19 +483,32 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             <h3>当前歌曲</h3>
           </div>
 
-          <button
-            className="audio-device-pill"
-            type="button"
-            disabled={isBusy || !effectiveSettings.lyricsEnabled}
-            onClick={() => dispatchLyricsAction('search')}
+          <form
+            className="audio-device-pill lyrics-search-pill"
+            onSubmit={(event) => {
+              event.preventDefault();
+              dispatchLyricsAction('search', lyricsSearchQuery);
+            }}
           >
             <Search size={15} />
             <span>
               <strong>搜索歌词</strong>
-              <small>查找可用歌词候选</small>
+              <small>留空则使用当前歌曲信息</small>
             </span>
-            <em>Search</em>
-          </button>
+            <div className="lyrics-search-pill__field">
+              <input
+                type="search"
+                value={lyricsSearchQuery}
+                disabled={isBusy || !effectiveSettings.lyricsEnabled}
+                placeholder="歌名 / 艺术家 / 关键词"
+                aria-label="搜索歌词文本"
+                onChange={(event) => setLyricsSearchQuery(event.currentTarget.value)}
+              />
+            </div>
+            <button type="submit" disabled={isBusy || !effectiveSettings.lyricsEnabled}>
+              Search
+            </button>
+          </form>
 
           <button
             className="audio-device-pill"
@@ -396,6 +544,34 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             />
           </label>
           <p>关闭后歌词页不会加载、搜索或匹配歌词。</p>
+
+          <label className="audio-toggle-row">
+            <span>
+              <EyeOff size={17} />
+              <strong>隐藏歌曲信息</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsHeaderHidden}
+              disabled={isBusy || !effectiveSettings.lyricsEnabled}
+              onChange={(event) => void patchSettings({ lyricsHeaderHidden: event.currentTarget.checked })}
+            />
+          </label>
+          <p>隐藏歌词页左上角封面、歌名和艺术家信息；底部播放栏仍会显示当前歌曲。</p>
+
+          <label className="audio-toggle-row">
+            <span>
+              <EyeOff size={17} />
+              <strong>隐藏纯音乐提示</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsEmptyStateHidden}
+              disabled={isBusy || !effectiveSettings.lyricsEnabled}
+              onChange={(event) => void patchSettings({ lyricsEmptyStateHidden: event.currentTarget.checked })}
+            />
+          </label>
+          <p>隐藏歌词页中央的“纯音乐，请欣赏”和“暂无歌词”提示，默认开启。</p>
 
           <label className="audio-toggle-row">
             <span>
@@ -479,6 +655,15 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             <h3>歌词背景</h3>
           </div>
 
+          <label className="audio-toggle-row lyrics-background-toggle">
+            <span>
+              <ImageIcon size={17} />
+              <strong>显示歌词背景设置</strong>
+            </span>
+            <input type="checkbox" checked={isBackgroundControlsOpen} onChange={(event) => setIsBackgroundControlsOpen(event.currentTarget.checked)} />
+          </label>
+
+          <div className="lyrics-background-controls" hidden={!isBackgroundControlsOpen}>
           <div className="lyrics-background-segmented" aria-label="歌词背景模式">
             {[
               ['theme', '跟随主题'],
@@ -518,7 +703,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                 max={180}
                 step={1}
                 value={effectiveSettings.lyricsBackgroundScalePercent}
-                onChange={(event) => void patchSettings({ lyricsBackgroundScalePercent: Number(event.currentTarget.value) })}
+                onChange={(event) => patchSettingsDebounced({ lyricsBackgroundScalePercent: Number(event.currentTarget.value) })}
               />
             </label>
             <label className="lyrics-drawer-range">
@@ -532,7 +717,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                 max={100}
                 step={1}
                 value={effectiveSettings.lyricsCoverOpacityPercent}
-                onChange={(event) => void patchSettings({ lyricsCoverOpacityPercent: Number(event.currentTarget.value) })}
+                onChange={(event) => patchSettingsDebounced({ lyricsCoverOpacityPercent: Number(event.currentTarget.value) })}
               />
             </label>
             <label className="lyrics-drawer-range">
@@ -546,7 +731,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                 max={60}
                 step={1}
                 value={effectiveSettings.lyricsCoverBlurPx}
-                onChange={(event) => void patchSettings({ lyricsCoverBlurPx: Number(event.currentTarget.value) })}
+                onChange={(event) => patchSettingsDebounced({ lyricsCoverBlurPx: Number(event.currentTarget.value) })}
               />
             </label>
             <label className="lyrics-drawer-range">
@@ -560,7 +745,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                 max={140}
                 step={1}
                 value={effectiveSettings.lyricsCoverBrightnessPercent}
-                onChange={(event) => void patchSettings({ lyricsCoverBrightnessPercent: Number(event.currentTarget.value) })}
+                onChange={(event) => patchSettingsDebounced({ lyricsCoverBrightnessPercent: Number(event.currentTarget.value) })}
               />
             </label>
           </div>
@@ -595,6 +780,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
               {effectiveSettings.lyricsCustomWallpaperPath}
             </p>
           ) : null}
+          </div>
         </section>
 
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
@@ -606,7 +792,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           <label className="audio-toggle-row">
             <span>
               <Globe2 size={17} />
-              <strong>启用 LRCLIB 在线歌词匹配</strong>
+              <strong>启用在线歌词匹配</strong>
             </span>
             <input
               type="checkbox"
@@ -617,14 +803,57 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           </label>
           <p>仅发送标题、艺术家、专辑和时长用于匹配。</p>
 
+          <label className="audio-toggle-row">
+            <span>
+              <Zap size={17} />
+              <strong>深度优先搜索</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsDeepSearchEnabled}
+              disabled={isBusy || !effectiveSettings.lyricsNetworkEnabled}
+              onChange={(event) => void patchSettings({ lyricsDeepSearchEnabled: event.currentTarget.checked })}
+            />
+          </label>
+          <p>开启后多个在线平台会并发搜索，并按下方优先级与匹配分数返回最快的最优解。</p>
+
           <div className="lyrics-source-panel">
             <span>
               <Globe2 size={15} />
               <strong>歌词源</strong>
             </span>
             <div className="lyrics-source-grid" aria-label="歌词源">
-              {lyricsSourceOptions.map((source) => (
-                <label className="lyrics-source-option" data-enabled={enabledProviderSet.has(source.id)} key={source.id}>
+              {orderedLyricsSourceOptions.map((source) => (
+                <label
+                  className="lyrics-source-option"
+                  data-enabled={enabledProviderSet.has(source.id)}
+                  data-dragging={draggingSourceId === source.id}
+                  draggable={!isBusy}
+                  key={source.id}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', source.id);
+                    setDraggingSourceId(source.id);
+                  }}
+                  onDragOver={(event) => {
+                    if (draggingSourceId && draggingSourceId !== source.id) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId = (event.dataTransfer.getData('text/plain') || draggingSourceId) as LyricsProviderId | null;
+                    if (draggedId) {
+                      moveLyricsSource(draggedId, source.id);
+                    }
+                    setDraggingSourceId(null);
+                  }}
+                  onDragEnd={() => setDraggingSourceId(null)}
+                >
+                  <span className="lyrics-source-drag-handle" aria-hidden="true">
+                    <GripVertical size={15} />
+                  </span>
                   <input
                     type="checkbox"
                     checked={enabledProviderSet.has(source.id)}
@@ -638,7 +867,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                       }
 
                       current.add('local');
-                      const nextProviders = defaultLyricsEnabledProviders.filter((provider) => provider === 'local' || current.has(provider));
+                      const nextProviders: LyricsProviderId[] = ['local', ...orderedOnlineProviderIds.filter((provider) => current.has(provider))];
                       void patchSettings({ lyricsEnabledProviders: nextProviders });
                     }}
                   />
@@ -646,7 +875,6 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
                     <strong>{source.label}</strong>
                     <small>{source.description}</small>
                   </span>
-                  {enabledProviderSet.has(source.id) ? <Check size={14} /> : null}
                 </label>
               ))}
             </div>

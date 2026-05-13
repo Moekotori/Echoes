@@ -8,6 +8,7 @@ import { registerVideoProtocolHandler } from '../protocol/videoProtocol';
 import { disposeSmtcIntegration, initializeSmtcIntegration } from '../integrations/smtc/SmtcStatusSync';
 import { disposeDiscordPresenceIntegration, initializeDiscordPresenceIntegration } from '../integrations/discord/DiscordPresenceStatusSync';
 import { disposeLastFmIntegration, initializeLastFmIntegration } from '../integrations/lastfm/LastFmStatusSync';
+import { savePlaybackMemoryNow } from '../ipc/playbackIpc';
 
 export const registerAppLifecycle = (): void => {
   app.whenReady().then(() => {
@@ -27,6 +28,7 @@ export const registerAppLifecycle = (): void => {
   });
 
   app.on('before-quit', () => {
+    savePlaybackMemoryNow();
     disposeLastFmIntegration();
     disposeDiscordPresenceIntegration();
     disposeSmtcIntegration();

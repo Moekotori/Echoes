@@ -26,6 +26,26 @@ const sortOptions: Array<{ value: LibrarySort; label: string }> = [
   { value: 'recent', label: '最近更新' },
 ];
 
+const songsSortStorageKey = 'echo-next.songs.sort';
+const validSortValues = new Set<LibrarySort>(sortOptions.map((option) => option.value));
+
+const readStoredSort = (): LibrarySort => {
+  try {
+    const stored = window.localStorage.getItem(songsSortStorageKey);
+    return stored && validSortValues.has(stored as LibrarySort) ? (stored as LibrarySort) : 'default';
+  } catch {
+    return 'default';
+  }
+};
+
+const writeStoredSort = (sort: LibrarySort): void => {
+  try {
+    window.localStorage.setItem(songsSortStorageKey, sort);
+  } catch {
+    // Sort memory should not block the song list in restricted storage environments.
+  }
+};
+
 type TrackMenuState = {
   track: LibraryTrack;
   position: { x: number; y: number };
@@ -38,7 +58,7 @@ export const SongsPage = (): JSX.Element => {
   const [hasMore, setHasMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<LibrarySort>('default');
+  const [sort, setSort] = useState<LibrarySort>(() => readStoredSort());
   const [isLoading, setIsLoading] = useState(false);
   const [isScanningMissing, setIsScanningMissing] = useState(false);
   const [hideDuplicates, setHideDuplicates] = useState(false);
@@ -64,8 +84,8 @@ export const SongsPage = (): JSX.Element => {
   const trackIds = useMemo(() => tracks.map((track) => track.id), [tracks]);
   const likedTrackIds = useLikedTrackIds(trackIds);
   const queueSource = useMemo(
-    () => ({ type: 'songs' as const, label: '歌曲列表', search: search || undefined, sort }),
-    [search, sort],
+    () => ({ type: 'songs' as const, label: '歌曲列表', search: search || undefined, sort, hideDuplicates }),
+    [hideDuplicates, search, sort],
   );
 
   useEffect(() => {
@@ -144,6 +164,10 @@ export const SongsPage = (): JSX.Element => {
   useEffect(() => {
     void loadTracks(1, 'replace');
   }, [loadTracks]);
+
+  useEffect(() => {
+    writeStoredSort(sort);
+  }, [sort]);
 
   const loadDuplicateSettings = useCallback(async (): Promise<void> => {
     const app = window.echo?.app;

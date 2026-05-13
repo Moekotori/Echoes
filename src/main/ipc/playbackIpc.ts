@@ -4,6 +4,7 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { PlaybackProbeHint, PlaybackStartRequest, PlaybackStatus } from '../../shared/types/playback';
 import { getAudioSession } from '../audio/AudioSession';
+import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
@@ -150,30 +151,66 @@ const toPlaybackStatus = (): PlaybackStatus => {
   };
 };
 
+let playbackMemoryRegistered = false;
+let lastPlaybackMemorySaveAt = 0;
+const playbackMemorySaveIntervalMs = 5000;
+
+export const savePlaybackMemoryNow = (): void => {
+  getPlaybackMemoryStore().save(getAudioSession().getStatus());
+};
+
+const registerPlaybackMemoryPersistence = (): void => {
+  if (playbackMemoryRegistered) {
+    return;
+  }
+
+  playbackMemoryRegistered = true;
+  const storedMemory = getPlaybackMemoryStore().load();
+  if (storedMemory) {
+    getAudioSession().restorePlaybackMemory(storedMemory);
+  }
+
+  getAudioSession().on('status', () => {
+    const now = Date.now();
+    if (now - lastPlaybackMemorySaveAt < playbackMemorySaveIntervalMs) {
+      return;
+    }
+
+    lastPlaybackMemorySaveAt = now;
+    savePlaybackMemoryNow();
+  });
+};
+
 export const registerPlaybackIpc = (): void => {
+  registerPlaybackMemoryPersistence();
   ipcMain.handle(IpcChannels.PlaybackGetStatus, (): PlaybackStatus => toPlaybackStatus());
   ipcMain.handle(IpcChannels.PlaybackPlayLocalFile, async (_event, request: unknown): Promise<PlaybackStatus> => {
     await getAudioSession().playLocalFile(normalizePlayRequest(request));
+    savePlaybackMemoryNow();
     void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackPlay, async (): Promise<PlaybackStatus> => {
     await getAudioSession().play();
+    savePlaybackMemoryNow();
     void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackPause, (): PlaybackStatus => {
     getAudioSession().pause();
+    savePlaybackMemoryNow();
     void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackStop, (): PlaybackStatus => {
     getAudioSession().stop();
+    getPlaybackMemoryStore().clear();
     void syncSmtcStatus();
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackSeek, async (_event, positionSeconds: unknown): Promise<PlaybackStatus> => {
     await getAudioSession().seek(optionalNonNegativeNumber(positionSeconds) ?? 0);
+    savePlaybackMemoryNow();
     void syncSmtcStatus();
     return toPlaybackStatus();
   });

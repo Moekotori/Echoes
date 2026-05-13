@@ -8,7 +8,7 @@ import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { LyricsMatchRisk, LyricsProviderId, LyricsQuery, LyricsSearchCandidate, LyricsSource, TrackLyrics } from '../../shared/types/lyrics';
-import { deserializeLyricLines, serializeLyricLines } from './lyricsParser';
+import { deserializeLyricLines, parseSyncedLyrics, serializeLyricLines } from './lyricsParser';
 import { normalizeText, normalizeTextForIdentity } from './lyricsScoring';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 import { LrclibProvider, mapLrclibRecordToTrackLyrics, type LrclibRecord } from './LrclibProvider';
@@ -26,9 +26,11 @@ type LyricsSettings = Pick<
   | 'lyricsNetworkEnabled'
   | 'lyricsPreferredProvider'
   | 'lyricsEnabledProviders'
+  | 'lyricsProviderOrder'
   | 'lyricsProviderTimeoutMs'
   | 'lyricsTotalMatchTimeoutMs'
   | 'lyricsAutoSearch'
+  | 'lyricsDeepSearchEnabled'
   | 'lyricsAutoAcceptScore'
   | 'lyricsCoverAutoAcceptScore'
   | 'lyricsDefaultOffsetMs'
@@ -139,6 +141,22 @@ const toQuery = (track: LibraryTrack): LyricsQuery => ({
   durationSeconds: track.duration > 0 ? track.duration : null,
   filePath: track.path,
 });
+
+const toManualSearchQuery = (track: LibraryTrack, searchText?: string | null): LyricsQuery => {
+  const normalizedSearchText = textOrNull(searchText);
+  if (!normalizedSearchText) {
+    return toQuery(track);
+  }
+
+  return {
+    trackId: track.id,
+    title: normalizedSearchText,
+    artist: '',
+    album: null,
+    durationSeconds: null,
+    filePath: null,
+  };
+};
 
 const toNetworkQuery = (query: LyricsQuery): LyricsQuery => ({
   trackId: query.trackId,
@@ -280,12 +298,22 @@ const adaptOnlineProvider = (provider: OnlineProvider): LyricsProvider => {
 const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
   try {
     const settings = readSettings();
+    const enabledProviders = Array.isArray(settings.lyricsEnabledProviders) && settings.lyricsEnabledProviders.length
+      ? settings.lyricsEnabledProviders
+      : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']);
+    const providerOrder = Array.isArray(settings.lyricsProviderOrder) && settings.lyricsProviderOrder.length
+      ? settings.lyricsProviderOrder
+      : enabledProviders;
+    const orderedEnabledProviders = [
+      ...providerOrder.filter((provider) => enabledProviders.includes(provider)),
+      ...enabledProviders.filter((provider) => !providerOrder.includes(provider)),
+    ];
+
     return {
       lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
       lyricsPreferredProvider: 'lrclib',
-      lyricsEnabledProviders: Array.isArray(settings.lyricsEnabledProviders) && settings.lyricsEnabledProviders.length
-        ? settings.lyricsEnabledProviders
-        : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']),
+      lyricsEnabledProviders: orderedEnabledProviders,
+      lyricsProviderOrder: providerOrder,
       lyricsProviderTimeoutMs: Number.isFinite(settings.lyricsProviderTimeoutMs)
         ? Math.max(1000, Math.min(10000, Math.round(Number(settings.lyricsProviderTimeoutMs))))
         : (defaultSettings.lyricsProviderTimeoutMs ?? 4500),
@@ -293,6 +321,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
         ? Math.max(1500, Math.min(15000, Math.round(Number(settings.lyricsTotalMatchTimeoutMs))))
         : (defaultSettings.lyricsTotalMatchTimeoutMs ?? 6000),
       lyricsAutoSearch: settings.lyricsAutoSearch !== false,
+      lyricsDeepSearchEnabled: settings.lyricsDeepSearchEnabled !== false,
       lyricsAutoAcceptScore: Number.isFinite(settings.lyricsAutoAcceptScore)
         ? Math.max(0.5, Math.min(0.7, settings.lyricsAutoAcceptScore))
         : defaultSettings.lyricsAutoAcceptScore,
@@ -306,9 +335,11 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
       lyricsNetworkEnabled: defaultSettings.lyricsNetworkEnabled,
       lyricsPreferredProvider: defaultSettings.lyricsPreferredProvider,
       lyricsEnabledProviders: defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic'],
+      lyricsProviderOrder: defaultSettings.lyricsProviderOrder,
       lyricsProviderTimeoutMs: defaultSettings.lyricsProviderTimeoutMs ?? 4500,
       lyricsTotalMatchTimeoutMs: defaultSettings.lyricsTotalMatchTimeoutMs ?? 6000,
       lyricsAutoSearch: defaultSettings.lyricsAutoSearch,
+      lyricsDeepSearchEnabled: defaultSettings.lyricsDeepSearchEnabled,
       lyricsAutoAcceptScore: defaultSettings.lyricsAutoAcceptScore,
       lyricsCoverAutoAcceptScore: defaultSettings.lyricsCoverAutoAcceptScore ?? 0.97,
       lyricsDefaultOffsetMs: defaultSettings.lyricsDefaultOffsetMs,
@@ -358,6 +389,7 @@ export class LyricsService {
         totalMatchTimeoutMs: settings.lyricsTotalMatchTimeoutMs,
         autoAcceptScore: settings.lyricsAutoAcceptScore,
         coverAutoAcceptScore: settings.lyricsCoverAutoAcceptScore,
+        deepSearchEnabled: settings.lyricsDeepSearchEnabled,
         isRejected: (provider, providerLyricsId) => this.hasRejectedProviderLyrics(trackId, provider, providerLyricsId),
       });
 
@@ -378,14 +410,14 @@ export class LyricsService {
     return null;
   }
 
-  async searchLyricsCandidates(trackId: string): Promise<LyricsSearchCandidate[]> {
+  async searchLyricsCandidates(trackId: string, searchText?: string | null): Promise<LyricsSearchCandidate[]> {
     const track = this.library.getTrack(trackId);
     if (!track) {
       return [];
     }
 
     const settings = safeSettings(this.readAppSettings);
-    const query = toQuery(track);
+    const query = toManualSearchQuery(track, searchText);
     const storedCandidates: StoredCandidate[] = [];
 
     try {
@@ -396,6 +428,7 @@ export class LyricsService {
         totalMatchTimeoutMs: settings.lyricsTotalMatchTimeoutMs,
         autoAcceptScore: settings.lyricsAutoAcceptScore,
         coverAutoAcceptScore: settings.lyricsCoverAutoAcceptScore,
+        deepSearchEnabled: settings.lyricsDeepSearchEnabled,
         isRejected: (provider, providerLyricsId) => this.hasRejectedProviderLyrics(trackId, provider, providerLyricsId),
       });
 
@@ -779,17 +812,24 @@ export class LyricsService {
   }
 
   private mapCacheRow(row: LyricsCacheRow): TrackLyrics {
+    const provider = providerName(row.provider);
+    const kind = lyricsKind(row.kind);
+    const lines =
+      provider === 'local' && kind === 'synced' && row.synced_lyrics
+        ? parseSyncedLyrics(row.synced_lyrics)
+        : deserializeLyricLines(row.lines_json);
+
     return {
       id: row.id,
       trackId: row.track_id,
-      provider: providerName(row.provider),
+      provider,
       providerLyricsId: row.provider_lyrics_id,
-      kind: lyricsKind(row.kind),
+      kind,
       title: row.title,
       artist: row.artist,
       album: row.album,
       durationSeconds: numberOrNull(row.duration_seconds),
-      lines: deserializeLyricLines(row.lines_json),
+      lines,
       plainText: row.plain_lyrics,
       syncedText: row.synced_lyrics,
       offsetMs: Number(row.offset_ms ?? 0),

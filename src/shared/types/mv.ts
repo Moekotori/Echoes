@@ -29,6 +29,8 @@ export type MvQualityVariant = {
 
 export type MvSettings = {
   autoSearch: boolean;
+  autoPreload: boolean;
+  restartAudioOnLoad: boolean;
   enabledProviders: NetworkMvProviderId[];
   providerOrder: NetworkMvProviderId[];
   maxQuality: MvMaxQuality;
@@ -79,6 +81,7 @@ export type MvMatchCandidate = {
   providerUrl: string | null;
   thumbnailUrl: string | null;
   uploader: string | null;
+  viewCount?: number | null;
   availableQualities: MvQualityVariant[];
   durationSeconds: number | null;
   score: number;
@@ -94,6 +97,6 @@ export type MvMatchSummary = {
 
 export type MvOnlineProvider = {
   id: NetworkMvProviderId;
-  search: (track: unknown) => Promise<MvMatchCandidate[]>;
+  search: (track: unknown, queryOverride?: string) => Promise<MvMatchCandidate[]>;
   resolve: (video: TrackVideo, settings: MvSettings) => Promise<MvQualityVariant[]>;
 };

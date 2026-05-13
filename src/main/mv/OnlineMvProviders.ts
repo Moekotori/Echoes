@@ -18,7 +18,7 @@ export type ResolvedMvStreamVariant = MvQualityVariant & {
 
 export type MainMvOnlineProvider = {
   id: NetworkMvProviderId;
-  search: (track: LibraryTrack, settings: MvSettings) => Promise<MvMatchCandidate[]>;
+  search: (track: LibraryTrack, settings: MvSettings, queryOverride?: string) => Promise<MvMatchCandidate[]>;
   resolve: (video: TrackVideo, settings: MvSettings) => Promise<ResolvedMvStreamVariant[]>;
 };
 
@@ -70,6 +70,77 @@ const text = (value: unknown): string | null => {
 const number = (value: unknown): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const metricNumber = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+
+  const raw = text(value);
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = raw.replace(/,/g, '').replace(/\s+/g, '');
+  const match = normalized.match(/^([\d.]+)(\u4e07|\u5104|\u4ebf|k|K|m|M)?$/);
+  if (!match) {
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const unit = match[2];
+  const multiplier = unit === '\u4e07' ? 10_000 : unit === '\u4ebf' || unit === '\u5104' ? 100_000_000 : unit === 'k' || unit === 'K' ? 1_000 : unit === 'm' || unit === 'M' ? 1_000_000 : 1;
+  return Math.round(amount * multiplier);
+};
+
+const normalizeSearchText = (value: string): string =>
+  value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[\[\]【】「」『』()（）"'“”‘’]/g, ' ')
+    .replace(/[_\-~|/\\:：·・.,，。!?！？]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const meaningfulTokens = (value: string): string[] =>
+  normalizeSearchText(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1)
+    .filter((token) => !['mv', 'pv', 'official', 'music', 'video', 'full', 'ver', 'version'].includes(token));
+
+const scoreSearchTitle = (query: string, title: string): number => {
+  const normalizedQuery = normalizeSearchText(query);
+  const normalizedTitle = normalizeSearchText(title);
+  if (!normalizedQuery || !normalizedTitle) {
+    return 0.45;
+  }
+
+  if (normalizedTitle.includes(normalizedQuery)) {
+    return 0.96;
+  }
+
+  const tokens = meaningfulTokens(query);
+  if (tokens.length === 0) {
+    return 0.45;
+  }
+
+  const weightedTokens = tokens.map((token) => ({
+    token,
+    weight: token === 'cover' || token === 'remix' || token === 'live' ? 0.55 : 1,
+  }));
+  const totalWeight = weightedTokens.reduce((total, item) => total + item.weight, 0);
+  const matchedWeight = weightedTokens.reduce((total, item) => total + (normalizedTitle.includes(item.token) ? item.weight : 0), 0);
+  const coverage = totalWeight > 0 ? matchedWeight / totalWeight : 0;
+
+  return Number(Math.max(0.45, Math.min(0.94, 0.45 + coverage * 0.42)).toFixed(4));
 };
 
 const stripHtml = (value: unknown): string | null => {
@@ -201,27 +272,31 @@ class ProviderBase {
 export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProvider {
   readonly id = 'bilibili' as const;
 
-  async search(track: LibraryTrack, _settings: MvSettings): Promise<MvMatchCandidate[]> {
-    const query = [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
+  async search(track: LibraryTrack, _settings: MvSettings, queryOverride?: string): Promise<MvMatchCandidate[]> {
+    const query = queryOverride?.trim() || [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
     const url = new URL('https://api.bilibili.com/x/web-interface/search/type');
     url.searchParams.set('search_type', 'video');
     url.searchParams.set('keyword', query);
     url.searchParams.set('page', '1');
+    url.searchParams.set('order', 'click');
 
     const payload = await withTimeout(this.fetchImpl, url.toString(), this.cookieHeaders(this.id));
     const data = isRecord(payload) ? payload.data : null;
     const results = isRecord(data) ? asArray(data.result) : [];
 
-    return results.slice(0, 8).flatMap((item, index): MvMatchCandidate[] => {
+    return results
+      .flatMap((item): (MvMatchCandidate & { viewCount: number | null })[] => {
       if (!isRecord(item)) {
         return [];
       }
 
       const bvid = text(item.bvid);
       const title = stripHtml(item.title);
+      const viewCount = metricNumber(item.play);
       if (!bvid || !title) {
         return [];
       }
+      const score = scoreSearchTitle(query, title);
 
       const providerUrl = `https://www.bilibili.com/video/${bvid}`;
       return [
@@ -236,14 +311,24 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
           providerUrl,
           thumbnailUrl: normalizeUrl(item.pic),
           uploader: stripHtml(item.author) ?? null,
+          viewCount,
           availableQualities: [],
           durationSeconds: null,
-          score: Math.max(0.45, 0.72 - index * 0.04),
+          score,
           playableInApp: true,
-          reasons: ['Bilibili search'],
+          reasons: ['Bilibili search', viewCount !== null ? `播放 ${viewCount}` : '播放量未知'],
         },
       ];
-    });
+    })
+      .sort((left, right) => {
+        const scoreDelta = right.score - left.score;
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        return (right.viewCount ?? -1) - (left.viewCount ?? -1);
+      })
+      .slice(0, 8)
+      .map((candidate) => candidate);
   }
 
   async resolve(video: TrackVideo, settings: MvSettings): Promise<ResolvedMvStreamVariant[]> {
@@ -326,18 +411,19 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
 export class YouTubeMvProvider extends ProviderBase implements MainMvOnlineProvider {
   readonly id = 'youtube' as const;
 
-  async search(track: LibraryTrack, _settings: MvSettings): Promise<MvMatchCandidate[]> {
+  async search(track: LibraryTrack, _settings: MvSettings, queryOverride?: string): Promise<MvMatchCandidate[]> {
     const apiKey = process.env.ECHO_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY;
     if (!apiKey) {
       return [];
     }
 
-    const query = [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
+    const query = queryOverride?.trim() || [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
     const url = new URL('https://www.googleapis.com/youtube/v3/search');
     url.searchParams.set('part', 'snippet');
     url.searchParams.set('type', 'video');
     url.searchParams.set('videoEmbeddable', 'true');
     url.searchParams.set('maxResults', '8');
+    url.searchParams.set('order', 'viewCount');
     url.searchParams.set('q', query);
     url.searchParams.set('key', apiKey);
 
@@ -358,6 +444,7 @@ export class YouTubeMvProvider extends ProviderBase implements MainMvOnlineProvi
       const thumbnails = isRecord(item.snippet.thumbnails) ? item.snippet.thumbnails : {};
       const thumbnail = isRecord(thumbnails.high) ? normalizeUrl(thumbnails.high.url) : null;
       const providerUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const score = scoreSearchTitle(query, title);
 
       return [
         {
@@ -373,7 +460,7 @@ export class YouTubeMvProvider extends ProviderBase implements MainMvOnlineProvi
           uploader: text(item.snippet.channelTitle),
           availableQualities: [],
           durationSeconds: null,
-          score: Math.max(0.45, 0.7 - index * 0.04),
+          score,
           playableInApp: false,
           reasons: ['YouTube Data API'],
         },

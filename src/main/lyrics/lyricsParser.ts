@@ -2,6 +2,8 @@ import type { LyricLine, LyricsKind } from '../../shared/types/lyrics';
 
 const metadataTagPattern = /^\s*\[(ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$/i;
 const timestampPattern = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+const leadingTimestampsPattern = /^\s*(?:(?:\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\])\s*)+/;
+const enhancedTimestampPattern = /<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>/g;
 
 const fractionToMs = (fraction: string | undefined): number => {
   if (!fraction) {
@@ -19,6 +21,24 @@ const fractionToMs = (fraction: string | undefined): number => {
   return Number(fraction.slice(0, 3));
 };
 
+const parseTimestamp = (match: RegExpMatchArray): number | null => {
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  const milliseconds = fractionToMs(match[3]);
+
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds > 59) {
+    return null;
+  }
+
+  return minutes * 60_000 + seconds * 1000 + milliseconds;
+};
+
+const cleanLyricText = (text: string): string =>
+  text
+    .replace(enhancedTimestampPattern, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
   const lines: LyricLine[] = [];
 
@@ -33,24 +53,41 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
       continue;
     }
 
-    const text = line.replace(timestampPattern, '').trim();
-    if (!text) {
-      continue;
-    }
+    const leadingTimestamps = line.match(leadingTimestampsPattern)?.[0] ?? '';
+    const leadingMatches = [...leadingTimestamps.matchAll(timestampPattern)];
+    const hasOnlyLeadingTimestamps = timestamps.length === leadingMatches.length;
 
-    for (const match of timestamps) {
-      const minutes = Number(match[1]);
-      const seconds = Number(match[2]);
-      const milliseconds = fractionToMs(match[3]);
-
-      if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds > 59) {
+    if (hasOnlyLeadingTimestamps) {
+      const text = cleanLyricText(line.slice(leadingTimestamps.length));
+      if (!text) {
         continue;
       }
 
-      lines.push({
-        timeMs: minutes * 60_000 + seconds * 1000 + milliseconds,
-        text,
-      });
+      for (const match of timestamps) {
+        const timeMs = parseTimestamp(match);
+        if (timeMs === null) {
+          continue;
+        }
+
+        lines.push({ timeMs, text });
+      }
+
+      continue;
+    }
+
+    for (let index = 0; index < timestamps.length; index += 1) {
+      const match = timestamps[index];
+      const timeMs = parseTimestamp(match);
+      if (timeMs === null || match.index === undefined) {
+        continue;
+      }
+
+      const textStart = match.index + match[0].length;
+      const textEnd = timestamps[index + 1]?.index ?? line.length;
+      const text = cleanLyricText(line.slice(textStart, textEnd));
+      if (text) {
+        lines.push({ timeMs, text });
+      }
     }
   }
 

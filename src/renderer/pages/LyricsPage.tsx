@@ -32,6 +32,8 @@ type CandidateSourceFilter = "all" | string;
 type LyricsDisplaySettings = Pick<
   AppSettings,
   | "lyricsEnabled"
+  | "lyricsHeaderHidden"
+  | "lyricsEmptyStateHidden"
   | "lyricsFontSizePx"
   | "lyricsColor"
   | "lyricsBackgroundMode"
@@ -47,6 +49,8 @@ const idlePollingStates = new Set(["paused", "stopped", "idle", "error"]);
 
 const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsFontSizePx: 36,
   lyricsColor: "#314054",
   lyricsBackgroundMode: "theme",
@@ -168,6 +172,8 @@ const selectLyricsDisplaySettings = (
   settings: AppSettings,
 ): LyricsDisplaySettings => ({
   lyricsEnabled: settings.lyricsEnabled,
+  lyricsHeaderHidden: settings.lyricsHeaderHidden,
+  lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsColor: settings.lyricsColor,
   lyricsBackgroundMode: settings.lyricsBackgroundMode,
@@ -183,6 +189,8 @@ const cssUrl = (value: string): string =>
   `url("${value.replace(/["\\]/g, "\\$&")}")`;
 const lyricsDisplaySettingsKeys = [
   "lyricsEnabled",
+  "lyricsHeaderHidden",
+  "lyricsEmptyStateHidden",
   "lyricsFontSizePx",
   "lyricsColor",
   "lyricsBackgroundMode",
@@ -268,11 +276,12 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     (filePath ? "Local file" : "Ready");
   const coverUrl = safeCoverUrl(currentTrack);
   const headerCoverUrl = safeOriginalCoverUrl(currentTrack);
+  const backgroundCoverUrl = safeOriginalCoverUrl(currentTrack);
   const effectiveLyricsBackgroundMode =
     lyricsDisplaySettings.lyricsBackgroundMode === "customWallpaper" &&
     !lyricsDisplaySettings.lyricsCustomWallpaperPath
       ? "theme"
-      : lyricsDisplaySettings.lyricsBackgroundMode === "cover" && !coverUrl
+      : lyricsDisplaySettings.lyricsBackgroundMode === "cover" && !backgroundCoverUrl
         ? "theme"
         : lyricsDisplaySettings.lyricsBackgroundMode;
   const lyricsWallpaperUrl = lyricsDisplaySettings.lyricsCustomWallpaperPath
@@ -281,7 +290,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const lyricsPageStyle = useMemo(
     () =>
       ({
-        "--lyrics-cover": coverUrl ? cssUrl(coverUrl) : "none",
+        "--lyrics-cover": backgroundCoverUrl ? cssUrl(backgroundCoverUrl) : "none",
         "--lyrics-wallpaper": lyricsWallpaperUrl
           ? cssUrl(lyricsWallpaperUrl)
           : "none",
@@ -296,7 +305,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         "--lyrics-background-bleed": `-${lyricsDisplaySettings.lyricsCoverBlurPx * 2}px`,
       }) as CSSProperties,
     [
-      coverUrl,
+      backgroundCoverUrl,
       lyricsDisplaySettings.lyricsColor,
       lyricsDisplaySettings.lyricsCoverBlurPx,
       lyricsDisplaySettings.lyricsCoverBrightnessPercent,
@@ -435,8 +444,12 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
     void loadLyricsDisplaySettings();
     window.addEventListener("settings:changed", handleSettingsChanged);
+    window.addEventListener("lyrics:display-settings-changed", handleSettingsChanged);
     return () =>
-      window.removeEventListener("settings:changed", handleSettingsChanged);
+      {
+        window.removeEventListener("settings:changed", handleSettingsChanged);
+        window.removeEventListener("lyrics:display-settings-changed", handleSettingsChanged);
+      };
   }, [loadLyricsDisplaySettings]);
 
   useEffect(() => {
@@ -476,6 +489,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     }
 
     if (!trackId) {
+      lyricsRequestRef.current += 1;
       setLyrics(
         initialLyrics && initialLyrics.length > 0
           ? syncedLyrics(initialLyrics, 0)
@@ -490,6 +504,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
     const lyricsApi = window.echo?.lyrics;
     if (!lyricsApi) {
+      lyricsRequestRef.current += 1;
       setLyrics(
         initialLyrics && initialLyrics.length > 0
           ? syncedLyrics(initialLyrics, 0)
@@ -502,6 +517,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     const requestId = lyricsRequestRef.current + 1;
     lyricsRequestRef.current = requestId;
     setIsLyricsLoading(true);
+    setLyrics(emptyLyrics(0));
+    dispatchCurrentLyricsProviderChanged(null);
     setLyricsStatus("正在匹配歌词...");
     setCandidates([]);
     setActiveCandidateSource("all");
@@ -543,7 +560,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     trackId,
   ]);
 
-  const handleSearchLyrics = useCallback(async (): Promise<void> => {
+  const handleSearchLyrics = useCallback(async (searchText?: string): Promise<void> => {
     if (!lyricsDisplaySettings.lyricsEnabled) {
       setLyricsStatus(null);
       return;
@@ -557,7 +574,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setIsCandidateLoading(true);
     setLyricsStatus("正在搜索歌词候选...");
     try {
-      const nextCandidates = await window.echo.lyrics.searchCandidates(trackId);
+      const nextCandidates = searchText
+        ? await window.echo.lyrics.searchCandidates(trackId, searchText)
+        : await window.echo.lyrics.searchCandidates(trackId);
       setCandidates(nextCandidates);
       setActiveCandidateSource("all");
       setLyricsStatus(nextCandidates.length ? null : "未找到歌词");
@@ -610,8 +629,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   }, [lyrics.offsetMs, lyricsDisplaySettings.lyricsEnabled, trackId]);
 
   useEffect(() => {
-    const handleSearchRequested = (): void => {
-      void handleSearchLyrics();
+    const handleSearchRequested = (event: Event): void => {
+      const query = event instanceof CustomEvent && typeof event.detail?.query === "string" ? event.detail.query : undefined;
+      void handleSearchLyrics(query);
     };
     const handleRematchRequested = (): void => {
       void handleRematchLyrics();
@@ -694,11 +714,18 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return null;
     }
 
+    const shouldFoldStatusIntoEmptyLyrics =
+      lyrics.lines.length === 0 &&
+      candidates.length === 0 &&
+      !isLyricsLoading &&
+      !isCandidateLoading;
     const statusText = isLyricsLoading
       ? "正在匹配歌词..."
       : isCandidateLoading
         ? "正在搜索歌词候选..."
-        : lyricsStatus;
+        : shouldFoldStatusIntoEmptyLyrics
+          ? null
+          : lyricsStatus;
 
     if (candidates.length === 0 && !statusText) {
       return null;
@@ -781,6 +808,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     isCandidateLoading,
     isLyricsLoading,
     lyricsDisplaySettings.lyricsEnabled,
+    lyrics.lines.length,
     lyricsStatus,
     trackId,
     visibleCandidates,
@@ -834,24 +862,28 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           <ArrowLeft size={17} />
         </button>
 
-        <header className="lyrics-track-header">
-          <div className="lyrics-track-cover" data-empty={!headerCoverUrl}>
-            {headerCoverUrl ? (
-              <img alt="" draggable={false} src={headerCoverUrl} />
-            ) : (
-              <Disc3 size={26} />
-            )}
-          </div>
-          <div className="lyrics-track-copy">
-            <span className="lyrics-kicker">Now Playing</span>
-            <h1>{title}</h1>
-            <p>{artist}</p>
-          </div>
-        </header>
+        {lyricsDisplaySettings.lyricsHeaderHidden ? null : (
+          <header className="lyrics-track-header">
+            <div className="lyrics-track-cover" data-empty={!headerCoverUrl}>
+              {headerCoverUrl ? (
+                <img alt="" draggable={false} src={headerCoverUrl} />
+              ) : (
+                <Disc3 size={26} />
+              )}
+            </div>
+            <div className="lyrics-track-copy">
+              <span className="lyrics-kicker">Now Playing</span>
+              <h1>{title}</h1>
+              <p>{artist}</p>
+            </div>
+          </header>
+        )}
 
         {lyricsControls}
         {lyricsDisplaySettings.lyricsEnabled ? (
           <LyricsView
+            durationMs={(audioStatus?.durationSeconds ?? currentTrack?.duration ?? 0) * 1000}
+            hideEmptyState={lyricsDisplaySettings.lyricsEmptyStateHidden}
             lyrics={lyrics}
             positionMs={positionSeconds * 1000}
             showRomanization={lyricsDisplaySettings.lyricsRomanizationEnabled}

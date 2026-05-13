@@ -111,6 +111,58 @@ afterEach(() => {
 });
 
 describe('PlayerBar', () => {
+  it('hydrates restored playback from the library so cover art survives restart', async () => {
+    const restoredTrack = makeTrack(9, {
+      title: 'Restored Track',
+      artist: 'Restored Artist',
+      coverId: 'cover-restored',
+      coverThumb: 'echo-cover://thumb/cover-restored',
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'paused',
+          currentTrackId: restoredTrack.id,
+          positionMs: 138000,
+          durationMs: restoredTrack.duration * 1000,
+          filePath: restoredTrack.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(restoredTrack),
+          state: 'paused',
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(restoredTrack),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [restoredTrack.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <PlayerBar />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Restored Track');
+    expect(screen.getByText('Restored Artist')).toBeTruthy();
+    expect(container.querySelector('.player-cover img')?.getAttribute('src')).toBe('echo-cover://album/cover-restored');
+  });
+
   it('shows cover art for a track started outside the SongsPage loaded queue', async () => {
     const albumTrack = makeTrack(7, {
       title: 'Album Detail Track',
@@ -335,7 +387,7 @@ describe('PlayerBar', () => {
       },
     } as unknown as Window['echo'];
 
-    render(
+    const { container } = render(
       <PlaybackQueueProvider>
         <QueueSeed tracks={[track]} />
       </PlaybackQueueProvider>,
@@ -438,6 +490,133 @@ describe('PlayerBar', () => {
     smtcHandlers[0]?.('next');
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
+  });
+
+  it('publishes current playback metadata and actions through the browser media session', async () => {
+    const track = makeTrack(1, {
+      title: 'SMTC Song',
+      artist: 'SMTC Artist',
+      album: 'SMTC Album',
+      coverId: 'cover-1',
+      coverThumb: 'echo-cover://thumb/cover-1',
+    });
+    const actionHandlers = new Map<string, MediaSessionActionHandler | null>();
+    const mediaSession = {
+      metadata: null as MediaMetadata | null,
+      playbackState: 'none' as MediaSessionPlaybackState,
+      setActionHandler: vi.fn((action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+        actionHandlers.set(action, handler);
+      }),
+      setPositionState: vi.fn(),
+    };
+    const play = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: track.id,
+      positionMs: 4000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+
+    class TestMediaMetadata {
+      title: string;
+      artist: string;
+      album: string;
+      artwork: MediaImage[];
+
+      constructor(init: MediaMetadataInit) {
+        this.title = init.title ?? '';
+        this.artist = init.artist ?? '';
+        this.album = init.album ?? '';
+        this.artwork = init.artwork ?? [];
+      }
+    }
+
+    vi.stubGlobal('MediaMetadata', TestMediaMetadata);
+    Object.defineProperty(window.navigator, 'mediaSession', {
+      configurable: true,
+      value: mediaSession,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'paused',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play,
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(track),
+          state: 'paused',
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      app: {
+        getVersion: vi.fn(),
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('SMTC Song');
+    await waitFor(() => expect(mediaSession.metadata?.title).toBe('SMTC Song'));
+
+    expect(mediaSession.metadata?.artist).toBe('SMTC Artist');
+    expect(mediaSession.metadata?.album).toBe('SMTC Album');
+    expect(container.querySelector('.player-cover img')?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    expect(mediaSession.metadata?.artwork[0]?.src).toBe('echo-cover://album/cover-1');
+    expect(mediaSession.playbackState).toBe('paused');
+    expect(mediaSession.setPositionState).toHaveBeenCalledWith({
+      duration: track.duration,
+      playbackRate: 1,
+      position: 4,
+    });
+
+    actionHandlers.get('play')?.({ action: 'play' });
+    await waitFor(() => expect(play).toHaveBeenCalled());
   });
 
   it('auto-plays the next queued track when audio status pushes ended', async () => {

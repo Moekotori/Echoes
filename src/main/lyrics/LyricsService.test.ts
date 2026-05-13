@@ -35,10 +35,14 @@ const settings = (patch: Partial<AppSettings> = {}): AppSettings => ({
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: 'lrclib',
   lyricsEnabledProviders: ['local', 'lrclib'],
+  lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsDeepSearchEnabled: true,
   lyricsAutoSearch: true,
   lyricsAutoAcceptScore: 0.7,
   lyricsDefaultOffsetMs: 0,
   lyricsEnabled: true,
+  lyricsHeaderHidden: false,
+  lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsColor: '#314054',
@@ -193,6 +197,44 @@ describe('LyricsService', () => {
     expect(lyrics?.lines[0].text).toBe('Cached');
     expect(local.getLyrics).not.toHaveBeenCalled();
     expect(online.getLyrics).not.toHaveBeenCalled();
+  });
+
+  it('re-parses cached local synced lyrics from source text', async () => {
+    const { database, service } = createHarness();
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-local-1',
+        'local|echo song|echo artist|echo album|120',
+        'track-1',
+        'local',
+        'local-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        null,
+        '[00:01.00]First phrase [00:02.00]second phrase',
+        JSON.stringify([{ timeMs: 1000, text: 'First phrase second phrase' }]),
+        0,
+        1,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines).toEqual([
+      { timeMs: 1000, text: 'First phrase' },
+      { timeMs: 2000, text: 'second phrase' },
+    ]);
   });
 
   it('prefers local lrc over network', async () => {

@@ -48,7 +48,7 @@ const pushVariant = (
   variants: NormalizedLyricsQuery['searchVariants'],
   next: NormalizedLyricsQuery['searchVariants'][number],
 ): void => {
-  if (!next.title.trim() || !next.artist.trim()) {
+  if (!next.title.trim()) {
     return;
   }
 

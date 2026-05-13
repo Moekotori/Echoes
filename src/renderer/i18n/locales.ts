@@ -259,6 +259,15 @@ export type TranslationKey =
   | 'mvSettings.binding.title'
   | 'mvSettings.candidate.external'
   | 'mvSettings.candidate.inApp'
+  | 'mvSettings.custom.apply'
+  | 'mvSettings.custom.description'
+  | 'mvSettings.custom.directDash'
+  | 'mvSettings.custom.input'
+  | 'mvSettings.custom.placeholder'
+  | 'mvSettings.custom.playing'
+  | 'mvSettings.custom.title'
+  | 'mvSettings.custom.videoTitle'
+  | 'mvSettings.engine.mvTitle'
   | 'mvSettings.engine.network'
   | 'mvSettings.engine.quality'
   | 'mvSettings.engine.selected'
@@ -269,10 +278,17 @@ export type TranslationKey =
   | 'mvSettings.error.noLocalCandidates'
   | 'mvSettings.error.noNetworkCandidates'
   | 'mvSettings.network.autoApply'
+  | 'mvSettings.network.autoPreload'
+  | 'mvSettings.network.autoPreloadDescription'
   | 'mvSettings.network.maxQuality'
+  | 'mvSettings.network.restartAudioOnLoad'
+  | 'mvSettings.network.restartAudioOnLoadDescription'
   | 'mvSettings.network.title'
   | 'mvSettings.provider.local'
   | 'mvSettings.quality.max'
+  | 'mvSettings.search.input'
+  | 'mvSettings.search.placeholder'
+  | 'mvSettings.search.useCurrentSong'
   | 'mvSettings.status.auto'
   | 'mvSettings.status.noActiveTrack'
   | 'mvSettings.status.none'
@@ -333,6 +349,8 @@ export type TranslationKey =
   | 'settings.integrations.discord.description'
   | 'settings.integrations.discord.action.refresh'
   | 'settings.integrations.discord.title'
+  | 'settings.integrations.smtc.description'
+  | 'settings.integrations.smtc.title'
   | 'settings.integrations.lastfm.action.completeAuth'
   | 'settings.integrations.lastfm.action.connect'
   | 'settings.integrations.lastfm.action.disconnect'
@@ -848,6 +866,15 @@ const zhCN: TranslationMap = {
   'mvSettings.binding.title': 'MV来源',
   'mvSettings.candidate.external': '外部',
   'mvSettings.candidate.inApp': '应用内',
+  'mvSettings.custom.apply': '应用自定义 MV',
+  'mvSettings.custom.description': '粘贴 YouTube 或 Bilibili 视频链接作为当前 MV。',
+  'mvSettings.custom.directDash': '直连流（DASH）',
+  'mvSettings.custom.input': '自定义 MV 链接',
+  'mvSettings.custom.placeholder': 'https://youtube.com/watch?v=... 或 BVxxxxxxxx',
+  'mvSettings.custom.playing': '正在播放：{provider} - {sourceId}',
+  'mvSettings.custom.title': '自定义 MV',
+  'mvSettings.custom.videoTitle': '视频标题：{title}',
+  'mvSettings.engine.mvTitle': 'MV标题',
   'mvSettings.engine.network': '网络',
   'mvSettings.engine.quality': '画质',
   'mvSettings.engine.selected': '已选',
@@ -858,10 +885,17 @@ const zhCN: TranslationMap = {
   'mvSettings.error.noLocalCandidates': '没有找到本地 MV 候选',
   'mvSettings.error.noNetworkCandidates': '没有找到网络 MV 候选',
   'mvSettings.network.autoApply': '自动搜索网络MV',
+  'mvSettings.network.autoPreload': '是否预加载MV',
+  'mvSettings.network.autoPreloadDescription': '开启后，只要播放歌曲就会尝试提前查找并准备当前歌曲的 MV。',
   'mvSettings.network.maxQuality': '最高画质',
+  'mvSettings.network.restartAudioOnLoad': '加载MV后重新播放音乐',
+  'mvSettings.network.restartAudioOnLoadDescription': '开启后，MV 加载完成时会把当前歌曲从头播放，让 MV 和音乐同步开始。',
   'mvSettings.network.title': '网络来源',
   'mvSettings.provider.local': '本地',
   'mvSettings.quality.max': '最高',
+  'mvSettings.search.input': 'MV 搜索关键词',
+  'mvSettings.search.placeholder': '输入 MV 搜索关键词',
+  'mvSettings.search.useCurrentSong': '使用当前歌曲和歌手搜索',
   'mvSettings.status.auto': '自动',
   'mvSettings.status.noActiveTrack': '没有当前歌曲',
   'mvSettings.status.none': '无',
@@ -922,6 +956,8 @@ const zhCN: TranslationMap = {
   'settings.integrations.discord.action.refresh': '刷新状态',
   'settings.integrations.discord.description': 'Phase 1 暂不接入联动服务，保留设置位置。',
   'settings.integrations.discord.title': 'Discord 状态',
+  'settings.integrations.smtc.description': '把当前播放信息、封面、进度和媒体键动作发布到 Windows 音量浮层与锁屏媒体控件。',
+  'settings.integrations.smtc.title': 'Windows 媒体控件',
   'settings.integrations.lastfm.action.completeAuth': '完成授权',
   'settings.integrations.lastfm.action.connect': '连接 Last.fm',
   'settings.integrations.lastfm.action.disconnect': '断开连接',
@@ -1354,6 +1390,15 @@ const zhTW: TranslationMap = {
   'mvSettings.binding.title': 'MV 來源',
   'mvSettings.candidate.external': '外部',
   'mvSettings.candidate.inApp': '應用內',
+  'mvSettings.custom.apply': '套用自訂 MV',
+  'mvSettings.custom.description': '貼上 YouTube 或 Bilibili 影片連結作為目前 MV。',
+  'mvSettings.custom.directDash': '直連串流（DASH）',
+  'mvSettings.custom.input': '自訂 MV 連結',
+  'mvSettings.custom.placeholder': 'https://youtube.com/watch?v=... 或 BVxxxxxxxx',
+  'mvSettings.custom.playing': '正在播放：{provider} - {sourceId}',
+  'mvSettings.custom.title': '自訂 MV',
+  'mvSettings.custom.videoTitle': '影片標題：{title}',
+  'mvSettings.engine.mvTitle': 'MV 標題',
   'mvSettings.engine.network': '網路',
   'mvSettings.engine.quality': '畫質',
   'mvSettings.engine.selected': '已選',
@@ -1364,10 +1409,17 @@ const zhTW: TranslationMap = {
   'mvSettings.error.noLocalCandidates': '沒有找到本地 MV 候選',
   'mvSettings.error.noNetworkCandidates': '沒有找到網路 MV 候選',
   'mvSettings.network.autoApply': '自動搜尋網路 MV',
+  'mvSettings.network.autoPreload': '是否預載 MV',
+  'mvSettings.network.autoPreloadDescription': '開啟後，只要播放歌曲就會嘗試提前查找並準備目前歌曲的 MV。',
   'mvSettings.network.maxQuality': '最高畫質',
+  'mvSettings.network.restartAudioOnLoad': '載入 MV 後重新播放音樂',
+  'mvSettings.network.restartAudioOnLoadDescription': '開啟後，MV 載入完成時會把目前歌曲從頭播放，讓 MV 和音樂同步開始。',
   'mvSettings.network.title': '網路來源',
   'mvSettings.provider.local': '本地',
   'mvSettings.quality.max': '最高',
+  'mvSettings.search.input': 'MV 搜尋關鍵字',
+  'mvSettings.search.placeholder': '輸入 MV 搜尋關鍵字',
+  'mvSettings.search.useCurrentSong': '使用目前歌曲和歌手搜尋',
   'mvSettings.status.auto': '自動',
   'mvSettings.status.noActiveTrack': '沒有目前歌曲',
   'mvSettings.status.none': '無',
@@ -1479,6 +1531,8 @@ const zhTW: TranslationMap = {
   'settings.playback.audioStatus.title': '音訊狀態',
   'settings.integrations.discord.action.refresh': '重新整理狀態',
   'settings.integrations.discord.title': 'Discord 狀態',
+  'settings.integrations.smtc.description': '把目前播放資訊、封面、進度和媒體鍵動作發布到 Windows 音量浮層與鎖定畫面媒體控制。',
+  'settings.integrations.smtc.title': 'Windows 媒體控制',
   'settings.integrations.lastfm.action.completeAuth': '完成授權',
   'settings.integrations.lastfm.action.connect': '連接 Last.fm',
   'settings.integrations.lastfm.action.disconnect': '斷開連接',
@@ -1733,6 +1787,15 @@ const jaJP: TranslationMap = {
   'mvSettings.binding.title': 'MV ソース',
   'mvSettings.candidate.external': '外部',
   'mvSettings.candidate.inApp': 'アプリ内',
+  'mvSettings.custom.apply': 'カスタム MV を適用',
+  'mvSettings.custom.description': 'YouTube または Bilibili の動画リンクを現在の MV として貼り付けます。',
+  'mvSettings.custom.directDash': '直接ストリーム（DASH）',
+  'mvSettings.custom.input': 'カスタム MV リンク',
+  'mvSettings.custom.placeholder': 'https://youtube.com/watch?v=... または BVxxxxxxxx',
+  'mvSettings.custom.playing': '再生中: {provider} - {sourceId}',
+  'mvSettings.custom.title': 'カスタム MV',
+  'mvSettings.custom.videoTitle': '動画タイトル: {title}',
+  'mvSettings.engine.mvTitle': 'MVタイトル',
   'mvSettings.engine.network': 'ネットワーク',
   'mvSettings.engine.quality': '画質',
   'mvSettings.engine.selected': '選択中',
@@ -1743,10 +1806,17 @@ const jaJP: TranslationMap = {
   'mvSettings.error.noLocalCandidates': 'ローカル MV 候補が見つかりません',
   'mvSettings.error.noNetworkCandidates': 'ネットワーク MV 候補が見つかりません',
   'mvSettings.network.autoApply': 'ネットワーク MV を自動検索',
+  'mvSettings.network.autoPreload': 'MV をプリロード',
+  'mvSettings.network.autoPreloadDescription': 'オンにすると、曲の再生時に現在の曲の MV を事前に検索して準備します。',
   'mvSettings.network.maxQuality': '最大画質',
+  'mvSettings.network.restartAudioOnLoad': 'MV 読み込み後に音楽を再再生',
+  'mvSettings.network.restartAudioOnLoadDescription': 'オンにすると、MV の読み込み完了時に現在の曲を先頭から再生し、MV と音楽を同期します。',
   'mvSettings.network.title': 'ネットワークソース',
   'mvSettings.provider.local': 'ローカル',
   'mvSettings.quality.max': '最大',
+  'mvSettings.search.input': 'MV 検索キーワード',
+  'mvSettings.search.placeholder': 'MV 検索キーワードを入力',
+  'mvSettings.search.useCurrentSong': '現在の曲名とアーティストで検索',
   'mvSettings.status.auto': '自動',
   'mvSettings.status.noActiveTrack': '再生中の曲なし',
   'mvSettings.status.none': 'なし',
@@ -1916,6 +1986,8 @@ const jaJP: TranslationMap = {
   'settings.integrations.discord.action.refresh': '状態を更新',
   'settings.integrations.discord.title': 'Discord ステータス',
   'settings.integrations.discord.description': 'Phase 1 では連携サービスに接続せず、設定位置のみ保持します。',
+  'settings.integrations.smtc.description': '現在の再生情報、アートワーク、進行状況、メディアキー操作を Windows の音量フライアウトとロック画面へ公開します。',
+  'settings.integrations.smtc.title': 'Windows メディア コントロール',
   'settings.integrations.lastfm.action.completeAuth': '認証を完了',
   'settings.integrations.lastfm.action.connect': 'Last.fm に接続',
   'settings.integrations.lastfm.action.disconnect': '切断',
@@ -2175,6 +2247,15 @@ const enUS: TranslationMap = {
   'mvSettings.binding.title': 'MV Source',
   'mvSettings.candidate.external': 'External',
   'mvSettings.candidate.inApp': 'In-app',
+  'mvSettings.custom.apply': 'Apply custom MV',
+  'mvSettings.custom.description': 'Paste a YouTube or Bilibili video link as the current MV.',
+  'mvSettings.custom.directDash': 'Direct stream (DASH)',
+  'mvSettings.custom.input': 'Custom MV link',
+  'mvSettings.custom.placeholder': 'https://youtube.com/watch?v=... or BVxxxxxxxx',
+  'mvSettings.custom.playing': 'Now playing: {provider} - {sourceId}',
+  'mvSettings.custom.title': 'Custom MV',
+  'mvSettings.custom.videoTitle': 'Video title: {title}',
+  'mvSettings.engine.mvTitle': 'MV Title',
   'mvSettings.engine.network': 'Network',
   'mvSettings.engine.quality': 'Quality',
   'mvSettings.engine.selected': 'Selected',
@@ -2185,10 +2266,17 @@ const enUS: TranslationMap = {
   'mvSettings.error.noLocalCandidates': 'No local MV candidates found',
   'mvSettings.error.noNetworkCandidates': 'No network MV candidates found',
   'mvSettings.network.autoApply': 'Auto search network MV',
+  'mvSettings.network.autoPreload': 'Preload MV',
+  'mvSettings.network.autoPreloadDescription': 'When enabled, playing a song will look up and prepare its MV ahead of time.',
   'mvSettings.network.maxQuality': 'Max quality',
+  'mvSettings.network.restartAudioOnLoad': 'Restart music after MV loads',
+  'mvSettings.network.restartAudioOnLoadDescription': 'When enabled, the current song restarts from the beginning after MV loading so video and music start together.',
   'mvSettings.network.title': 'Network Sources',
   'mvSettings.provider.local': 'Local',
   'mvSettings.quality.max': 'Max',
+  'mvSettings.search.input': 'MV search keywords',
+  'mvSettings.search.placeholder': 'Enter MV search keywords',
+  'mvSettings.search.useCurrentSong': 'Search with current song and artist',
   'mvSettings.status.auto': 'Auto',
   'mvSettings.status.noActiveTrack': 'No active track',
   'mvSettings.status.none': 'None',
@@ -2457,6 +2545,8 @@ const enUS: TranslationMap = {
   'settings.integrations.discord.action.refresh': 'Refresh status',
   'settings.integrations.discord.title': 'Discord Status',
   'settings.integrations.discord.description': 'Phase 1 does not connect integration services yet; this setting keeps the slot reserved.',
+  'settings.integrations.smtc.description': 'Publish the current track, artwork, timeline, and media-key actions to the Windows volume flyout and lock screen.',
+  'settings.integrations.smtc.title': 'Windows Media Controls',
   'settings.integrations.lastfm.action.completeAuth': 'Complete authorization',
   'settings.integrations.lastfm.action.connect': 'Connect Last.fm',
   'settings.integrations.lastfm.action.disconnect': 'Disconnect',

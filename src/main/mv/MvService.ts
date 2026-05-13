@@ -180,6 +180,69 @@ const candidateTitle = (filePath: string): string => basename(filePath, extname(
 const sourceIdForCandidate = (candidate: MvMatchCandidate): string =>
   candidate.id.startsWith(`${candidate.provider}:`) ? candidate.id.slice(candidate.provider.length + 1) : candidate.id;
 
+const customMvFromUrl = (value: string): { provider: NetworkMvProviderId; sourceId: string; providerUrl: string; title: string } => {
+  const trimmed = value.trim();
+  if (/^BV[0-9A-Za-z]+$/.test(trimmed)) {
+    return {
+      provider: 'bilibili',
+      sourceId: trimmed,
+      providerUrl: `https://www.bilibili.com/video/${trimmed}`,
+      title: `Bilibili - ${trimmed}`,
+    };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error('Unsupported MV link. Paste a YouTube or Bilibili video URL.');
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+  const path = url.pathname;
+
+  if (hostname === 'youtu.be') {
+    const videoId = path.split('/').filter(Boolean)[0];
+    if (videoId) {
+      return {
+        provider: 'youtube',
+        sourceId: videoId,
+        providerUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        title: `YouTube - ${videoId}`,
+      };
+    }
+  }
+
+  if (hostname.endsWith('youtube.com')) {
+    const videoId = url.searchParams.get('v') ?? (path.startsWith('/shorts/') ? path.split('/').filter(Boolean)[1] : null);
+    if (videoId) {
+      return {
+        provider: 'youtube',
+        sourceId: videoId,
+        providerUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        title: `YouTube - ${videoId}`,
+      };
+    }
+  }
+
+  if (hostname.endsWith('bilibili.com')) {
+    const bvid = path
+      .split('/')
+      .map((part) => part.trim())
+      .find((part) => /^BV[0-9A-Za-z]+$/.test(part));
+    if (bvid) {
+      return {
+        provider: 'bilibili',
+        sourceId: bvid,
+        providerUrl: `https://www.bilibili.com/video/${bvid}`,
+        title: `Bilibili - ${bvid}`,
+      };
+    }
+  }
+
+  throw new Error('Unsupported MV link. Paste a YouTube or Bilibili video URL.');
+};
+
 const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings> => {
   const normalized: Partial<MvSettings> = {};
 
@@ -207,6 +270,14 @@ const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings>
     normalized.autoSearch = patch.autoSearch;
   }
 
+  if (typeof patch.autoPreload === 'boolean') {
+    normalized.autoPreload = patch.autoPreload;
+  }
+
+  if (typeof patch.restartAudioOnLoad === 'boolean') {
+    normalized.restartAudioOnLoad = patch.restartAudioOnLoad;
+  }
+
   return normalized;
 };
 
@@ -214,6 +285,8 @@ const appSettingsToMvSettings = (): MvSettings => {
   const settings = getAppSettings();
   return {
     autoSearch: settings.mvAutoSearch,
+    autoPreload: settings.mvAutoPreload !== false,
+    restartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     enabledProviders: settings.mvEnabledProviders,
     providerOrder: settings.mvProviderOrder,
     maxQuality: settings.mvMaxQuality,
@@ -274,6 +347,12 @@ export class MvService {
     if (typeof normalized.autoSearch === 'boolean') {
       appSettingsPatch.mvAutoSearch = normalized.autoSearch;
     }
+    if (typeof normalized.autoPreload === 'boolean') {
+      appSettingsPatch.mvAutoPreload = normalized.autoPreload;
+    }
+    if (typeof normalized.restartAudioOnLoad === 'boolean') {
+      appSettingsPatch.mvRestartAudioOnLoad = normalized.restartAudioOnLoad;
+    }
 
     setAppSettings(appSettingsPatch);
     return this.getSettings();
@@ -300,7 +379,7 @@ export class MvService {
     }
 
     await this.searchNetworkCandidates(trackId);
-    return null;
+    return this.getSelectedVideo(trackId);
   }
 
   findLocalMvCandidates(trackId: string): MvMatchCandidate[] {
@@ -310,9 +389,10 @@ export class MvService {
     return this.database.transaction(() => candidates.map((candidate) => this.upsertLocalCandidate(track, candidate)))();
   }
 
-  async searchNetworkCandidates(trackId: string): Promise<MvMatchCandidate[]> {
+  async searchNetworkCandidates(trackId: string, query?: string): Promise<MvMatchCandidate[]> {
     const track = this.getExistingTrack(trackId);
     const settings = this.getSettings();
+    const queryOverride = query?.trim() || undefined;
     const enabled = new Set(settings.enabledProviders);
     const orderedProviders = settings.providerOrder.filter((provider) => enabled.has(provider));
     const providerResults = await Promise.all(
@@ -323,15 +403,29 @@ export class MvService {
         }
 
         try {
-          return await provider.search(track, settings);
+          return await provider.search(track, settings, queryOverride);
         } catch {
           return [];
         }
       }),
     );
-    const candidates = providerResults.flat();
+    const candidates = providerResults
+      .flat()
+      .sort((left, right) => {
+        const scoreDelta = right.score - left.score;
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        return (right.viewCount ?? -1) - (left.viewCount ?? -1);
+      });
+    const upsertedCandidates = this.database.transaction(() => candidates.map((candidate) => this.upsertNetworkCandidate(track, candidate)))();
+    const selectedCandidate = settings.autoSearch ? this.chooseAutoCandidate(upsertedCandidates, settings) : null;
 
-    return this.database.transaction(() => candidates.map((candidate) => this.upsertNetworkCandidate(track, candidate)))();
+    if (selectedCandidate) {
+      this.selectVideo(trackId, selectedCandidate.id);
+    }
+
+    return upsertedCandidates;
   }
 
   getVideoCandidates(trackId: string): TrackVideo[] {
@@ -395,6 +489,69 @@ export class MvService {
           1,
           1,
           timestamp,
+          timestamp,
+        );
+
+      return this.mapRow(this.getRow(id)!);
+    })();
+  }
+
+  bindUrl(trackId: string, url: string): TrackVideo {
+    const track = this.getExistingTrack(trackId);
+    const custom = customMvFromUrl(url);
+    const existing = this.database
+      .prepare<[string, string, string], TrackVideoRow>(
+        `SELECT * FROM track_videos
+         WHERE track_id = ? AND provider = ? AND source_id = ?
+         LIMIT 1`,
+      )
+      .get(track.id, custom.provider, custom.sourceId);
+    const timestamp = nowIso();
+    const id = existing?.id ?? randomUUID();
+
+    return this.database.transaction(() => {
+      this.database.prepare('UPDATE track_videos SET selected = 0, updated_at = ? WHERE track_id = ?').run(timestamp, track.id);
+      this.database
+        .prepare(
+          `INSERT INTO track_videos (
+            id, track_id, provider, source_type, source_id, title, artist, url, provider_url, thumbnail_url, file_path,
+            mime_type, duration_seconds, width, height, selected_quality_id, quality_label, fps, raw_provider_json,
+            score, selected, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            artist = excluded.artist,
+            url = excluded.url,
+            provider_url = excluded.provider_url,
+            source_type = excluded.source_type,
+            selected_quality_id = COALESCE(track_videos.selected_quality_id, excluded.selected_quality_id),
+            selected = excluded.selected,
+            score = excluded.score,
+            updated_at = excluded.updated_at`,
+        )
+        .run(
+          id,
+          track.id,
+          custom.provider,
+          'manual',
+          custom.sourceId,
+          custom.title,
+          track.artist || track.albumArtist || null,
+          custom.providerUrl,
+          custom.providerUrl,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          existing?.selected_quality_id ?? 'auto',
+          null,
+          null,
+          JSON.stringify({ reasons: ['Custom MV link'] }),
+          1,
+          1,
+          existing?.created_at ?? timestamp,
           timestamp,
         );
 
@@ -679,6 +836,7 @@ export class MvService {
         JSON.stringify({
           uploader: candidate.uploader,
           reasons: candidate.reasons,
+          viewCount: candidate.viewCount ?? null,
         }),
         candidate.score,
         existing?.selected ?? 0,
@@ -823,7 +981,7 @@ export class MvService {
     return Boolean(variant.expires_at && Date.parse(variant.expires_at) <= Date.now());
   }
 
-  private chooseAutoCandidate<T extends Pick<TrackVideo | MvMatchCandidate, 'id' | 'provider' | 'playableInApp' | 'score'>>(
+  private chooseAutoCandidate<T extends Pick<TrackVideo | MvMatchCandidate, 'id' | 'provider' | 'playableInApp' | 'score'> & { viewCount?: number | null }>(
     candidates: T[],
     settings: MvSettings,
   ): T | null {
@@ -842,14 +1000,19 @@ export class MvService {
         .filter((candidate) => candidate.provider === 'local' || enabledProviders.has(candidate.provider as NetworkMvProviderId))
         .filter((candidate) => candidate.score >= MV_AUTO_MATCH_THRESHOLD)
         .sort((left, right) => {
-          const playableDelta = Number(right.playableInApp) - Number(left.playableInApp);
-          if (playableDelta !== 0) {
-            return playableDelta;
-          }
-
           const scoreDelta = right.score - left.score;
           if (scoreDelta !== 0) {
             return scoreDelta;
+          }
+
+          const viewDelta = (right.viewCount ?? -1) - (left.viewCount ?? -1);
+          if (viewDelta !== 0) {
+            return viewDelta;
+          }
+
+          const playableDelta = Number(right.playableInApp) - Number(left.playableInApp);
+          if (playableDelta !== 0) {
+            return playableDelta;
           }
 
           return providerRank(left.provider) - providerRank(right.provider);

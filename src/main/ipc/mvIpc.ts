@@ -22,8 +22,8 @@ export const registerMvIpc = (): void => {
   ipcMain.handle(IpcChannels.MvFindLocalCandidates, (_event, trackId: unknown) =>
     getMvService().findLocalMvCandidates(requireText(trackId, 'trackId')),
   );
-  ipcMain.handle(IpcChannels.MvSearchNetworkCandidates, (_event, trackId: unknown) =>
-    getMvService().searchNetworkCandidates(requireText(trackId, 'trackId')),
+  ipcMain.handle(IpcChannels.MvSearchNetworkCandidates, (_event, trackId: unknown, query: unknown) =>
+    getMvService().searchNetworkCandidates(requireText(trackId, 'trackId'), typeof query === 'string' ? query : undefined),
   );
   ipcMain.handle(IpcChannels.MvGetCandidates, (_event, trackId: unknown) =>
     getMvService().getVideoCandidates(requireText(trackId, 'trackId')),
@@ -36,6 +36,9 @@ export const registerMvIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.MvBindLocalVideo, (_event, trackId: unknown, filePath: unknown) =>
     getMvService().bindLocalVideo(requireText(trackId, 'trackId'), requireText(filePath, 'filePath')),
+  );
+  ipcMain.handle(IpcChannels.MvBindUrl, (_event, trackId: unknown, url: unknown) =>
+    getMvService().bindUrl(requireText(trackId, 'trackId'), requireText(url, 'url')),
   );
   ipcMain.handle(IpcChannels.MvSelectVideo, (_event, trackId: unknown, videoId: unknown) =>
     getMvService().selectVideo(requireText(trackId, 'trackId'), requireText(videoId, 'videoId')),
