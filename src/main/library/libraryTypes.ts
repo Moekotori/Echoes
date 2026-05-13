@@ -162,6 +162,7 @@ export type StoredTrackCoverState = StoredTrackFingerprint & {
   albumPath: string | null;
   largePath: string | null;
   originalRef: string | null;
+  cacheVersion: number | null;
 };
 
 export type ScanOptions = {

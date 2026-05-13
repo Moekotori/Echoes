@@ -14,7 +14,6 @@ import type {
   ScannedFile,
   ScanJobUpdate,
   StoredTrackCoverState,
-  StoredTrackFingerprint,
   TrackWrite,
 } from './libraryTypes';
 import type { CoverExtractor } from './workers/CoverExtractor';
@@ -101,6 +100,8 @@ class FakeStore {
   readonly updates: ScanJobUpdate[] = [];
   readonly upsertedTracks: TrackWrite[] = [];
   readonly missingPaths: string[] = [];
+  getTrackCacheStatesByFolderCalls = 0;
+  findTrackCoverStateCalls = 0;
   cancelled = false;
 
   constructor(private readonly coverStatesByPath = new Map<string, StoredTrackCoverState>()) {}
@@ -134,20 +135,13 @@ class FakeStore {
     return this.cancelled;
   }
 
-  getTrackFingerprintsByFolder(): Map<string, StoredTrackFingerprint> {
-    return new Map(
-      Array.from(this.coverStatesByPath, ([filePath, state]) => [
-        filePath,
-        {
-          id: state.id,
-          sizeBytes: state.sizeBytes,
-          mtimeMs: state.mtimeMs,
-        },
-      ]),
-    );
+  getTrackCacheStatesByFolder(): Map<string, StoredTrackCoverState> {
+    this.getTrackCacheStatesByFolderCalls += 1;
+    return new Map(this.coverStatesByPath);
   }
 
   findTrackCoverState(filePath: string): StoredTrackCoverState | null {
+    this.findTrackCoverStateCalls += 1;
     return this.coverStatesByPath.get(filePath) ?? null;
   }
 
@@ -210,6 +204,7 @@ class FakeMetadataReader implements MetadataReader {
 class CapturingCoverExtractor implements CoverExtractor {
   readonly cacheRoots: string[] = [];
   readonly sawEmbeddedCover: boolean[] = [];
+  readonly repairCalls: string[] = [];
 
   async extract(_filePath: string, options: CoverExtractOptions): Promise<CoverResult> {
     this.cacheRoots.push(options.cacheRoot);
@@ -222,6 +217,38 @@ class CapturingCoverExtractor implements CoverExtractor {
       originalRef: join(options.cacheRoot, 'original.png'),
       sourceHash: 'cover-hash',
       mimeType: 'image/png',
+      warnings: [],
+      errors: [],
+    };
+  }
+
+  async repairCachedCover(options: {
+    cacheRoot: string;
+    source: CoverResult['source'];
+    sourceHash: string;
+    mimeType: string | null;
+    originalRef: string;
+    thumbPath?: string | null;
+    albumPath?: string | null;
+    largePath?: string | null;
+  }): Promise<CoverResult> {
+    this.repairCalls.push(options.sourceHash);
+    const thumbPath = options.thumbPath ?? join(options.cacheRoot, 'thumb.webp');
+    const albumPath = options.albumPath ?? join(options.cacheRoot, 'album.webp');
+    const largePath = options.largePath ?? join(options.cacheRoot, 'large.webp');
+
+    writeFileSync(thumbPath, 'thumb');
+    writeFileSync(albumPath, 'album');
+    writeFileSync(largePath, 'large');
+
+    return {
+      source: options.source,
+      thumbPath,
+      albumPath,
+      largePath,
+      originalRef: options.originalRef,
+      sourceHash: options.sourceHash,
+      mimeType: options.mimeType,
       warnings: [],
       errors: [],
     };
@@ -247,6 +274,7 @@ const coverState = (file: ScannedFile, overrides: Partial<StoredTrackCoverState>
   albumPath: null,
   largePath: null,
   originalRef: null,
+  cacheVersion: 1,
   ...overrides,
 });
 
@@ -317,9 +345,11 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(store.updates.map((update) => update.phase)).toEqual(
       expect.arrayContaining(['discovering', 'checking_cache', 'reading_metadata', 'extracting_covers', 'grouping_albums', 'writing_database', 'finished']),
     );
+    expect(store.getTrackCacheStatesByFolderCalls).toBe(1);
+    expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
-  it('skips unchanged files with complete cover cache', async () => {
+  it('skips metadata parse and cover extraction for unchanged files with complete cover cache', async () => {
     const root = makeTempRoot();
     const cacheRoot = join(root, 'custom-cache');
     mkdirSync(cacheRoot, { recursive: true });
@@ -338,18 +368,67 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
       ),
     );
 
+    const coverExtractor = new CapturingCoverExtractor();
     const status = await runQueue(
       store,
       new FakeScanner(files),
       metadataReader,
-      new CapturingCoverExtractor(),
+      coverExtractor,
       cacheRoot,
       baseFolder(root),
     );
 
     expect(status.skippedFiles).toBe(2);
     expect(metadataReader.paths).toEqual([]);
+    expect(coverExtractor.cacheRoots).toEqual([]);
     expect(store.upsertedTracks).toEqual([]);
+    expect(store.getTrackCacheStatesByFolderCalls).toBe(1);
+    expect(store.findTrackCoverStateCalls).toBe(0);
+  });
+
+  it.each([
+    ['thumb', 'thumbPath'],
+    ['album', 'albumPath'],
+    ['large', 'largePath'],
+  ] as const)('repairs an unchanged track when %s derivative is missing', async (_name, missingKey) => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'custom-cache');
+    mkdirSync(cacheRoot, { recursive: true });
+    const files = makeFiles(root, 1);
+    const thumbPath = join(cacheRoot, 'thumb.webp');
+    const albumPath = join(cacheRoot, 'album.webp');
+    const largePath = join(cacheRoot, 'large.webp');
+    const originalRef = join(cacheRoot, 'original.png');
+
+    for (const filePath of [thumbPath, albumPath, largePath, originalRef]) {
+      writeFileSync(filePath, 'cached');
+    }
+    rmSync({ thumbPath, albumPath, largePath }[missingKey], { force: true });
+
+    const metadataReader = new FakeMetadataReader();
+    const coverExtractor = new CapturingCoverExtractor();
+    const store = new FakeStore(
+      coverStateMap(files, (file) =>
+        coverState(file, {
+          coverSource: 'embedded',
+          sourceHash: 'repair-hash',
+          thumbPath,
+          albumPath,
+          largePath,
+          originalRef,
+        }),
+      ),
+    );
+
+    const status = await runQueue(store, new FakeScanner(files), metadataReader, coverExtractor, cacheRoot, baseFolder(root));
+
+    expect(status.skippedFiles).toBe(0);
+    expect(status.updatedTracks).toBe(0);
+    expect(metadataReader.paths).toEqual([]);
+    expect(coverExtractor.cacheRoots).toEqual([]);
+    expect(coverExtractor.repairCalls).toEqual(['repair-hash']);
+    expect(store.getTrackCacheStatesByFolderCalls).toBe(1);
+    expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
   it('reads metadata again for changed files', async () => {
@@ -370,7 +449,8 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
 
     expect(status.updatedTracks).toBe(1);
     expect(metadataReader.paths).toEqual([changedFile.path]);
-    expect(store.upsertedTracks[0]?.id).toBe(store.getTrackFingerprintsByFolder().get(file.path)?.id);
+    expect(store.upsertedTracks[0]?.id).toBe(store.getTrackCacheStatesByFolder().get(file.path)?.id);
+    expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
   it('adds newly discovered files', async () => {
@@ -391,6 +471,7 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(status.addedTracks).toBe(1);
     expect(metadataReader.paths).toEqual([file.path]);
     expect(store.upsertedTracks[0]?.path).toBe(file.path);
+    expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
   it('marks files missing when they disappear from a scan', async () => {
@@ -425,6 +506,8 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(status.skippedFiles).toBe(1);
     expect(store.missingPaths).toEqual([deletedFile.path]);
     expect(metadataReader.paths).toEqual([]);
+    expect(store.getTrackCacheStatesByFolderCalls).toBe(1);
+    expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
   it('does not keep embedded cover buffers in track writes while preserving embeddedCoverStatus', async () => {

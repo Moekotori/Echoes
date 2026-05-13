@@ -396,12 +396,47 @@ export class LibraryStore {
     return fingerprints;
   }
 
+  getTrackCacheStatesByFolder(folderId: string): Map<string, StoredTrackCoverState> {
+    const rows = this.allRows(
+      `SELECT
+        tracks.path, tracks.id, tracks.size_bytes, tracks.mtime_ms, tracks.cover_id,
+        covers.source_type, covers.source_hash, covers.mime_type,
+        covers.thumb_path, covers.album_path, covers.large_path, covers.original_ref,
+        covers.cache_version
+      FROM tracks
+      LEFT JOIN covers ON covers.id = tracks.cover_id
+      WHERE tracks.folder_id = ? AND tracks.missing = 0`,
+      folderId,
+    );
+    const states = new Map<string, StoredTrackCoverState>();
+
+    for (const row of rows) {
+      states.set(resolve(String(row.path)), {
+        id: String(row.id),
+        sizeBytes: Number(row.size_bytes),
+        mtimeMs: Number(row.mtime_ms),
+        coverId: textOrNull(row.cover_id),
+        coverSource: coverSourceOrNull(row.source_type),
+        sourceHash: textOrNull(row.source_hash),
+        mimeType: textOrNull(row.mime_type),
+        thumbPath: textOrNull(row.thumb_path),
+        albumPath: textOrNull(row.album_path),
+        largePath: textOrNull(row.large_path),
+        originalRef: textOrNull(row.original_ref),
+        cacheVersion: numberOrNull(row.cache_version),
+      });
+    }
+
+    return states;
+  }
+
   findTrackCoverState(filePath: string): StoredTrackCoverState | null {
     const row = this.getRow(
       `SELECT
         tracks.id, tracks.size_bytes, tracks.mtime_ms, tracks.cover_id,
         covers.source_type, covers.source_hash, covers.mime_type,
-        covers.thumb_path, covers.album_path, covers.large_path, covers.original_ref
+        covers.thumb_path, covers.album_path, covers.large_path, covers.original_ref,
+        covers.cache_version
       FROM tracks
       LEFT JOIN covers ON covers.id = tracks.cover_id
       WHERE tracks.path = ? AND tracks.missing = 0`,
@@ -424,6 +459,7 @@ export class LibraryStore {
       albumPath: textOrNull(row.album_path),
       largePath: textOrNull(row.large_path),
       originalRef: textOrNull(row.original_ref),
+      cacheVersion: numberOrNull(row.cache_version),
     };
   }
 

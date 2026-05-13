@@ -153,17 +153,15 @@ export class ScanJobQueue {
 
       const changedFiles: ChangedFile[] = [];
       const coverRepairItems: CoverRepairItem[] = [];
-      const fingerprintsByPath = this.store.getTrackFingerprintsByFolder(folder.id);
+      const cacheStatesByPath = this.store.getTrackCacheStatesByFolder(folder.id);
 
       for (const file of files) {
         this.throwIfCancelled(jobId);
 
-        const existingFingerprint = fingerprintsByPath.get(resolve(file.path)) ?? null;
+        const existing = cacheStatesByPath.get(resolve(file.path)) ?? null;
 
-        if (existingFingerprint && existingFingerprint.sizeBytes === file.sizeBytes && existingFingerprint.mtimeMs === file.mtimeMs) {
-          const existingCoverState = this.store.findTrackCoverState(file.path);
-
-          if (existingCoverState && this.hasCompleteCoverCache(existingCoverState)) {
+        if (existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs) {
+          if (this.hasCompleteCoverCache(existing)) {
             processedFiles += 1;
             skippedFiles += 1;
             progress.update({
@@ -173,10 +171,10 @@ export class ScanJobQueue {
             continue;
           }
 
-          if (existingCoverState && this.canRepairCoverCache(existingCoverState)) {
+          if (this.canRepairCoverCache(existing)) {
             coverRepairItems.push({
               file,
-              state: existingCoverState,
+              state: existing,
               cover: null,
             });
             continue;
@@ -184,14 +182,14 @@ export class ScanJobQueue {
 
           changedFiles.push({
             file,
-            existingTrackId: existingFingerprint.id,
+            existingTrackId: existing.id,
           });
           continue;
         }
 
         changedFiles.push({
           file,
-          existingTrackId: existingFingerprint?.id ?? null,
+          existingTrackId: existing?.id ?? null,
         });
       }
 
