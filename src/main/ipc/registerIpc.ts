@@ -6,11 +6,12 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../../shared/types/coverCache';
 import type { FontFileAsset } from '../../preload/apiTypes';
-import { getAppSettings, setAppSettings } from '../app/appSettings';
+import { defaultSettings, getAppSettings, setAppSettings } from '../app/appSettings';
 import { destroyTray, ensureTray } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
 import { registerAudioIpc } from './audioIpc';
+import { registerDiagnosticsIpc } from './diagnosticsIpc';
 import { registerLibraryIpc } from './libraryIpc';
 import { registerPlaybackIpc } from './playbackIpc';
 
@@ -105,6 +106,19 @@ export const registerIpc = (): void => {
 
     return settings;
   });
+  ipcMain.handle(IpcChannels.AppResetSettings, async (): Promise<AppSettings> => {
+    const libraryService = getLibraryService();
+    const defaultCoverCacheDir = libraryService.getDefaultCoverCacheDir();
+
+    if (libraryService.hasRunningJobs()) {
+      throw new Error('Cannot reset settings while a library scan is running.');
+    }
+
+    await ensureCoverCacheDirectory(defaultCoverCacheDir);
+    libraryService.setCoverCacheDir(defaultCoverCacheDir);
+    destroyTray();
+    return setAppSettings({ ...defaultSettings });
+  });
   ipcMain.handle(IpcChannels.AppChooseFontFile, async (): Promise<FontFileAsset | null> => {
     const result = await dialog.showOpenDialog({
       title: 'Choose font file',
@@ -155,6 +169,7 @@ export const registerIpc = (): void => {
     },
   );
 
+  registerDiagnosticsIpc();
   registerLibraryIpc();
   registerPlaybackIpc();
   registerAudioIpc();

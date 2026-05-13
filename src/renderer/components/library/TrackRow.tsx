@@ -76,11 +76,16 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 export const TrackRow = memo(
   ({ track, isPlaying, onPlay, onAddToQueue, onOpenMenu }: TrackRowProps): JSX.Element => {
     const tags = tagsFromTrack(track);
+    const isUnavailable = track.unavailable === true;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
     const shouldShowCover = Boolean(track.coverThumb && track.coverThumb !== failedCoverUrl);
     const handlePlay = useCallback((): void => {
+      if (isUnavailable) {
+        return;
+      }
+
       onPlay?.(track);
-    }, [onPlay, track]);
+    }, [isUnavailable, onPlay, track]);
     const handleKeyDown = useCallback(
       (event: KeyboardEvent<HTMLDivElement>): void => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -138,10 +143,11 @@ export const TrackRow = memo(
     return (
       <div
         className="track-row"
-        data-clickable={Boolean(onPlay)}
+        data-clickable={Boolean(onPlay) && !isUnavailable}
         data-playing={isPlaying}
+        data-unavailable={isUnavailable ? 'true' : undefined}
         role="listitem"
-        tabIndex={onPlay ? 0 : undefined}
+        tabIndex={onPlay && !isUnavailable ? 0 : undefined}
         onClick={handlePlay}
         onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
@@ -159,6 +165,7 @@ export const TrackRow = memo(
             {isPlaying ? <span className="playing-dot" aria-hidden="true" /> : null}
             <strong className="track-title">{track.title}</strong>
             {isPlaying ? <span className="playing-pill">Playing</span> : null}
+            {isUnavailable ? <span className="playing-pill unavailable-pill">Unavailable</span> : null}
           </div>
           <div className="track-subtitle">
             {track.artist} - {track.album}
@@ -178,7 +185,7 @@ export const TrackRow = memo(
           <button className="row-action" type="button" aria-label={`Like ${track.title}`} title="Like">
             <Heart size={16} />
           </button>
-          <button className="row-action" type="button" aria-label={`Add to queue ${track.title}`} title="Add to queue" onClick={handleAddToQueue}>
+          <button className="row-action" type="button" aria-label={`Add to queue ${track.title}`} title="Add to queue" disabled={isUnavailable} onClick={handleAddToQueue}>
             <ListPlus size={16} />
           </button>
           <button className="row-action" type="button" aria-label={`More ${track.title}`} title="More" onClick={handleMoreClick}>

@@ -101,9 +101,9 @@ export const appRoutes: AppRoute[] = [
   },
   {
     id: 'folders',
-    label: 'Folders',
+    label: '文件夹',
     labelKey: 'route.folders.label',
-    description: 'Local import roots.',
+    description: '本地导入根目录。',
     descriptionKey: 'route.folders.description',
     icon: Folder,
     placement: 'main',

@@ -5,6 +5,7 @@ import type {
   EditableTrackTags,
   FinishPlaybackHistoryRequest,
   LibraryPageQuery,
+  PlaylistSortMode,
   LibrarySort,
   LibraryTrackTagUpdateRequest,
   MissingMetadataField,
@@ -71,6 +72,67 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
   }
 
   return query;
+};
+
+const normalizePlaylistItemsQuery = (value: unknown): Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'> => {
+  const query = normalizeQuery(value);
+  return {
+    page: query.page,
+    pageSize: query.pageSize,
+    search: query.search,
+  };
+};
+
+const playlistSortModes = new Set<PlaylistSortMode>(['manual', 'titleAsc', 'titleDesc', 'artistAsc', 'addedDesc']);
+
+const normalizeCreatePlaylistRequest = (value: unknown): { name: string; description?: string | null } => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { name: requireText(value, 'name') };
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    name: requireText(input.name, 'name'),
+    description: typeof input.description === 'string' ? input.description : null,
+  };
+};
+
+const normalizeUpdatePlaylistRequest = (
+  value: unknown,
+): { playlistId: string; name?: string; description?: string | null; coverId?: string | null; sortMode?: PlaylistSortMode } => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('playlist update request must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  const sortMode = typeof input.sortMode === 'string' && playlistSortModes.has(input.sortMode as PlaylistSortMode)
+    ? (input.sortMode as PlaylistSortMode)
+    : undefined;
+
+  return {
+    playlistId: requireText(input.playlistId, 'playlistId'),
+    name: typeof input.name === 'string' ? input.name : undefined,
+    description: typeof input.description === 'string' || input.description === null ? (input.description as string | null) : undefined,
+    coverId: typeof input.coverId === 'string' || input.coverId === null ? (input.coverId as string | null) : undefined,
+    sortMode,
+  };
+};
+
+const normalizeTrackIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    throw new Error('trackIds must be an array');
+  }
+
+  return value.map((item) => requireText(item, 'trackId'));
+};
+
+const normalizeTargetPosition = (value: unknown): number => {
+  const position = Number(value);
+  if (!Number.isFinite(position)) {
+    throw new Error('targetPosition must be a number');
+  }
+
+  return Math.max(0, Math.floor(position));
 };
 
 const normalizePlaybackHistoryQuery = (value: unknown): PlaybackHistoryQuery => {
@@ -321,6 +383,41 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetTracks, (_event, query: unknown) =>
     getLibraryService().getTracks(normalizeQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryGetPlaylists, () => getLibraryService().getPlaylists());
+  ipcMain.handle(IpcChannels.LibraryCreatePlaylist, (_event, request: unknown) =>
+    getLibraryService().createPlaylist(normalizeCreatePlaylistRequest(request)),
+  );
+  ipcMain.handle(IpcChannels.LibraryUpdatePlaylist, (_event, request: unknown) =>
+    getLibraryService().updatePlaylist(normalizeUpdatePlaylistRequest(request)),
+  );
+  ipcMain.handle(IpcChannels.LibraryDeletePlaylist, (_event, playlistId: unknown) =>
+    getLibraryService().deletePlaylist(requireText(playlistId, 'playlistId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetPlaylist, (_event, playlistId: unknown) =>
+    getLibraryService().getPlaylist(requireText(playlistId, 'playlistId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetPlaylistItems, (_event, playlistId: unknown, query: unknown) =>
+    getLibraryService().getPlaylistItems(requireText(playlistId, 'playlistId'), normalizePlaylistItemsQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryAddTrackToPlaylist, (_event, playlistId: unknown, trackId: unknown) =>
+    getLibraryService().addTrackToPlaylist(requireText(playlistId, 'playlistId'), requireText(trackId, 'trackId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryAddTracksToPlaylist, (_event, playlistId: unknown, trackIds: unknown) =>
+    getLibraryService().addTracksToPlaylist(requireText(playlistId, 'playlistId'), normalizeTrackIds(trackIds)),
+  );
+  ipcMain.handle(IpcChannels.LibraryRemovePlaylistItem, (_event, itemId: unknown) =>
+    getLibraryService().removePlaylistItem(requireText(itemId, 'itemId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryMovePlaylistItem, (_event, playlistId: unknown, itemId: unknown, targetPosition: unknown) =>
+    getLibraryService().movePlaylistItem(
+      requireText(playlistId, 'playlistId'),
+      requireText(itemId, 'itemId'),
+      normalizeTargetPosition(targetPosition),
+    ),
+  );
+  ipcMain.handle(IpcChannels.LibraryClearPlaylist, (_event, playlistId: unknown) =>
+    getLibraryService().clearPlaylist(requireText(playlistId, 'playlistId')),
+  );
   ipcMain.handle(IpcChannels.LibraryGetAlbums, (_event, query: unknown) =>
     getLibraryService().getAlbums(normalizeQuery(query)),
   );
@@ -438,6 +535,7 @@ export const registerLibraryIpc = (): void => {
   });
   ipcMain.handle(IpcChannels.LibraryPruneMissingTracks, () => getLibraryService().pruneMissingTracks());
   ipcMain.handle(IpcChannels.LibraryClearTracks, () => getLibraryService().clearTracks());
+  ipcMain.handle(IpcChannels.LibraryClearCache, () => getLibraryService().clearCache());
   ipcMain.handle(IpcChannels.LibraryNetworkRepairMissingMetadata, (_event, trackId: unknown) =>
     {
       const settings = getAppSettings();

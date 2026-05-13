@@ -333,6 +333,49 @@ export const migrations: Migration[] = [
       database.exec('CREATE INDEX IF NOT EXISTS idx_covers_source_hash ON covers(source_hash)');
     },
   },
+  {
+    id: 12,
+    apply: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS playlists (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          kind TEXT NOT NULL DEFAULT 'manual',
+          source_provider TEXT NOT NULL DEFAULT 'local',
+          source_playlist_id TEXT,
+          cover_id TEXT,
+          sort_mode TEXT NOT NULL DEFAULT 'manual',
+          item_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS playlist_items (
+          id TEXT PRIMARY KEY,
+          playlist_id TEXT NOT NULL,
+          media_type TEXT NOT NULL,
+          media_id TEXT,
+          source_provider TEXT NOT NULL DEFAULT 'local',
+          source_item_id TEXT,
+          title_snapshot TEXT,
+          artist_snapshot TEXT,
+          album_snapshot TEXT,
+          duration_snapshot REAL,
+          cover_id TEXT,
+          position INTEGER NOT NULL,
+          added_at TEXT NOT NULL,
+          added_from TEXT,
+          unavailable INTEGER NOT NULL DEFAULT 0,
+          FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_position ON playlist_items(playlist_id, position);
+        CREATE INDEX IF NOT EXISTS idx_playlist_items_media ON playlist_items(media_type, media_id);
+        CREATE INDEX IF NOT EXISTS idx_playlist_items_source ON playlist_items(source_provider, source_item_id);
+      `);
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

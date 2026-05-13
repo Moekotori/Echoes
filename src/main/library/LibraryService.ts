@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import electron from 'electron';
 import { applyCoverArt, applyTags } from 'taglib-wasm';
@@ -20,6 +20,8 @@ import type {
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryPlaylist,
+  LibraryPlaylistItem,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
@@ -33,9 +35,12 @@ import type {
   StartPlaybackHistoryRequest,
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
 } from './libraryTypes';
 import type {
   EmbeddedTrackTagsLoadResult,
+  LibraryCacheClearResult,
   MissingMetadataField,
   MissingMetadataScanResult,
   NetworkApplyOptions,
@@ -117,6 +122,50 @@ export class LibraryService {
 
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     return this.store.getTracks(query);
+  }
+
+  getPlaylists(): LibraryPlaylist[] {
+    return this.store.getPlaylists();
+  }
+
+  createPlaylist(request: CreatePlaylistRequest): LibraryPlaylist {
+    return this.store.createPlaylist(request);
+  }
+
+  updatePlaylist(request: UpdatePlaylistRequest): LibraryPlaylist {
+    return this.store.updatePlaylist(request);
+  }
+
+  deletePlaylist(playlistId: string): void {
+    this.store.deletePlaylist(playlistId);
+  }
+
+  getPlaylist(playlistId: string): LibraryPlaylist | null {
+    return this.store.getPlaylist(playlistId);
+  }
+
+  getPlaylistItems(playlistId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'>): LibraryPage<LibraryPlaylistItem> {
+    return this.store.getPlaylistItems(playlistId, query);
+  }
+
+  addTrackToPlaylist(playlistId: string, trackId: string): LibraryPlaylistItem {
+    return this.store.addTrackToPlaylist(playlistId, trackId);
+  }
+
+  addTracksToPlaylist(playlistId: string, trackIds: string[]): LibraryPlaylistItem[] {
+    return this.store.addTracksToPlaylist(playlistId, trackIds);
+  }
+
+  removePlaylistItem(itemId: string): void {
+    this.store.removePlaylistItem(itemId);
+  }
+
+  movePlaylistItem(playlistId: string, itemId: string, targetPosition: number): void {
+    this.store.movePlaylistItem(playlistId, itemId, targetPosition);
+  }
+
+  clearPlaylist(playlistId: string): void {
+    this.store.clearPlaylist(playlistId);
   }
 
   getAlbums(query?: LibraryPageQuery): LibraryPage<LibraryAlbum> {
@@ -503,6 +552,24 @@ export class LibraryService {
     };
   }
 
+  clearCache(): LibraryCacheClearResult {
+    if (this.hasRunningJobs()) {
+      throw new Error('Cannot clear library cache while a library scan is running.');
+    }
+
+    const scannedCount = this.store.getTracks({ pageSize: 1 }).total;
+    const cacheStats = directoryStats(this.coverCacheDir);
+    const removedCount = this.store.deleteLibraryCache();
+    clearDirectoryContents(this.coverCacheDir);
+
+    return {
+      scannedCount,
+      removedCount,
+      deletedCoverCacheFiles: cacheStats.fileCount,
+      freedCoverCacheBytes: cacheStats.sizeBytes,
+    };
+  }
+
   async waitForScan(jobId: string): Promise<void> {
     await this.scanJobQueue.waitForIdle(jobId);
   }
@@ -778,4 +845,38 @@ const directorySize = (targetPath: string): number | null => {
   }
 
   return total;
+};
+
+const directoryStats = (targetPath: string): { fileCount: number; sizeBytes: number } => {
+  if (!existsSync(targetPath)) {
+    return { fileCount: 0, sizeBytes: 0 };
+  }
+
+  let fileCount = 0;
+  let sizeBytes = 0;
+  const pending = [targetPath];
+
+  while (pending.length) {
+    const current = pending.pop()!;
+    const stat = statSync(current);
+
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(current)) {
+        pending.push(join(current, entry));
+      }
+    } else {
+      fileCount += 1;
+      sizeBytes += stat.size;
+    }
+  }
+
+  return { fileCount, sizeBytes };
+};
+
+const clearDirectoryContents = (targetPath: string): void => {
+  mkdirSync(targetPath, { recursive: true });
+
+  for (const entry of readdirSync(targetPath)) {
+    rmSync(join(targetPath, entry), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  }
 };

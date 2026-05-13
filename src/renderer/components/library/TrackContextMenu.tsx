@@ -92,7 +92,7 @@ export const TrackContextMenu = ({ track, position, onAction, onClose }: TrackCo
   }, [onClose]);
 
   const items: MenuItem[] = [
-    { action: 'add-to-playlist', label: '加入歌单...', icon: Plus, disabled: true },
+    { action: 'add-to-playlist', label: '加入歌单...', icon: Plus },
     { action: 'play-next', label: '下一首播放', icon: Play },
     { action: 'add-to-queue', label: '加入队列', icon: ListEnd },
     { action: 'remove-from-queue', label: '从播放列表移除', icon: Minus },

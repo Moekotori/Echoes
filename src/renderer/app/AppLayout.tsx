@@ -8,6 +8,7 @@ import { AppTitleBar } from '../components/layout/AppTitleBar';
 import type { AppRoute, AppRouteId } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
 import { useI18n } from '../i18n/I18nProvider';
+import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 
 type AppLayoutProps = {
   routes: AppRoute[];
@@ -17,6 +18,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>('songs');
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
+  const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [audioDrawerStatus, setAudioDrawerStatus] = useState<AudioStatus | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -36,6 +38,13 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     folderInput.setAttribute('webkitdirectory', '');
     folderInput.setAttribute('directory', '');
+  }, []);
+
+  useEffect(() => {
+    void window.echo?.diagnostics
+      .getLastCrashSummary()
+      .then((summary) => setDiagnosticsNotice(Boolean(summary)))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -118,7 +127,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       }
 
       const folder = await library.addFolder(chosenPath);
-      await library.scanFolder(folder.id);
+      rememberLibraryScanStatus(await library.scanFolder(folder.id));
       await notifyLibraryChanged();
     } catch (error) {
       console.error('Failed to import folder from app chrome', error);
@@ -167,6 +176,21 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     await appApi[action]();
   }, [t]);
+
+  const handleExportDiagnostics = useCallback(async (): Promise<void> => {
+    try {
+      const exportedPath = await window.echo?.diagnostics.exportDiagnostics();
+      setDiagnosticsNotice(false);
+      setChromeNotice(exportedPath ? `Diagnostics exported: ${exportedPath}` : 'Diagnostics export finished.');
+    } catch (error) {
+      setChromeNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const handleDismissDiagnosticsNotice = useCallback(async (): Promise<void> => {
+    setDiagnosticsNotice(false);
+    await window.echo?.diagnostics.clearLastCrashSummary().catch(() => undefined);
+  }, []);
 
   const handleBrowserFolderPicked = (files: FileList | null): void => {
     if (!files?.length) {
@@ -232,6 +256,20 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       {chromeNotice ? (
         <div className="chrome-notice" role="status">
           {chromeNotice}
+        </div>
+      ) : null}
+
+      {diagnosticsNotice ? (
+        <div className="chrome-notice chrome-notice--diagnostics" role="status">
+          <span>ECHO 上次似乎没有正常退出。你可以导出诊断包帮助定位问题。</span>
+          <div className="chrome-notice-actions">
+            <button type="button" onClick={() => void handleExportDiagnostics()}>
+              导出诊断包
+            </button>
+            <button type="button" onClick={() => void handleDismissDiagnosticsNotice()}>
+              忽略
+            </button>
+          </div>
         </div>
       ) : null}
 

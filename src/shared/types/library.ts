@@ -12,6 +12,11 @@ export type LibraryCleanupResult = {
   removedCount: number;
 };
 
+export type LibraryCacheClearResult = LibraryCleanupResult & {
+  deletedCoverCacheFiles: number;
+  freedCoverCacheBytes: number;
+};
+
 export type LibraryDiagnostics = {
   foldersCount: number;
   tracksCount: number;
@@ -102,6 +107,59 @@ export type LibraryPageQuery = {
   sort?: LibrarySort;
 };
 
+export type PlaylistKind = 'manual' | 'smart' | 'synced' | 'system';
+export type PlaylistSourceProvider = 'local' | 'netease' | 'qqmusic' | 'remote';
+export type PlaylistSortMode = 'manual' | 'titleAsc' | 'titleDesc' | 'artistAsc' | 'addedDesc';
+export type PlaylistMediaType = 'track' | 'stream_track' | 'remote_file';
+
+export type LibraryPlaylist = {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: PlaylistKind;
+  sourceProvider: PlaylistSourceProvider;
+  sourcePlaylistId: string | null;
+  coverId: string | null;
+  coverThumb: string | null;
+  sortMode: PlaylistSortMode;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LibraryPlaylistItem = {
+  id: string;
+  playlistId: string;
+  mediaType: PlaylistMediaType;
+  mediaId: string | null;
+  sourceProvider: PlaylistSourceProvider;
+  sourceItemId: string | null;
+  titleSnapshot: string | null;
+  artistSnapshot: string | null;
+  albumSnapshot: string | null;
+  durationSnapshot: number | null;
+  coverId: string | null;
+  coverThumb: string | null;
+  position: number;
+  addedAt: string;
+  addedFrom: string | null;
+  unavailable: boolean;
+  track: LibraryTrack | null;
+};
+
+export type CreatePlaylistRequest = {
+  name: string;
+  description?: string | null;
+};
+
+export type UpdatePlaylistRequest = {
+  playlistId: string;
+  name?: string;
+  description?: string | null;
+  coverId?: string | null;
+  sortMode?: PlaylistSortMode;
+};
+
 export type PlaybackHistoryEntry = {
   id: string;
   trackId: string | null;
@@ -181,6 +239,8 @@ export type LibraryTrack = {
   embeddedCoverStatus?: 'pending' | 'reading' | 'present' | 'missing' | 'error';
   networkMetadataStatus?: 'none' | 'pending' | 'candidate_found' | 'applied_missing_only' | 'rejected' | 'error';
   fieldSources: Record<string, string>;
+  unavailable?: boolean;
+  playlistItemId?: string;
 };
 
 export type EditableTrackTags = {

@@ -23,6 +23,32 @@ const appearancePreferences = readAppearancePreferences();
 const appBridge = getAppBridge();
 applyAppearancePreferences(appearancePreferences);
 
+const reportRendererError = (payload: Parameters<NonNullable<Window['echo']['diagnostics']>['reportRendererError']>[0]): void => {
+  void window.echo?.diagnostics.reportRendererError(payload).catch(() => undefined);
+};
+
+window.addEventListener('error', (event) => {
+  reportRendererError({
+    message: event.message || 'Renderer error',
+    stack: event.error instanceof Error ? event.error.stack : undefined,
+    filename: event.filename || undefined,
+    lineno: event.lineno,
+    colno: event.colno,
+    source: 'error',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  reportRendererError({
+    message: reason instanceof Error ? reason.message : String(reason ?? 'Unhandled renderer rejection'),
+    stack: reason instanceof Error ? reason.stack : undefined,
+    source: 'unhandledrejection',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 if (appearancePreferences.mainFontFilePath && appBridge) {
   void appBridge.loadFontFile(appearancePreferences.mainFontFilePath).then((fontFile) => registerAppearanceFontFile('main', fontFile)).catch(() => undefined);
 }

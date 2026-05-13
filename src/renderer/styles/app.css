@@ -113,6 +113,29 @@
   line-height: 1.45;
 }
 
+.chrome-notice--diagnostics {
+  display: grid;
+  gap: 10px;
+}
+
+.chrome-notice-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chrome-notice-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: #36516f;
+  border: 1px solid rgba(54, 81, 111, 0.14);
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .brand-block {
   display: flex;
   align-items: center;

@@ -9,9 +9,9 @@ export const ImportFolderPage = (): JSX.Element => {
           <FolderPlus size={26} />
         </div>
         <div>
-          <h2>Import Folder</h2>
-          <p>Choose a local music folder, add it to the library, and start scanning right away.</p>
-          <span>This page is only for local library import and scan status.</span>
+          <h2>导入文件夹</h2>
+          <p>选择本地音乐文件夹，加入曲库后会立即在后台开始扫描。</p>
+          <span>此页面只用于本地曲库导入和扫描状态查看。</span>
         </div>
       </div>
 

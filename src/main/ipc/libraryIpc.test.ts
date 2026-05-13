@@ -98,6 +98,7 @@ const installLibraryService = () => {
     getSummary: vi.fn(),
     refreshAlbumGrouping: vi.fn(() => ({ songCount: 2, albumCount: 1, artistCount: 2, folderCount: 1, totalDuration: 2, lastScanAt: null })),
     getDiagnostics: vi.fn(),
+    clearCache: vi.fn(() => ({ scannedCount: 1, removedCount: 1, deletedCoverCacheFiles: 2, freedCoverCacheBytes: 128 })),
     updateTrackTags: vi.fn(),
     recordTrackPlayback: vi.fn(),
     deleteTrack: vi.fn(),

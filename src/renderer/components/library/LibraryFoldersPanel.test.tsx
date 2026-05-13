@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { LibraryFoldersPanel } from './LibraryFoldersPanel';
+import { __resetLibraryFolderScanSessionForTests, LibraryFoldersPanel } from './LibraryFoldersPanel';
+import { resetLibraryScanSessionForTests } from '../../stores/libraryScanSession';
 import type { AudioDeviceInfo, AudioOutputSettings, AudioStatus } from '../../../shared/types/audio';
 import type { EqPreset, EqSavePresetRequest, EqSetBandGainRequest, EqState } from '../../../shared/types/eq';
 import type { PlaybackStatus } from '../../../shared/types/playback';
@@ -164,6 +165,8 @@ const eqState = (): EqState => ({
 let libraryMock: EchoMock['library'];
 
 beforeEach(() => {
+  resetLibraryScanSessionForTests();
+  __resetLibraryFolderScanSessionForTests();
   libraryMock = {
     chooseFolder: vi.fn(),
     addFolder: vi.fn(),
@@ -218,6 +221,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -231,7 +235,7 @@ describe('LibraryFoldersPanel', () => {
 
     render(<LibraryFoldersPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }));
 
     await waitFor(() => expect(libraryMock.chooseFolder).toHaveBeenCalledTimes(1));
     expect(libraryMock.addFolder).toHaveBeenCalledWith('D:\\Music');
@@ -247,8 +251,8 @@ describe('LibraryFoldersPanel', () => {
 
     render(<LibraryFoldersPanel />);
 
-    fireEvent.change(screen.getByLabelText(/folder path/i), { target: { value: 'D:\\Library' } });
-    fireEvent.click(screen.getByRole('button', { name: /add and scan/i }));
+    fireEvent.change(screen.getByLabelText('文件夹路径'), { target: { value: 'D:\\Library' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加并扫描' }));
 
     await waitFor(() => expect(libraryMock.addFolder).toHaveBeenCalledWith('D:\\Library'));
     expect(libraryMock.scanFolder).toHaveBeenCalledWith('folder-1');
@@ -264,7 +268,7 @@ describe('LibraryFoldersPanel', () => {
     render(<LibraryFoldersPanel />);
 
     await screen.findByText('Music');
-    fireEvent.click(screen.getByRole('button', { name: /remove folder/i }));
+    fireEvent.click(screen.getByRole('button', { name: '移除文件夹' }));
 
     await waitFor(() => expect(libraryMock.removeFolder).toHaveBeenCalledWith('folder-1'));
     await waitFor(() => expect(changedHandler).toHaveBeenCalled());
@@ -277,21 +281,41 @@ describe('LibraryFoldersPanel', () => {
     libraryMock.scanFolder.mockResolvedValue(runningScan());
     libraryMock.cancelScan.mockResolvedValue(completedScan({ status: 'cancelled', phase: 'cancelled' }));
     libraryMock.getSummary.mockResolvedValue(summary());
-    libraryMock.getScanStatus.mockResolvedValue(runningScan());
     const changedHandler = vi.fn();
     window.addEventListener('library:changed', changedHandler);
 
     render(<LibraryFoldersPanel />);
 
-    fireEvent.change(screen.getByLabelText(/folder path/i), { target: { value: 'D:\\Music' } });
-    fireEvent.click(screen.getByRole('button', { name: /add and scan/i }));
-    await waitFor(() => expect(screen.getByText(/running \/ reading_metadata/i)).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('文件夹路径'), { target: { value: 'D:\\Music' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加并扫描' }));
+    await waitFor(() => expect(screen.getByText(/扫描中 \/ 读取元数据/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('button', { name: /cancel scan/i }));
+    fireEvent.click(screen.getByRole('button', { name: '取消扫描' }));
 
     await waitFor(() => expect(libraryMock.cancelScan).toHaveBeenCalledWith('job-1'));
-    await waitFor(() => expect(screen.getByText('Scan cancelled', { selector: 'p.audio-file-path' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('扫描已取消', { selector: 'p.audio-file-path' })).toBeTruthy());
     await waitFor(() => expect(changedHandler).toHaveBeenCalled());
     window.removeEventListener('library:changed', changedHandler);
+  });
+
+  it('keeps polling a background scan after leaving and returning to the folder page', async () => {
+    libraryMock.getFolders.mockResolvedValue([baseFolder()]);
+    libraryMock.addFolder.mockResolvedValue(baseFolder());
+    libraryMock.scanFolder.mockResolvedValue(runningScan());
+    libraryMock.getScanStatus.mockResolvedValue(completedScan());
+    libraryMock.getSummary.mockResolvedValue(summary());
+
+    const firstRender = render(<LibraryFoldersPanel />);
+
+    fireEvent.change(await screen.findByLabelText('文件夹路径'), { target: { value: 'D:\\Music' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加并扫描' }));
+    await waitFor(() => expect(libraryMock.scanFolder).toHaveBeenCalledWith('folder-1'));
+    firstRender.unmount();
+
+    render(<LibraryFoldersPanel />);
+
+    await waitFor(() => expect(libraryMock.getScanStatus).toHaveBeenCalledWith('job-1'), { timeout: 2500 });
+    await waitFor(() => expect(screen.getByText(/已完成 \/ 完成/)).toBeTruthy(), { timeout: 2500 });
+    expect(libraryMock.scanFolder).toHaveBeenCalledTimes(1);
   });
 });

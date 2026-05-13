@@ -16,8 +16,8 @@ describe('FoldersPage', () => {
 
     render(<FoldersPage />);
 
-    expect(screen.getByRole('heading', { name: 'Folders' })).toBeTruthy();
-    expect(screen.getByText('Manage local library folders and scan status')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '文件夹' })).toBeTruthy();
+    expect(screen.getByText('管理本地曲库文件夹和扫描状态')).toBeTruthy();
     expect(screen.getByTestId('library-folders-panel')).toBeTruthy();
   });
 });

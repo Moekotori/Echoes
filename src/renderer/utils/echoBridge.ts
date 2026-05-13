@@ -4,6 +4,8 @@ export const getAppBridge = (): Window['echo']['app'] | null => getEchoBridge()?
 
 export const getAudioBridge = (): Window['echo']['audio'] | null => getEchoBridge()?.audio ?? null;
 
+export const getDiagnosticsBridge = (): Window['echo']['diagnostics'] | null => getEchoBridge()?.diagnostics ?? null;
+
 export const getEqBridge = (): Window['echo']['eq'] | null => getEchoBridge()?.eq ?? null;
 
 export const getLibraryBridge = (): Window['echo']['library'] | null => getEchoBridge()?.library ?? null;

@@ -20,6 +20,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { CoverCacheMigrationResult } from '../../shared/types/coverCache';
+import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import { EqPanel } from '../components/audio/EqPanel';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
@@ -33,7 +34,7 @@ import {
   updateAppearancePreferences,
   type AppearancePreferences,
 } from '../preferences/appearancePreferences';
-import { getAppBridge, getAudioBridge, getLibraryBridge } from '../utils/echoBridge';
+import { getAppBridge, getAudioBridge, getDiagnosticsBridge, getLibraryBridge } from '../utils/echoBridge';
 
 const isDevBuild = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
@@ -287,6 +288,10 @@ export const SettingsPage = (): JSX.Element => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [appearancePreferences, setAppearancePreferences] = useState<AppearancePreferences>(() => readAppearancePreferences());
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [lastCrashSummary, setLastCrashSummary] = useState<LastCrashSummary | null>(null);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
   const [defaultCacheDirectory, setDefaultCacheDirectory] = useState<string | null>(null);
   const [pendingCacheDirectory, setPendingCacheDirectory] = useState<string | null | undefined>(undefined);
   const [cacheDirectoryBusy, setCacheDirectoryBusy] = useState(false);
@@ -298,6 +303,8 @@ export const SettingsPage = (): JSX.Element => {
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackFontFamilies);
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
+  const [dangerBusy, setDangerBusy] = useState(false);
+  const [dangerMessage, setDangerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const visibleNavItems = useMemo(() => {
@@ -353,8 +360,11 @@ export const SettingsPage = (): JSX.Element => {
     void refreshStatus();
     void refreshDevices();
     const app = getAppBridge();
+    const diagnostics = getDiagnosticsBridge();
     void app?.getSettings().then(setAppSettings).catch(() => undefined);
+    void app?.getVersion().then(setAppVersion).catch(() => undefined);
     void app?.getDefaultCacheDirectory().then(setDefaultCacheDirectory).catch(() => undefined);
+    void diagnostics?.getLastCrashSummary().then(setLastCrashSummary).catch(() => undefined);
     const timer = window.setInterval(() => {
       void refreshStatus();
     }, 1000);
@@ -470,6 +480,58 @@ export const SettingsPage = (): JSX.Element => {
     void app.setSettings(patch).then(setAppSettings).catch((settingsError) => {
       setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
     });
+  };
+
+  const handleDiagnosticsExport = async (): Promise<void> => {
+    try {
+      const diagnostics = getDiagnosticsBridge();
+
+      if (!diagnostics) {
+        setError('Desktop bridge unavailable. Open ECHO Next in Electron to export diagnostics.');
+        return;
+      }
+
+      setDiagnosticsBusy(true);
+      setDiagnosticsMessage(null);
+      const exportedPath = await diagnostics.exportDiagnostics();
+      setDiagnosticsMessage(`诊断包已导出：${exportedPath}`);
+    } catch (diagnosticsError) {
+      setDiagnosticsMessage(diagnosticsError instanceof Error ? diagnosticsError.message : String(diagnosticsError));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  };
+
+  const handleDiagnosticsOpenFolder = async (): Promise<void> => {
+    try {
+      const diagnostics = getDiagnosticsBridge();
+
+      if (!diagnostics) {
+        setError('Desktop bridge unavailable. Open ECHO Next in Electron to open diagnostics.');
+        return;
+      }
+
+      await diagnostics.openDiagnosticsFolder();
+    } catch (diagnosticsError) {
+      setDiagnosticsMessage(diagnosticsError instanceof Error ? diagnosticsError.message : String(diagnosticsError));
+    }
+  };
+
+  const handleDiagnosticsClearSummary = async (): Promise<void> => {
+    try {
+      const diagnostics = getDiagnosticsBridge();
+
+      if (!diagnostics) {
+        setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear diagnostics.');
+        return;
+      }
+
+      await diagnostics.clearLastCrashSummary();
+      setLastCrashSummary(null);
+      setDiagnosticsMessage('已清除上次异常退出提示。');
+    } catch (diagnosticsError) {
+      setDiagnosticsMessage(diagnosticsError instanceof Error ? diagnosticsError.message : String(diagnosticsError));
+    }
   };
 
   const currentCacheDirectory = appSettings?.coverCacheDir ?? defaultCacheDirectory ?? '';
@@ -624,6 +686,70 @@ export const SettingsPage = (): JSX.Element => {
       .catch((speedError) => {
         setError(speedError instanceof Error ? speedError.message : String(speedError));
       });
+  };
+
+  const handleClearLibraryCache = async (): Promise<void> => {
+    if (!window.confirm('清空曲库缓存？这会移除曲库索引、扫描缓存和封面缓存，不会删除你的音乐文件。')) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+
+    if (!library) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear the library cache.');
+      return;
+    }
+
+    try {
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.clearCache();
+      setDangerMessage(
+        `曲库缓存已清空：移除 ${result.removedCount}/${result.scannedCount} 首索引，删除 ${result.deletedCoverCacheFiles} 个封面缓存文件。`,
+      );
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (clearError) {
+      setDangerMessage(null);
+      setError(clearError instanceof Error ? clearError.message : String(clearError));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
+  const handleResetDefaultSettings = async (): Promise<void> => {
+    if (!window.confirm('恢复默认设置？这会重置应用偏好、封面缓存目录和外观偏好，不会删除音乐文件或曲库文件夹。')) {
+      return;
+    }
+
+    const app = getAppBridge();
+
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to reset settings.');
+      return;
+    }
+
+    try {
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const settings = await app.resetSettings();
+      setAppSettings(settings);
+      handleAppearanceChange(defaultAppearancePreferences);
+      setPendingCacheDirectory(undefined);
+      setCacheDirectoryResult(null);
+      setCacheDirectoryMessage(null);
+      setPendingAlbumMergeStrategy(settings.albumMergeStrategy);
+      setDefaultCacheDirectory(await app.getDefaultCacheDirectory());
+      setDangerMessage('默认设置已恢复。');
+      window.dispatchEvent(new Event('settings:changed'));
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (resetError) {
+      setDangerMessage(null);
+      setError(resetError instanceof Error ? resetError.message : String(resetError));
+    } finally {
+      setDangerBusy(false);
+    }
   };
 
   const handleFontPickerOpen = (target: FontPickerTarget): void => {
@@ -1071,6 +1197,54 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Info} id="about" title={t('settings.nav.about.label')}>
+              <SettingRow title="版本号" description="当前安装的 ECHO Next 版本。">
+                <ChipButton active>{appVersion ?? t('common.checking')}</ChipButton>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full"
+                title="Diagnostics / 崩溃报告"
+                description="本地生成诊断包用于排查闪退、白屏、扫描失败和播放异常；不会自动上传。"
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>上次异常退出</em>
+                      <strong>{lastCrashSummary ? '检测到' : '未检测到'}</strong>
+                    </span>
+                    <span>
+                      <em>Session</em>
+                      <strong>{lastCrashSummary?.sessionId ?? 'n/a'}</strong>
+                    </span>
+                    <span>
+                      <em>Started</em>
+                      <strong>{lastCrashSummary?.startedAt ?? 'n/a'}</strong>
+                    </span>
+                    <span>
+                      <em>Detected</em>
+                      <strong>{lastCrashSummary?.detectedAt ?? 'n/a'}</strong>
+                    </span>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button className="settings-action-button" type="button" disabled={diagnosticsBusy} onClick={() => void handleDiagnosticsExport()}>
+                      <Download size={15} />
+                      {diagnosticsBusy ? '导出中...' : '导出诊断包'}
+                    </button>
+                    <button className="settings-action-button" type="button" onClick={() => void handleDiagnosticsOpenFolder()}>
+                      <FolderOpen size={15} />
+                      打开日志目录
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!lastCrashSummary}
+                      onClick={() => void handleDiagnosticsClearSummary()}
+                    >
+                      清除上次异常提示
+                    </button>
+                  </div>
+                  {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}
+                </div>
+              </SettingRow>
               <SettingRow title={t('settings.about.devMode.title')} description={t('settings.about.devMode.description')}>
                 <ChipButton active>{isDevBuild ? t('common.dev') : t('common.build')}</ChipButton>
               </SettingRow>
@@ -1084,10 +1258,16 @@ export const SettingsPage = (): JSX.Element => {
 
             <SettingSection activeKey={activeSection} icon={Trash2} id="danger" title={t('settings.nav.danger.label')}>
               <SettingRow title={t('settings.danger.clearCache.title')} description={t('settings.danger.clearCache.description')}>
-                <button className="settings-danger-button" type="button" disabled>
-                  {t('common.unavailable')}
+                <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleClearLibraryCache()}>
+                  {dangerBusy ? '处理中...' : '清空曲库缓存'}
                 </button>
               </SettingRow>
+              <SettingRow title="恢复默认设置" description="重置应用偏好、封面缓存目录和外观偏好；不会删除音乐文件或曲库文件夹。">
+                <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleResetDefaultSettings()}>
+                  {dangerBusy ? '处理中...' : '恢复默认设置'}
+                </button>
+              </SettingRow>
+              {dangerMessage ? <p className="settings-inline-note">{dangerMessage}</p> : null}
             </SettingSection>
 
             <section className="settings-section settings-section--devices" data-visible={activeSection === 'playback'}>

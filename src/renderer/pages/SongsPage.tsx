@@ -317,6 +317,33 @@ export const SongsPage = (): JSX.Element => {
             window.dispatchEvent(new Event('library:changed'));
             return;
           case 'add-to-playlist':
+            {
+              const playlists = await library!.getPlaylists();
+              let playlist: (typeof playlists)[number] | null = playlists[0] ?? null;
+              if (playlists.length > 1) {
+                const names = playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
+                const choice = window.prompt(`选择歌单编号：\n${names}`, '1');
+                const index = Number(choice) - 1;
+                playlist = Number.isInteger(index) ? playlists[index] ?? null : null;
+              }
+
+              if (!playlist) {
+                const name = window.prompt('还没有歌单，输入名称创建后添加：');
+                if (!name?.trim()) {
+                  return;
+                }
+                playlist = await library!.createPlaylist({ name });
+              }
+
+              if (!playlist) {
+                return;
+              }
+
+              await library!.addTrackToPlaylist(playlist.id, track.id);
+              window.dispatchEvent(new Event('library:playlists-changed'));
+              setStatusMessage(`已加入歌单：${playlist.name}`);
+            }
+            return;
           default:
             setError('歌单功能还在接入中。');
         }

@@ -29,6 +29,8 @@ const settings: AppSettings = {
 
 const getSettingsMock = vi.fn();
 const setSettingsMock = vi.fn();
+const resetSettingsMock = vi.fn();
+const clearCacheMock = vi.fn();
 
 vi.mock('../i18n/I18nProvider', () => ({
   useI18n: () => ({
@@ -44,6 +46,8 @@ vi.mock('../utils/echoBridge', () => ({
     chooseCacheDirectory: vi.fn(),
     getDefaultCacheDirectory: vi.fn().mockResolvedValue('D:\\Cache'),
     getSettings: getSettingsMock,
+    getVersion: vi.fn().mockResolvedValue('1.0.1'),
+    resetSettings: resetSettingsMock,
     setCoverCacheDirectory: vi.fn(),
     setSettings: setSettingsMock,
   }),
@@ -52,7 +56,14 @@ vi.mock('../utils/echoBridge', () => ({
     listDevices: vi.fn().mockResolvedValue([]),
     setOutput: vi.fn().mockResolvedValue(null),
   }),
+  getDiagnosticsBridge: () => ({
+    clearLastCrashSummary: vi.fn(),
+    exportDiagnostics: vi.fn().mockResolvedValue('D:\\Echo\\diagnostics.zip'),
+    getLastCrashSummary: vi.fn().mockResolvedValue(null),
+    openDiagnosticsFolder: vi.fn(),
+  }),
   getLibraryBridge: () => ({
+    clearCache: clearCacheMock,
     getSummary: vi.fn().mockResolvedValue({ songCount: 0, albumCount: 0, artistCount: 0, folderCount: 0, totalDuration: 0, lastScanAt: null }),
     refreshAlbumGrouping: vi.fn().mockResolvedValue({ songCount: 0, albumCount: 0, artistCount: 0, folderCount: 0, totalDuration: 0, lastScanAt: null }),
   }),
@@ -85,6 +96,8 @@ describe('SettingsPage', () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
     setSettingsMock.mockResolvedValue({ ...settings, artistWallAlbumArtwork: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
     window.addEventListener('settings:changed', settingsChanged);
 
     render(<SettingsPage />);

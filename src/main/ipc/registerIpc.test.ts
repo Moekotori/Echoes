@@ -27,6 +27,28 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('../app/appSettings', () => ({
+  defaultSettings: {
+    albumMergeStrategy: 'standard',
+    artistWallAlbumArtwork: false,
+    coverCacheDir: null,
+    hideToTrayOnClose: false,
+    networkMetadataEnabled: false,
+    networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
+    channelBalance: {
+      enabled: false,
+      balance: 0,
+      leftGainDb: 0,
+      rightGainDb: 0,
+      swapLeftRight: false,
+      monoMode: 'off',
+      invertLeft: false,
+      invertRight: false,
+      constantPower: true,
+    },
+    playerVolume: 1,
+    playbackSpeed: 1,
+    playbackSpeedMode: 'nightcore',
+  },
   getAppSettings: vi.fn(() => ({ coverCacheDir: null, hideToTrayOnClose: false })),
   setAppSettings: setAppSettingsMock,
 }));
@@ -54,6 +76,10 @@ vi.mock('./playbackIpc', () => ({
 
 vi.mock('./audioIpc', () => ({
   registerAudioIpc: vi.fn(),
+}));
+
+vi.mock('./diagnosticsIpc', () => ({
+  registerDiagnosticsIpc: vi.fn(),
 }));
 
 const resetHandlers = (): void => {
@@ -99,6 +125,22 @@ describe('app IPC cover cache directory', () => {
     expect(result).toBeNull();
     expect(ensureCoverCacheDirectoryMock).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
     expect(setAppSettingsMock).toHaveBeenCalledWith({ coverCacheDir: null });
+    expect(service.setCoverCacheDir).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
+  });
+
+  it('resets app settings and restores the default cover cache directory', async () => {
+    const service = {
+      hasRunningJobs: () => false,
+      getDefaultCoverCacheDir: () => 'D:\\Echo\\cover-cache',
+      setCoverCacheDir: vi.fn(),
+    };
+    getLibraryServiceMock.mockReturnValue(service);
+
+    const result = (await handlers[IpcChannels.AppResetSettings]!()) as { coverCacheDir: string | null };
+
+    expect(result.coverCacheDir).toBeNull();
+    expect(ensureCoverCacheDirectoryMock).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
+    expect(setAppSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ coverCacheDir: null, hideToTrayOnClose: false }));
     expect(service.setCoverCacheDir).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
   });
 });

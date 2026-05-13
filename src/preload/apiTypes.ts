@@ -6,12 +6,15 @@ import type {
   EmbeddedTrackTagsLoadResult,
   LibraryAlbum,
   LibraryArtist,
+  LibraryCacheClearResult,
   LibraryCleanupResult,
   LibraryDiagnostics,
   LibraryTrackTagUpdateRequest,
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryPlaylist,
+  LibraryPlaylistItem,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
@@ -31,8 +34,11 @@ import type {
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
   TrackCoverSelection,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
 } from '../shared/types/library';
 import type { PlaybackStartRequest, PlaybackStatus } from '../shared/types/playback';
+import type { LastCrashSummary, RendererErrorPayload } from '../shared/types/diagnostics';
 
 export type FontFileAsset = {
   path: string;
@@ -48,6 +54,7 @@ export type EchoApi = {
     close: () => Promise<void>;
     getSettings: () => Promise<AppSettings>;
     setSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+    resetSettings: () => Promise<AppSettings>;
     chooseFontFile: () => Promise<FontFileAsset | null>;
     loadFontFile: (path: string) => Promise<FontFileAsset>;
     chooseCacheDirectory: () => Promise<string | null>;
@@ -63,6 +70,17 @@ export type EchoApi = {
     getScanStatus: (jobId: string) => Promise<LibraryScanStatus>;
     cancelScan: (jobId: string) => Promise<LibraryScanStatus>;
     getTracks: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryTrack>>;
+    getPlaylists: () => Promise<LibraryPlaylist[]>;
+    createPlaylist: (request: CreatePlaylistRequest) => Promise<LibraryPlaylist>;
+    updatePlaylist: (request: UpdatePlaylistRequest) => Promise<LibraryPlaylist>;
+    deletePlaylist: (playlistId: string) => Promise<void>;
+    getPlaylist: (playlistId: string) => Promise<LibraryPlaylist | null>;
+    getPlaylistItems: (playlistId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'>) => Promise<LibraryPage<LibraryPlaylistItem>>;
+    addTrackToPlaylist: (playlistId: string, trackId: string) => Promise<LibraryPlaylistItem>;
+    addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<LibraryPlaylistItem[]>;
+    removePlaylistItem: (itemId: string) => Promise<void>;
+    movePlaylistItem: (playlistId: string, itemId: string, targetPosition: number) => Promise<void>;
+    clearPlaylist: (playlistId: string) => Promise<void>;
     getAlbums: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryAlbum>>;
     getArtists: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryArtist>>;
     getArtist: (artistId: string) => Promise<LibraryArtist | null>;
@@ -94,6 +112,7 @@ export type EchoApi = {
     deleteTrackFile: (trackId: string) => Promise<void>;
     pruneMissingTracks: () => Promise<LibraryCleanupResult>;
     clearTracks: () => Promise<LibraryCleanupResult>;
+    clearCache: () => Promise<LibraryCacheClearResult>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
     scanMissingMetadata: (options?: number | MissingMetadataScanOptions) => Promise<MissingMetadataScanResult>;
     startMissingMetadataScan: (options?: number | MissingMetadataScanOptions) => Promise<NetworkMetadataScanJobStatus>;
@@ -120,6 +139,13 @@ export type EchoApi = {
     getStatus: () => Promise<AudioStatus>;
     listDevices: () => Promise<AudioDeviceInfo[]>;
     setOutput: (settings: AudioOutputSettings) => Promise<AudioStatus>;
+  };
+  diagnostics: {
+    getLastCrashSummary: () => Promise<LastCrashSummary | null>;
+    clearLastCrashSummary: () => Promise<void>;
+    exportDiagnostics: () => Promise<string>;
+    openDiagnosticsFolder: () => Promise<string>;
+    reportRendererError: (payload: RendererErrorPayload) => Promise<void>;
   };
   eq: {
     getState: () => Promise<EqState>;

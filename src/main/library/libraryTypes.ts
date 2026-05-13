@@ -6,6 +6,8 @@ import type {
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryPlaylist,
+  LibraryPlaylistItem,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
@@ -17,6 +19,8 @@ import type {
   StartPlaybackHistoryRequest,
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
 } from '../../shared/types/library';
 
 export type {
@@ -27,6 +31,8 @@ export type {
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryPlaylist,
+  LibraryPlaylistItem,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
@@ -38,6 +44,8 @@ export type {
   StartPlaybackHistoryRequest,
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
 };
 
 export type ScannedAudioFile = {

@@ -329,7 +329,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.theme.followSystem': '跟随系统',
   'settings.appearance.theme.light': '浅色',
   'settings.appearance.theme.title': '主题',
-  'settings.danger.clearCache.description': '当前不提供一键危险操作，避免误删或误清理本地扫描结果。',
+  'settings.danger.clearCache.description': '移除曲库索引、扫描记录和封面缓存，不会删除你的音乐文件或曲库文件夹。',
   'settings.danger.clearCache.title': '清空曲库缓存',
   'settings.devices.empty': 'echo-audio-host 暂未返回输出设备。',
   'settings.devices.title': '设备列表',
@@ -665,7 +665,7 @@ const jaJP: TranslationMap = {
   'settings.about.audioHost.title': '音声ホスト',
   'settings.about.audioHost.description': 'echo-audio-host.exe は現在ローカル移行検証用です。正式リリース後は extraResources に含めます。',
   'settings.danger.clearCache.title': 'ライブラリキャッシュを消去',
-  'settings.danger.clearCache.description': '誤削除やローカルスキャン結果の誤消去を避けるため、現時点では危険な一括操作を提供しません。',
+  'settings.danger.clearCache.description': 'ライブラリ索引、スキャン履歴、カバーキャッシュを削除します。音楽ファイルやライブラリフォルダーは削除しません。',
 };
 
 const enUS: TranslationMap = {
@@ -869,7 +869,7 @@ const enUS: TranslationMap = {
   'settings.about.audioHost.title': 'Audio Host',
   'settings.about.audioHost.description': 'echo-audio-host.exe is currently used for local migration validation. Production builds will ship it through extraResources.',
   'settings.danger.clearCache.title': 'Clear Library Cache',
-  'settings.danger.clearCache.description': 'One-click dangerous operations are unavailable for now to avoid accidental deletion or cleanup of local scan results.',
+  'settings.danger.clearCache.description': 'Removes the library index, scan records, and cover cache without deleting music files or library folders.',
 };
 
 export const translations: Record<Locale, TranslationMap> = {

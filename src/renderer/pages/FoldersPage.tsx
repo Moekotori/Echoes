@@ -4,8 +4,8 @@ export const FoldersPage = (): JSX.Element => {
   return (
     <div className="page-stack">
       <header className="plain-page-header">
-        <h1>Folders</h1>
-        <p>Manage local library folders and scan status</p>
+        <h1>文件夹</h1>
+        <p>管理本地曲库文件夹和扫描状态</p>
       </header>
 
       <LibraryFoldersPanel />

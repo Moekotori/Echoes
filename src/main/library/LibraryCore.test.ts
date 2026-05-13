@@ -352,6 +352,8 @@ describe('Library Core', () => {
         'scan_jobs',
         'playback_history',
         'playback_history_stats',
+        'playlists',
+        'playlist_items',
       ]),
     );
     expect(indexes).toEqual(
@@ -378,6 +380,9 @@ describe('Library Core', () => {
         'idx_playback_history_path_started',
         'idx_playback_history_stats_play_count',
         'idx_playback_history_stats_last_started_at',
+        'idx_playlist_items_playlist_position',
+        'idx_playlist_items_media',
+        'idx_playlist_items_source',
       ]),
     );
 
@@ -385,7 +390,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     reopened.close();
   });
 
@@ -485,6 +490,77 @@ describe('Library Core', () => {
     expect(restarted.getFolders()).toHaveLength(1);
     expect(restarted.getFolders()[0].path).toBe(harness.folder);
     restarted.close();
+    harness.cleanup();
+  });
+
+  it('manages manual playlists with local track snapshots and pagination', async () => {
+    const harness = createHarness();
+    const firstPath = writeAudioFile(harness.folder, 'Playlist A.flac');
+    const secondPath = writeAudioFile(harness.folder, 'Playlist B.flac');
+    harness.metadataService.overrides.set(firstPath, baseMetadata({ title: 'Playlist One', artist: 'Artist A', album: 'Album A', duration: 111 }));
+    harness.metadataService.overrides.set(secondPath, baseMetadata({ title: 'Playlist Two', artist: 'Artist B', album: 'Album B', duration: 222 }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [firstTrack, secondTrack] = harness.service.getTracks({ pageSize: 2, sort: 'titleAsc' }).items;
+    const playlist = harness.service.createPlaylist({ name: 'Road Mix', description: 'Manual picks' });
+    const updated = harness.service.updatePlaylist({ playlistId: playlist.id, name: 'Road Mix 2', description: null });
+    const [firstItem, secondItem] = harness.service.addTracksToPlaylist(updated.id, [firstTrack.id, secondTrack.id]);
+    const firstPage = harness.service.getPlaylistItems(updated.id, { page: 1, pageSize: 1 });
+    const secondPage = harness.service.getPlaylistItems(updated.id, { page: 2, pageSize: 1 });
+
+    expect(updated.name).toBe('Road Mix 2');
+    expect(harness.service.getPlaylists()[0]).toMatchObject({ id: playlist.id, itemCount: 2, sourceProvider: 'local' });
+    expect(firstItem.titleSnapshot).toBe('Playlist One');
+    expect(firstItem.track?.id).toBe(firstTrack.id);
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.hasMore).toBe(true);
+    expect(secondPage.items[0].id).toBe(secondItem.id);
+
+    harness.service.movePlaylistItem(updated.id, secondItem.id, 0);
+    expect(harness.service.getPlaylistItems(updated.id, { pageSize: 10 }).items.map((item) => item.id)).toEqual([secondItem.id, firstItem.id]);
+
+    harness.service.removePlaylistItem(secondItem.id);
+    expect(harness.service.getPlaylist(updated.id)?.itemCount).toBe(1);
+
+    harness.cleanup();
+  }, 20000);
+
+  it('keeps playlist item snapshots when a local track is deleted', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Deleted Playlist Track.flac');
+    harness.metadataService.overrides.set(filePath, baseMetadata({ title: 'Snapshot Title', artist: 'Snapshot Artist', album: 'Snapshot Album', duration: 90 }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const playlist = harness.service.createPlaylist({ name: 'Snapshots' });
+    const item = harness.service.addTrackToPlaylist(playlist.id, track.id);
+
+    harness.service.deleteTrack(track.id);
+    const [afterDelete] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+
+    expect(afterDelete.id).toBe(item.id);
+    expect(afterDelete.track).toBeNull();
+    expect(afterDelete.unavailable).toBe(true);
+    expect(afterDelete.titleSnapshot).toBe('Snapshot Title');
+    expect(afterDelete.artistSnapshot).toBe('Snapshot Artist');
+    harness.cleanup();
+  }, 20000);
+
+  it('cascades playlist items when deleting a playlist', async () => {
+    const harness = createHarness();
+    writeAudioFile(harness.folder, 'Cascade Playlist Track.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const playlist = harness.service.createPlaylist({ name: 'Delete Me' });
+    harness.service.addTrackToPlaylist(playlist.id, track.id);
+    harness.service.deletePlaylist(playlist.id);
+
+    expect(harness.service.getPlaylist(playlist.id)).toBeNull();
+    expect(harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).total).toBe(0);
     harness.cleanup();
   });
 

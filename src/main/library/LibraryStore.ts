@@ -13,6 +13,8 @@ import type {
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryPlaylist,
+  LibraryPlaylistItem,
   PlaybackHistoryEntry,
   PlaybackHistoryQuery,
   PlaybackHistorySummary,
@@ -1011,6 +1013,18 @@ export class LibraryStore {
     return changed;
   }
 
+  deleteLibraryCache(): number {
+    return this.transaction(() => {
+      const changed = this.deleteAllTracks();
+      this.run('DELETE FROM network_metadata_decisions');
+      this.run('DELETE FROM network_metadata_candidates');
+      this.run('DELETE FROM network_cover_candidates');
+      this.run('DELETE FROM covers');
+      this.run('DELETE FROM scan_jobs');
+      return changed;
+    });
+  }
+
   refreshArtists(): void {
     this.transaction(() => {
       const timestamp = nowIso();
@@ -1552,6 +1566,265 @@ export class LibraryStore {
     };
   }
 
+  getPlaylists(): LibraryPlaylist[] {
+    return this.allRows(
+      `SELECT *
+       FROM playlists
+       ORDER BY updated_at DESC, name COLLATE NOCASE`,
+    ).map((row) => this.mapPlaylist(row));
+  }
+
+  createPlaylist(input: { name: string; description?: string | null }, timestamp = nowIso()): LibraryPlaylist {
+    const id = randomUUID();
+    const name = input.name.trim();
+    const description = textOrNull(input.description?.trim());
+
+    if (!name) {
+      throw new Error('Playlist name is required');
+    }
+
+    this.run(
+      `INSERT INTO playlists (
+        id, name, description, kind, source_provider, source_playlist_id,
+        cover_id, sort_mode, item_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      name,
+      description,
+      'manual',
+      'local',
+      null,
+      null,
+      'manual',
+      0,
+      timestamp,
+      timestamp,
+    );
+
+    const playlist = this.getPlaylist(id);
+    if (!playlist) {
+      throw new Error(`Failed to create playlist ${id}`);
+    }
+
+    return playlist;
+  }
+
+  updatePlaylist(
+    input: { playlistId: string; name?: string; description?: string | null; coverId?: string | null; sortMode?: string },
+    timestamp = nowIso(),
+  ): LibraryPlaylist {
+    const current = this.getPlaylist(input.playlistId);
+    if (!current) {
+      throw new Error(`Unknown playlist ${input.playlistId}`);
+    }
+
+    const name = input.name === undefined ? current.name : input.name.trim();
+    if (!name) {
+      throw new Error('Playlist name is required');
+    }
+
+    const sortMode = input.sortMode ?? current.sortMode;
+    if (!['manual', 'titleAsc', 'titleDesc', 'artistAsc', 'addedDesc'].includes(sortMode)) {
+      throw new Error(`Unsupported playlist sort mode ${sortMode}`);
+    }
+
+    this.run(
+      `UPDATE playlists SET
+        name = ?,
+        description = ?,
+        cover_id = ?,
+        sort_mode = ?,
+        updated_at = ?
+       WHERE id = ?`,
+      name,
+      input.description === undefined ? current.description : textOrNull(input.description?.trim()),
+      input.coverId === undefined ? current.coverId : textOrNull(input.coverId),
+      sortMode,
+      timestamp,
+      input.playlistId,
+    );
+
+    const updated = this.getPlaylist(input.playlistId);
+    if (!updated) {
+      throw new Error(`Unknown playlist ${input.playlistId}`);
+    }
+
+    return updated;
+  }
+
+  deletePlaylist(playlistId: string): void {
+    this.run('DELETE FROM playlists WHERE id = ?', playlistId);
+  }
+
+  getPlaylist(playlistId: string): LibraryPlaylist | null {
+    const row = this.getRow('SELECT * FROM playlists WHERE id = ?', playlistId);
+    return row ? this.mapPlaylist(row) : null;
+  }
+
+  getPlaylistItems(playlistId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'>): LibraryPage<LibraryPlaylistItem> {
+    const { page, pageSize, search } = pageFromQuery(query);
+    const offset = (page - 1) * pageSize;
+    const searchFilter = buildSearchFilter(search, [
+      likePredicate('COALESCE(playlist_items.title_snapshot, tracks.title, \'\')'),
+      likePredicate('COALESCE(playlist_items.artist_snapshot, tracks.artist, \'\')'),
+      likePredicate('COALESCE(playlist_items.album_snapshot, tracks.album, \'\')'),
+    ]);
+    const whereSql = searchFilter.sql ? `playlist_items.playlist_id = ? AND ${searchFilter.sql}` : 'playlist_items.playlist_id = ?';
+    const params = [playlistId, ...searchFilter.params];
+    const totalRow = this.getRow(
+      `SELECT COUNT(*) AS total
+       FROM playlist_items
+       LEFT JOIN tracks ON tracks.id = playlist_items.media_id
+       WHERE ${whereSql}`,
+      ...params,
+    );
+    const rows = this.allRows(
+      `SELECT
+        playlist_items.*,
+        tracks.id AS track_id,
+        tracks.path AS track_path,
+        tracks.title AS track_title,
+        tracks.artist AS track_artist,
+        tracks.album AS track_album,
+        tracks.album_artist AS track_album_artist,
+        tracks.track_no AS track_track_no,
+        tracks.disc_no AS track_disc_no,
+        tracks.year AS track_year,
+        tracks.genre AS track_genre,
+        tracks.duration AS track_duration,
+        tracks.codec AS track_codec,
+        tracks.sample_rate AS track_sample_rate,
+        tracks.bit_depth AS track_bit_depth,
+        tracks.bitrate AS track_bitrate,
+        tracks.cover_id AS track_cover_id,
+        tracks.metadata_status AS track_metadata_status,
+        tracks.embedded_metadata_status AS track_embedded_metadata_status,
+        tracks.embedded_cover_status AS track_embedded_cover_status,
+        tracks.network_metadata_status AS track_network_metadata_status,
+        tracks.field_sources_json AS track_field_sources_json,
+        tracks.missing AS track_missing
+      FROM playlist_items
+      LEFT JOIN tracks ON tracks.id = playlist_items.media_id
+      WHERE ${whereSql}
+      ORDER BY playlist_items.position ASC, playlist_items.added_at ASC
+      LIMIT ? OFFSET ?`,
+      ...params,
+      pageSize,
+      offset,
+    );
+    const total = Number(totalRow?.total ?? 0);
+
+    return {
+      items: rows.map((row) => this.mapPlaylistItem(row)),
+      page,
+      pageSize,
+      total,
+      hasMore: offset + rows.length < total,
+    };
+  }
+
+  addTrackToPlaylist(playlistId: string, trackId: string, timestamp = nowIso()): LibraryPlaylistItem {
+    const [item] = this.addTracksToPlaylist(playlistId, [trackId], timestamp);
+    if (!item) {
+      throw new Error(`Failed to add track ${trackId} to playlist ${playlistId}`);
+    }
+
+    return item;
+  }
+
+  addTracksToPlaylist(playlistId: string, trackIds: string[], timestamp = nowIso()): LibraryPlaylistItem[] {
+    return this.transaction(() => {
+      const playlist = this.getPlaylist(playlistId);
+      if (!playlist) {
+        throw new Error(`Unknown playlist ${playlistId}`);
+      }
+
+      const items: LibraryPlaylistItem[] = [];
+      let nextPosition = Number(this.getRow('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM playlist_items WHERE playlist_id = ?', playlistId)?.next_position ?? 0);
+
+      for (const trackId of trackIds) {
+        const track = this.getTrack(trackId);
+        if (!track) {
+          throw new Error(`Unknown track ${trackId}`);
+        }
+
+        const itemId = randomUUID();
+        this.run(
+          `INSERT INTO playlist_items (
+            id, playlist_id, media_type, media_id, source_provider, source_item_id,
+            title_snapshot, artist_snapshot, album_snapshot, duration_snapshot,
+            cover_id, position, added_at, added_from, unavailable
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          itemId,
+          playlistId,
+          'track',
+          track.id,
+          'local',
+          null,
+          track.title,
+          track.artist,
+          track.album,
+          track.duration,
+          track.coverId,
+          nextPosition,
+          timestamp,
+          'library',
+          0,
+        );
+        nextPosition += 1;
+
+        const itemRow = this.getPlaylistItemRow(itemId);
+        const item = itemRow ? this.mapPlaylistItem(itemRow) : null;
+        if (item) {
+          items.push(item);
+        }
+      }
+
+      this.refreshPlaylistItemCount(playlistId, timestamp);
+      return items;
+    });
+  }
+
+  removePlaylistItem(itemId: string): void {
+    this.transaction(() => {
+      const row = this.getRow('SELECT playlist_id FROM playlist_items WHERE id = ?', itemId);
+      if (!row) {
+        return;
+      }
+
+      const playlistId = String(row.playlist_id);
+      this.run('DELETE FROM playlist_items WHERE id = ?', itemId);
+      this.resequencePlaylistItems(playlistId);
+      this.refreshPlaylistItemCount(playlistId);
+    });
+  }
+
+  movePlaylistItem(playlistId: string, itemId: string, targetPosition: number): void {
+    this.transaction(() => {
+      const rows = this.allRows('SELECT id FROM playlist_items WHERE playlist_id = ? ORDER BY position ASC, added_at ASC', playlistId);
+      const fromIndex = rows.findIndex((row) => row.id === itemId);
+      if (fromIndex < 0) {
+        throw new Error(`Unknown playlist item ${itemId}`);
+      }
+
+      const next = [...rows];
+      const [moved] = next.splice(fromIndex, 1);
+      const insertIndex = Math.max(0, Math.min(Math.floor(targetPosition), next.length));
+      next.splice(insertIndex, 0, moved);
+      next.forEach((row, index) => {
+        this.run('UPDATE playlist_items SET position = ? WHERE id = ?', index, row.id);
+      });
+      this.run('UPDATE playlists SET updated_at = ? WHERE id = ?', nowIso(), playlistId);
+    });
+  }
+
+  clearPlaylist(playlistId: string): void {
+    this.transaction(() => {
+      this.run('DELETE FROM playlist_items WHERE playlist_id = ?', playlistId);
+      this.refreshPlaylistItemCount(playlistId);
+    });
+  }
+
   getSummary(): LibrarySummary {
     const songCount = Number(this.getRow('SELECT COUNT(*) AS total FROM tracks WHERE missing = 0')?.total ?? 0);
     const albumCount = Number(this.getRow('SELECT COUNT(*) AS total FROM albums')?.total ?? 0);
@@ -1614,6 +1887,144 @@ export class LibraryStore {
       coverCacheVersion: currentCoverCacheVersion,
       ...paths,
     };
+  }
+
+  private refreshPlaylistItemCount(playlistId: string, timestamp = nowIso()): void {
+    this.run(
+      `UPDATE playlists SET
+        item_count = (SELECT COUNT(*) FROM playlist_items WHERE playlist_id = ?),
+        updated_at = ?
+       WHERE id = ?`,
+      playlistId,
+      timestamp,
+      playlistId,
+    );
+  }
+
+  private resequencePlaylistItems(playlistId: string): void {
+    const rows = this.allRows('SELECT id FROM playlist_items WHERE playlist_id = ? ORDER BY position ASC, added_at ASC', playlistId);
+    rows.forEach((row, index) => {
+      this.run('UPDATE playlist_items SET position = ? WHERE id = ?', index, row.id);
+    });
+  }
+
+  private getPlaylistItemRow(itemId: string): DbRow | null {
+    return this.getRow(
+      `SELECT
+        playlist_items.*,
+        tracks.id AS track_id,
+        tracks.path AS track_path,
+        tracks.title AS track_title,
+        tracks.artist AS track_artist,
+        tracks.album AS track_album,
+        tracks.album_artist AS track_album_artist,
+        tracks.track_no AS track_track_no,
+        tracks.disc_no AS track_disc_no,
+        tracks.year AS track_year,
+        tracks.genre AS track_genre,
+        tracks.duration AS track_duration,
+        tracks.codec AS track_codec,
+        tracks.sample_rate AS track_sample_rate,
+        tracks.bit_depth AS track_bit_depth,
+        tracks.bitrate AS track_bitrate,
+        tracks.cover_id AS track_cover_id,
+        tracks.metadata_status AS track_metadata_status,
+        tracks.embedded_metadata_status AS track_embedded_metadata_status,
+        tracks.embedded_cover_status AS track_embedded_cover_status,
+        tracks.network_metadata_status AS track_network_metadata_status,
+        tracks.field_sources_json AS track_field_sources_json,
+        tracks.missing AS track_missing
+      FROM playlist_items
+      LEFT JOIN tracks ON tracks.id = playlist_items.media_id
+      WHERE playlist_items.id = ?`,
+      itemId,
+    );
+  }
+
+  private mapPlaylist(row: DbRow): LibraryPlaylist {
+    const coverId = textOrNull(row.cover_id);
+
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      description: textOrNull(row.description),
+      kind: this.mapPlaylistKind(row.kind),
+      sourceProvider: this.mapPlaylistSourceProvider(row.source_provider),
+      sourcePlaylistId: textOrNull(row.source_playlist_id),
+      coverId,
+      coverThumb: coverId ? this.toCoverUrl(coverId, 'album') : null,
+      sortMode: this.mapPlaylistSortMode(row.sort_mode),
+      itemCount: Number(row.item_count ?? 0),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private mapPlaylistItem(row: DbRow): LibraryPlaylistItem {
+    const coverId = textOrNull(row.cover_id) ?? textOrNull(row.track_cover_id);
+    const trackMissing = Number(row.track_missing ?? 1) !== 0;
+    const hasTrack = textOrNull(row.track_id) !== null && !trackMissing;
+    const unavailable = Number(row.unavailable ?? 0) !== 0 || (row.media_type === 'track' && (!hasTrack || !textOrNull(row.media_id)));
+
+    return {
+      id: String(row.id),
+      playlistId: String(row.playlist_id),
+      mediaType: this.mapPlaylistMediaType(row.media_type),
+      mediaId: textOrNull(row.media_id),
+      sourceProvider: this.mapPlaylistSourceProvider(row.source_provider),
+      sourceItemId: textOrNull(row.source_item_id),
+      titleSnapshot: textOrNull(row.title_snapshot),
+      artistSnapshot: textOrNull(row.artist_snapshot),
+      albumSnapshot: textOrNull(row.album_snapshot),
+      durationSnapshot: numberOrNull(row.duration_snapshot),
+      coverId,
+      coverThumb: coverId ? this.toCoverUrl(coverId, 'thumb') : null,
+      position: Number(row.position ?? 0),
+      addedAt: String(row.added_at),
+      addedFrom: textOrNull(row.added_from),
+      unavailable,
+      track: hasTrack
+        ? this.mapTrack({
+            id: row.track_id,
+            path: row.track_path,
+            title: row.track_title,
+            artist: row.track_artist,
+            album: row.track_album,
+            album_artist: row.track_album_artist,
+            track_no: row.track_track_no,
+            disc_no: row.track_disc_no,
+            year: row.track_year,
+            genre: row.track_genre,
+            duration: row.track_duration,
+            codec: row.track_codec,
+            sample_rate: row.track_sample_rate,
+            bit_depth: row.track_bit_depth,
+            bitrate: row.track_bitrate,
+            cover_id: row.track_cover_id,
+            metadata_status: row.track_metadata_status,
+            embedded_metadata_status: row.track_embedded_metadata_status,
+            embedded_cover_status: row.track_embedded_cover_status,
+            network_metadata_status: row.track_network_metadata_status,
+            field_sources_json: row.track_field_sources_json,
+          })
+        : null,
+    };
+  }
+
+  private mapPlaylistKind(value: unknown): LibraryPlaylist['kind'] {
+    return value === 'smart' || value === 'synced' || value === 'system' ? value : 'manual';
+  }
+
+  private mapPlaylistSourceProvider(value: unknown): LibraryPlaylist['sourceProvider'] {
+    return value === 'netease' || value === 'qqmusic' || value === 'remote' ? value : 'local';
+  }
+
+  private mapPlaylistSortMode(value: unknown): LibraryPlaylist['sortMode'] {
+    return value === 'titleAsc' || value === 'titleDesc' || value === 'artistAsc' || value === 'addedDesc' ? value : 'manual';
+  }
+
+  private mapPlaylistMediaType(value: unknown): LibraryPlaylistItem['mediaType'] {
+    return value === 'stream_track' || value === 'remote_file' ? value : 'track';
   }
 
   private getAverageAlbumPayloadBytes(): number | null {
