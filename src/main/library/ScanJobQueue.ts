@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { AlbumMergeStrategy, AlbumService } from './AlbumService';
 import type { LibraryStore } from './LibraryStore';
 import type {
@@ -152,14 +153,17 @@ export class ScanJobQueue {
 
       const changedFiles: ChangedFile[] = [];
       const coverRepairItems: CoverRepairItem[] = [];
+      const fingerprintsByPath = this.store.getTrackFingerprintsByFolder(folder.id);
 
       for (const file of files) {
         this.throwIfCancelled(jobId);
 
-        const existing = this.store.findTrackCoverState(file.path);
+        const existingFingerprint = fingerprintsByPath.get(resolve(file.path)) ?? null;
 
-        if (existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs) {
-          if (this.hasCompleteCoverCache(existing)) {
+        if (existingFingerprint && existingFingerprint.sizeBytes === file.sizeBytes && existingFingerprint.mtimeMs === file.mtimeMs) {
+          const existingCoverState = this.store.findTrackCoverState(file.path);
+
+          if (existingCoverState && this.hasCompleteCoverCache(existingCoverState)) {
             processedFiles += 1;
             skippedFiles += 1;
             progress.update({
@@ -169,10 +173,10 @@ export class ScanJobQueue {
             continue;
           }
 
-          if (this.canRepairCoverCache(existing)) {
+          if (existingCoverState && this.canRepairCoverCache(existingCoverState)) {
             coverRepairItems.push({
               file,
-              state: existing,
+              state: existingCoverState,
               cover: null,
             });
             continue;
@@ -180,14 +184,14 @@ export class ScanJobQueue {
 
           changedFiles.push({
             file,
-            existingTrackId: existing.id,
+            existingTrackId: existingFingerprint.id,
           });
           continue;
         }
 
         changedFiles.push({
           file,
-          existingTrackId: existing?.id ?? null,
+          existingTrackId: existingFingerprint?.id ?? null,
         });
       }
 

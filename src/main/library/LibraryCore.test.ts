@@ -370,6 +370,7 @@ describe('Library Core', () => {
         'idx_artist_albums_album_id',
         'idx_folders_path',
         'idx_covers_id',
+        'idx_covers_source_hash',
         'idx_playback_history_started_at',
         'idx_playback_history_track_id',
         'idx_playback_history_completed',
@@ -384,7 +385,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     reopened.close();
   });
 

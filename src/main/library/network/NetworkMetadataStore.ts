@@ -151,9 +151,10 @@ export class NetworkMetadataStore {
        AND (${missingPredicate})
        ORDER BY tracks.path COLLATE NOCASE ASC
        LIMIT ?`,
-      Math.max(1, Math.min(500, limit)),
+      500,
     );
     const targets: NetworkMissingMetadataTarget[] = [];
+    const targetLimit = Math.max(1, Math.min(500, limit));
 
     for (const row of rows) {
       const fieldSources = parseJsonObject(row.field_sources_json) as FieldSources;
@@ -190,7 +191,7 @@ export class NetworkMetadataStore {
         embeddedCoverStatus: this.embeddedStatus(row.embedded_cover_status),
       });
 
-      if (targets.length >= limit) {
+      if (targets.length >= targetLimit) {
         break;
       }
     }

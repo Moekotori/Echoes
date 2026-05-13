@@ -327,6 +327,12 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 11,
+    apply: (database) => {
+      database.exec('CREATE INDEX IF NOT EXISTS idx_covers_source_hash ON covers(source_hash)');
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

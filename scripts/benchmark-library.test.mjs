@@ -18,6 +18,11 @@ describe('benchmark-library', () => {
     expect(result.averageCoverThumbLength).toBeGreaterThan(0);
     expect(result.getAlbumsReturnsForbiddenCoverPayload).toBe(false);
     expect(result.unchangedScanSkipped).toBe(25);
+    expect(result.duplicateCoverLookupCount).toBe(25);
+    expect(result.upsertCoverDuplicateCount).toBeGreaterThan(0);
+    expect(result.databaseSizeBytes).toBeGreaterThan(0);
+    expect(result.memory.rss).toBeGreaterThan(0);
+    expect(result.memory.heapUsed).toBeGreaterThan(0);
   });
 
   it('runs a small album-wall benchmark with fake cover cache payloads', () => {

@@ -378,6 +378,24 @@ export class LibraryStore {
     };
   }
 
+  getTrackFingerprintsByFolder(folderId: string): Map<string, StoredTrackFingerprint> {
+    const rows = this.allRows(
+      'SELECT id, path, size_bytes, mtime_ms FROM tracks WHERE folder_id = ? AND missing = 0',
+      folderId,
+    );
+    const fingerprints = new Map<string, StoredTrackFingerprint>();
+
+    for (const row of rows) {
+      fingerprints.set(String(row.path), {
+        id: String(row.id),
+        sizeBytes: Number(row.size_bytes),
+        mtimeMs: Number(row.mtime_ms),
+      });
+    }
+
+    return fingerprints;
+  }
+
   findTrackCoverState(filePath: string): StoredTrackCoverState | null {
     const row = this.getRow(
       `SELECT

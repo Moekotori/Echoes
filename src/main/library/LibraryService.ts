@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join, resolve } from 'node:path';
 import electron from 'electron';
 import { applyCoverArt, applyTags } from 'taglib-wasm';
-import { getAppSettings } from '../app/appSettings';
+import { defaultSettings, getAppSettings } from '../app/appSettings';
 import { createDatabase } from '../database/createDatabase';
 import { AlbumService } from './AlbumService';
 import type { AlbumMergeStrategy } from './AlbumService';
@@ -75,7 +75,7 @@ export class LibraryService {
     private readonly coverExtractor: CoverExtractor = new TsCoverExtractor(),
     private readonly metadataReader: MetadataReader = new TsMetadataReader(),
     private readonly networkMetadataService: NetworkMetadataService | null = null,
-    private readonly readAppSettings: () => AppSettings = getAppSettings,
+    private readonly readAppSettings: () => AppSettings = getAppSettingsSafe,
   ) {}
 
   addFolder(folderPath: string): LibraryFolder {
@@ -566,13 +566,13 @@ export const createLibraryService = (
   const coverExtractor = dependencies.coverExtractor ?? new TsCoverExtractor();
   const coverCacheDir = dependencies.coverCacheDir
     ? resolveCoverCacheDir(databasePath, dependencies.coverCacheDir)
-    : resolveConfiguredCoverCacheDir(databasePath, (dependencies.appSettings ?? getAppSettings)());
+    : resolveConfiguredCoverCacheDir(databasePath, (dependencies.appSettings ?? getAppSettingsSafe)());
   const albumService = new AlbumService();
   const scanJobQueue = new ScanJobQueue(store, fileScanner, metadataReader, coverExtractor, albumService, {
     coverCacheDir,
     metadataConcurrency: dependencies.metadataConcurrency,
     coverConcurrency: dependencies.coverConcurrency,
-    getAlbumMergeStrategy: () => (dependencies.appSettings ?? getAppSettings)().albumMergeStrategy,
+    getAlbumMergeStrategy: () => (dependencies.appSettings ?? getAppSettingsSafe)().albumMergeStrategy,
   });
 
   const networkMetadataService = new NetworkMetadataService(database);
@@ -587,7 +587,7 @@ export const createLibraryService = (
     coverExtractor,
     metadataReader,
     networkMetadataService,
-    dependencies.appSettings ?? getAppSettings,
+    dependencies.appSettings ?? getAppSettingsSafe,
   );
 };
 
@@ -691,6 +691,14 @@ const readCoverImageFromUrl = async (url: string, mimeTypeHint: string | null): 
     data: new Uint8Array(await response.arrayBuffer()),
     mimeType,
   };
+};
+
+const getAppSettingsSafe = (): AppSettings => {
+  try {
+    return getAppSettings();
+  } catch {
+    return { ...defaultSettings };
+  }
 };
 
 const metadataWithEmbeddedCover = (data: Uint8Array, mimeType: string): MetadataResult =>

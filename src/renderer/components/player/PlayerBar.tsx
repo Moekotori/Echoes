@@ -14,6 +14,10 @@ type PlayerBarProps = {
   onOpenAudioSettings?: () => void;
 };
 
+const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
+const activePollingIntervalMs = 500;
+const idlePollingIntervalMs = 2000;
+
 export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
   const queue = usePlaybackQueue();
   const setQueueCurrentTrackId = queue.setCurrentTrackId;
@@ -22,6 +26,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const [error, setError] = useState<string | null>(null);
   const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
   const [openPopover, setOpenPopover] = useState<'volume' | 'speed' | null>(null);
+  const [isWindowVisible, setIsWindowVisible] = useState(() => document.visibilityState !== 'hidden');
   const handledEndedTrackRef = useRef<string | null>(null);
   const refreshRequestRef = useRef(0);
 
@@ -57,19 +62,12 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     }
   }, [setQueueCurrentTrackId]);
 
-  useEffect(() => {
-    void refreshStatus();
-    // TODO: Replace this polling with playback:onStatus / audio:onStatus IPC push events.
-    // Position updates must be throttled and must not cause SongsPage or TrackList rerenders.
-    const timer = window.setInterval(() => {
-      void refreshStatus();
-    }, 500);
-
-    return () => window.clearInterval(timer);
-  }, [refreshStatus]);
-
   const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
   const isPlaying = state === 'playing';
+  const pollIntervalMs =
+    !isWindowVisible || (idlePollingStates.has(state) && seekPreviewSeconds === null)
+      ? idlePollingIntervalMs
+      : activePollingIntervalMs;
   const statusTrackId = playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const trackId = queue.currentTrackId ?? statusTrackId;
   const currentTrack = queue.currentTrack ?? queue.tracks.find((track) => track.id === trackId) ?? null;
@@ -83,6 +81,31 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   useEffect(() => {
     queue.syncPlaybackState(state);
   }, [queue, state]);
+
+  useEffect(() => {
+    const handleVisibilityChange = (): void => {
+      const nextVisible = document.visibilityState !== 'hidden';
+      setIsWindowVisible(nextVisible);
+
+      if (nextVisible) {
+        void refreshStatus();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    void refreshStatus();
+    // TODO: Replace this polling with playback:onStatus / audio:onStatus IPC push events.
+    // Position updates must be throttled and must not cause SongsPage or TrackList rerenders.
+    const timer = window.setInterval(() => {
+      void refreshStatus();
+    }, pollIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [pollIntervalMs, refreshStatus]);
 
   const runPlaybackAction = useCallback(
     async (action: () => Promise<PlaybackStatus | null>): Promise<void> => {

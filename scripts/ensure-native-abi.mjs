@@ -35,6 +35,11 @@ const run = (command, args, options = {}) => {
   return typeof result.stdout === 'string' ? result.stdout.trim() : '';
 };
 
+const findNpmCli = () => {
+  const npmCliPath = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  return existsSync(npmCliPath) ? npmCliPath : null;
+};
+
 const readJson = (filePath) => JSON.parse(readFileSync(filePath, 'utf8'));
 
 const getElectronAbi = async (electronVersion) => {
@@ -132,6 +137,16 @@ const isCurrent = (marker, info) => {
 const rebuild = (info) => {
   if (info.runtime === 'electron') {
     run(join(projectRoot, 'node_modules', '.bin', executable('electron-rebuild')), ['-f', '-w', 'better-sqlite3'], {
+      stdio: 'inherit',
+      encoding: undefined,
+    });
+    return;
+  }
+
+  const npmCliPath = findNpmCli();
+
+  if (npmCliPath) {
+    run(process.execPath, [npmCliPath, 'rebuild', 'better-sqlite3'], {
       stdio: 'inherit',
       encoding: undefined,
     });

@@ -92,6 +92,7 @@ CREATE INDEX idx_albums_album_key ON albums(album_key);
 CREATE INDEX idx_album_tracks_album_id ON album_tracks(album_id);
 CREATE INDEX idx_album_tracks_track_id ON album_tracks(track_id);
 CREATE INDEX idx_covers_id ON covers(id);
+CREATE INDEX idx_covers_source_hash ON covers(source_hash);
 `;
 
 const nowIso = () => new Date().toISOString();
@@ -326,7 +327,79 @@ export const runBenchmark = (trackCount, options = {}) => {
       const rows = database.prepare('SELECT path, size_bytes, mtime_ms FROM tracks WHERE missing = 0').all();
       return rows.filter((row) => fingerprints.get(row.path) === `${row.size_bytes}:${row.mtime_ms}`).length;
     });
+    const duplicateCoverLookup = measure(() => {
+      const statement = database.prepare('SELECT id, source_type FROM covers WHERE source_hash = ?');
+      let found = 0;
+
+      for (const track of tracks) {
+        const albumIndex = Math.floor((Number(track.id.replace('track-', '')) - 1) / (options.tracksPerAlbum ?? 10)) + 1;
+        if (statement.get(`hash-${albumIndex}`)) {
+          found += 1;
+        }
+      }
+
+      return found;
+    });
+    const upsertCoverDuplicate = measure(() => {
+      const select = database.prepare('SELECT id, source_type FROM covers WHERE source_hash = ?');
+      const update = database.prepare(
+        `UPDATE covers SET
+          source_type = ?,
+          mime_type = ?,
+          thumb_path = ?,
+          album_path = ?,
+          large_path = ?,
+          original_ref = ?,
+          cache_version = ?,
+          warnings_json = ?,
+          errors_json = ?,
+          cover_thumb = ?,
+          cover_large = ?,
+          cover_original = ?,
+          updated_at = ?
+        WHERE id = ?`,
+      );
+      const timestamp = nowIso();
+      let updated = 0;
+
+      database.transaction(() => {
+        for (const coverId of new Set(tracks.map((track) => track.coverId).filter(Boolean))) {
+          const albumIndex = String(coverId).replace(/^cover-/, '');
+          const existing = select.get(`hash-${albumIndex}`);
+
+          if (!existing) {
+            continue;
+          }
+
+          const thumbPath = resolve(`D:/FakeLibrary/.echo-cover-cache/${albumIndex}/thumb.webp`);
+          const albumPath = resolve(`D:/FakeLibrary/.echo-cover-cache/${albumIndex}/album.webp`);
+          const largePath = resolve(`D:/FakeLibrary/.echo-cover-cache/${albumIndex}/large.webp`);
+          const originalRef = resolve(`D:/FakeLibrary/.echo-cover-cache/${albumIndex}/original.jpg`);
+          update.run(
+            existing.source_type,
+            'image/webp',
+            thumbPath,
+            albumPath,
+            largePath,
+            originalRef,
+            1,
+            '[]',
+            '[]',
+            thumbPath,
+            largePath,
+            originalRef,
+            timestamp,
+            existing.id,
+          );
+          updated += 1;
+        }
+      })();
+
+      return updated;
+    });
     const memory = process.memoryUsage();
+    database.pragma('wal_checkpoint(TRUNCATE)');
+    const databaseSizeBytes = statSync(databasePath).size;
 
     return {
       tracks: trackCount,
@@ -346,11 +419,15 @@ export const runBenchmark = (trackCount, options = {}) => {
       getAlbumsReturnsForbiddenCoverPayload: /large|original|base64/i.test(getAlbumsPayload),
       unchangedScanSkipDurationMs: unchangedScanSkip.durationMs,
       unchangedScanSkipped: unchangedScanSkip.result,
+      duplicateCoverLookupDurationMs: duplicateCoverLookup.durationMs,
+      duplicateCoverLookupCount: duplicateCoverLookup.result,
+      upsertCoverDuplicateDurationMs: upsertCoverDuplicate.durationMs,
+      upsertCoverDuplicateCount: upsertCoverDuplicate.result,
       memory: {
         rss: memory.rss,
         heapUsed: memory.heapUsed,
       },
-      databaseSizeBytes: statSync(databasePath).size,
+      databaseSizeBytes,
       databasePath,
     };
   } finally {
@@ -376,16 +453,18 @@ const printResult = (result) => {
   console.log(`albums count: ${result.albumsCount}`);
   console.log(`insert duration: ${result.insertDurationMs.toFixed(2)} ms`);
   console.log(`grouping duration: ${result.groupingDurationMs.toFixed(2)} ms`);
-  console.log(`getTracks page1 duration: ${result.getTracksPage1DurationMs.toFixed(2)} ms`);
-  console.log(`getAlbums page1 duration: ${result.getAlbumsPage1DurationMs.toFixed(2)} ms`);
+  console.log(`getTracks first page duration: ${result.getTracksPage1DurationMs.toFixed(2)} ms`);
+  console.log(`getAlbums first page duration: ${result.getAlbumsPage1DurationMs.toFixed(2)} ms`);
   console.log(`getAlbums page10 duration: ${result.getAlbumsPage10DurationMs.toFixed(2)} ms`);
   console.log(`albums total count: ${result.albumsTotalCount} in ${result.albumsTotalDurationMs.toFixed(2)} ms`);
   console.log(`payload item count page1 / page10: ${result.getAlbumsPage1ItemCount} / ${result.getAlbumsPage10ItemCount}`);
   console.log(`average coverThumb string length: ${result.averageCoverThumbLength.toFixed(2)}`);
   console.log(`getAlbums page1 payload bytes: ${result.getAlbumsPage1PayloadBytes}`);
   console.log(`getAlbums returns large/original/base64: ${result.getAlbumsReturnsForbiddenCoverPayload}`);
-  console.log(`unchanged scan skip: ${result.unchangedScanSkipped} in ${result.unchangedScanSkipDurationMs.toFixed(2)} ms`);
-  console.log(`memory rss / heapUsed: ${result.memory.rss} / ${result.memory.heapUsed}`);
+  console.log(`unchanged scan checking/cache duration: ${result.unchangedScanSkipDurationMs.toFixed(2)} ms (${result.unchangedScanSkipped} skipped)`);
+  console.log(`duplicate cover lookup duration: ${result.duplicateCoverLookupDurationMs.toFixed(2)} ms (${result.duplicateCoverLookupCount} hits)`);
+  console.log(`upsertCover duplicate duration: ${result.upsertCoverDuplicateDurationMs.toFixed(2)} ms (${result.upsertCoverDuplicateCount} updates)`);
+  console.log(`memory rss/heapUsed: ${result.memory.rss} / ${result.memory.heapUsed}`);
   console.log(`database size: ${result.databaseSizeBytes}`);
   console.log('');
 };

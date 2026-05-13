@@ -260,6 +260,7 @@ CREATE INDEX IF NOT EXISTS idx_artist_albums_artist_id ON artist_albums(artist_i
 CREATE INDEX IF NOT EXISTS idx_artist_albums_album_id ON artist_albums(album_id);
 CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path);
 CREATE INDEX IF NOT EXISTS idx_covers_id ON covers(id);
+CREATE INDEX IF NOT EXISTS idx_covers_source_hash ON covers(source_hash);
 CREATE INDEX IF NOT EXISTS idx_network_metadata_candidates_track_id ON network_metadata_candidates(track_id);
 CREATE INDEX IF NOT EXISTS idx_network_metadata_decisions_track_id ON network_metadata_decisions(track_id);
 CREATE INDEX IF NOT EXISTS idx_network_cover_candidates_track_id ON network_cover_candidates(track_id);
