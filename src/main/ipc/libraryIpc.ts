@@ -4,6 +4,9 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type {
   EditableTrackTags,
   FinishPlaybackHistoryRequest,
+  LibraryFolderChildrenQuery,
+  LibraryFolderPathRequest,
+  LibraryFolderTracksQuery,
   LibraryPageQuery,
   PlaylistSortMode,
   LibrarySort,
@@ -72,6 +75,45 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
   }
 
   return query;
+};
+
+const normalizeFolderChildrenQuery = (value: unknown): LibraryFolderChildrenQuery => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('folder children query must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    folderId: requireText(input.folderId, 'folderId'),
+    parentPath: typeof input.parentPath === 'string' && input.parentPath.trim() ? input.parentPath : undefined,
+  };
+};
+
+const normalizeFolderPathRequest = (value: unknown): LibraryFolderPathRequest => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('folder path request must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    folderId: requireText(input.folderId, 'folderId'),
+    path: typeof input.path === 'string' && input.path.trim() ? input.path : undefined,
+  };
+};
+
+const normalizeFolderTracksQuery = (value: unknown): LibraryFolderTracksQuery => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('folder tracks query must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  const pageQuery = normalizeQuery(value);
+  return {
+    ...pageQuery,
+    folderId: requireText(input.folderId, 'folderId'),
+    path: typeof input.path === 'string' && input.path.trim() ? input.path : undefined,
+    recursive: typeof input.recursive === 'boolean' ? input.recursive : true,
+  };
 };
 
 const normalizePlaylistItemsQuery = (value: unknown): Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'> => {
@@ -368,6 +410,20 @@ export const registerLibraryIpc = (): void => {
     getLibraryService().addFolder(requireText(folderPath, 'folderPath')),
   );
   ipcMain.handle(IpcChannels.LibraryGetFolders, () => getLibraryService().getFolders());
+  ipcMain.handle(IpcChannels.LibraryGetFolderOverviews, () => getLibraryService().getFolderOverviews());
+  ipcMain.handle(IpcChannels.LibraryGetFolderChildren, (_event, query: unknown) =>
+    getLibraryService().getFolderChildren(normalizeFolderChildrenQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetFolderTracks, (_event, query: unknown) =>
+    getLibraryService().getFolderTracks(normalizeFolderTracksQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryOpenLibraryFolderPath, async (_event, request: unknown): Promise<void> => {
+    const result = await shell.openPath(getLibraryService().resolveLibraryFolderPath(normalizeFolderPathRequest(request)));
+
+    if (result) {
+      throw new Error(result);
+    }
+  });
   ipcMain.handle(IpcChannels.LibraryRemoveFolder, (_event, folderId: unknown) =>
     getLibraryService().removeFolder(requireText(folderId, 'folderId')),
   );
@@ -420,6 +476,9 @@ export const registerLibraryIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.LibraryGetAlbums, (_event, query: unknown) =>
     getLibraryService().getAlbums(normalizeQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetAlbum, (_event, albumId: unknown) =>
+    getLibraryService().getAlbum(requireText(albumId, 'albumId')),
   );
   ipcMain.handle(IpcChannels.LibraryGetArtists, (_event, query: unknown) =>
     getLibraryService().getArtists(normalizeQuery(query)),

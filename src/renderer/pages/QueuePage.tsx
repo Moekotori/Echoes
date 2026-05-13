@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Disc3,
   FolderOpen,
@@ -65,6 +66,7 @@ export const QueuePage = (): JSX.Element => {
   const [isGeneratingRandomQueue, setIsGeneratingRandomQueue] = useState(false);
   const [draggedQueueId, setDraggedQueueId] = useState<string | null>(null);
   const [dropTargetQueueId, setDropTargetQueueId] = useState<string | null>(null);
+  const queueListRef = useRef<HTMLDivElement | null>(null);
   const currentIndex = useMemo(
     () => (queue.currentQueueId ? queue.items.findIndex((item) => item.queueId === queue.currentQueueId) : -1),
     [queue.currentQueueId, queue.items],
@@ -80,6 +82,12 @@ export const QueuePage = (): JSX.Element => {
   const nowPlaying = queue.currentTrack;
   const nowPlayingTags = qualityTags(nowPlaying);
   const sourceLabel = queue.currentItem?.source.label ?? t('queue.now.sourceFallback');
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => queueListRef.current,
+    estimateSize: () => 64,
+    overscan: 12,
+  });
   const repeatLabels: Record<RepeatMode, string> = useMemo(
     () => ({
       off: t('queue.repeat.off'),
@@ -283,72 +291,82 @@ export const QueuePage = (): JSX.Element => {
         </div>
 
         {rows.length > 0 ? (
-          <div className="queue-list" role="list">
-            {rows.map((item) => {
-              const isCurrent = item.queueId === queue.currentQueueId;
-              const rowQualityTags = qualityTags(item.track);
-              return (
-                <div
-                  className="queue-row"
-                  data-current={isCurrent}
-                  data-dragging={draggedQueueId === item.queueId}
-                  data-drop-target={dropTargetQueueId === item.queueId && draggedQueueId !== item.queueId}
-                  draggable
-                  key={item.queueId}
-                  role="listitem"
-                  onDragEnd={handleDragEnd}
-                  onDragOver={(event) => handleDragOver(event, item)}
-                  onDragStart={(event) => handleDragStart(event, item)}
-                  onDrop={(event) => handleDrop(event, item)}
-                >
-                  <span className="queue-drag-handle" aria-label={t('queue.action.dragLabel', { title: item.track.title })} title={t('queue.action.dragTitle')}>
-                    <GripVertical size={17} />
-                  </span>
-                  <div className="queue-row-cover" data-empty={!item.track.coverThumb}>
-                    {item.track.coverThumb ? <img alt="" src={item.track.coverThumb} /> : <Music2 size={19} />}
-                  </div>
-                  <div className="queue-row-copy">
-                    <strong>{item.track.title}</strong>
-                    <span>{item.track.artist || item.track.albumArtist || t('queue.unknownArtist')}</span>
-                  </div>
-                  <div className="queue-row-quality" aria-label={t('queue.now.quality')}>
-                    {rowQualityTags.length > 0 ? rowQualityTags.map((tag) => <span key={`${item.queueId}-${tag}`}>{tag}</span>) : <span>{t('queue.quality.unknown')}</span>}
-                  </div>
-                  <span className="queue-row-source">{item.source.label}</span>
-                  <span className="queue-row-duration">{formatDuration(item.track.duration)}</span>
-                  <div className="queue-row-actions">
-                    <button
-                      className="queue-icon-button"
-                      type="button"
-                      aria-label={t('queue.action.play', { title: item.track.title })}
-                      title={t('queue.action.play', { title: item.track.title })}
-                      onClick={() => void runQueueAction(() => queue.playQueueItem(item.queueId))}
+          <div className="queue-list" ref={queueListRef} role="list" data-virtualized="true">
+            <div className="queue-virtual-spacer" style={{ height: rowVirtualizer.getTotalSize() }}>
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const item = rows[virtualRow.index];
+                const isCurrent = item.queueId === queue.currentQueueId;
+                const rowQualityTags = qualityTags(item.track);
+                return (
+                  <div
+                    className="queue-virtual-row"
+                    key={item.queueId}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div
+                      className="queue-row"
+                      data-current={isCurrent}
+                      data-dragging={draggedQueueId === item.queueId}
+                      data-drop-target={dropTargetQueueId === item.queueId && draggedQueueId !== item.queueId}
+                      draggable
+                      role="listitem"
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(event) => handleDragOver(event, item)}
+                      onDragStart={(event) => handleDragStart(event, item)}
+                      onDrop={(event) => handleDrop(event, item)}
                     >
-                      <Play size={16} fill="currentColor" />
-                    </button>
-                    <button
-                      className="queue-icon-button"
-                      type="button"
-                      aria-label={t('queue.action.playNext', { title: item.track.title })}
-                      title={t('queue.action.playNext', { title: item.track.title })}
-                      disabled={isCurrent}
-                      onClick={() => handlePlayItemNext(item)}
-                    >
-                      <Shuffle size={15} />
-                    </button>
-                    <button
-                      className="queue-icon-button danger"
-                      type="button"
-                      aria-label={t('queue.action.remove', { title: item.track.title })}
-                      title={t('queue.action.remove', { title: item.track.title })}
-                      onClick={() => queue.removeQueueItem(item.queueId)}
-                    >
-                      <X size={16} />
-                    </button>
+                      <span className="queue-drag-handle" aria-label={t('queue.action.dragLabel', { title: item.track.title })} title={t('queue.action.dragTitle')}>
+                        <GripVertical size={17} />
+                      </span>
+                      <div className="queue-row-cover" data-empty={!item.track.coverThumb}>
+                        {item.track.coverThumb ? <img alt="" src={item.track.coverThumb} /> : <Music2 size={19} />}
+                      </div>
+                      <div className="queue-row-copy">
+                        <strong>{item.track.title}</strong>
+                        <span>{item.track.artist || item.track.albumArtist || t('queue.unknownArtist')}</span>
+                      </div>
+                      <div className="queue-row-quality" aria-label={t('queue.now.quality')}>
+                        {rowQualityTags.length > 0 ? rowQualityTags.map((tag) => <span key={`${item.queueId}-${tag}`}>{tag}</span>) : <span>{t('queue.quality.unknown')}</span>}
+                      </div>
+                      <span className="queue-row-source">{item.source.label}</span>
+                      <span className="queue-row-duration">{formatDuration(item.track.duration)}</span>
+                      <div className="queue-row-actions">
+                        <button
+                          className="queue-icon-button"
+                          type="button"
+                          aria-label={t('queue.action.play', { title: item.track.title })}
+                          title={t('queue.action.play', { title: item.track.title })}
+                          onClick={() => void runQueueAction(() => queue.playQueueItem(item.queueId))}
+                        >
+                          <Play size={16} fill="currentColor" />
+                        </button>
+                        <button
+                          className="queue-icon-button"
+                          type="button"
+                          aria-label={t('queue.action.playNext', { title: item.track.title })}
+                          title={t('queue.action.playNext', { title: item.track.title })}
+                          disabled={isCurrent}
+                          onClick={() => handlePlayItemNext(item)}
+                        >
+                          <Shuffle size={15} />
+                        </button>
+                        <button
+                          className="queue-icon-button danger"
+                          type="button"
+                          aria-label={t('queue.action.remove', { title: item.track.title })}
+                          title={t('queue.action.remove', { title: item.track.title })}
+                          onClick={() => queue.removeQueueItem(item.queueId)}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="queue-empty-state">

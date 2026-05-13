@@ -8,9 +8,15 @@ import type {
   CoverResult,
   CoverVariant,
   LibraryAlbum,
+  LibraryAlbumDetail,
   LibraryArtist,
   LibraryDiagnostics,
   LibraryFolder,
+  LibraryFolderChildrenQuery,
+  LibraryFolderNode,
+  LibraryFolderOverview,
+  LibraryFolderPathRequest,
+  LibraryFolderTracksQuery,
   LibraryPage,
   LibraryPageQuery,
   LibraryPlaylist,
@@ -63,8 +69,47 @@ const pageFromHistoryQuery = (
 });
 
 const likeSearch = (search: string): string => `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
+const likePrefix = (prefix: string): string => `${prefix.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
 const searchSeparatorPattern = /[\s!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~_-]+/u;
 const cjkPattern = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const pathSeparatorPattern = /[\\/]+/u;
+const preferredPathSeparator = process.platform === 'win32' ? '\\' : '/';
+
+const stripTrailingPathSeparators = (value: string): string => {
+  const normalized = resolve(value);
+  const rootMatch = normalized.match(/^[A-Za-z]:[\\/]?$/u);
+
+  if (rootMatch || normalized === '/' || normalized === '\\') {
+    return normalized;
+  }
+
+  return normalized.replace(/[\\/]+$/u, '');
+};
+
+const pathCompareValue = (value: string): string =>
+  process.platform === 'win32' ? stripTrailingPathSeparators(value).toLocaleLowerCase() : stripTrailingPathSeparators(value);
+
+const isPathInsideOrEqual = (rootPath: string, candidatePath: string): boolean => {
+  const root = pathCompareValue(rootPath);
+  const candidate = pathCompareValue(candidatePath);
+
+  return candidate === root || candidate.startsWith(`${root}\\`) || candidate.startsWith(`${root}/`);
+};
+
+const childPathFor = (parentPath: string, childName: string): string =>
+  `${stripTrailingPathSeparators(parentPath)}${preferredPathSeparator}${childName}`;
+
+const folderDepth = (rootPath: string, folderPath: string): number => {
+  const root = stripTrailingPathSeparators(rootPath);
+  const folder = stripTrailingPathSeparators(folderPath);
+
+  if (pathCompareValue(root) === pathCompareValue(folder)) {
+    return 0;
+  }
+
+  const prefixLength = root.endsWith('\\') || root.endsWith('/') ? root.length : root.length + 1;
+  return folder.slice(prefixLength).split(pathSeparatorPattern).filter(Boolean).length;
+};
 
 type SearchPredicate = (term: string) => { sql: string; params: string[] };
 
@@ -247,6 +292,197 @@ export class LibraryStore {
   getFolder(folderId: string): LibraryFolder | null {
     const row = this.getRow("SELECT * FROM folders WHERE id = ? AND enabled = 1 AND status != 'removed'", folderId);
     return row ? this.mapFolder(row) : null;
+  }
+
+  getFolderOverviews(): LibraryFolderOverview[] {
+    return this.allRows(
+      "SELECT * FROM folders WHERE enabled = 1 AND status != 'removed' ORDER BY path COLLATE NOCASE",
+    ).map((row) => {
+      const folder = this.mapFolder(row);
+      const activeStats = this.getRow(
+        `SELECT
+          COUNT(*) AS track_count,
+          COALESCE(SUM(duration), 0) AS total_duration,
+          COALESCE(SUM(size_bytes), 0) AS total_size_bytes,
+          COALESCE(SUM(CASE WHEN UPPER(COALESCE(codec, '')) IN ('FLAC', 'ALAC', 'WAV', 'AIFF', 'APE', 'DSF', 'DFF') THEN 1 ELSE 0 END), 0) AS lossless_count,
+          COALESCE(SUM(CASE WHEN COALESCE(bit_depth, 0) >= 24 OR COALESCE(sample_rate, 0) >= 88200 THEN 1 ELSE 0 END), 0) AS hires_count
+         FROM tracks
+         WHERE folder_id = ? AND missing = 0`,
+        folder.id,
+      );
+      const missingStats = this.getRow(
+        `SELECT COUNT(*) AS missing_count
+         FROM tracks
+         WHERE folder_id = ? AND missing != 0`,
+        folder.id,
+      );
+      const albumStats = this.getRow(
+        `SELECT COUNT(DISTINCT album_tracks.album_id) AS album_count
+         FROM tracks
+         INNER JOIN album_tracks ON album_tracks.track_id = tracks.id
+         WHERE tracks.folder_id = ? AND tracks.missing = 0`,
+        folder.id,
+      );
+      const artistStats = this.getRow(
+        `SELECT COUNT(DISTINCT artist_tracks.artist_id) AS artist_count
+         FROM tracks
+         INNER JOIN artist_tracks ON artist_tracks.track_id = tracks.id
+         WHERE tracks.folder_id = ? AND tracks.missing = 0`,
+        folder.id,
+      );
+      const recentScanRow = this.getRow(
+        'SELECT * FROM scan_jobs WHERE folder_id = ? ORDER BY created_at DESC LIMIT 1',
+        folder.id,
+      );
+
+      return {
+        ...folder,
+        lastScanAt: textOrNull(row.last_scan_at),
+        recentScan: recentScanRow ? this.mapScanJob(recentScanRow) : null,
+        trackCount: Number(activeStats?.track_count ?? 0),
+        albumCount: Number(albumStats?.album_count ?? 0),
+        artistCount: Number(artistStats?.artist_count ?? 0),
+        totalDuration: Number(activeStats?.total_duration ?? 0),
+        totalSizeBytes: Number(activeStats?.total_size_bytes ?? 0),
+        missingTrackCount: Number(missingStats?.missing_count ?? 0),
+        losslessTrackCount: Number(activeStats?.lossless_count ?? 0),
+        hiResTrackCount: Number(activeStats?.hires_count ?? 0),
+        childFolderCount: this.getDirectChildFolderCount(folder.id, folder.path),
+        coverThumbs: this.getFolderCoverThumbs(folder.id, folder.path, true),
+      };
+    });
+  }
+
+  getFolderChildren(query: LibraryFolderChildrenQuery): LibraryFolderNode[] {
+    const folder = this.requireFolder(query.folderId);
+    const parentPath = this.resolveFolderScopedPath(folder, query.parentPath);
+    const prefix = `${stripTrailingPathSeparators(parentPath)}${preferredPathSeparator}`;
+    const rows = this.allRows(
+      `SELECT path, duration, size_bytes, cover_id
+       FROM tracks
+       WHERE folder_id = ? AND missing = 0 AND path LIKE ? ESCAPE '\\'
+       ORDER BY path COLLATE NOCASE`,
+      folder.id,
+      likePrefix(prefix),
+    );
+    const children = new Map<
+      string,
+      LibraryFolderNode & {
+        childFolderNames: Set<string>;
+        coverIds: Set<string>;
+      }
+    >();
+
+    for (const row of rows) {
+      const trackPath = String(row.path);
+      const relativePath = trackPath.slice(prefix.length);
+      const parts = relativePath.split(pathSeparatorPattern).filter(Boolean);
+
+      if (parts.length <= 1) {
+        continue;
+      }
+
+      const name = parts[0];
+      const childPath = childPathFor(parentPath, name);
+      const existing =
+        children.get(childPath) ??
+        ({
+          folderId: folder.id,
+          path: childPath,
+          parentPath,
+          name,
+          depth: folderDepth(folder.path, childPath),
+          trackCount: 0,
+          directTrackCount: 0,
+          childFolderCount: 0,
+          totalDuration: 0,
+          totalSizeBytes: 0,
+          coverThumbs: [],
+          childFolderNames: new Set<string>(),
+          coverIds: new Set<string>(),
+        } satisfies LibraryFolderNode & { childFolderNames: Set<string>; coverIds: Set<string> });
+
+      existing.trackCount += 1;
+      existing.totalDuration += Number(row.duration ?? 0);
+      existing.totalSizeBytes += Number(row.size_bytes ?? 0);
+
+      if (parts.length === 2) {
+        existing.directTrackCount += 1;
+      } else if (parts[1]) {
+        existing.childFolderNames.add(parts[1]);
+      }
+
+      const coverId = textOrNull(row.cover_id);
+      if (coverId && existing.coverIds.size < 4) {
+        existing.coverIds.add(coverId);
+      }
+
+      children.set(childPath, existing);
+    }
+
+    return Array.from(children.values())
+      .map(({ childFolderNames, coverIds, ...child }) => ({
+        ...child,
+        childFolderCount: childFolderNames.size,
+        coverThumbs: Array.from(coverIds)
+          .slice(0, 4)
+          .map((coverId) => this.toCoverUrl(coverId, 'thumb'))
+          .filter((value): value is string => Boolean(value)),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }));
+  }
+
+  getFolderTracks(query: LibraryFolderTracksQuery): LibraryPage<LibraryTrack> {
+    const startedAt = performance.now();
+    const folder = this.requireFolder(query.folderId);
+    const folderPath = this.resolveFolderScopedPath(folder, query.path);
+    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const offset = (page - 1) * pageSize;
+    const scope = this.folderTrackScope(folder.id, folderPath, query.recursive !== false);
+    const searchFilter = buildSearchFilter(search, [
+      likePredicate('tracks.title'),
+      likePredicate('tracks.artist'),
+      likePredicate('tracks.album'),
+      likePredicate('tracks.album_artist'),
+      likePredicate('COALESCE(tracks.genre, \'\')'),
+      likePredicate('tracks.path'),
+    ]);
+    const whereSql = searchFilter.sql ? `WHERE ${scope.sql} AND ${searchFilter.sql}` : `WHERE ${scope.sql}`;
+    const params = [...scope.params, ...searchFilter.params];
+    const orderSql = this.trackOrderSql(sort);
+    const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM tracks ${whereSql}`, ...params);
+    const rows = this.allRows(
+      `SELECT
+        tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
+        tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
+        tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
+        tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
+        tracks.network_metadata_status, tracks.field_sources_json
+       FROM tracks
+       ${whereSql}
+       ${orderSql}
+       LIMIT ? OFFSET ?`,
+      ...params,
+      pageSize,
+      offset,
+    );
+    const total = Number(totalRow?.total ?? 0);
+
+    try {
+      return {
+        items: rows.map((row) => this.mapTrack(row)),
+        page,
+        pageSize,
+        total,
+        hasMore: offset + rows.length < total,
+      };
+    } finally {
+      this.lastTracksQueryMs = performance.now() - startedAt;
+    }
+  }
+
+  resolveLibraryFolderPath(request: LibraryFolderPathRequest): string {
+    return this.resolveFolderScopedPath(this.requireFolder(request.folderId), request.path);
   }
 
   removeFolder(folderId: string): void {
@@ -1394,6 +1630,19 @@ export class LibraryStore {
     }
   }
 
+  getAlbum(albumId: string): LibraryAlbumDetail | null {
+    const row = this.getRow(
+      `SELECT
+        albums.id, albums.album_key, albums.title, albums.album_artist, albums.year, albums.track_count,
+        albums.duration, albums.cover_id
+      FROM albums
+      WHERE albums.id = ?`,
+      albumId,
+    );
+
+    return row ? this.mapAlbumDetail(row) : null;
+  }
+
   getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
     const { page, pageSize, search, sort } = pageFromQuery(query);
     const offset = (page - 1) * pageSize;
@@ -1889,6 +2138,87 @@ export class LibraryStore {
     };
   }
 
+  private requireFolder(folderId: string): LibraryFolder {
+    const folder = this.getFolder(folderId);
+
+    if (!folder) {
+      throw new Error(`Unknown library folder ${folderId}`);
+    }
+
+    return folder;
+  }
+
+  private resolveFolderScopedPath(folder: LibraryFolder, requestedPath?: string): string {
+    const rootPath = stripTrailingPathSeparators(folder.path);
+    const targetPath = stripTrailingPathSeparators(requestedPath?.trim() || rootPath);
+
+    if (!isPathInsideOrEqual(rootPath, targetPath)) {
+      throw new Error(`Folder path is outside the library root: ${targetPath}`);
+    }
+
+    return targetPath;
+  }
+
+  private folderTrackScope(
+    folderId: string,
+    folderPath: string,
+    recursive: boolean,
+  ): { sql: string; params: unknown[] } {
+    const prefix = `${stripTrailingPathSeparators(folderPath)}${preferredPathSeparator}`;
+    const prefixLike = likePrefix(prefix);
+
+    if (recursive) {
+      return {
+        sql: "tracks.folder_id = ? AND tracks.missing = 0 AND tracks.path LIKE ? ESCAPE '\\'",
+        params: [folderId, prefixLike],
+      };
+    }
+
+    return {
+      sql: `tracks.folder_id = ?
+        AND tracks.missing = 0
+        AND tracks.path LIKE ? ESCAPE '\\'
+        AND INSTR(SUBSTR(tracks.path, ?), ?) = 0
+        AND INSTR(SUBSTR(tracks.path, ?), ?) = 0`,
+      params: [folderId, prefixLike, prefix.length + 1, '\\', prefix.length + 1, '/'],
+    };
+  }
+
+  private getFolderCoverThumbs(folderId: string, folderPath: string, recursive: boolean): string[] {
+    const scope = this.folderTrackScope(folderId, folderPath, recursive);
+    return this.allRows(
+      `SELECT DISTINCT tracks.cover_id
+       FROM tracks
+       WHERE ${scope.sql} AND tracks.cover_id IS NOT NULL
+       ORDER BY tracks.updated_at DESC
+       LIMIT 4`,
+      ...scope.params,
+    )
+      .map((row) => this.toCoverUrl(row.cover_id, 'thumb'))
+      .filter((value): value is string => Boolean(value));
+  }
+
+  private getDirectChildFolderCount(folderId: string, folderPath: string): number {
+    const prefix = `${stripTrailingPathSeparators(folderPath)}${preferredPathSeparator}`;
+    const childNames = new Set<string>();
+    const rows = this.allRows(
+      `SELECT path
+       FROM tracks
+       WHERE folder_id = ? AND missing = 0 AND path LIKE ? ESCAPE '\\'`,
+      folderId,
+      likePrefix(prefix),
+    );
+
+    for (const row of rows) {
+      const parts = String(row.path).slice(prefix.length).split(pathSeparatorPattern).filter(Boolean);
+      if (parts.length > 1) {
+        childNames.add(parts[0]);
+      }
+    }
+
+    return childNames.size;
+  }
+
   private refreshPlaylistItemCount(playlistId: string, timestamp = nowIso()): void {
     this.run(
       `UPDATE playlists SET
@@ -2332,6 +2662,15 @@ export class LibraryStore {
       duration: Number(row.duration ?? 0),
       coverId: textOrNull(row.cover_id),
       coverThumb: this.toCoverUrl(row.cover_id, 'album'),
+    };
+  }
+
+  private mapAlbumDetail(row: DbRow): LibraryAlbumDetail {
+    const album = this.mapAlbum(row);
+
+    return {
+      ...album,
+      coverLarge: this.toCoverUrl(row.cover_id, 'large'),
     };
   }
 

@@ -232,12 +232,27 @@
 }
 
 .queue-list {
-  display: flex;
+  display: block;
   min-height: 0;
-  flex-direction: column;
-  gap: 8px;
   overflow: auto;
   padding-right: 4px;
+}
+
+.queue-list[data-virtualized='true'] {
+  contain: layout style;
+}
+
+.queue-virtual-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.queue-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding-bottom: 8px;
 }
 
 .queue-row {

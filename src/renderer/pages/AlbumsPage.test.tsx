@@ -61,10 +61,16 @@ const trackPage = (items: LibraryTrack[], overrides: Partial<LibraryPage<Library
   ...overrides,
 });
 
-const installLibrary = (getAlbums: ReturnType<typeof vi.fn>, getTracks = vi.fn(), getAlbumTracks = vi.fn().mockResolvedValue(trackPage([]))): void => {
+const installLibrary = (
+  getAlbums: ReturnType<typeof vi.fn>,
+  getTracks = vi.fn(),
+  getAlbumTracks = vi.fn().mockResolvedValue(trackPage([])),
+  getAlbum = vi.fn().mockResolvedValue(null),
+): void => {
   window.echo = {
     library: {
       getAlbums,
+      getAlbum,
       getTracks,
       getAlbumTracks,
       getSummary: vi.fn(),
@@ -263,6 +269,99 @@ describe('AlbumsPage', () => {
     expect((screen.getByPlaceholderText('Search albums / artists') as HTMLInputElement).value).toBe('kept search');
     expect(screen.getByDisplayValue('Artist')).toBeTruthy();
     expect(screen.getByText('Album 1')).toBeTruthy();
+  });
+
+  it('loads large cover for the album detail hero without changing the album wall thumbnail', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(
+      page([album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+    );
+    const getAlbum = vi.fn().mockResolvedValue({
+      ...album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' }),
+      coverLarge: 'echo-cover://large/cover-1',
+    });
+    installLibrary(getAlbums, vi.fn(), vi.fn().mockResolvedValue(trackPage([])), getAlbum);
+
+    const { container } = renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    const wallImage = container.querySelector('.album-cover img') as HTMLImageElement;
+    expect(wallImage.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    expect(wallImage.getAttribute('loading')).toBe('lazy');
+
+    fireEvent.click(screen.getByText('Album 1'));
+
+    const detailImage = await waitFor(() => {
+      const image = container.querySelector('.album-detail-cover img') as HTMLImageElement | null;
+      expect(image?.getAttribute('src')).toBe('echo-cover://large/cover-1');
+      return image!;
+    });
+    expect(getAlbum).toHaveBeenCalledWith('1');
+    expect(detailImage.getAttribute('loading')).toBeNull();
+    expect(detailImage.getAttribute('decoding')).toBe('async');
+    expect(detailImage.draggable).toBe(false);
+  });
+
+  it('falls back from a failed large cover to the album thumbnail in the detail hero', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(
+      page([album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+    );
+    const getAlbum = vi.fn().mockResolvedValue({
+      ...album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' }),
+      coverLarge: 'echo-cover://large/cover-1',
+    });
+    installLibrary(getAlbums, vi.fn(), vi.fn().mockResolvedValue(trackPage([])), getAlbum);
+
+    const { container } = renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.click(screen.getByText('Album 1'));
+
+    const largeImage = await waitFor(() => {
+      const image = container.querySelector('.album-detail-cover img') as HTMLImageElement | null;
+      expect(image?.getAttribute('src')).toBe('echo-cover://large/cover-1');
+      return image!;
+    });
+
+    fireEvent.error(largeImage);
+
+    await waitFor(() => {
+      expect(container.querySelector('.album-detail-cover img')?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    });
+  });
+
+  it('shows the album detail placeholder when there is no cover or when thumb fallback fails', async () => {
+    const getAlbums = vi.fn().mockResolvedValueOnce(page([album('empty')], { page: 1, total: 1, hasMore: false }));
+    installLibrary(getAlbums);
+
+    const { container, unmount } = renderAlbumsPage();
+
+    await screen.findByText('Album empty');
+    fireEvent.click(screen.getByText('Album empty'));
+
+    await screen.findByLabelText('Album empty album details');
+    expect(container.querySelector('.album-detail-cover img')).toBeNull();
+    expect(container.querySelector('.album-detail-cover')?.getAttribute('data-empty')).toBe('true');
+
+    unmount();
+
+    const getAlbumsWithThumb = vi.fn().mockResolvedValue(
+      page([album('thumb', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+    );
+    installLibrary(getAlbumsWithThumb);
+    const rendered = renderAlbumsPage();
+
+    await screen.findByText('Album thumb');
+    fireEvent.click(screen.getByText('Album thumb'));
+
+    const thumbImage = await waitFor(() => {
+      const image = rendered.container.querySelector('.album-detail-cover img') as HTMLImageElement | null;
+      expect(image?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+      return image!;
+    });
+    fireEvent.error(thumbImage);
+
+    expect(rendered.container.querySelector('.album-detail-cover img')).toBeNull();
+    expect(rendered.container.querySelector('.album-detail-cover')?.getAttribute('data-empty')).toBe('true');
   });
 
   it('playing the album starts the first loaded track and queues the loaded album tracks', async () => {

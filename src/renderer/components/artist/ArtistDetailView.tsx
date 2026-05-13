@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ListPlus, Play, Shuffle } from 'lucide-react';
-import type { LibraryArtist, LibraryTrack } from '../../../shared/types/library';
+import type { LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { AlbumDetailView } from '../album/AlbumDetailView';
 import { ArtistAlbumGrid } from './ArtistAlbumGrid';
 import { ArtistTrackList } from './ArtistTrackList';
 import { artistMark } from './artistVisual';
@@ -35,6 +36,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [loadedTrackTotal, setLoadedTrackTotal] = useState(artist.trackCount);
   const [areTracksLoading, setAreTracksLoading] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
+  const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
   const source = useMemo(() => ({ type: 'artist' as const, label: artist.name, artistId: artist.id }), [artist.id, artist.name]);
   const displayArtist = verifiedArtist ?? artist;
 
@@ -74,6 +76,10 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     return () => {
       isCancelled = true;
     };
+  }, [artist.id]);
+
+  useEffect(() => {
+    setSelectedAlbum(null);
   }, [artist.id]);
 
   const handleLoadedTracksChange = useCallback((tracks: LibraryTrack[], total: number, isLoading: boolean): void => {
@@ -137,6 +143,10 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const handleAppendTrack = useCallback((track: LibraryTrack): void => appendToQueue(track, source), [appendToQueue, source]);
   const handlePlayTrackNext = useCallback((track: LibraryTrack): void => playTrackNext(track, source), [playTrackNext, source]);
   const canPlay = loadedTracks.length > 0;
+
+  if (selectedAlbum) {
+    return <AlbumDetailView album={selectedAlbum} onBack={() => setSelectedAlbum(null)} />;
+  }
 
   if (!isVerifyingArtist && !verifiedArtist) {
     return (
@@ -209,13 +219,14 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         </div>
       </section>
 
-      <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} />
+      <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} onAlbumSelect={setSelectedAlbum} />
 
       <ArtistTrackList
         artistId={displayArtist.id}
         currentTrackId={currentTrackId}
         onAppendToQueue={handleAppendTrack}
         onLoadedTracksChange={handleLoadedTracksChange}
+        onOpenAlbum={setSelectedAlbum}
         onPlayNext={handlePlayTrackNext}
         onPlayTrack={handlePlayTrack}
       />

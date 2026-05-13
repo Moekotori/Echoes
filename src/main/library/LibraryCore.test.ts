@@ -493,6 +493,66 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('returns lazy folder overviews, child nodes, and scoped folder tracks', async () => {
+    const harness = createHarness();
+    const rockFolder = join(harness.folder, 'Rock');
+    const liveFolder = join(rockFolder, 'Live');
+    mkdirSync(liveFolder, { recursive: true });
+    const rootTrack = writeAudioFile(harness.folder, 'Root Song.flac');
+    const rockTrack = writeAudioFile(rockFolder, 'Rock Song.flac');
+    const liveTrack = writeAudioFile(liveFolder, 'Live Song.flac');
+    harness.metadataService.overrides.set(rootTrack, baseMetadata({ title: 'Root Song', artist: 'Root Artist', album: 'Root Album', duration: 60 }));
+    harness.metadataService.overrides.set(rockTrack, baseMetadata({ title: 'Rock Song', artist: 'Rock Artist', album: 'Rock Album', duration: 120 }));
+    harness.metadataService.overrides.set(liveTrack, baseMetadata({ title: 'Live Song', artist: 'Rock Artist', album: 'Live Album', duration: 180 }));
+    const folder = harness.addFolder();
+
+    await harness.scanFolder();
+    const [overview] = harness.service.getFolderOverviews();
+    const children = harness.service.getFolderChildren({ folderId: folder.id, parentPath: folder.path });
+    const rootDirectTracks = harness.service.getFolderTracks({ folderId: folder.id, path: folder.path, recursive: false, pageSize: 10 });
+    const rockRecursiveTracks = harness.service.getFolderTracks({ folderId: folder.id, path: rockFolder, recursive: true, pageSize: 10, sort: 'titleAsc' });
+    const rockDirectTracks = harness.service.getFolderTracks({ folderId: folder.id, path: rockFolder, recursive: false, pageSize: 10 });
+
+    expect(overview).toMatchObject({
+      id: folder.id,
+      trackCount: 3,
+      albumCount: 3,
+      childFolderCount: 1,
+      totalDuration: 360,
+    });
+    expect(children).toHaveLength(1);
+    expect(children[0]).toMatchObject({
+      name: 'Rock',
+      trackCount: 2,
+      directTrackCount: 1,
+      childFolderCount: 1,
+    });
+    expect(rootDirectTracks.items.map((track) => track.title)).toEqual(['Root Song']);
+    expect(rockRecursiveTracks.items.map((track) => track.title)).toEqual(['Live Song', 'Rock Song']);
+    expect(rockDirectTracks.items.map((track) => track.title)).toEqual(['Rock Song']);
+    harness.cleanup();
+  });
+
+  it('rejects folder scoped queries outside the library root', async () => {
+    const harness = createHarness();
+    writeAudioFile(harness.folder, 'Safe.flac');
+    const folder = harness.addFolder();
+
+    await harness.scanFolder();
+
+    expect(() =>
+      harness.service.getFolderTracks({
+        folderId: folder.id,
+        path: join(harness.root, 'outside'),
+        recursive: true,
+      }),
+    ).toThrow(/outside the library root/);
+    expect(() => harness.service.getFolderChildren({ folderId: folder.id, parentPath: join(harness.root, 'outside') })).toThrow(
+      /outside the library root/,
+    );
+    harness.cleanup();
+  });
+
   it('manages manual playlists with local track snapshots and pagination', async () => {
     const harness = createHarness();
     const firstPath = writeAudioFile(harness.folder, 'Playlist A.flac');
@@ -1539,12 +1599,16 @@ describe('Library Core', () => {
     await harness.scanFolder();
     const [track] = harness.service.getTracks({ pageSize: 1 }).items;
     const [album] = harness.service.getAlbums({ pageSize: 1 }).items;
+    const albumDetail = harness.service.getAlbum(album.id);
     const serializedTrack = JSON.stringify(track);
     const serializedAlbum = JSON.stringify(album);
+    const serializedAlbumDetail = JSON.stringify(albumDetail);
 
     expect(track).toHaveProperty('coverThumb');
     expect(track.coverThumb).toContain('echo-cover://thumb/');
     expect(album.coverThumb).toContain('echo-cover://album/');
+    expect(albumDetail?.coverThumb).toContain('echo-cover://album/');
+    expect(albumDetail?.coverLarge).toContain('echo-cover://large/');
     expect(track).not.toHaveProperty('largePath');
     expect(track).not.toHaveProperty('originalRef');
     expect(album).not.toHaveProperty('largePath');
@@ -1555,12 +1619,16 @@ describe('Library Core', () => {
     expect(serializedAlbum).not.toContain('file://');
     expect(serializedTrack).not.toContain('cover-cache');
     expect(serializedAlbum).not.toContain('cover-cache');
+    expect(serializedAlbumDetail).not.toContain('cover-cache');
     expect(serializedTrack).not.toContain('largePath');
     expect(serializedAlbum).not.toContain('largePath');
+    expect(serializedAlbumDetail).not.toContain('largePath');
     expect(serializedTrack).not.toContain('originalRef');
     expect(serializedAlbum).not.toContain('originalRef');
+    expect(serializedAlbumDetail).not.toContain('originalRef');
     expect(serializedTrack).not.toContain('base64');
     expect(serializedAlbum).not.toContain('base64');
+    expect(serializedAlbumDetail).not.toContain('base64');
     harness.cleanup();
   });
 

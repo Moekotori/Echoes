@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ListPlus, MoreHorizontal, Music2, Play, Plus, Trash2, WifiOff } from 'lucide-react';
-import type { LibraryPage, LibraryPageQuery, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack } from '../../shared/types/library';
+import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack } from '../../shared/types/library';
 import { TrackList } from '../components/library/TrackList';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 100;
 
-const emptyItemsPage = (playlistId: string): LibraryPage<LibraryPlaylistItem> => ({
+const emptyItemsPage = (): LibraryPage<LibraryPlaylistItem> => ({
   items: [],
   page: 1,
   pageSize,
@@ -50,12 +50,12 @@ const itemToTrack = (item: LibraryPlaylistItem): LibraryTrack => {
 export const PlaylistsPage = (): JSX.Element => {
   const [playlists, setPlaylists] = useState<LibraryPlaylist[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
-  const [itemsPage, setItemsPage] = useState<LibraryPage<LibraryPlaylistItem>>(emptyItemsPage(''));
+  const [itemsPage, setItemsPage] = useState<LibraryPage<LibraryPlaylistItem>>(emptyItemsPage());
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
-  const { currentTrackId, playTrack, replaceQueue, appendToQueue } = usePlaybackQueue();
+  const { currentTrackId, playTrack, appendToQueue } = usePlaybackQueue();
   const selectedPlaylist = useMemo(
     () => playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? playlists[0] ?? null,
     [playlists, selectedPlaylistId],
@@ -129,7 +129,7 @@ export const PlaylistsPage = (): JSX.Element => {
     if (selectedPlaylist) {
       void loadItems(selectedPlaylist.id);
     } else {
-      setItemsPage(emptyItemsPage(''));
+      setItemsPage(emptyItemsPage());
     }
   }, [loadItems, selectedPlaylist]);
 

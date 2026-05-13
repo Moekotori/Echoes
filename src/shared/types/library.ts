@@ -55,6 +55,55 @@ export type LibraryFolder = {
   updatedAt: string;
 };
 
+export type LibraryFolderMetricSnapshot = {
+  trackCount: number;
+  albumCount: number;
+  artistCount: number;
+  totalDuration: number;
+  totalSizeBytes: number;
+  missingTrackCount: number;
+  losslessTrackCount: number;
+  hiResTrackCount: number;
+  childFolderCount: number;
+  coverThumbs: string[];
+};
+
+export type LibraryFolderOverview = LibraryFolder &
+  LibraryFolderMetricSnapshot & {
+    lastScanAt: string | null;
+    recentScan: LibraryScanStatus | null;
+  };
+
+export type LibraryFolderNode = {
+  folderId: string;
+  path: string;
+  parentPath: string;
+  name: string;
+  depth: number;
+  trackCount: number;
+  directTrackCount: number;
+  childFolderCount: number;
+  totalDuration: number;
+  totalSizeBytes: number;
+  coverThumbs: string[];
+};
+
+export type LibraryFolderChildrenQuery = {
+  folderId: string;
+  parentPath?: string;
+};
+
+export type LibraryFolderTracksQuery = LibraryPageQuery & {
+  folderId: string;
+  path?: string;
+  recursive?: boolean;
+};
+
+export type LibraryFolderPathRequest = {
+  folderId: string;
+  path?: string;
+};
+
 export type LibraryScanStatus = {
   id: string;
   folderId: string;
@@ -312,6 +361,11 @@ export type LibraryAlbum = {
   coverId: string | null;
   // Album wall thumbnail: echo-cover://album/* resolves to album.webp (320x320).
   coverThumb: string | null;
+};
+
+export type LibraryAlbumDetail = LibraryAlbum & {
+  // Detail hero artwork: echo-cover://large/* resolves to large.webp when available.
+  coverLarge: string | null;
 };
 
 export type LibraryArtist = {

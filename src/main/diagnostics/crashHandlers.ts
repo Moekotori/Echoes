@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import type { WebContents } from 'electron';
 import { getCrashReportService } from './CrashReportService';
+import { showCrashRecoveryDialog } from './CrashRecoveryDialog';
 import { sanitizeLogPayload } from './Logger';
 
 const errorMessage = (value: unknown): string => {
@@ -27,6 +28,7 @@ export const registerCrashHandlers = (): void => {
       message: error.message,
       stack: error.stack,
     });
+    void showCrashRecoveryDialog('main', error.message);
   });
 
   process.on('unhandledRejection', (reason) => {
@@ -39,9 +41,10 @@ export const registerCrashHandlers = (): void => {
   });
 
   app.on('render-process-gone', (_event, webContents, details) => {
+    const message = `Renderer process gone: ${details.reason}`;
     getCrashReportService().reportCrash({
       type: 'render-process-gone',
-      message: `Renderer process gone: ${details.reason}`,
+      message,
       reason: details.reason,
       exitCode: details.exitCode,
       details: {
@@ -49,6 +52,7 @@ export const registerCrashHandlers = (): void => {
         details,
       },
     });
+    void showCrashRecoveryDialog('renderer', message);
   });
 
   app.on('child-process-gone', (_event, details) => {

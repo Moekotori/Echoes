@@ -14,10 +14,16 @@ import { NetworkMetadataService, type NetworkCandidateList, type NetworkRepairRe
 import type { MetadataService } from './MetadataService';
 import type {
   LibraryAlbum,
+  LibraryAlbumDetail,
   LibraryArtist,
   LibraryDiagnostics,
   EditableTrackTags,
   LibraryFolder,
+  LibraryFolderChildrenQuery,
+  LibraryFolderNode,
+  LibraryFolderOverview,
+  LibraryFolderPathRequest,
+  LibraryFolderTracksQuery,
   LibraryPage,
   LibraryPageQuery,
   LibraryPlaylist,
@@ -98,6 +104,22 @@ export class LibraryService {
     return this.store.getFolders();
   }
 
+  getFolderOverviews(): LibraryFolderOverview[] {
+    return this.store.getFolderOverviews();
+  }
+
+  getFolderChildren(query: LibraryFolderChildrenQuery): LibraryFolderNode[] {
+    return this.store.getFolderChildren(query);
+  }
+
+  getFolderTracks(query: LibraryFolderTracksQuery): LibraryPage<LibraryTrack> {
+    return this.store.getFolderTracks(query);
+  }
+
+  resolveLibraryFolderPath(request: LibraryFolderPathRequest): string {
+    return this.store.resolveLibraryFolderPath(request);
+  }
+
   removeFolder(folderId: string): void {
     this.store.removeFolder(folderId);
   }
@@ -170,6 +192,10 @@ export class LibraryService {
 
   getAlbums(query?: LibraryPageQuery): LibraryPage<LibraryAlbum> {
     return this.store.getAlbums(query);
+  }
+
+  getAlbum(albumId: string): LibraryAlbumDetail | null {
+    return this.store.getAlbum(albumId);
   }
 
   getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {

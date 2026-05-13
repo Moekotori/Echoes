@@ -5,12 +5,18 @@ import type { EqPreset, EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBan
 import type {
   EmbeddedTrackTagsLoadResult,
   LibraryAlbum,
+  LibraryAlbumDetail,
   LibraryArtist,
   LibraryCacheClearResult,
   LibraryCleanupResult,
   LibraryDiagnostics,
   LibraryTrackTagUpdateRequest,
   LibraryFolder,
+  LibraryFolderChildrenQuery,
+  LibraryFolderNode,
+  LibraryFolderOverview,
+  LibraryFolderPathRequest,
+  LibraryFolderTracksQuery,
   LibraryPage,
   LibraryPageQuery,
   LibraryPlaylist,
@@ -65,6 +71,10 @@ export type EchoApi = {
     chooseFolder: () => Promise<string | null>;
     addFolder: (path: string) => Promise<LibraryFolder>;
     getFolders: () => Promise<LibraryFolder[]>;
+    getFolderOverviews: () => Promise<LibraryFolderOverview[]>;
+    getFolderChildren: (query: LibraryFolderChildrenQuery) => Promise<LibraryFolderNode[]>;
+    getFolderTracks: (query: LibraryFolderTracksQuery) => Promise<LibraryPage<LibraryTrack>>;
+    openLibraryFolderPath: (request: LibraryFolderPathRequest) => Promise<void>;
     removeFolder: (folderId: string) => Promise<void>;
     scanFolder: (folderId: string) => Promise<LibraryScanStatus>;
     getScanStatus: (jobId: string) => Promise<LibraryScanStatus>;
@@ -82,6 +92,7 @@ export type EchoApi = {
     movePlaylistItem: (playlistId: string, itemId: string, targetPosition: number) => Promise<void>;
     clearPlaylist: (playlistId: string) => Promise<void>;
     getAlbums: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryAlbum>>;
+    getAlbum: (albumId: string) => Promise<LibraryAlbumDetail | null>;
     getArtists: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryArtist>>;
     getArtist: (artistId: string) => Promise<LibraryArtist | null>;
     getArtistTracks: (artistId: string, query?: LibraryPageQuery) => Promise<LibraryPage<LibraryTrack>>;

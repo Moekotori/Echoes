@@ -92,30 +92,6 @@ const formatDate = (iso: string | null): string => {
   }).format(new Date(iso));
 };
 
-const groupLabel = (iso: string): string => {
-  const date = startOfDay(new Date(iso));
-  const today = startOfDay(new Date());
-  const diffDays = Math.round((today.getTime() - date.getTime()) / 86400000);
-
-  if (diffDays === 0) {
-    return '今天';
-  }
-
-  if (diffDays === 1) {
-    return '昨天';
-  }
-
-  if (diffDays > 1 && diffDays < 7) {
-    return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-};
-
 const trackFromHistory = (entry: PlaybackHistoryEntry): LibraryTrack => ({
   id: entry.trackId ?? entry.id,
   path: entry.trackPath,

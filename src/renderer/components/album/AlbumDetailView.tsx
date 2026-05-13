@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Disc3, Heart, MoreHorizontal, Play } from 'lucide-react';
 import type { LibraryAlbum, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
@@ -68,6 +68,9 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [loadedTotal, setLoadedTotal] = useState(0);
   const [isLoadingFirstTrack, setIsLoadingFirstTrack] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
+  const [coverLarge, setCoverLarge] = useState<string | null>(null);
+  const [failedLargeCover, setFailedLargeCover] = useState(false);
+  const [failedThumbCover, setFailedThumbCover] = useState(false);
   const duration = formatDuration(album.duration);
   const formatSummary = formatTechnicalSummary(firstTrack);
   const albumMetadata = useMemo(
@@ -115,6 +118,32 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     () => ({ type: 'album' as const, label: album.title, albumId: album.id }),
     [album.id, album.title],
   );
+  const detailCoverSrc = coverLarge && !failedLargeCover ? coverLarge : failedThumbCover ? null : album.coverThumb;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    setCoverLarge(null);
+    setFailedLargeCover(false);
+    setFailedThumbCover(false);
+
+    window.echo.library
+      .getAlbum(album.id)
+      .then((detail) => {
+        if (isMounted) {
+          setCoverLarge(detail?.coverLarge ?? null);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setCoverLarge(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [album.id]);
 
   const handleFirstTrackChange = useCallback((track: LibraryTrack | null, isLoading: boolean): void => {
     setFirstTrack(track);
@@ -159,6 +188,15 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
   }, [albumSource, firstTrack, loadedTracks, playTrack, replaceQueue, withAlbumCoverFallback]);
 
+  const handleDetailCoverError = useCallback((): void => {
+    if (coverLarge && !failedLargeCover) {
+      setFailedLargeCover(true);
+      return;
+    }
+
+    setFailedThumbCover(true);
+  }, [coverLarge, failedLargeCover]);
+
   return (
     <div className="album-detail-page">
       <button className="album-back-button" type="button" onClick={onBack}>
@@ -167,9 +205,9 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       </button>
 
       <section className="album-detail-hero" aria-label={`${album.title} album details`}>
-        <div className="album-detail-cover" data-empty={!album.coverThumb}>
-          {album.coverThumb ? (
-            <img alt="" decoding="async" draggable={false} height={320} loading="lazy" src={album.coverThumb} width={320} />
+        <div className="album-detail-cover" data-empty={!detailCoverSrc}>
+          {detailCoverSrc ? (
+            <img alt="" decoding="async" draggable={false} height={320} src={detailCoverSrc} width={320} onError={handleDetailCoverError} />
           ) : (
             <Disc3 size={58} />
           )}

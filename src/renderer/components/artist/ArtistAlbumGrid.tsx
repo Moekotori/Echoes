@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Disc3 } from 'lucide-react';
 import type { LibraryAlbum, LibraryPage } from '../../../shared/types/library';
 
 type ArtistAlbumGridProps = {
   artistId: string;
   artistName: string;
+  onAlbumSelect: (album: LibraryAlbum) => void;
 };
 
 const pageSize = 12;
 
-export const ArtistAlbumGrid = ({ artistId, artistName }: ArtistAlbumGridProps): JSX.Element => {
+export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistAlbumGridProps): JSX.Element => {
   const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -104,6 +106,16 @@ export const ArtistAlbumGrid = ({ artistId, artistName }: ArtistAlbumGridProps):
     }
   }, [hasMore, loadAlbums, page]);
 
+  const handleAlbumKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLElement>, album: LibraryAlbum): void => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onAlbumSelect(album);
+      }
+    },
+    [onAlbumSelect],
+  );
+
   if (!isLoading && albums.length === 0 && !error) {
     return (
       <section className="artist-section artist-section-muted" aria-label={`${artistName} albums`}>
@@ -133,7 +145,14 @@ export const ArtistAlbumGrid = ({ artistId, artistName }: ArtistAlbumGridProps):
           const shouldShowCover = Boolean(album.coverThumb && failedCoverUrls[album.id] !== album.coverThumb);
 
           return (
-            <article className="artist-album-card" key={album.id}>
+            <article
+              className="artist-album-card"
+              key={album.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onAlbumSelect(album)}
+              onKeyDown={(event) => handleAlbumKeyDown(event, album)}
+            >
               <div className="artist-album-cover" data-empty={!shouldShowCover} aria-hidden="true">
                 {shouldShowCover ? (
                   <img

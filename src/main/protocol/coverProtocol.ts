@@ -33,6 +33,8 @@ const defaultSvgResponse = (): Response =>
     },
   });
 
+const missingCoverResponse = (): Response => new Response('', { status: 404 });
+
 export const registerCoverProtocolScheme = (): void => {
   protocol.registerSchemesAsPrivileged([
     {
@@ -61,7 +63,7 @@ export const registerCoverProtocolHandler = (): void => {
       const asset = getLibraryService().resolveCoverAsset(coverId, variant);
 
       if (!asset || !existsSync(asset.filePath)) {
-        return defaultSvgResponse();
+        return variant === 'large' ? missingCoverResponse() : defaultSvgResponse();
       }
 
       return new Response(readFileSync(asset.filePath), {

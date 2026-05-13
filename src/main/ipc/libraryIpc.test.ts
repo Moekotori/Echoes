@@ -84,12 +84,17 @@ const installLibraryService = () => {
     resolveCoverAsset: vi.fn(() => null),
     addFolder: vi.fn(),
     getFolders: vi.fn(),
+    getFolderOverviews: vi.fn(() => []),
+    getFolderChildren: vi.fn(() => []),
+    getFolderTracks: vi.fn(() => ({ items: [], page: 1, pageSize: 100, total: 0, hasMore: false })),
+    resolveLibraryFolderPath: vi.fn(() => 'D:\\Music'),
     removeFolder: vi.fn(),
     scanFolder: vi.fn(),
     getScanStatus: vi.fn(),
     cancelScan: vi.fn(),
     getTracks: vi.fn(),
     getAlbums: vi.fn(),
+    getAlbum: vi.fn(),
     getArtists: vi.fn(),
     getArtist: vi.fn(),
     getArtistTracks: vi.fn(),
@@ -199,6 +204,59 @@ describe('library IPC', () => {
     expect(service.getArtist).toHaveBeenCalledWith('artist-1');
     expect(service.getArtistTracks).toHaveBeenCalledWith('artist-1', { page: 2, pageSize: 50, sort: 'durationDesc' });
     expect(service.getArtistAlbums).toHaveBeenCalledWith('artist-1', { page: 1, pageSize: 12, sort: 'recent' });
+  });
+
+  it('registers folder center IPC handlers with normalized queries', async () => {
+    const service = installLibraryService();
+    openPathMock.mockResolvedValue('');
+
+    await handlers[IpcChannels.LibraryGetFolderOverviews]!();
+    await handlers[IpcChannels.LibraryGetFolderChildren]!(null, { folderId: 'folder-1', parentPath: 'D:\\Music' });
+    await handlers[IpcChannels.LibraryGetFolderTracks]!(null, {
+      folderId: 'folder-1',
+      path: 'D:\\Music\\Rock',
+      recursive: false,
+      page: 2,
+      pageSize: 25,
+      sort: 'album',
+      search: 'live',
+    });
+    await handlers[IpcChannels.LibraryOpenLibraryFolderPath]!(null, { folderId: 'folder-1', path: 'D:\\Music' });
+
+    expect(service.getFolderOverviews).toHaveBeenCalledTimes(1);
+    expect(service.getFolderChildren).toHaveBeenCalledWith({ folderId: 'folder-1', parentPath: 'D:\\Music' });
+    expect(service.getFolderTracks).toHaveBeenCalledWith({
+      folderId: 'folder-1',
+      path: 'D:\\Music\\Rock',
+      recursive: false,
+      page: 2,
+      pageSize: 25,
+      sort: 'album',
+      search: 'live',
+    });
+    expect(service.resolveLibraryFolderPath).toHaveBeenCalledWith({ folderId: 'folder-1', path: 'D:\\Music' });
+    expect(openPathMock).toHaveBeenCalledWith('D:\\Music');
+  });
+
+  it('registers album detail IPC handler', async () => {
+    const service = installLibraryService();
+    service.getAlbum.mockReturnValue({
+      id: 'album-1',
+      albumKey: 'artist/album',
+      title: 'Album',
+      albumArtist: 'Artist',
+      year: 2026,
+      trackCount: 1,
+      duration: 120,
+      coverId: 'cover-1',
+      coverThumb: 'echo-cover://album/cover-1',
+      coverLarge: 'echo-cover://large/cover-1',
+    });
+
+    const result = await handlers[IpcChannels.LibraryGetAlbum]!(null, 'album-1');
+
+    expect(service.getAlbum).toHaveBeenCalledWith('album-1');
+    expect(result).toMatchObject({ coverLarge: 'echo-cover://large/cover-1' });
   });
 });
 

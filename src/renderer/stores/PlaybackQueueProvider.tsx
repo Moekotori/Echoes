@@ -8,6 +8,7 @@ export type QueueSource =
   | { type: 'songs'; label: string; search?: string; sort?: string }
   | { type: 'album'; label: string; albumId: string }
   | { type: 'artist'; label: string; artistId?: string }
+  | { type: 'folder'; label: string; folderId: string; path: string; recursive: boolean }
   | { type: 'manual'; label: string };
 
 export type QueueItem = {
@@ -45,6 +46,7 @@ type PlaybackQueueContextValue = {
   canGoNext: boolean;
   replaceQueue: (tracks: LibraryTrack[], options?: ReplaceQueueOptions) => void;
   appendToQueue: (track: LibraryTrack, source?: QueueSource) => void;
+  appendTracksToQueue: (tracks: LibraryTrack[], source?: QueueSource) => void;
   playTrackNext: (track: LibraryTrack, source?: QueueSource) => void;
   removeQueueItem: (queueId: string) => void;
   clearQueue: () => void;
@@ -360,6 +362,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [setItems],
   );
 
+  const appendTracksToQueue = useCallback(
+    (tracks: LibraryTrack[], source: QueueSource = manualSource): void => {
+      if (tracks.length === 0) {
+        return;
+      }
+
+      setItems((current) => [...current, ...tracks.map((track) => createQueueItem(track, source))]);
+    },
+    [setItems],
+  );
+
   const playTrackNext = useCallback(
     (track: LibraryTrack, source: QueueSource = manualSource): void => {
       setItems((current) => {
@@ -598,6 +611,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       canGoNext,
       replaceQueue,
       appendToQueue,
+      appendTracksToQueue,
       playTrackNext,
       removeQueueItem,
       clearQueue,
@@ -613,6 +627,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     }),
     [
       appendToQueue,
+      appendTracksToQueue,
       canGoNext,
       canGoPrevious,
       clearQueue,

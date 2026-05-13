@@ -257,16 +257,23 @@
   border: 1px solid transparent;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.48);
+  cursor: pointer;
+  outline: none;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
     transform 160ms ease;
 }
 
-.artist-album-card:hover {
+.artist-album-card:hover,
+.artist-album-card:focus-visible {
   border-color: rgba(35, 55, 80, 0.08);
   box-shadow: 0 16px 34px rgba(35, 55, 80, 0.08);
   transform: translateY(-2px);
+}
+
+.artist-album-card:focus-visible {
+  border-color: rgba(72, 111, 152, 0.42);
 }
 
 .artist-album-cover {
@@ -443,7 +450,8 @@
 
 .artist-detail-error,
 .artist-detail-empty,
-.artist-detail-loading {
+.artist-detail-loading,
+.artist-detail-status {
   margin: 0;
   color: #a54f48;
   font-size: 13px;
@@ -451,7 +459,8 @@
 }
 
 .artist-detail-empty,
-.artist-detail-loading {
+.artist-detail-loading,
+.artist-detail-status {
   color: #778496;
   text-align: center;
 }
