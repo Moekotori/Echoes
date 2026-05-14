@@ -1,5 +1,4 @@
 <div align="center">
-<div align="center">
   <img src="./logo.png" alt="ECHO" width="150" />
 
   <h1>ECHO</h1>
@@ -21,6 +20,12 @@
   </p>
 
   <p>
+    <a href="./README.md">README 中文</a>
+    <span>&nbsp;|&nbsp;</span>
+    <a href="./docs/README_EN.md">README English</a>
+  </p>
+
+  <p>
     <img src="https://img.shields.io/github/package-json/v/Moekotori/ECHO?style=flat-square" alt="Version" />
     <img src="https://img.shields.io/badge/Electron-31.x-47848f?style=flat-square" alt="Electron 31" />
     <img src="https://img.shields.io/badge/React-18.3-61dafb?style=flat-square" alt="React 18" />
@@ -31,6 +36,8 @@
 </div>
 
 ***
+
+<div align="center">
 
 ## 30 秒看懂 ECHO
 
@@ -47,6 +54,8 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 
 ## 项目定位
 
+</div>
+
 很多桌面播放器只解决“能播放”的问题。ECHO 更关注长期使用时的细节：音频输出是否可控，歌词和 MV 是否能跟随播放状态，插件是否可以安全扩展，发布前是否有明确的回归检查，异常情况是否能落到可诊断的日志里。
 
 它适合展示以下能力：
@@ -56,6 +65,8 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 - 原生音频能力与前端 UI 的桥接
 - 插件系统的权限设计、运行隔离与 API 约束
 - 从开发、测试到打包发布的完整产品化流程
+
+<div align="center">
 
 ## 核心功能
 
@@ -85,22 +96,26 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 
 ## 架构概览
 
+</div>
+
 ```text
 ┌────────────────────────────────────────────────────────────┐
-│ React Renderer                                              │
-│ 播放器 UI、曲库视图、歌词/MV、插件 UI、设置面板              │
+│ React Renderer                                             │
+│ 播放器 UI、曲库视图、歌词/MV、插件 UI、设置面板                  │
 └──────────────────────────────┬─────────────────────────────┘
                                │ Context Bridge / IPC
 ┌──────────────────────────────▼─────────────────────────────┐
-│ Electron Main Process                                        │
-│ 窗口管理、本地资源、插件管理、更新、投屏、共听、日志          │
+│ Electron Main Process                                      │
+│ 窗口管理、本地资源、插件管理、更新、投屏、共听、日志                │
 └───────────────┬──────────────────────────────┬─────────────┘
                 │                              │
 ┌───────────────▼──────────────┐   ┌───────────▼─────────────┐
-│ Native Audio Host             │   │ Listen Together Server   │
-│ 设备输出、HiFi、EQ、回退       │   │ WebSocket 房间同步        │
+│ Native Audio Host            │   │ Listen Together Server  │
+│ 设备输出、HiFi、EQ、回退        │   │ WebSocket 房间同步        │
 └──────────────────────────────┘   └─────────────────────────┘
 ```
+
+<div align="center">
 
 这个结构把高风险能力从 UI 中拆开：渲染进程负责体验，主进程负责桌面能力，音频宿主进程负责播放输出。插件系统也被放在受控 API 之后，避免扩展能力直接破坏宿主应用。
 
@@ -118,14 +133,20 @@ ECHO 是一个完整的桌面音乐产品，而不是简单的播放器界面。
 
 ### 编译环境
 
+</div>
+
 项目包含原生音频依赖（`node-libraop` 等），Windows 平台需要安装编译工具链：
 
 - **推荐使用 Visual Studio 2022**，安装时勾选 **"使用 C++ 的桌面开发"** 工作负载（MSVC 工具集）
 - 也可通过管理员权限运行 `npm install --global windows-build-tools` 安装基础编译工具
 
+<div align="center">
+
 ### 安装依赖
 
 由于项目中的`@lox-audioserver/node-libraop`组件使用国外源进行`npm install`容易出现错误，推荐使用国内淘宝镜像源进行安装：
+
+</div>
 
 ```bash
 # 设置淘宝 npm 镜像源
@@ -139,11 +160,15 @@ npm config set electron_builder_binaries_mirror https://npmmirror.com/mirrors/el
 npm install
 ```
 
+<div align="center">
+
 > **注意**：`@lox-audioserver/node-libraop` 是可选组件，用于 AirPlay RAOP 接收器功能。如果该组件安装失败，不影响核心播放功能，仅 AirPlay 接收器相关功能不可用。
 
 项目包含原生依赖，安装后会通过 `electron-builder install-app-deps` 自动处理 Electron 运行时依赖。
 
 ### 本地运行
+
+</div>
 
 ```bash
 git clone https://github.com/Moekotori/ECHO.git
@@ -154,7 +179,11 @@ npm run dev
 
 启动后会进入 Electron 开发模式，渲染层由 `electron-vite` 提供热更新。
 
+<div align="center">
+
 ## 构建
+
+</div>
 
 ```bash
 # 通用构建
@@ -175,7 +204,11 @@ npm run build:linux
 
 Windows 发布构建会输出安装包、`.blockmap` 与 `latest.yml` 等自动更新相关文件。
 
+<div align="center">
+
 ## 测试与发布检查
+
+</div>
 
 ```bash
 # 单元回归测试
@@ -185,11 +218,15 @@ npm run test:unit
 npm run verify:release
 ```
 
+<div align="center">
+
 发布前建议按 `docs/RELEASE_CHECKLIST.md` 执行完整检查，并结合 `docs/SMOKE_AUDIO.md` 覆盖启动恢复、播放控制、设备切换、WASAPI 独占模式、EQ、插件、歌词/MV、DLNA 与共听入口。
 
 ## Listen Together 服务
 
 ECHO 的同步共听能力由独立服务承载，可以单独部署。
+
+</div>
 
 ```bash
 cd server/listen-together
@@ -197,11 +234,15 @@ npm install
 PORT=8787 npm start
 ```
 
+<div align="center">
+
 生产部署可参考 `server/listen-together/DEPLOY_FROM_ZERO_ZH.md`，其中包含反向代理与进程管理相关步骤。
 
 ## 插件开发
 
 ECHO 的插件以文件夹形式安装，每个插件至少包含一个 `plugin.json`。
+
+</div>
 
 ```text
 my-plugin/
@@ -213,11 +254,15 @@ my-plugin/
   icon.png
 ```
 
+<div align="center">
+
 插件可以声明网络、存储、UI 插槽等权限，并通过受控 API 与宿主通信。主进程插件运行在 Node.js `vm` 沙箱中，不能直接访问 `require`、`fs`、`child_process` 等 Node.js 能力；渲染进程插件通过注册组件、Hook 与设置项参与界面扩展。
 
 完整 API 与示例见 `docs/plugin-development.md` 与 `examples/`。
 
 ## 项目结构
+
+</div>
 
 ```text
 src/
@@ -239,29 +284,41 @@ docs/                   插件、发布与桌面烟测文档
 examples/               插件示例
 ```
 
+<div align="center">
+
 ## 工程取舍
+
+</div>
 
 - 音频链路不依赖渲染进程。播放输出放到独立宿主进程中，降低 UI 变更对音频稳定性的影响。
 - 插件能力先定义边界，再开放入口。插件通过 manifest 声明能力，宿主应用按权限提供 API。
 - 发布流程显式化。构建、单元测试、发布校验和桌面烟测被整理为可执行命令与文档。
 - 本地体验优先。曲库、歌词、MV、投屏、共听都围绕“正在播放的歌曲”组织，减少功能之间的割裂感。
 
+<div align="center">
+
 ## 相关开源项目
+
+</div>
 
 ECHO 的实现参考并使用了以下开源生态：
 
-- Electron
-- React
-- electron-vite
-- electron-builder
-- naudiodon
-- FFmpeg
-- music-metadata
-- Kuroshiro
-- yt-dlp
-- i18next
+- [Electron](https://www.electronjs.org/)
+- [React](https://react.dev/)
+- [electron-vite](https://electron-vite.org/)
+- [electron-builder](https://www.electron.build/)
+- [naudiodon](https://github.com/Streampunk/naudiodon)
+- [FFmpeg](https://ffmpeg.org/)
+- [music-metadata](https://github.com/borewit/music-metadata)
+- [Kuroshiro](https://kuroshiro.org/)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [i18next](https://github.com/i18next/i18next)
+
+<div align="center">
 
 ## Star History
+
+</div>
 
 <p align="center">
   <a href="https://star-history.com/#Moekotori/ECHO&Date">
@@ -272,6 +329,8 @@ ECHO 的实现参考并使用了以下开源生态：
     </picture>
   </a>
 </p>
+
+<div align="center">
 
 <p>A modern, feature-rich desktop music player built with Electron and React.</p>
 
