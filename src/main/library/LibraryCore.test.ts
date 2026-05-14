@@ -445,7 +445,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual(migrations.map((migration) => migration.id));
     reopened.close();
   });
 
@@ -1982,5 +1982,37 @@ describe('Library Core', () => {
     await service.waitForScan(job.id);
     expect(service.getScanStatus(job.id).status).toBe('cancelled');
     service.close();
+  });
+
+  it('imports a single audio file without scanning the full folder', async () => {
+    const metadataReader = new FakeMetadataReader(metadataResult({ title: 'Downloaded Song', artist: 'Download Artist' }));
+    const coverExtractor = new FakeCoverExtractor();
+    const harness = createHarness({ metadataReader, coverExtractor });
+    const filePath = writeAudioFile(harness.folder, 'Downloaded Song.m4a');
+
+    const track = await harness.service.importAudioFile(filePath);
+
+    expect(track.title).toBe('Downloaded Song');
+    expect(track.artist).toBe('Download Artist');
+    expect(metadataReader.calls).toEqual([filePath]);
+    expect(coverExtractor.calls).toEqual([filePath]);
+    expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(1);
+    expect(harness.service.getAlbums({ pageSize: 10 }).total).toBe(1);
+    expect(harness.service.getArtists({ pageSize: 10 }).total).toBeGreaterThan(0);
+    harness.cleanup();
+  });
+
+  it('updates an existing track when the same path is imported again', async () => {
+    const metadataReader = new FakeMetadataReader(metadataResult({ title: 'Repeat Title' }));
+    const harness = createHarness({ metadataReader, coverExtractor: new FakeCoverExtractor() });
+    const filePath = writeAudioFile(harness.folder, 'Repeat Import.flac');
+
+    const first = await harness.service.importAudioFile(filePath);
+    const second = await harness.service.importAudioFile(filePath);
+
+    expect(first.id).toBe(second.id);
+    expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(1);
+    expect(metadataReader.calls).toEqual([filePath, filePath]);
+    harness.cleanup();
   });
 });

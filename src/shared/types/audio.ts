@@ -4,6 +4,7 @@ export type AudioPlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'st
 
 export type PlaybackSpeedMode = 'nightcore' | 'daycore' | 'speed';
 export type ChannelBalanceMonoMode = 'off' | 'sum' | 'left' | 'right';
+export type SharedStabilityTier = 'standard' | 'recovery' | 'emergency';
 
 export type ChannelBalanceState = {
   enabled: boolean;
@@ -89,6 +90,15 @@ export type AudioStatus = {
   clippingRisk: boolean;
   audioLevels?: AudioLevelTelemetry;
   bitPerfectDisabledReason: string | null;
+  sharedStabilityTier?: SharedStabilityTier | null;
+  nativeDeviceBufferFrames?: number | null;
+  nativeFifoCapacityFrames?: number | null;
+  nativeStartupPrebufferFrames?: number | null;
+  nativeBufferedFrames?: number | null;
+  nativeBufferedMs?: number | null;
+  nativeUnderrunCallbacks?: number;
+  nativeUnderrunFrames?: number;
+  lastSharedStabilityRecoveryAt?: string | null;
   warnings: string[];
   error: string | null;
 };
@@ -112,6 +122,15 @@ export type AudioDiagnostics = Pick<
   | 'resampling'
   | 'bitPerfectCandidate'
   | 'sampleRateMismatch'
+  | 'sharedStabilityTier'
+  | 'nativeDeviceBufferFrames'
+  | 'nativeFifoCapacityFrames'
+  | 'nativeStartupPrebufferFrames'
+  | 'nativeBufferedFrames'
+  | 'nativeBufferedMs'
+  | 'nativeUnderrunCallbacks'
+  | 'nativeUnderrunFrames'
+  | 'lastSharedStabilityRecoveryAt'
   | 'warnings'
   | 'error'
 > & {

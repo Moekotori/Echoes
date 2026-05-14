@@ -120,7 +120,7 @@ Current development uses Electron 37.x because `better-sqlite3@12.9.0` rebuilds 
 electron-rebuild -w better-sqlite3
 ```
 
-After dependency changes or a clean install, use `npm run dev` normally; the predev step keeps the SQLite binding aligned with the Electron desktop runtime. `npm test` runs `npm run rebuild:native:node` first because Vitest executes under the system Node.js ABI, then `posttest` runs `npm run rebuild:native` so the working tree is left ready for Electron dev again.
+After dependency changes or a clean install, use `npm run dev` normally; the predev step keeps the SQLite binding aligned with the Electron desktop runtime. Vitest global setup runs `scripts/ensure-native-abi.mjs node` first because tests execute under the system Node.js ABI, so direct `vitest` runs and editor-launched tests get the same protection as `npm test`. The `posttest` hook then runs the Electron ABI check so the working tree is left ready for Electron dev after `npm test`. The ABI helper caches rebuilt `better-sqlite3.node` binaries under `node_modules/.echo-native-cache`, so repeat switches between Node and Electron usually restore a cached binary instead of compiling again.
 
 Browser-only Vite preview cannot scan folders because it has no Electron main process, preload bridge, or native SQLite access.
 

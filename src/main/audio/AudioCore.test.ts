@@ -443,6 +443,30 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
+  it('falls back to the system default shared device when the selected shared device fails', async () => {
+    const failingBridge = new ConfigurableStartupFailingBridge('output open failed: device disappeared');
+    const fallbackBridge = new FakeBridge(48000);
+    const bridges = [failingBridge, fallbackBridge];
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Missing USB DAC' },
+    });
+
+    expect(failingBridge.stop).toHaveBeenCalledTimes(1);
+    expect(failingBridge.startOptions).toMatchObject({ deviceIndex: 6, deviceName: 'Missing USB DAC' });
+    expect(fallbackBridge.startOptions?.deviceIndex).toBeUndefined();
+    expect(fallbackBridge.startOptions?.deviceName).toBeUndefined();
+    expect(status.state).toBe('playing');
+    expect(status.warnings).toContain('shared_output_fell_back_to_default_device');
+  });
+
   it('uses library probe hints and avoids device enumeration on the playback hot path', async () => {
     const decoder = new FakeDecoder(new Map());
     const bridges: FakeBridge[] = [];
@@ -859,7 +883,7 @@ describe('AudioSession playback watchdog', () => {
     expect(endedHarness.bridges).toHaveLength(1);
   });
 
-  it('enters error after too many recoveries for one track', async () => {
+  it('limits shared stability recovery without entering an error loop', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 44100)], [], [], {
       disableWatchdogTimer: true,
       watchdogStallChecks: 1,
@@ -875,9 +899,55 @@ describe('AudioSession playback watchdog', () => {
     await session.checkPlaybackWatchdog();
 
     const status = session.getStatus();
-    expect(status.state).toBe('error');
-    expect(status.error).toBe('audio_watchdog_recovery_limit_exceeded');
+    expect(status.state).toBe('playing');
+    expect(status.error).toBeNull();
+    expect(status.warnings).toContain('shared_stability_recovery_limited');
     expect(bridges).toHaveLength(2);
+  });
+
+  it('starts shared output with the balanced stability profile', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      bufferSizeFrames: 2048,
+      fifoCapacityMs: 750,
+      startupPrebufferMs: 120,
+      startupPrebufferTimeoutMs: 600,
+    });
+  });
+
+  it('upgrades shared stability after repeated native underruns', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 48000)], [], [], {
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'song.flac', trackId: 'track-1', output: { outputMode: 'shared' } });
+    bridges[0].emit('position', 48000, {
+      positionFrames: 48000,
+      bufferedFrames: 0,
+      underrunCallbacks: 0,
+      underrunFrames: 0,
+    });
+    bridges[0].emit('position', 48512, {
+      positionFrames: 48512,
+      bufferedFrames: 0,
+      underrunCallbacks: 3,
+      underrunFrames: 512,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges).toHaveLength(2);
+    expect(bridges[1].startOptions).toMatchObject({
+      bufferSizeFrames: 4096,
+      fifoCapacityMs: 1000,
+      startupPrebufferMs: 180,
+    });
+    expect(session.getStatus().sharedStabilityTier).toBe('recovery');
+    expect(session.getStatus().warnings).toContain('shared_output_underrun_detected');
+    expect(session.getStatus().warnings).toContain('shared_stability_recovered:1');
   });
 });
 
@@ -985,6 +1055,47 @@ describe('NativeOutputBridge host arguments', () => {
 
     expect(spawned[0].args).toEqual(
       expect.arrayContaining(['-device', 'TEAC USB AUDIO DEVICE', '-device-index', '6']),
+    );
+  });
+
+  it('passes shared stability host arguments only for shared output', async () => {
+    const spawned: Array<{ file: string; args: string[] }> = [];
+    const fakeSpawn = (file: string, args: string[]): ChildProcessWithoutNullStreams => {
+      spawned.push({ file, args });
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write('{"ready":true,"sampleRate":48000}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      bufferSizeFrames: 2048,
+      fifoCapacityMs: 750,
+      startupPrebufferMs: 120,
+      startupPrebufferTimeoutMs: 600,
+    });
+    bridge.stop();
+
+    expect(spawned[0].args).toEqual(
+      expect.arrayContaining(['-buffer', '2048', '-fifo-ms', '750', '-prebuffer-ms', '120', '-prebuffer-timeout-ms', '600']),
     );
   });
 

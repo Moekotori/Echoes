@@ -207,6 +207,7 @@ describe('PlaybackQueueProvider playback modes', () => {
 
   it('loads shuffle candidates from the full song library when the current queue came from Songs', async () => {
     const tracks = [makeTrack(1), makeTrack(2), makeTrack(3)];
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     const getTracks = vi.fn().mockResolvedValue({
       items: [tracks[0], tracks[1], tracks[2]],
       page: 1,

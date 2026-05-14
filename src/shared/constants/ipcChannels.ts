@@ -23,6 +23,7 @@ export const IpcChannels = {
   DownloadsClearCompleted: 'downloads:clear-completed',
   DownloadsGetSettings: 'downloads:get-settings',
   DownloadsSetSettings: 'downloads:set-settings',
+  DownloadsChooseOutputDirectory: 'downloads:choose-output-directory',
   DownloadsCheckTools: 'downloads:check-tools',
   DownloadsJobsUpdated: 'downloads:jobs-updated',
   AccountGetStatuses: 'account:get-statuses',

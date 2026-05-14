@@ -3,7 +3,6 @@ export type DownloadJobStatus =
   | 'probing'
   | 'downloading'
   | 'extracting_audio'
-  | 'tagging'
   | 'importing'
   | 'binding_mv'
   | 'completed'
@@ -31,6 +30,12 @@ export type DownloadJob = {
   durationSeconds: number | null;
   thumbnailUrl: string | null;
   webpageUrl: string | null;
+  outputPath: string | null;
+  downloadedBytes: number | null;
+  totalBytes: number | null;
+  speedBytesPerSecond: number | null;
+  etaSeconds: number | null;
+  importedTrackId: string | null;
   progress: number;
   error: string | null;
   createdAt: string;

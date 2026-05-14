@@ -189,6 +189,15 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
               watchdogStatus: 'recovering',
               recentWatchdogRecoveryCount: 1,
               lastWatchdogRecoveryTime: '2026-05-14T01:00:00.000Z',
+              sharedStabilityTier: 'recovery',
+              nativeDeviceBufferFrames: 4096,
+              nativeFifoCapacityFrames: 48000,
+              nativeStartupPrebufferFrames: 8640,
+              nativeBufferedFrames: 12000,
+              nativeBufferedMs: 250,
+              nativeUnderrunCallbacks: 3,
+              nativeUnderrunFrames: 512,
+              lastSharedStabilityRecoveryAt: '2026-05-14T01:00:02.000Z',
             },
           ),
         ),
@@ -208,6 +217,11 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     expect(copied).toContain('watchdogStatus: recovering');
     expect(copied).toContain('recentWatchdogRecoveryCount: 1');
     expect(copied).toContain('lastWatchdogRecoveryTime: 2026-05-14T01:00:00.000Z');
+    expect(copied).toContain('sharedStabilityTier: recovery');
+    expect(copied).toContain('nativeDeviceBufferFrames: 4096');
+    expect(copied).toContain('nativeBufferedMs: 250');
+    expect(copied).toContain('nativeUnderrunCallbacks: 3');
+    expect(copied).toContain('lastSharedStabilityRecoveryAt: 2026-05-14T01:00:02.000Z');
   });
 
   it('falls back to status and tolerates missing fields', async () => {

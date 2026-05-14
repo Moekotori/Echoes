@@ -189,7 +189,7 @@ Metadata and cover workers must use concurrency limits. Cover thumbnails must be
 
 SQLite is the source of truth after a scan. Restarting the app must not reparse the whole library.
 
-`better-sqlite3` must be rebuilt for the Electron runtime ABI before desktop dev runs. `npm run dev` owns that check through `npm run rebuild:native`; do not rely on the binary produced for the system Node.js ABI when testing folder import or library scanning in Electron. Vitest uses the system Node.js ABI, so `npm test` owns the opposite rebuild through `npm run rebuild:native:node`.
+`better-sqlite3` must be rebuilt for the Electron runtime ABI before desktop dev runs. `npm run dev` owns that check through `npm run rebuild:native`; do not rely on the binary produced for the system Node.js ABI when testing folder import or library scanning in Electron. Vitest uses the system Node.js ABI, so Vitest global setup owns the opposite rebuild even when tests are launched directly through `vitest`, an editor, or `npm test`. `scripts/ensure-native-abi.mjs` caches ABI-specific binaries under `node_modules/.echo-native-cache` to keep repeat Node/Electron switches fast.
 
 Required persisted tables:
 

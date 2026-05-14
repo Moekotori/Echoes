@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import electron from 'electron';
 import { applyCoverArt, applyTags } from 'taglib-wasm';
 import { defaultSettings, getAppSettings } from '../app/appSettings';
@@ -348,6 +349,66 @@ export class LibraryService {
 
   getTrack(trackId: string): LibraryTrack | null {
     return this.store.getTrack(trackId);
+  }
+
+  async importAudioFile(filePath: string, options: { folderPath?: string } = {}): Promise<LibraryTrack> {
+    const normalizedPath = resolve(filePath);
+
+    if (!existsSync(normalizedPath)) {
+      throw new Error(`Track file is missing: ${normalizedPath}`);
+    }
+
+    const fileStat = statSync(normalizedPath);
+    if (!fileStat.isFile()) {
+      throw new Error(`Track path is not a file: ${normalizedPath}`);
+    }
+
+    const folder = this.store.addFolder(resolve(options.folderPath ?? dirname(normalizedPath)));
+    const metadata = await this.metadataReader.read(normalizedPath);
+    let coverId: string | null = null;
+    let coverErrors: string[] = [];
+
+    try {
+      const cover = await this.coverExtractor.extract(normalizedPath, {
+        cacheRoot: this.coverCacheDir,
+        metadata,
+      });
+      coverId = this.store.upsertCover(cover);
+      coverErrors = cover.errors;
+    } catch (error) {
+      coverErrors = [error instanceof Error ? error.message : String(error)];
+    }
+
+    const timestamp = new Date().toISOString();
+    const trackId = randomUUID();
+
+    return this.store.transaction(() => {
+      this.store.upsertTrack({
+        path: normalizedPath,
+        folderId: folder.id,
+        sizeBytes: fileStat.size,
+        mtimeMs: Math.round(fileStat.mtimeMs),
+        ...metadata.fields,
+        id: trackId,
+        coverId,
+        fieldSources: metadata.fieldSources,
+        embeddedMetadataStatus: metadata.embeddedMetadataStatus,
+        embeddedCoverStatus: metadata.embeddedCoverStatus,
+        metadataStatus: metadata.status,
+        warnings: metadata.warnings,
+        errors: [...metadata.errors, ...coverErrors],
+        updatedAt: timestamp,
+      });
+      this.store.refreshAlbums(this.albumService, timestamp, this.albumRefreshOptions());
+      this.store.refreshArtists();
+
+      const track = this.store.getTrack(trackId) ?? this.store.getTrackByPath(normalizedPath);
+      if (!track) {
+        throw new Error(`Failed to import audio file: ${normalizedPath}`);
+      }
+
+      return track;
+    });
   }
 
   recordTrackPlayback(trackId: string): void {

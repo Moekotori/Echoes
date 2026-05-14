@@ -66,10 +66,21 @@ export type NativeOutputStartOptions = {
   deviceName?: string;
   asio?: boolean;
   exclusive?: boolean;
+  bufferSizeFrames?: number;
+  fifoCapacityMs?: number;
+  startupPrebufferMs?: number;
+  startupPrebufferTimeoutMs?: number;
   volume?: number;
   startSeconds?: number;
   playbackRate?: number;
   playbackSpeedMode?: AudioOutputSettings['playbackSpeedMode'];
+};
+
+export type NativeOutputTelemetry = {
+  positionFrames: number;
+  bufferedFrames: number | null;
+  underrunCallbacks: number;
+  underrunFrames: number;
 };
 
 export type NativeBridgeReadyMessage = Record<string, unknown> & {
@@ -83,6 +94,10 @@ export type NativeBridgeReadyMessage = Record<string, unknown> & {
   deviceType?: string;
   deviceName?: string;
   eqControlPort?: number;
+  deviceBufferFrames?: number;
+  fifoCapacityFrames?: number;
+  startupPrebufferFrames?: number;
+  startupPrebufferTimeoutMs?: number;
 };
 
 export type NativeBridgeReadyResult = {

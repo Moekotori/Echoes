@@ -226,6 +226,17 @@ const getDirectSignalText = (status: AudioStatus | null, deviceSampleRate: numbe
   return copy.pending;
 };
 
+const getSharedStabilityText = (status: AudioStatus | null, unknownValue: string): string => {
+  if (status?.outputMode !== 'shared') {
+    return 'n/a';
+  }
+
+  const tier = status.sharedStabilityTier ?? unknownValue;
+  const buffered = status.nativeBufferedMs !== null && status.nativeBufferedMs !== undefined ? `${status.nativeBufferedMs} ms` : unknownValue;
+  const recovery = status.lastSharedStabilityRecoveryAt ? 'recovered' : 'auto';
+  return `${tier} / ${buffered} / ${recovery}`;
+};
+
 const deviceMatchesStatus = (device: AudioDeviceInfo, status: AudioStatus | null, mode: AudioOutputMode): boolean => {
   if (!status || status.outputMode !== mode) {
     return false;
@@ -311,6 +322,15 @@ const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string => {
     ['resampling', diagnostics.resampling],
     ['bitPerfectCandidate', diagnostics.bitPerfectCandidate],
     ['sampleRateMismatch', diagnostics.sampleRateMismatch],
+    ['sharedStabilityTier', diagnostics.sharedStabilityTier],
+    ['nativeDeviceBufferFrames', diagnostics.nativeDeviceBufferFrames],
+    ['nativeFifoCapacityFrames', diagnostics.nativeFifoCapacityFrames],
+    ['nativeStartupPrebufferFrames', diagnostics.nativeStartupPrebufferFrames],
+    ['nativeBufferedFrames', diagnostics.nativeBufferedFrames],
+    ['nativeBufferedMs', diagnostics.nativeBufferedMs],
+    ['nativeUnderrunCallbacks', diagnostics.nativeUnderrunCallbacks],
+    ['nativeUnderrunFrames', diagnostics.nativeUnderrunFrames],
+    ['lastSharedStabilityRecoveryAt', diagnostics.lastSharedStabilityRecoveryAt],
     ['warnings', diagnostics.warnings],
     ['error', diagnostics.error],
     ['watchdogStatus', diagnostics.watchdogStatus],
@@ -435,6 +455,7 @@ export const AudioSettingsDrawer = ({
       { label: 'EQ', value: getEqSignalText(status, copy) },
       { label: t('audioDrawer.meter.resample'), value: getResampleSignalText(status, effectiveSharedSampleRate, copy) },
       { label: t('audioDrawer.meter.direct'), value: getDirectSignalText(status, effectiveSharedSampleRate, copy) },
+      { label: t('settings.playback.stability.field.sharedStabilityTier'), value: getSharedStabilityText(status, t('settings.playback.stability.value.unknown')) },
     ],
     [copy, effectiveSharedSampleRate, status, t],
   );

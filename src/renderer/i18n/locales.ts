@@ -613,8 +613,17 @@ export type TranslationKey =
   | 'settings.playback.stability.action.copy'
   | 'settings.playback.stability.action.refresh'
   | 'settings.playback.stability.error.desktopBridgeUnavailable'
+  | 'settings.playback.stability.field.lastSharedStabilityRecoveryAt'
   | 'settings.playback.stability.field.lastWatchdogRecoveryTime'
+  | 'settings.playback.stability.field.nativeBufferedFrames'
+  | 'settings.playback.stability.field.nativeBufferedMs'
+  | 'settings.playback.stability.field.nativeDeviceBufferFrames'
+  | 'settings.playback.stability.field.nativeFifoCapacityFrames'
+  | 'settings.playback.stability.field.nativeStartupPrebufferFrames'
+  | 'settings.playback.stability.field.nativeUnderrunCallbacks'
+  | 'settings.playback.stability.field.nativeUnderrunFrames'
   | 'settings.playback.stability.field.recentWatchdogRecoveryCount'
+  | 'settings.playback.stability.field.sharedStabilityTier'
   | 'settings.playback.stability.field.watchdogStatus'
   | 'settings.playback.stability.title'
   | 'settings.playback.stability.value.unknown'
@@ -1231,8 +1240,17 @@ const zhCN: TranslationMap = {
   'settings.playback.stability.action.copy': '复制诊断信息',
   'settings.playback.stability.action.refresh': '刷新播放稳定性诊断',
   'settings.playback.stability.error.desktopBridgeUnavailable': '桌面桥接不可用。',
+  'settings.playback.stability.field.lastSharedStabilityRecoveryAt': '上次 Shared 稳定恢复时间',
   'settings.playback.stability.field.lastWatchdogRecoveryTime': '上次 watchdog 恢复时间',
+  'settings.playback.stability.field.nativeBufferedFrames': 'Native 缓冲帧',
+  'settings.playback.stability.field.nativeBufferedMs': 'Native 缓冲毫秒',
+  'settings.playback.stability.field.nativeDeviceBufferFrames': '设备缓冲帧',
+  'settings.playback.stability.field.nativeFifoCapacityFrames': 'Native FIFO 容量帧',
+  'settings.playback.stability.field.nativeStartupPrebufferFrames': '启动预缓冲帧',
+  'settings.playback.stability.field.nativeUnderrunCallbacks': 'Native underrun 回调',
+  'settings.playback.stability.field.nativeUnderrunFrames': 'Native underrun 帧',
   'settings.playback.stability.field.recentWatchdogRecoveryCount': '近期 watchdog 恢复次数',
+  'settings.playback.stability.field.sharedStabilityTier': 'Shared 稳定档',
   'settings.playback.stability.field.watchdogStatus': 'watchdog 状态',
   'settings.playback.stability.title': '播放稳定性诊断',
   'settings.playback.stability.value.unknown': '未知',
@@ -1558,8 +1576,17 @@ const zhTW: TranslationMap = {
   'settings.playback.stability.action.copy': '複製診斷資訊',
   'settings.playback.stability.action.refresh': '重新整理播放穩定性診斷',
   'settings.playback.stability.error.desktopBridgeUnavailable': '桌面橋接不可用。',
+  'settings.playback.stability.field.lastSharedStabilityRecoveryAt': '上次 Shared 穩定性復原時間',
   'settings.playback.stability.field.lastWatchdogRecoveryTime': '上次 watchdog 復原時間',
+  'settings.playback.stability.field.nativeBufferedFrames': 'Native 緩衝影格',
+  'settings.playback.stability.field.nativeBufferedMs': 'Native 緩衝毫秒',
+  'settings.playback.stability.field.nativeDeviceBufferFrames': '裝置緩衝影格',
+  'settings.playback.stability.field.nativeFifoCapacityFrames': 'Native FIFO 容量影格',
+  'settings.playback.stability.field.nativeStartupPrebufferFrames': '啟動預緩衝影格',
+  'settings.playback.stability.field.nativeUnderrunCallbacks': 'Native underrun 回呼',
+  'settings.playback.stability.field.nativeUnderrunFrames': 'Native underrun 影格',
   'settings.playback.stability.field.recentWatchdogRecoveryCount': '近期 watchdog 復原次數',
+  'settings.playback.stability.field.sharedStabilityTier': 'Shared 穩定性檔位',
   'settings.playback.stability.field.watchdogStatus': 'watchdog 狀態',
   'settings.playback.stability.title': '播放穩定性診斷',
   'settings.playback.stability.value.unknown': '未知',
@@ -2023,8 +2050,17 @@ const jaJP: TranslationMap = {
   'settings.playback.stability.action.copy': '診断情報をコピー',
   'settings.playback.stability.action.refresh': '再生安定性診断を更新',
   'settings.playback.stability.error.desktopBridgeUnavailable': 'デスクトップブリッジを利用できません。',
+  'settings.playback.stability.field.lastSharedStabilityRecoveryAt': '前回の Shared 安定化復旧時刻',
   'settings.playback.stability.field.lastWatchdogRecoveryTime': '前回の watchdog 復旧時刻',
+  'settings.playback.stability.field.nativeBufferedFrames': 'Native バッファーフレーム',
+  'settings.playback.stability.field.nativeBufferedMs': 'Native バッファー ms',
+  'settings.playback.stability.field.nativeDeviceBufferFrames': 'デバイスバッファーフレーム',
+  'settings.playback.stability.field.nativeFifoCapacityFrames': 'Native FIFO 容量フレーム',
+  'settings.playback.stability.field.nativeStartupPrebufferFrames': '起動プリバッファーフレーム',
+  'settings.playback.stability.field.nativeUnderrunCallbacks': 'Native underrun コールバック',
+  'settings.playback.stability.field.nativeUnderrunFrames': 'Native underrun フレーム',
   'settings.playback.stability.field.recentWatchdogRecoveryCount': '最近の watchdog 復旧回数',
+  'settings.playback.stability.field.sharedStabilityTier': 'Shared 安定性ティア',
   'settings.playback.stability.field.watchdogStatus': 'watchdog 状態',
   'settings.playback.stability.title': '再生安定性診断',
   'settings.playback.stability.value.unknown': '不明',
@@ -2593,8 +2629,17 @@ const enUS: TranslationMap = {
   'settings.playback.stability.action.copy': 'Copy Diagnostics',
   'settings.playback.stability.action.refresh': 'Refresh Playback Stability Diagnostics',
   'settings.playback.stability.error.desktopBridgeUnavailable': 'Desktop bridge unavailable.',
+  'settings.playback.stability.field.lastSharedStabilityRecoveryAt': 'Last Shared stability recovery',
   'settings.playback.stability.field.lastWatchdogRecoveryTime': 'Last watchdog recovery time',
+  'settings.playback.stability.field.nativeBufferedFrames': 'Native buffered frames',
+  'settings.playback.stability.field.nativeBufferedMs': 'Native buffered ms',
+  'settings.playback.stability.field.nativeDeviceBufferFrames': 'Device buffer frames',
+  'settings.playback.stability.field.nativeFifoCapacityFrames': 'Native FIFO capacity frames',
+  'settings.playback.stability.field.nativeStartupPrebufferFrames': 'Startup prebuffer frames',
+  'settings.playback.stability.field.nativeUnderrunCallbacks': 'Native underrun callbacks',
+  'settings.playback.stability.field.nativeUnderrunFrames': 'Native underrun frames',
   'settings.playback.stability.field.recentWatchdogRecoveryCount': 'Recent watchdog recovery count',
+  'settings.playback.stability.field.sharedStabilityTier': 'Shared stability tier',
   'settings.playback.stability.field.watchdogStatus': 'Watchdog status',
   'settings.playback.stability.title': 'Playback Stability Diagnostics',
   'settings.playback.stability.value.unknown': 'N/A',

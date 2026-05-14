@@ -18,10 +18,11 @@ import type {
   AudioStatus,
   DecoderRun,
   NativeBridgeReadyResult,
+  NativeOutputTelemetry,
   NativeOutputStartOptions,
   SampleRatePlan,
 } from './audioTypes';
-import type { PlaybackSpeedMode } from '../../shared/types/audio';
+import type { PlaybackSpeedMode, SharedStabilityTier } from '../../shared/types/audio';
 import type { PlaybackMemory } from './PlaybackMemoryStore';
 
 type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'>;
@@ -60,6 +61,33 @@ const defaultWatchdogStallChecks = 3;
 const defaultWatchdogMaxRecoveriesPerTrack = 2;
 const defaultWatchdogRecoveryWindowMs = 5 * 60 * 1000;
 const watchdogPositionEpsilonSeconds = 0.05;
+const sharedUnderrunWindowMs = 15_000;
+const sharedUnderrunCallbackThreshold = 3;
+const sharedUnderrunFramesThresholdMs = 100;
+
+const sharedStabilityProfiles: Record<
+  SharedStabilityTier,
+  Pick<NativeOutputStartOptions, 'bufferSizeFrames' | 'fifoCapacityMs' | 'startupPrebufferMs' | 'startupPrebufferTimeoutMs'>
+> = {
+  standard: {
+    bufferSizeFrames: 2048,
+    fifoCapacityMs: 750,
+    startupPrebufferMs: 120,
+    startupPrebufferTimeoutMs: 600,
+  },
+  recovery: {
+    bufferSizeFrames: 4096,
+    fifoCapacityMs: 1000,
+    startupPrebufferMs: 180,
+    startupPrebufferTimeoutMs: 600,
+  },
+  emergency: {
+    bufferSizeFrames: 8192,
+    fifoCapacityMs: 1500,
+    startupPrebufferMs: 250,
+    startupPrebufferTimeoutMs: 600,
+  },
+};
 
 const defaultLogger = (message: string): void => {
   console.warn(message);
@@ -92,6 +120,11 @@ const createSharedFallbackSettings = (settings: AudioOutputSettings): AudioOutpu
   outputMode: 'shared',
   requestedOutputSampleRate: undefined,
 });
+
+const numericReadyField = (ready: NativeBridgeReadyResult, field: string): number | null => {
+  const value = ready.device[field];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+};
 
 const createProbeFromHint = (filePath: string, hint: AudioSessionPlayRequest['probe']): AudioProbeResult | null => {
   if (!hint) {
@@ -182,6 +215,15 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
     meterSource: 'pre_native_estimated_post_dsp',
   },
   bitPerfectDisabledReason: null,
+  sharedStabilityTier: null,
+  nativeDeviceBufferFrames: null,
+  nativeFifoCapacityFrames: null,
+  nativeStartupPrebufferFrames: null,
+  nativeBufferedFrames: null,
+  nativeBufferedMs: null,
+  nativeUnderrunCallbacks: 0,
+  nativeUnderrunFrames: 0,
+  lastSharedStabilityRecoveryAt: null,
   warnings: [],
   error: null,
 });
@@ -333,8 +375,28 @@ export class AudioSession extends EventEmitter {
   private watchdogStalledChecks = 0;
   private watchdogRecovering = false;
   private watchdogPendingWarning: string | null = null;
+  private pendingOutputWarnings: string[] = [];
   private watchdogLastRecoveryAt: string | null = null;
   private readonly watchdogRecoveries = new Map<string, { count: number; windowStartedAt: number }>();
+  private sharedStabilityTier: SharedStabilityTier = 'standard';
+  private sharedStabilityRecovering = false;
+  private lastSharedStabilityRecoveryAt: string | null = null;
+  private nativeDeviceBufferFrames: number | null = null;
+  private nativeFifoCapacityFrames: number | null = null;
+  private nativeStartupPrebufferFrames: number | null = null;
+  private nativeTelemetry: NativeOutputTelemetry = {
+    positionFrames: 0,
+    bufferedFrames: null,
+    underrunCallbacks: 0,
+    underrunFrames: 0,
+  };
+  private sharedUnderrunWindow:
+    | {
+        startedAt: number;
+        callbacks: number;
+        frames: number;
+      }
+    | null = null;
 
   constructor(dependencies: AudioSessionDependencies = {}) {
     super();
@@ -438,10 +500,15 @@ export class AudioSession extends EventEmitter {
     this.state = 'loading';
     this.hostStatus = 'starting';
     this.errorMessage = null;
-    this.outputWarnings = this.watchdogPendingWarning ? [this.watchdogPendingWarning] : [];
+    this.outputWarnings = [
+      ...(this.watchdogPendingWarning ? [this.watchdogPendingWarning] : []),
+      ...this.pendingOutputWarnings,
+    ];
     this.watchdogPendingWarning = null;
+    this.pendingOutputWarnings = [];
     this.resetWatchdogProgress();
     this.resetLevelMeter();
+    this.resetNativeTelemetry();
     this.currentFilePath = request.filePath;
     this.currentTrackId = request.trackId ?? null;
     this.pausedPositionSeconds = null;
@@ -458,6 +525,7 @@ export class AudioSession extends EventEmitter {
       playbackRate: normalizePlaybackRate(request.output?.playbackRate ?? this.outputSettings.playbackRate),
       playbackSpeedMode: normalizePlaybackSpeedMode(request.output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
     };
+    this.resetSharedStabilityForFreshPlayback(this.currentOutputSettings.outputMode ?? 'shared');
     this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings);
     this.logger(
       `[AudioSession] output: mode=${this.currentOutputSettings.outputMode ?? 'shared'} device=${
@@ -627,6 +695,7 @@ export class AudioSession extends EventEmitter {
     this.runToken += 1;
     this.stopResources();
     this.resetLevelMeter();
+    this.resetNativeTelemetry();
     this.state = 'stopped';
     this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
     this.currentProbe = null;
@@ -729,6 +798,12 @@ export class AudioSession extends EventEmitter {
       warnings.push('audio_level_clipped');
     }
 
+    const nativeSampleRate = plan?.actualDeviceSampleRate ?? plan?.requestedOutputSampleRate ?? null;
+    const nativeBufferedMs =
+      nativeSampleRate && this.nativeTelemetry.bufferedFrames !== null
+        ? Math.round((this.nativeTelemetry.bufferedFrames / nativeSampleRate) * 1000)
+        : null;
+
     return {
       ...status,
       host: this.hostStatus,
@@ -765,6 +840,15 @@ export class AudioSession extends EventEmitter {
       clippingRisk: eqState.clippingRisk || Boolean(channelBalanceState.clippingRisk) || realtimeLevelClippingRisk || realtimeLevelClipped,
       audioLevels,
       bitPerfectDisabledReason,
+      sharedStabilityTier: plan?.outputMode === 'shared' ? this.sharedStabilityTier : null,
+      nativeDeviceBufferFrames: this.nativeDeviceBufferFrames,
+      nativeFifoCapacityFrames: this.nativeFifoCapacityFrames,
+      nativeStartupPrebufferFrames: this.nativeStartupPrebufferFrames,
+      nativeBufferedFrames: this.nativeTelemetry.bufferedFrames,
+      nativeBufferedMs,
+      nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
+      nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+      lastSharedStabilityRecoveryAt: this.lastSharedStabilityRecoveryAt,
       warnings,
       error: this.errorMessage,
     };
@@ -791,6 +875,15 @@ export class AudioSession extends EventEmitter {
       resampling: status.resampling,
       bitPerfectCandidate: status.bitPerfectCandidate,
       sampleRateMismatch: status.sampleRateMismatch,
+      sharedStabilityTier: status.sharedStabilityTier,
+      nativeDeviceBufferFrames: status.nativeDeviceBufferFrames,
+      nativeFifoCapacityFrames: status.nativeFifoCapacityFrames,
+      nativeStartupPrebufferFrames: status.nativeStartupPrebufferFrames,
+      nativeBufferedFrames: status.nativeBufferedFrames,
+      nativeBufferedMs: status.nativeBufferedMs,
+      nativeUnderrunCallbacks: status.nativeUnderrunCallbacks,
+      nativeUnderrunFrames: status.nativeUnderrunFrames,
+      lastSharedStabilityRecoveryAt: status.lastSharedStabilityRecoveryAt,
       warnings: status.warnings,
       error: status.error,
       watchdogStatus: this.getWatchdogStatus(),
@@ -966,6 +1059,9 @@ export class AudioSession extends EventEmitter {
       resolvedDevice,
       ready.actualDeviceSampleRate,
     );
+    this.nativeDeviceBufferFrames = numericReadyField(ready, 'deviceBufferFrames');
+    this.nativeFifoCapacityFrames = numericReadyField(ready, 'fifoCapacityFrames');
+    this.nativeStartupPrebufferFrames = numericReadyField(ready, 'startupPrebufferFrames');
     this.clock.setSampleRate(ready.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
   }
 
@@ -1035,10 +1131,21 @@ export class AudioSession extends EventEmitter {
     }
 
     if (explicitDevice) {
-      return [explicitDevice];
+      return outputMode === 'shared' ? [explicitDevice, null] : [explicitDevice];
     }
 
     return [null];
+  }
+
+  private createNativeOutputStartOptions(options: NativeOutputStartOptions): NativeOutputStartOptions {
+    if (options.exclusive || options.asio) {
+      return options;
+    }
+
+    return {
+      ...options,
+      ...sharedStabilityProfiles[this.sharedStabilityTier],
+    };
   }
 
   private async startOutputBridgeForProbe(
@@ -1071,20 +1178,26 @@ export class AudioSession extends EventEmitter {
       this.attachBridgeEvents(bridge, token);
 
       const outputMode = this.currentPlan.outputMode;
+      const usingDefaultSharedFallback =
+        outputMode === 'shared' && candidate === null && hasExplicitDeviceSelection(this.currentOutputSettings);
 
       try {
-        const ready = await bridge.start({
+        const ready = await bridge.start(this.createNativeOutputStartOptions({
           requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
           channels: probe.channels,
-          deviceIndex: candidate?.index ?? this.currentOutputSettings.deviceIndex,
-          deviceName: candidate?.name ?? this.currentOutputSettings.deviceName,
+          deviceIndex: candidate?.index ?? (usingDefaultSharedFallback ? undefined : this.currentOutputSettings.deviceIndex),
+          deviceName: candidate?.name ?? (usingDefaultSharedFallback ? undefined : this.currentOutputSettings.deviceName),
           asio: outputMode === 'asio',
           exclusive: outputMode === 'exclusive',
           volume: this.currentOutputSettings.volume,
           startSeconds,
           playbackRate: this.currentOutputSettings.playbackRate,
           playbackSpeedMode: this.currentOutputSettings.playbackSpeedMode,
-        });
+        }));
+
+        if (usingDefaultSharedFallback && !this.outputWarnings.includes('shared_output_fell_back_to_default_device')) {
+          this.outputWarnings.push('shared_output_fell_back_to_default_device');
+        }
 
         return { bridge, plan: this.currentPlan, ready };
       } catch (error) {
@@ -1093,10 +1206,6 @@ export class AudioSession extends EventEmitter {
         bridge.stop();
         if (this.bridge === bridge) {
           this.bridge = null;
-        }
-
-        if (hasExplicitDeviceSelection(this.currentOutputSettings) && outputMode === 'shared') {
-          throw lastError;
         }
       }
     }
@@ -1177,7 +1286,7 @@ export class AudioSession extends EventEmitter {
     this.attachBridgeEvents(bridge, token);
 
     try {
-      const ready = await bridge.start({
+      const ready = await bridge.start(this.createNativeOutputStartOptions({
         requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
         channels: probe.channels,
         deviceIndex: fallbackDevice?.index ?? fallbackSettings.deviceIndex,
@@ -1188,7 +1297,7 @@ export class AudioSession extends EventEmitter {
         startSeconds,
         playbackRate: fallbackSettings.playbackRate,
         playbackSpeedMode: fallbackSettings.playbackSpeedMode,
-      });
+      }));
 
       return { bridge, plan: this.currentPlan, ready };
     } catch (error) {
@@ -1203,7 +1312,7 @@ export class AudioSession extends EventEmitter {
   }
 
   private attachBridgeEvents(bridge: OutputBridgeLike, token: number): void {
-    bridge.on('position', (frames: unknown) => {
+    bridge.on('position', (frames: unknown, telemetry?: unknown) => {
       if (this.runToken !== token) {
         return;
       }
@@ -1211,6 +1320,9 @@ export class AudioSession extends EventEmitter {
       this.clock.updateFrames(Number(frames));
       this.watchdogLastPositionSeconds = this.clock.getPositionSeconds();
       this.watchdogStalledChecks = 0;
+      if (telemetry && typeof telemetry === 'object' && !Array.isArray(telemetry)) {
+        this.handleNativeTelemetry(telemetry as NativeOutputTelemetry);
+      }
     });
     bridge.on('ended', () => {
       if (this.runToken !== token) {
@@ -1274,6 +1386,58 @@ export class AudioSession extends EventEmitter {
     });
   }
 
+  private handleNativeTelemetry(telemetry: NativeOutputTelemetry): void {
+    this.nativeTelemetry = {
+      positionFrames: Math.max(0, Math.round(Number(telemetry.positionFrames) || 0)),
+      bufferedFrames:
+        telemetry.bufferedFrames === null || telemetry.bufferedFrames === undefined
+          ? null
+          : Math.max(0, Math.round(Number(telemetry.bufferedFrames) || 0)),
+      underrunCallbacks: Math.max(0, Math.round(Number(telemetry.underrunCallbacks) || 0)),
+      underrunFrames: Math.max(0, Math.round(Number(telemetry.underrunFrames) || 0)),
+    };
+
+    if (this.state === 'playing') {
+      void this.checkSharedUnderrunRecovery();
+      this.emitStatus();
+    }
+  }
+
+  private async checkSharedUnderrunRecovery(): Promise<void> {
+    if (
+      this.state !== 'playing' ||
+      this.watchdogRecovering ||
+      this.sharedStabilityRecovering ||
+      this.currentPlan?.outputMode !== 'shared' ||
+      !this.currentFilePath ||
+      !this.currentOutputSettings ||
+      !this.currentProbe
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!this.sharedUnderrunWindow || now - this.sharedUnderrunWindow.startedAt > sharedUnderrunWindowMs) {
+      this.sharedUnderrunWindow = {
+        startedAt: now,
+        callbacks: this.nativeTelemetry.underrunCallbacks,
+        frames: this.nativeTelemetry.underrunFrames,
+      };
+      return;
+    }
+
+    const callbackDelta = this.nativeTelemetry.underrunCallbacks - this.sharedUnderrunWindow.callbacks;
+    const frameDelta = this.nativeTelemetry.underrunFrames - this.sharedUnderrunWindow.frames;
+    const sampleRate = this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate;
+    const frameThreshold = Math.max(1, Math.round((sampleRate * sharedUnderrunFramesThresholdMs) / 1000));
+
+    if (callbackDelta < sharedUnderrunCallbackThreshold && frameDelta < frameThreshold) {
+      return;
+    }
+
+    await this.recoverSharedStability('shared_output_underrun_detected', this.clock.getPositionSeconds());
+  }
+
   private stopDecoderRun(): void {
     if (this.decoderRun) {
       try {
@@ -1314,6 +1478,25 @@ export class AudioSession extends EventEmitter {
     };
   }
 
+  private resetNativeTelemetry(): void {
+    this.nativeDeviceBufferFrames = null;
+    this.nativeFifoCapacityFrames = null;
+    this.nativeStartupPrebufferFrames = null;
+    this.nativeTelemetry = {
+      positionFrames: 0,
+      bufferedFrames: null,
+      underrunCallbacks: 0,
+      underrunFrames: 0,
+    };
+    this.sharedUnderrunWindow = null;
+  }
+
+  private resetSharedStabilityForFreshPlayback(outputMode: AudioOutputMode): void {
+    if (outputMode === 'shared' && !this.watchdogRecovering && !this.sharedStabilityRecovering) {
+      this.sharedStabilityTier = 'standard';
+    }
+  }
+
   private handleLevelSnapshot(snapshot: PcmLevelSnapshot): void {
     this.levelSnapshot = snapshot;
     if (this.state === 'playing') {
@@ -1351,6 +1534,18 @@ export class AudioSession extends EventEmitter {
     this.emit('status', this.getStatus());
   }
 
+  private addOutputWarning(warning: string): void {
+    if (!this.outputWarnings.includes(warning)) {
+      this.outputWarnings.push(warning);
+    }
+  }
+
+  private addPendingOutputWarning(warning: string): void {
+    if (!this.pendingOutputWarnings.includes(warning)) {
+      this.pendingOutputWarnings.push(warning);
+    }
+  }
+
   private resetWatchdogProgress(): void {
     this.watchdogLastPositionSeconds = null;
     this.watchdogStalledChecks = 0;
@@ -1375,7 +1570,7 @@ export class AudioSession extends EventEmitter {
   }
 
   private getWatchdogStatus(): AudioDiagnostics['watchdogStatus'] {
-    if (this.watchdogRecovering) {
+    if (this.watchdogRecovering || this.sharedStabilityRecovering) {
       return 'recovering';
     }
 
@@ -1409,9 +1604,66 @@ export class AudioSession extends EventEmitter {
     return recovery.count;
   }
 
+  private tierForRecoveryCount(recoveryCount: number): SharedStabilityTier {
+    return recoveryCount >= 2 ? 'emergency' : 'recovery';
+  }
+
+  private async recoverSharedStability(reason: string, positionSeconds: number): Promise<void> {
+    if (!this.currentFilePath || !this.currentOutputSettings || !this.currentProbe || this.state !== 'playing') {
+      return;
+    }
+
+    const recoveryCount = this.reserveWatchdogRecoverySlot();
+    if (recoveryCount === null) {
+      this.addOutputWarning('shared_stability_recovery_limited');
+      this.emitStatus();
+      return;
+    }
+
+    const filePath = this.currentFilePath;
+    const trackId = this.currentTrackId;
+    const output = { ...this.currentOutputSettings, outputMode: 'shared' as const };
+    const probe = createProbeHint(this.currentProbe);
+    const safePositionSeconds = Math.min(Math.max(0, positionSeconds), this.currentProbe.durationSeconds || Number.POSITIVE_INFINITY);
+
+    this.sharedStabilityTier = this.tierForRecoveryCount(recoveryCount);
+    this.sharedStabilityRecovering = true;
+    this.lastSharedStabilityRecoveryAt = new Date().toISOString();
+    this.addPendingOutputWarning(reason);
+    if (reason === 'audio_watchdog_recovered_native_output') {
+      this.addPendingOutputWarning(`${reason}:${recoveryCount}`);
+    }
+    this.addPendingOutputWarning(`shared_stability_recovered:${recoveryCount}`);
+    this.logger(
+      `[AudioSession] ${reason}; restarting shared output tier=${this.sharedStabilityTier} file="${filePath}" position=${safePositionSeconds.toFixed(
+        3,
+      )} recovery=${recoveryCount}`,
+    );
+
+    try {
+      await this.playLocalFile({
+        filePath,
+        trackId: trackId ?? undefined,
+        startSeconds: safePositionSeconds,
+        output,
+        probe,
+      });
+    } catch (error) {
+      this.handleError(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      this.sharedStabilityRecovering = false;
+      this.resetWatchdogProgress();
+    }
+  }
+
   private async recoverFromWatchdogStall(positionSeconds: number): Promise<void> {
     if (!this.currentFilePath || !this.currentOutputSettings || !this.currentProbe || this.state !== 'playing') {
       this.resetWatchdogProgress();
+      return;
+    }
+
+    if (this.currentPlan?.outputMode === 'shared') {
+      await this.recoverSharedStability('audio_watchdog_recovered_native_output', positionSeconds);
       return;
     }
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +10,7 @@ const packageJsonPath = join(projectRoot, 'package.json');
 const betterSqlitePackageJsonPath = join(projectRoot, 'node_modules', 'better-sqlite3', 'package.json');
 const nativeBinaryPath = join(projectRoot, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
 const markerPath = join(projectRoot, 'node_modules', '.echo-native-abi.json');
+const cacheRoot = join(projectRoot, 'node_modules', '.echo-native-cache', 'better-sqlite3');
 
 const executable = (name) => (process.platform === 'win32' ? `${name}.cmd` : name);
 const quoteShellArg = (value) => `"${String(value).replace(/"/g, '\\"')}"`;
@@ -41,6 +42,20 @@ const findNpmCli = () => {
 };
 
 const readJson = (filePath) => JSON.parse(readFileSync(filePath, 'utf8'));
+const getBetterSqliteVersion = () => readJson(betterSqlitePackageJsonPath).version;
+const sanitizeCachePart = (value) => String(value).replace(/[^a-zA-Z0-9._-]/g, '_');
+
+const getCachePath = (info) =>
+  join(
+    cacheRoot,
+    `${sanitizeCachePart(process.platform)}-${sanitizeCachePart(process.arch)}`,
+    [
+      `better-sqlite3-${sanitizeCachePart(getBetterSqliteVersion())}`,
+      sanitizeCachePart(info.runtime),
+      sanitizeCachePart(info.runtimeVersion),
+      `abi${sanitizeCachePart(info.abi)}`,
+    ].join('-') + '.node',
+  );
 
 const getElectronAbi = async (electronVersion) => {
   try {
@@ -111,7 +126,7 @@ const writeMarker = (info) => {
     `${JSON.stringify(
       {
         ...info,
-        betterSqlite3Version: readJson(betterSqlitePackageJsonPath).version,
+        betterSqlite3Version: getBetterSqliteVersion(),
         nativeBinary: nativeStats,
       },
       null,
@@ -128,10 +143,34 @@ const isCurrent = (marker, info) => {
       nativeStats &&
       marker.runtime === info.runtime &&
       marker.abi === info.abi &&
-      marker.betterSqlite3Version === readJson(betterSqlitePackageJsonPath).version &&
+      marker.betterSqlite3Version === getBetterSqliteVersion() &&
       marker.nativeBinary?.size === nativeStats.size &&
       marker.nativeBinary?.mtimeMs === nativeStats.mtimeMs,
   );
+};
+
+const cacheNativeBinary = (info) => {
+  if (!existsSync(nativeBinaryPath)) {
+    return false;
+  }
+
+  const cachePath = getCachePath(info);
+  mkdirSync(dirname(cachePath), { recursive: true });
+  copyFileSync(nativeBinaryPath, cachePath);
+  return true;
+};
+
+const restoreCachedBinary = (info) => {
+  const cachePath = getCachePath(info);
+
+  if (!existsSync(cachePath)) {
+    return false;
+  }
+
+  mkdirSync(dirname(nativeBinaryPath), { recursive: true });
+  copyFileSync(cachePath, nativeBinaryPath);
+  writeMarker(info);
+  return true;
 };
 
 const rebuild = (info) => {
@@ -161,15 +200,27 @@ const rebuild = (info) => {
 
 try {
   const info = await getTargetInfo();
+  const marker = readMarker();
 
-  if (isCurrent(readMarker(), info)) {
+  if (isCurrent(marker, info)) {
+    cacheNativeBinary(info);
     console.log(`[native-abi] better-sqlite3 already matches ${info.runtime} ABI ${info.abi}; skipping rebuild.`);
+    process.exit(0);
+  }
+
+  if (marker && isCurrent(marker, marker)) {
+    cacheNativeBinary(marker);
+  }
+
+  if (restoreCachedBinary(info)) {
+    console.log(`[native-abi] Restored cached better-sqlite3 for ${info.runtime} ABI ${info.abi}.`);
     process.exit(0);
   }
 
   console.log(`[native-abi] Rebuilding better-sqlite3 for ${info.runtime} ABI ${info.abi}...`);
   rebuild(info);
   writeMarker(info);
+  cacheNativeBinary(info);
   console.log(`[native-abi] better-sqlite3 now matches ${info.runtime} ABI ${info.abi}.`);
 } catch (error) {
   console.error(`[native-abi] ${error instanceof Error ? error.message : String(error)}`);

@@ -48,6 +48,9 @@ struct Options
     int channels = 2;
     int deviceIndex = -1;
     int bufferSize = 0;
+    int fifoCapacityMs = 0;
+    int startupPrebufferMs = 0;
+    int startupPrebufferTimeoutMs = 0;
     int eqControlPort = 0;
     double volume = 1.0;
     juce::String deviceName;
@@ -207,6 +210,18 @@ Options parseOptions(const std::vector<juce::String>& args)
         {
             options.bufferSize = std::max(0, parseInt(args[++i], options.bufferSize));
         }
+        else if (arg == "-fifo-ms" && i + 1 < args.size())
+        {
+            options.fifoCapacityMs = std::max(0, parseInt(args[++i], options.fifoCapacityMs));
+        }
+        else if (arg == "-prebuffer-ms" && i + 1 < args.size())
+        {
+            options.startupPrebufferMs = std::max(0, parseInt(args[++i], options.startupPrebufferMs));
+        }
+        else if (arg == "-prebuffer-timeout-ms" && i + 1 < args.size())
+        {
+            options.startupPrebufferTimeoutMs = std::max(0, parseInt(args[++i], options.startupPrebufferTimeoutMs));
+        }
         else if (arg == "-eq-port" && i + 1 < args.size())
         {
             options.eqControlPort = std::max(0, parseInt(args[++i], options.eqControlPort));
@@ -310,6 +325,45 @@ int getDeviceBufferSize(const Options& options)
         return 8192;
 
     return 512;
+}
+
+int framesForMilliseconds(int sampleRate, int milliseconds)
+{
+    if (sampleRate <= 0 || milliseconds <= 0)
+        return 0;
+
+    return std::max(1, static_cast<int>(std::round((static_cast<double>(sampleRate) * milliseconds) / 1000.0)));
+}
+
+int getFifoCapacityFrames(const Options& options, int sampleRate)
+{
+    const int requestedFrames = framesForMilliseconds(sampleRate, options.fifoCapacityMs);
+
+    if (requestedFrames > 0)
+        return std::max(requestedFrames, getDeviceBufferSize(options) * 2);
+
+    return std::max(sampleRate / 5, 4096);
+}
+
+int getStartupPrebufferFrames(const Options& options, int sampleRate)
+{
+    const int requestedFrames = framesForMilliseconds(sampleRate, options.startupPrebufferMs);
+
+    if (requestedFrames > 0)
+        return requestedFrames;
+
+    if (options.exclusive || options.asio)
+        return std::max(1, std::min(sampleRate / 50, 4096));
+
+    return 0;
+}
+
+int getStartupPrebufferTimeoutMs(const Options& options)
+{
+    if (options.startupPrebufferTimeoutMs > 0)
+        return options.startupPrebufferTimeoutMs;
+
+    return 300;
 }
 
 int pickRate(const juce::Array<double>& rates, bool maxRate)
@@ -867,13 +921,12 @@ void stdinReader(PcmRingAudioSource& source, int channels)
     source.markInputEnded();
 }
 
-int waitForInitialPcm(PcmRingAudioSource& source, int sampleRate, bool preferPrebuffer)
+int waitForInitialPcm(PcmRingAudioSource& source, int targetFrames, int timeoutMs)
 {
-    if (! preferPrebuffer)
+    if (targetFrames <= 0)
         return 0;
 
-    const int targetFrames = std::max(1, std::min(sampleRate / 50, 4096));
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, timeoutMs));
 
     while (std::chrono::steady_clock::now() < deadline)
     {
@@ -1055,10 +1108,14 @@ int runHost(const Options& options)
     echo::ChannelBalanceProcessor channelBalanceProcessor;
     EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor);
     const bool eqControlReady = eqControlServer.start();
+    const int deviceBufferFrames = getDeviceBufferSize(options);
+    const int fifoCapacityFrames = getFifoCapacityFrames(options, actualSampleRate);
+    const int startupPrebufferFrames = getStartupPrebufferFrames(options, actualSampleRate);
+    const int startupPrebufferTimeoutMs = getStartupPrebufferTimeoutMs(options);
 
     PcmRingAudioSource source(
         options.channels,
-        std::max(actualSampleRate / 5, 4096),
+        fifoCapacityFrames,
         options.volume,
         eqProcessor,
         channelBalanceProcessor);
@@ -1075,14 +1132,18 @@ int runHost(const Options& options)
         + ",\"channels\":" + std::to_string(options.channels)
         + ",\"exclusive\":" + std::string(openedExclusive ? "true" : "false")
         + ",\"eqControlPort\":" + std::to_string(eqControlReady ? options.eqControlPort : 0)
+        + ",\"deviceBufferFrames\":" + std::to_string(deviceBufferFrames)
+        + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
+        + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
+        + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
         + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
         + ",\"backend\":\"" + getBackendName(options, openedDescriptor.typeName)
         + "\",\"deviceType\":\""
         + jsonEscape(openedDescriptor.typeName) + "\",\"deviceName\":\""
         + jsonEscape(openedDescriptor.name) + "\"}");
 
-    const int prebufferedFrames = waitForInitialPcm(source, actualSampleRate, options.exclusive || options.asio);
-    if (options.exclusive || options.asio)
+    const int prebufferedFrames = waitForInitialPcm(source, startupPrebufferFrames, startupPrebufferTimeoutMs);
+    if (startupPrebufferFrames > 0)
         logLine("Initial PCM prebuffer before device start: " + std::to_string(prebufferedFrames) + " frames");
 
     device->start(&player);

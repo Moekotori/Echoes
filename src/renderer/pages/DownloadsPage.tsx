@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Download, FileAudio, Link2, Search, Settings2, Square, Wrench, XCircle } from 'lucide-react';
+import { CheckCircle2, Download, FileAudio, FolderOpen, Link2, Search, Settings2, Square, Wrench, XCircle } from 'lucide-react';
 import type { DownloadJob, DownloadJobStatus, DownloadSettings, DownloadToolsStatus } from '../../shared/types/downloads';
 import { EmptyState } from '../components/ui/EmptyState';
 import { getDownloadsBridge } from '../utils/echoBridge';
 
 const terminalStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
-const runningStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'tagging', 'importing', 'binding_mv']);
+const runningStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 
 const defaultSettings: DownloadSettings = {
   audioStrategy: 'best_available',
-  importToLibrary: false,
+  importToLibrary: true,
   bindMvAfterImport: true,
   outputDirectory: null,
 };
@@ -17,9 +17,8 @@ const defaultSettings: DownloadSettings = {
 const statusLabels: Record<DownloadJobStatus, string> = {
   queued: '排队中',
   probing: '解析链接',
-  downloading: '下载模拟中',
+  downloading: '下载中',
   extracting_audio: '提取音频',
-  tagging: '写入标签',
   importing: '导入曲库',
   binding_mv: '绑定 MV',
   completed: '已完成',
@@ -35,10 +34,36 @@ const providerLabels: Record<DownloadJob['provider'], string> = {
 
 const formatError = (error: unknown): string => (error instanceof Error ? error.message : String(error || '下载操作失败'));
 
-const formatPath = (path: string | null): string => path || '未设置';
+const formatPath = (path: string | null): string => path || '请选择下载文件夹';
 
 const formatDuration = (seconds: number | null): string | null => {
   if (!seconds || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = Math.round(seconds % 60);
+  return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
+};
+
+const formatBytes = (bytes: number | null): string | null => {
+  if (bytes === null || !Number.isFinite(bytes)) {
+    return null;
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+};
+
+const formatEta = (seconds: number | null): string | null => {
+  if (seconds === null || !Number.isFinite(seconds)) {
     return null;
   }
 
@@ -58,6 +83,10 @@ const ToolStatus = ({ label, ready, detail }: { label: string; ready: boolean; d
 const JobRow = ({ job, onCancel }: { job: DownloadJob; onCancel: (jobId: string) => void }): JSX.Element => {
   const canCancel = runningStatuses.has(job.status);
   const duration = formatDuration(job.durationSeconds);
+  const downloaded = formatBytes(job.downloadedBytes);
+  const total = formatBytes(job.totalBytes);
+  const speed = formatBytes(job.speedBytesPerSecond);
+  const eta = formatEta(job.etaSeconds);
 
   return (
     <article className="download-job-row" data-status={job.status}>
@@ -68,19 +97,25 @@ const JobRow = ({ job, onCancel }: { job: DownloadJob; onCancel: (jobId: string)
         <div className="download-job-copy">
           <strong>{job.title ?? 'Untitled download'}</strong>
           <span title={job.sourceUrl}>{job.sourceUrl}</span>
+          {job.outputPath ? <small title={job.outputPath}>保存到 {job.outputPath}</small> : null}
           {duration ? <small>{duration}</small> : null}
         </div>
         <span className="download-provider-chip">{providerLabels[job.provider]}</span>
       </div>
 
       <div className="download-job-progress">
-        <div className="download-progress-track" aria-label={`${job.progress}%`}>
+        <div className="download-progress-track" aria-label={`${Math.round(job.progress)}%`}>
           <span style={{ width: `${job.progress}%` }} />
         </div>
         <div className="download-job-meta">
           <span>{statusLabels[job.status]}</span>
-          <em>{job.progress}%</em>
+          <em>{Math.round(job.progress)}%</em>
         </div>
+        <div className="download-job-meta">
+          <span>{downloaded && total ? `${downloaded} / ${total}` : downloaded ?? '等待进度'}</span>
+          <em>{speed ? `${speed}/s` : eta ? `ETA ${eta}` : ''}</em>
+        </div>
+        {job.importedTrackId ? <small>已导入曲库</small> : null}
         {job.error ? <p>{job.error}</p> : null}
       </div>
 
@@ -98,7 +133,8 @@ export const DownloadsPage = (): JSX.Element => {
   const [tools, setTools] = useState<DownloadToolsStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<'create' | 'clear' | 'tools' | null>(null);
+  const [busyAction, setBusyAction] = useState<'create' | 'clear' | 'tools' | 'folder' | null>(null);
+  const [needsFolder, setNeedsFolder] = useState(false);
 
   const bridge = getDownloadsBridge();
   const completedCount = useMemo(() => jobs.filter((job) => terminalStatuses.has(job.status)).length, [jobs]);
@@ -153,9 +189,17 @@ export const DownloadsPage = (): JSX.Element => {
       return;
     }
 
+    if (!settings.outputDirectory) {
+      setNeedsFolder(true);
+      setError('请选择下载文件夹');
+      setMessage(null);
+      return;
+    }
+
     setBusyAction('create');
     setError(null);
     setMessage(null);
+    setNeedsFolder(false);
 
     try {
       const job = await bridge.createUrlJob(trimmedUrl, {
@@ -164,13 +208,35 @@ export const DownloadsPage = (): JSX.Element => {
       });
       setJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
       setUrl('');
-      setMessage('已创建任务，正在探测链接。');
+      setMessage('已加入下载队列。');
     } catch (createError) {
-      setError(formatError(createError));
+      const nextError = formatError(createError);
+      setNeedsFolder(nextError.includes('请选择下载文件夹'));
+      setError(nextError);
     } finally {
       setBusyAction(null);
     }
   }, [bridge, settings, url]);
+
+  const handleChooseDirectory = useCallback(async (): Promise<void> => {
+    if (!bridge?.chooseOutputDirectory) {
+      return;
+    }
+
+    setBusyAction('folder');
+    setError(null);
+    try {
+      const nextSettings = await bridge.chooseOutputDirectory();
+      if (nextSettings) {
+        setSettings(nextSettings);
+        setNeedsFolder(false);
+      }
+    } catch (directoryError) {
+      setError(formatError(directoryError));
+    } finally {
+      setBusyAction(null);
+    }
+  }, [bridge]);
 
   const handleCancel = useCallback(
     async (jobId: string): Promise<void> => {
@@ -232,7 +298,7 @@ export const DownloadsPage = (): JSX.Element => {
         <div>
           <span className="panel-kicker">Downloader</span>
           <h1>下载</h1>
-          <p>第一阶段只创建模拟任务，真实 yt-dlp / ffmpeg 下载将在后续接入。</p>
+          <p>使用内置 yt-dlp 下载最高可用音频，完成后可直接导入曲库并绑定源 URL 为 MV。</p>
         </div>
         <button className="downloads-action-button" type="button" onClick={() => void refreshTools()} disabled={busyAction === 'tools'}>
           <Wrench size={16} />
@@ -292,7 +358,7 @@ export const DownloadsPage = (): JSX.Element => {
 
           <div className="download-job-list">
             {jobs.length === 0 ? (
-              <EmptyState icon={Download} title="队列为空" description="粘贴链接后会在这里看到模拟任务状态。" meta="Idle" />
+              <EmptyState icon={Download} title="队列为空" description="粘贴链接后会在这里看到真实下载进度。" meta="Idle" />
             ) : (
               jobs.map((job) => <JobRow job={job} key={job.id} onCancel={(jobId) => void handleCancel(jobId)} />)
             )}
@@ -300,7 +366,7 @@ export const DownloadsPage = (): JSX.Element => {
         </section>
 
         <aside className="downloads-side">
-          <section className="downloads-panel">
+          <section className="downloads-panel" data-attention={needsFolder}>
             <div className="downloads-section-title">
               <Settings2 size={17} />
               <h2>下载设置</h2>
@@ -309,6 +375,14 @@ export const DownloadsPage = (): JSX.Element => {
               <em>音频策略</em>
               <strong>最高可用音质</strong>
             </div>
+            <div className="download-output-path">
+              <em>下载文件夹</em>
+              <strong title={formatPath(settings.outputDirectory)}>{formatPath(settings.outputDirectory)}</strong>
+            </div>
+            <button className="downloads-action-button" type="button" onClick={() => void handleChooseDirectory()} disabled={busyAction === 'folder'}>
+              <FolderOpen size={16} />
+              {settings.outputDirectory ? '更换文件夹' : '选择文件夹'}
+            </button>
             <label className="download-toggle-row">
               <input type="checkbox" checked={settings.importToLibrary} onChange={(event) => void patchSettings({ importToLibrary: event.target.checked })} />
               <span>完成后导入曲库</span>
@@ -317,10 +391,6 @@ export const DownloadsPage = (): JSX.Element => {
               <input type="checkbox" checked={settings.bindMvAfterImport} onChange={(event) => void patchSettings({ bindMvAfterImport: event.target.checked })} />
               <span>导入后绑定源 URL 为 MV</span>
             </label>
-            <div className="download-output-path">
-              <em>输出目录</em>
-              <strong title={formatPath(settings.outputDirectory)}>{formatPath(settings.outputDirectory)}</strong>
-            </div>
           </section>
 
           <section className="downloads-panel">

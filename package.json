@@ -20,7 +20,6 @@
     "build:win": "npm run rebuild:native && npm run build:audio-host && npm run build && electron-builder --win",
     "check:encoding": "node scripts/check-encoding.mjs",
     "lint": "npm run check:encoding && eslint .",
-    "pretest": "node scripts/ensure-native-abi.mjs node",
     "test": "vitest run",
     "test:kill": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/kill-vitest.ps1",
     "posttest": "node scripts/ensure-native-abi.mjs electron",

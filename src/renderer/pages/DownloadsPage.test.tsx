@@ -14,9 +14,9 @@ const listeners = new Set<(jobs: DownloadJob[]) => void>();
 
 const defaultSettings: DownloadSettings = {
   audioStrategy: 'best_available',
-  importToLibrary: false,
+  importToLibrary: true,
   bindMvAfterImport: true,
-  outputDirectory: null,
+  outputDirectory: 'D:\\Downloads',
 };
 
 const toolsStatus: DownloadToolsStatus = {
@@ -50,11 +50,38 @@ const updateJob = (jobId: string, patch: Partial<DownloadJob>): void => {
   emitJobs();
 };
 
+const makeJob = (sourceUrl: string): DownloadJob => {
+  const now = new Date().toISOString();
+  return {
+    id: `job-${++jobCounter}`,
+    sourceUrl,
+    provider: sourceUrl.includes('bilibili') ? 'bilibili' : 'youtube',
+    audioStrategy: settings.audioStrategy,
+    status: 'queued',
+    title: null,
+    durationSeconds: null,
+    thumbnailUrl: null,
+    webpageUrl: null,
+    outputPath: null,
+    downloadedBytes: null,
+    totalBytes: null,
+    speedBytesPerSecond: null,
+    etaSeconds: null,
+    importedTrackId: null,
+    progress: 0,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+  };
+};
+
 const scheduleSimulation = (jobId: string): void => {
   const steps: Array<{ status: DownloadJobStatus; progress: number }> = [
-    { status: 'probing', progress: 15 },
+    { status: 'probing', progress: 0 },
     { status: 'downloading', progress: 45 },
     { status: 'extracting_audio', progress: 86 },
+    { status: 'importing', progress: 98 },
     { status: 'completed', progress: 100 },
   ];
 
@@ -68,6 +95,7 @@ const scheduleSimulation = (jobId: string): void => {
       updateJob(jobId, {
         ...step,
         title: job.title ?? 'Untitled download',
+        outputPath: step.status === 'completed' ? 'D:\\Downloads\\Song [echo].m4a' : job.outputPath,
         completedAt: step.status === 'completed' ? new Date().toISOString() : null,
       });
     }, (index + 1) * 350);
@@ -76,25 +104,8 @@ const scheduleSimulation = (jobId: string): void => {
 
 const downloadsBridge = {
   getJobs: vi.fn(async () => jobs),
-  createUrlJob: vi.fn(async (sourceUrl: string, options?: CreateDownloadUrlJobOptions) => {
-    const now = new Date().toISOString();
-    const job: DownloadJob = {
-      id: `job-${++jobCounter}`,
-      sourceUrl,
-      provider: sourceUrl.includes('bilibili') ? 'bilibili' : 'youtube',
-      audioStrategy: settings.audioStrategy,
-      status: 'queued',
-      title: null,
-      durationSeconds: null,
-      thumbnailUrl: null,
-      webpageUrl: null,
-      progress: 0,
-      error: null,
-      createdAt: now,
-      updatedAt: now,
-      completedAt: null,
-    };
-
+  createUrlJob: vi.fn(async (sourceUrl: string, _options?: CreateDownloadUrlJobOptions) => {
+    const job = makeJob(sourceUrl);
     jobs = [job, ...jobs];
     emitJobs();
     scheduleSimulation(job.id);
@@ -117,6 +128,10 @@ const downloadsBridge = {
   getSettings: vi.fn(async () => settings),
   setSettings: vi.fn(async (patch: Partial<DownloadSettings>) => {
     settings = { ...settings, ...patch };
+    return settings;
+  }),
+  chooseOutputDirectory: vi.fn(async () => {
+    settings = { ...settings, outputDirectory: 'D:\\Downloads' };
     return settings;
   }),
   checkTools: vi.fn(async () => toolsStatus),
@@ -168,17 +183,31 @@ describe('DownloadsPage', () => {
 
     expect(downloadsBridge.createUrlJob).toHaveBeenCalledWith(
       'https://www.youtube.com/watch?v=echo',
-      expect.objectContaining({ importToLibrary: false, bindMvAfterImport: true }),
+      expect.objectContaining({ importToLibrary: true, bindMvAfterImport: true }),
     );
     expect(screen.getByText('https://www.youtube.com/watch?v=echo')).toBeTruthy();
   });
 
-  it('lets a simulated job reach completed', async () => {
+  it('blocks creation until a download folder is selected', async () => {
+    settings = { ...settings, outputDirectory: null };
+    render(<DownloadsPage />);
+    await act(async () => {});
+    fireEvent.change(screen.getByPlaceholderText('https://www.youtube.com/watch?v=...'), {
+      target: { value: 'https://www.youtube.com/watch?v=echo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /加入队列/ }));
+    await act(async () => {});
+
+    expect(downloadsBridge.createUrlJob).not.toHaveBeenCalled();
+    expect(screen.getAllByText('请选择下载文件夹').length).toBeGreaterThan(0);
+  });
+
+  it('lets a job reach completed', async () => {
     vi.useFakeTimers();
     await createJobFromUi();
 
     await act(async () => {
-      vi.advanceTimersByTime(1600);
+      vi.advanceTimersByTime(2100);
     });
 
     expect(screen.getByText('已完成')).toBeTruthy();
@@ -199,7 +228,7 @@ describe('DownloadsPage', () => {
     await act(async () => {
       vi.advanceTimersByTime(800);
     });
-    expect(screen.getByText('下载模拟中')).toBeTruthy();
+    expect(screen.getByText('下载中')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('取消任务'));
     await act(async () => {});
 
@@ -211,7 +240,7 @@ describe('DownloadsPage', () => {
     await createJobFromUi();
 
     await act(async () => {
-      vi.advanceTimersByTime(1600);
+      vi.advanceTimersByTime(2100);
     });
     expect(screen.getByText('已完成')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '清除已完成' }));

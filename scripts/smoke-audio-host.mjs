@@ -138,12 +138,18 @@ if (sharedResult.exitCode !== 0) {
 let ready = sharedResult.events.some((event) => event.ready === true);
 let position = sharedResult.events.some((event) => typeof event.pos === 'number');
 let ended = sharedResult.events.some((event) => event.event === 'ended');
+let telemetry = sharedResult.events.some((event) =>
+  typeof event.pos === 'number' &&
+  typeof event.bufferedFrames === 'number' &&
+  typeof event.underrunCallbacks === 'number' &&
+  typeof event.underrunFrames === 'number'
+);
 
-if (!ready || !position || !ended) {
-  fail(`missing expected shared events ready=${ready} position=${position} ended=${ended}; stderr=${sharedResult.stderr}; stdout=${sharedResult.stdout}`);
+if (!ready || !position || !telemetry || !ended) {
+  fail(`missing expected shared events ready=${ready} position=${position} telemetry=${telemetry} ended=${ended}; stderr=${sharedResult.stderr}; stdout=${sharedResult.stdout}`);
 }
 
-console.log('[smoke:audio-host] shared ready/position/ended OK');
+console.log('[smoke:audio-host] shared ready/position/telemetry/ended OK');
 
 const asioListResult = runList(['-list', '-asio']);
 const asioDevices = parseDeviceLines(asioListResult.stdout);

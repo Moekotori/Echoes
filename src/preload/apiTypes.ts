@@ -247,6 +247,7 @@ export type EchoApi = {
     clearCompleted: () => Promise<DownloadJob[]>;
     getSettings: () => Promise<DownloadSettings>;
     setSettings: (patch: Partial<DownloadSettings>) => Promise<DownloadSettings>;
+    chooseOutputDirectory: () => Promise<DownloadSettings | null>;
     checkTools: () => Promise<DownloadToolsStatus>;
     onJobsUpdated: (handler: (jobs: DownloadJob[]) => void) => () => void;
   };

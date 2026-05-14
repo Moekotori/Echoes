@@ -10,6 +10,7 @@ import { getEqBridge } from './EqBridge';
 import type {
   NativeBridgeReadyMessage,
   NativeBridgeReadyResult,
+  NativeOutputTelemetry,
   NativeOutputStartOptions,
 } from './audioTypes';
 
@@ -177,6 +178,12 @@ export class NativeOutputBridge extends EventEmitter {
   private frameOffset = 0;
   private requestedOutputSampleRate = 44100;
   private actualDeviceSampleRate: number | null = null;
+  private telemetry: NativeOutputTelemetry = {
+    positionFrames: 0,
+    bufferedFrames: null,
+    underrunCallbacks: 0,
+    underrunFrames: 0,
+  };
   private startSeconds = 0;
   private playbackRate = 1;
   private ready = false;
@@ -231,6 +238,12 @@ export class NativeOutputBridge extends EventEmitter {
       this.hostBinary = bin;
       this.requestedOutputSampleRate = options.requestedOutputSampleRate;
       this.actualDeviceSampleRate = null;
+      this.telemetry = {
+        positionFrames: 0,
+        bufferedFrames: null,
+        underrunCallbacks: 0,
+        underrunFrames: 0,
+      };
       this.startSeconds = options.startSeconds ?? 0;
       this.playbackRate = options.playbackRate ?? 1;
       this.framesConsumed = 0;
@@ -402,6 +415,26 @@ export class NativeOutputBridge extends EventEmitter {
       args.push('-vol', String(Math.max(0, Math.min(1, volume))));
     }
 
+    const bufferSizeFrames = Number(options.bufferSizeFrames);
+    if (!options.exclusive && !options.asio && Number.isFinite(bufferSizeFrames) && bufferSizeFrames > 0) {
+      args.push('-buffer', String(Math.round(bufferSizeFrames)));
+    }
+
+    const fifoCapacityMs = Number(options.fifoCapacityMs);
+    if (!options.exclusive && !options.asio && Number.isFinite(fifoCapacityMs) && fifoCapacityMs > 0) {
+      args.push('-fifo-ms', String(Math.round(fifoCapacityMs)));
+    }
+
+    const startupPrebufferMs = Number(options.startupPrebufferMs);
+    if (!options.exclusive && !options.asio && Number.isFinite(startupPrebufferMs) && startupPrebufferMs > 0) {
+      args.push('-prebuffer-ms', String(Math.round(startupPrebufferMs)));
+    }
+
+    const startupPrebufferTimeoutMs = Number(options.startupPrebufferTimeoutMs);
+    if (!options.exclusive && !options.asio && Number.isFinite(startupPrebufferTimeoutMs) && startupPrebufferTimeoutMs > 0) {
+      args.push('-prebuffer-timeout-ms', String(Math.round(startupPrebufferTimeoutMs)));
+    }
+
     if (this.eqControlPort) {
       args.push('-eq-port', String(this.eqControlPort));
     }
@@ -450,7 +483,22 @@ export class NativeOutputBridge extends EventEmitter {
 
     if (typeof message.pos === 'number') {
       this.framesConsumed = Math.max(0, message.pos);
-      this.emit('position', this.framesConsumed);
+      this.telemetry = {
+        positionFrames: this.framesConsumed,
+        bufferedFrames:
+          typeof message.bufferedFrames === 'number' && Number.isFinite(message.bufferedFrames)
+            ? Math.max(0, Math.round(message.bufferedFrames))
+            : this.telemetry.bufferedFrames,
+        underrunCallbacks:
+          typeof message.underrunCallbacks === 'number' && Number.isFinite(message.underrunCallbacks)
+            ? Math.max(0, Math.round(message.underrunCallbacks))
+            : this.telemetry.underrunCallbacks,
+        underrunFrames:
+          typeof message.underrunFrames === 'number' && Number.isFinite(message.underrunFrames)
+            ? Math.max(0, Math.round(message.underrunFrames))
+            : this.telemetry.underrunFrames,
+      };
+      this.emit('position', this.framesConsumed, this.telemetry);
     }
 
     if (message.event === 'ended') {

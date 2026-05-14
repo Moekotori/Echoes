@@ -1163,6 +1163,22 @@ export class LibraryStore {
     return row ? this.mapTrack(row) : null;
   }
 
+  getTrackByPath(filePath: string): LibraryTrack | null {
+    const row = this.getRow(
+      `SELECT
+        tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
+        tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
+        tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
+        tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
+        tracks.network_metadata_status, tracks.field_sources_json
+       FROM tracks
+       WHERE tracks.path = ? AND tracks.missing = 0`,
+      resolve(filePath),
+    );
+
+    return row ? this.mapTrack(row) : null;
+  }
+
   getActiveTracks(): LibraryTrack[] {
     return this.allRows(
       `SELECT
