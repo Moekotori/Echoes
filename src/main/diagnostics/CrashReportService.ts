@@ -29,9 +29,28 @@ type CrashRecord = {
   details?: unknown;
 };
 
+export type AudioCrashReportPayload = {
+  message: string;
+  stack?: string;
+  phase: string;
+  severity?: 'recoverable' | 'fatal';
+  recovered?: boolean;
+  details?: unknown;
+  audioStatus?: AudioStatus | null;
+};
+
+type AudioCrashRecord = Omit<AudioCrashReportPayload, 'audioStatus'> & {
+  type: 'audio';
+  timestamp: string;
+  sessionId: string;
+  audioStatus?: unknown;
+};
+
 const nowIso = (): string => new Date().toISOString();
 
 const createSessionId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const safeFileSegment = (value: string): string => value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 
 const readJson = <T>(filePath: string): T | null => {
   try {
@@ -234,6 +253,30 @@ export class CrashReportService {
     this.logger?.error('crash', 'renderer error', safePayload);
   }
 
+  reportAudioError(payload: AudioCrashReportPayload): void {
+    if (!this.sessionDir || !this.session) {
+      return;
+    }
+
+    const timestamp = nowIso();
+    const record: AudioCrashRecord = {
+      ...payload,
+      type: 'audio',
+      timestamp,
+      sessionId: this.session.sessionId,
+      severity: payload.severity ?? 'fatal',
+      details: sanitizeLogPayload(payload.details),
+      audioStatus: payload.audioStatus ? safeAudioStatus(payload.audioStatus) : null,
+    };
+    const fileName = `audio-crash-${timestamp.replace(/[:.]/g, '-')}-${safeFileSegment(payload.phase || 'audio')}.json`;
+    const audioCrashDir = join(this.sessionDir, 'audio-crashes');
+    mkdirSync(audioCrashDir, { recursive: true });
+    writeJson(join(audioCrashDir, fileName), record);
+    writeJson(join(this.sessionDir, 'audio-crash.latest.json'), record);
+    this.logger?.error('audio', payload.message, record);
+    this.logger?.error('crash', 'audio error', record);
+  }
+
   async exportDiagnosticsZip(destinationPath?: string): Promise<string> {
     if (!this.sessionDir) {
       throw new Error('Diagnostics session has not been initialized.');
@@ -279,10 +322,21 @@ export class CrashReportService {
       'library.log',
       'audio.log',
       'crash.log',
+      'audio-crash.latest.json',
     ]) {
       const filePath = join(this.sessionDir, fileName);
       if (existsSync(filePath) && statSync(filePath).isFile()) {
         entries.push({ name: fileName, content: readFileSync(filePath) });
+      }
+    }
+
+    const audioCrashDir = join(this.sessionDir, 'audio-crashes');
+    if (existsSync(audioCrashDir) && statSync(audioCrashDir).isDirectory()) {
+      for (const fileName of readdirSync(audioCrashDir).filter((name) => name.endsWith('.json')).sort().slice(-20)) {
+        const filePath = join(audioCrashDir, fileName);
+        if (statSync(filePath).isFile()) {
+          entries.push({ name: `audio-crashes/${fileName}`, content: readFileSync(filePath) });
+        }
       }
     }
 

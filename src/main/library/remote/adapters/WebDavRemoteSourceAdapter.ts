@@ -323,6 +323,18 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
     return this.streamUrlResolver(input);
   }
 
+  createProxyRequest(input: RemoteStreamInput): { url: string; headers: Record<string, string> } {
+    const baseUrl = input.source.baseUrl;
+    if (!baseUrl) {
+      throw new Error('WebDAV URL is required');
+    }
+
+    return {
+      url: this.createBackendUrl(baseUrl, input.remotePath),
+      headers: this.createAuthHeaders(input),
+    };
+  }
+
   createBackendUrl(sourceBaseUrl: string, remotePath: string): string {
     const base = sourceBaseUrl.endsWith('/') ? sourceBaseUrl : `${sourceBaseUrl}/`;
     const path = normalizeRemotePath(remotePath)

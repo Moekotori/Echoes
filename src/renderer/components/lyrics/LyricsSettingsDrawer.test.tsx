@@ -10,6 +10,12 @@ const makeSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
   artistWallAlbumArtwork: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
+  appCustomWallpaperPath: null,
+  appWallpaperScalePercent: 100,
+  appWallpaperBlurPx: 0,
+  appWallpaperBrightnessPercent: 100,
+  appWallpaperUiOpacityPercent: 100,
+  appWallpaperUnifiedOpacityEnabled: false,
   networkMetadataEnabled: false,
   networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
   lyricsNetworkEnabled: true,
@@ -205,13 +211,16 @@ describe('LyricsSettingsDrawer', () => {
     const ranges = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="range"]'));
     const backgroundScaleSlider = ranges.find((input) => input.closest('label')?.textContent?.includes('背景放大')) as HTMLInputElement;
     const backgroundOpacitySlider = ranges.find((input) => input.closest('label')?.textContent?.includes('背景透明度')) as HTMLInputElement;
+    const contextOpacitySlider = ranges.find((input) => input.closest('label')?.textContent?.includes('上下文透明度')) as HTMLInputElement;
 
     fireEvent.change(backgroundScaleSlider, { target: { value: '120' } });
     fireEvent.change(backgroundOpacitySlider, { target: { value: '40' } });
+    fireEvent.change(contextOpacitySlider, { target: { value: '64' } });
 
     expect(backgroundScaleSlider.value).toBe('120');
     expect(backgroundOpacitySlider.value).toBe('40');
-    expect(previewListener).toHaveBeenCalledTimes(2);
+    expect(contextOpacitySlider.value).toBe('64');
+    expect(previewListener).toHaveBeenCalledTimes(3);
     expect(settingsChangedListener).not.toHaveBeenCalled();
     expect(setSettings).not.toHaveBeenCalled();
 
@@ -223,6 +232,7 @@ describe('LyricsSettingsDrawer', () => {
     expect(setSettings).toHaveBeenCalledWith({
       lyricsBackgroundScalePercent: 120,
       lyricsCoverOpacityPercent: 40,
+      lyricsContextOpacityPercent: 64,
     });
     expect(settingsChangedListener).toHaveBeenCalledTimes(1);
 

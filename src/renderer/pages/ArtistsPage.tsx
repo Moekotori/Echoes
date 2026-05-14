@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, UIEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { ChevronDown, Play, RefreshCw, Search } from 'lucide-react';
 import type { LibraryArtist, LibrarySort } from '../../shared/types/library';
 import { ArtistDetailView } from '../components/artist/ArtistDetailView';
 import { artistMark } from '../components/artist/artistVisual';
+import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
+import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
 
 const pageSize = 96;
 
@@ -34,8 +36,19 @@ export const ArtistsPage = (): JSX.Element => {
   const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const pageScrollTopRef = useRef(0);
+  const shouldRestorePageScrollRef = useRef(false);
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const { wallRef: artistWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLElement>({
+    itemCount: artists.length,
+    totalCount: total,
+    minColumnWidth: 128,
+    columnGap: 22,
+    rowGap: 30,
+    estimatedItemHeight: 174,
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -104,12 +117,26 @@ export const ArtistsPage = (): JSX.Element => {
 
   useEffect(() => {
     const handleLibraryChanged = (): void => {
+      writePageScrollTop(pageRootRef.current, 0);
       void loadArtists(1, 'replace');
     };
 
     window.addEventListener('library:changed', handleLibraryChanged);
     return () => window.removeEventListener('library:changed', handleLibraryChanged);
   }, [loadArtists]);
+
+  useLayoutEffect(() => {
+    writePageScrollTop(pageRootRef.current, 0);
+  }, [search, sort]);
+
+  useLayoutEffect(() => {
+    if (selectedArtist || !shouldRestorePageScrollRef.current) {
+      return;
+    }
+
+    writePageScrollTop(pageRootRef.current, pageScrollTopRef.current);
+    shouldRestorePageScrollRef.current = false;
+  }, [selectedArtist]);
 
   useEffect(() => {
     const loadSettings = (): void => {
@@ -131,23 +158,16 @@ export const ArtistsPage = (): JSX.Element => {
     return () => window.removeEventListener('settings:changed', loadSettings);
   }, []);
 
-  const handleArtistWallScroll = useCallback(
-    (event: UIEvent<HTMLElement>): void => {
-      if (isLoadingRef.current || !hasMore) {
-        return;
-      }
+  const handleLoadMoreArtists = useCallback((): void => {
+    if (isLoadingRef.current || !hasMore) {
+      return;
+    }
 
-      const target = event.currentTarget;
-      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-
-      if (distanceToBottom < 360) {
-        void loadArtists(page + 1, 'append');
-      }
-    },
-    [hasMore, loadArtists, page],
-  );
+    void loadArtists(page + 1, 'append');
+  }, [hasMore, loadArtists, page]);
 
   const handleRefresh = useCallback((): void => {
+    writePageScrollTop(pageRootRef.current, 0);
     void loadArtists(1, 'replace');
   }, [loadArtists]);
 
@@ -166,19 +186,25 @@ export const ArtistsPage = (): JSX.Element => {
     );
   }, []);
 
+  const openArtistDetail = useCallback((artist: LibraryArtist): void => {
+    pageScrollTopRef.current = readPageScrollTop(pageRootRef.current);
+    shouldRestorePageScrollRef.current = true;
+    setSelectedArtist(artist);
+  }, []);
+
   const handleArtistKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, artist: LibraryArtist): void => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setSelectedArtist(artist);
+      openArtistDetail(artist);
     }
-  }, []);
+  }, [openArtistDetail]);
 
   if (selectedArtist) {
     return <ArtistDetailView artist={selectedArtist} onBack={() => setSelectedArtist(null)} />;
   }
 
   return (
-    <div className="artists-page">
+    <div ref={pageRootRef} className="artists-page">
       <header className="songs-header">
         <div className="songs-title-group">
           <h1>Artists</h1>
@@ -214,7 +240,7 @@ export const ArtistsPage = (): JSX.Element => {
         </label>
       </div>
 
-      <section className="artist-wall" aria-label="Artist list" onScroll={handleArtistWallScroll}>
+      <section ref={artistWallRef} className="artist-wall" aria-label="Artist list">
         {artists.map((artist) => {
           const shouldShowCover = Boolean(
             artistWallAlbumArtwork && artist.coverThumb && failedCoverUrls[artist.id] !== artist.coverThumb,
@@ -227,7 +253,7 @@ export const ArtistsPage = (): JSX.Element => {
               key={artist.id}
               role="button"
               tabIndex={0}
-              onClick={() => setSelectedArtist(artist)}
+              onClick={() => openArtistDetail(artist)}
               onKeyDown={(event) => handleArtistKeyDown(event, artist)}
             >
               <div className="artist-avatar" data-cover={shouldShowCover} aria-hidden="true">
@@ -257,12 +283,14 @@ export const ArtistsPage = (): JSX.Element => {
           );
         })}
       </section>
+      <InfiniteScrollSentinel canLoadMore={hasMore} isLoading={isLoading} onLoadMore={handleLoadMoreArtists} />
 
       {error || isLoading ? (
         <div className="list-footer">
           <span>{error ?? 'Loading artists...'}</span>
         </div>
       ) : null}
+      <MediaWallScrollSpacer height={spacerHeight} />
     </div>
   );
 };

@@ -93,8 +93,12 @@ const formatDate = (iso: string | null): string => {
 };
 
 const trackFromHistory = (entry: PlaybackHistoryEntry): LibraryTrack => ({
-  id: entry.trackId ?? entry.id,
-  path: entry.trackPath,
+  id: entry.stableKey ?? entry.trackId ?? entry.id,
+  mediaType: entry.mediaType,
+  path: entry.mediaType === 'streaming' ? entry.stableKey ?? entry.trackPath : entry.trackPath,
+  provider: entry.provider,
+  providerTrackId: entry.providerTrackId,
+  stableKey: entry.stableKey,
   title: entry.title,
   artist: entry.artist,
   album: entry.album,
@@ -103,13 +107,13 @@ const trackFromHistory = (entry: PlaybackHistoryEntry): LibraryTrack => ({
   discNo: null,
   year: null,
   genre: null,
-  duration: entry.durationSeconds,
+  duration: entry.durationSnapshot ?? entry.durationSeconds,
   codec: null,
   sampleRate: null,
   bitDepth: null,
   bitrate: null,
   coverId: entry.coverId,
-  coverThumb: entry.coverThumb,
+  coverThumb: entry.coverSnapshot ?? entry.coverThumb,
   fieldSources: {},
 });
 

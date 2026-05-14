@@ -386,3 +386,5 @@ export const getMvBridge = (): Window['echo']['mv'] | null => getEchoBridge()?.m
 export const getPlaybackBridge = (): Window['echo']['playback'] | null => getEchoBridge()?.playback ?? null;
 
 export const getRemoteSourcesBridge = (): Window['echo']['remoteSources'] | null => getEchoBridge()?.remoteSources ?? null;
+
+export const getStreamingBridge = (): Window['echo']['streaming'] | null => getEchoBridge()?.streaming ?? null;

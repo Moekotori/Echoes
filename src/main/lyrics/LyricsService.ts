@@ -142,7 +142,7 @@ const toQuery = (track: LibraryTrack): LyricsQuery => ({
   artist: track.artist || track.albumArtist || '',
   album: track.album || null,
   durationSeconds: track.duration > 0 ? track.duration : null,
-  filePath: track.mediaType === 'remote' ? null : track.path,
+  filePath: track.mediaType === 'remote' || track.mediaType === 'streaming' ? null : track.path,
 });
 
 const toManualSearchQuery = (track: LibraryTrack, searchText?: string | null): LyricsQuery => {

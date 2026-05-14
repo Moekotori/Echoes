@@ -279,11 +279,20 @@ export type TranslationKey =
   | 'mvSettings.error.noActiveTrackNetworkSearch'
   | 'mvSettings.error.noLocalCandidates'
   | 'mvSettings.error.noNetworkCandidates'
+  | 'mvSettings.general.enabled'
+  | 'mvSettings.immersive.blur'
+  | 'mvSettings.immersive.brightness'
   | 'mvSettings.immersive.description'
   | 'mvSettings.immersive.dragHint'
+  | 'mvSettings.immersive.lyricsReadability'
+  | 'mvSettings.immersive.lyricsReadabilityDescription'
+  | 'mvSettings.immersive.overlay'
+  | 'mvSettings.immersive.overlayHint'
   | 'mvSettings.immersive.positionX'
   | 'mvSettings.immersive.positionY'
+  | 'mvSettings.immersive.reset'
   | 'mvSettings.immersive.title'
+  | 'mvSettings.immersive.visualHint'
   | 'mvSettings.immersive.zoom'
   | 'mvSettings.network.autoApply'
   | 'mvSettings.network.autoApplyThreshold'
@@ -914,11 +923,20 @@ const zhCN: TranslationMap = {
   'mvSettings.error.noActiveTrackNetworkSearch': '没有可用于网络 MV 搜索的当前曲库歌曲',
   'mvSettings.error.noLocalCandidates': '没有找到本地 MV 候选',
   'mvSettings.error.noNetworkCandidates': '没有找到网络 MV 候选',
+  'mvSettings.general.enabled': '启用 MV',
+  'mvSettings.immersive.blur': '毛玻璃模糊',
+  'mvSettings.immersive.brightness': '背景亮度',
   'mvSettings.immersive.description': '开启后，歌词页使用当前 MV 作为背景。',
   'mvSettings.immersive.dragHint': '也可以在歌词页空白处拖动调整。',
+  'mvSettings.immersive.lyricsReadability': '歌词可读性增强',
+  'mvSettings.immersive.lyricsReadabilityDescription': '为沉浸式 MV 上的歌词增加描边和投影。',
+  'mvSettings.immersive.overlay': '暗色遮罩',
+  'mvSettings.immersive.overlayHint': '越低越接近原片，越高歌词越清晰。',
   'mvSettings.immersive.positionX': '横向位置',
   'mvSettings.immersive.positionY': '纵向位置',
+  'mvSettings.immersive.reset': '重置沉浸式背景',
   'mvSettings.immersive.title': '沉浸式 MV 背景',
+  'mvSettings.immersive.visualHint': '用于调节沉浸式背景观感。',
   'mvSettings.immersive.zoom': '背景缩放',
   'mvSettings.network.autoApply': '自动搜索网络MV',
   'mvSettings.network.autoApplyThreshold': '自动应用匹配度',
@@ -992,7 +1010,7 @@ const zhCN: TranslationMap = {
   'settings.general.language.title': '显示语言',
   'settings.header.searchPlaceholder': '搜索设置...',
   'settings.integrations.discord.action.refresh': '刷新状态',
-  'settings.integrations.discord.description': 'Phase 1 暂不接入联动服务，保留设置位置。',
+  'settings.integrations.discord.description': '将当前播放状态同步到 Discord Rich Presence，可显示歌曲、艺术家、进度和播放状态。',
   'settings.integrations.discord.title': 'Discord 状态',
   'settings.integrations.smtc.description': '把当前播放信息、封面、进度和媒体键动作发布到 Windows 音量浮层与锁屏媒体控件。',
   'settings.integrations.smtc.title': 'Windows 媒体控件',
@@ -1466,11 +1484,20 @@ const zhTW: TranslationMap = {
   'mvSettings.error.noActiveTrackNetworkSearch': '沒有可用於網路 MV 搜尋的目前曲庫歌曲',
   'mvSettings.error.noLocalCandidates': '沒有找到本地 MV 候選',
   'mvSettings.error.noNetworkCandidates': '沒有找到網路 MV 候選',
+  'mvSettings.general.enabled': '啟用 MV',
+  'mvSettings.immersive.blur': '毛玻璃模糊',
+  'mvSettings.immersive.brightness': '背景亮度',
   'mvSettings.immersive.description': '開啟後，歌詞頁使用目前 MV 作為背景。',
   'mvSettings.immersive.dragHint': '也可以在歌詞頁空白處拖動調整。',
+  'mvSettings.immersive.lyricsReadability': '歌詞可讀性增強',
+  'mvSettings.immersive.lyricsReadabilityDescription': '為沉浸式 MV 上的歌詞增加描邊和投影。',
+  'mvSettings.immersive.overlay': '暗色遮罩',
+  'mvSettings.immersive.overlayHint': '越低越接近原片，越高歌詞越清晰。',
   'mvSettings.immersive.positionX': '橫向位置',
   'mvSettings.immersive.positionY': '縱向位置',
+  'mvSettings.immersive.reset': '重置沉浸式背景',
   'mvSettings.immersive.title': '沉浸式 MV 背景',
+  'mvSettings.immersive.visualHint': '用於調整沉浸式背景觀感。',
   'mvSettings.immersive.zoom': '背景縮放',
   'mvSettings.network.autoApply': '自動搜尋網路 MV',
   'mvSettings.network.autoApplyThreshold': '自動套用匹配度',
@@ -1892,11 +1919,20 @@ const jaJP: TranslationMap = {
   'mvSettings.error.noActiveTrackNetworkSearch': 'ネットワーク MV 検索に使えるライブラリ曲が選択されていません',
   'mvSettings.error.noLocalCandidates': 'ローカル MV 候補が見つかりません',
   'mvSettings.error.noNetworkCandidates': 'ネットワーク MV 候補が見つかりません',
+  'mvSettings.general.enabled': 'MV を有効化',
+  'mvSettings.immersive.blur': '背景ぼかし',
+  'mvSettings.immersive.brightness': '背景の明るさ',
   'mvSettings.immersive.description': 'オンにすると、歌詞ページで現在の MV を背景として使います。',
   'mvSettings.immersive.dragHint': '歌詞ページの空き領域をドラッグして調整できます。',
+  'mvSettings.immersive.lyricsReadability': '歌詞の読みやすさを強化',
+  'mvSettings.immersive.lyricsReadabilityDescription': '没入型 MV 上の歌詞にアウトラインと影を追加します。',
+  'mvSettings.immersive.overlay': '暗色オーバーレイ',
+  'mvSettings.immersive.overlayHint': '低いほど原画に近く、高いほど歌詞が読みやすくなります。',
   'mvSettings.immersive.positionX': '横位置',
   'mvSettings.immersive.positionY': '縦位置',
+  'mvSettings.immersive.reset': '没入型背景をリセット',
   'mvSettings.immersive.title': '没入型 MV 背景',
+  'mvSettings.immersive.visualHint': '没入型背景の見え方を調整します。',
   'mvSettings.immersive.zoom': '背景ズーム',
   'mvSettings.network.autoApply': 'ネットワーク MV を自動検索',
   'mvSettings.network.autoApplyThreshold': '自動適用の一致度',
@@ -2098,7 +2134,7 @@ const jaJP: TranslationMap = {
   'settings.playback.stability.value.unknown': '不明',
   'settings.integrations.discord.action.refresh': '状態を更新',
   'settings.integrations.discord.title': 'Discord ステータス',
-  'settings.integrations.discord.description': 'Phase 1 では連携サービスに接続せず、設定位置のみ保持します。',
+  'settings.integrations.discord.description': '現在の再生状態を Discord Rich Presence に同期し、曲名、アーティスト、進行状況、再生状態を表示します。',
   'settings.integrations.smtc.description': '現在の再生情報、アートワーク、進行状況、メディアキー操作を Windows の音量フライアウトとロック画面へ公開します。',
   'settings.integrations.smtc.title': 'Windows メディア コントロール',
   'settings.integrations.lastfm.action.completeAuth': '認証を完了',
@@ -2380,11 +2416,20 @@ const enUS: TranslationMap = {
   'mvSettings.error.noActiveTrackNetworkSearch': 'No active library track for network MV search',
   'mvSettings.error.noLocalCandidates': 'No local MV candidates found',
   'mvSettings.error.noNetworkCandidates': 'No network MV candidates found',
+  'mvSettings.general.enabled': 'Enable MV',
+  'mvSettings.immersive.blur': 'Glass blur',
+  'mvSettings.immersive.brightness': 'Background brightness',
   'mvSettings.immersive.description': 'Use the current MV as the lyrics page background.',
   'mvSettings.immersive.dragHint': 'Drag empty space on the lyrics page to fine tune it.',
+  'mvSettings.immersive.lyricsReadability': 'Lyrics readability boost',
+  'mvSettings.immersive.lyricsReadabilityDescription': 'Adds outline and shadow to lyrics over immersive MV.',
+  'mvSettings.immersive.overlay': 'Dark overlay',
+  'mvSettings.immersive.overlayHint': 'Lower keeps the MV closer to the original; higher keeps lyrics clearer.',
   'mvSettings.immersive.positionX': 'Horizontal position',
   'mvSettings.immersive.positionY': 'Vertical position',
+  'mvSettings.immersive.reset': 'Reset immersive background',
   'mvSettings.immersive.title': 'Immersive MV background',
+  'mvSettings.immersive.visualHint': 'Tune how the immersive background looks.',
   'mvSettings.immersive.zoom': 'Background zoom',
   'mvSettings.network.autoApply': 'Auto search network MV',
   'mvSettings.network.autoApplyThreshold': 'Auto-apply match',
@@ -2685,7 +2730,7 @@ const enUS: TranslationMap = {
   'settings.playback.stability.value.unknown': 'N/A',
   'settings.integrations.discord.action.refresh': 'Refresh status',
   'settings.integrations.discord.title': 'Discord Status',
-  'settings.integrations.discord.description': 'Phase 1 does not connect integration services yet; this setting keeps the slot reserved.',
+  'settings.integrations.discord.description': 'Sync the current playback state to Discord Rich Presence, including track, artist, progress, and play state.',
   'settings.integrations.smtc.description': 'Publish the current track, artwork, timeline, and media-key actions to the Windows volume flyout and lock screen.',
   'settings.integrations.smtc.title': 'Windows Media Controls',
   'settings.integrations.lastfm.action.completeAuth': 'Complete authorization',

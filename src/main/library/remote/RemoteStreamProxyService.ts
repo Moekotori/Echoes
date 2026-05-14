@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import type { RemoteStreamUrlResult } from '../../../shared/types/remoteSources';
-import type { RemoteSourceSecret } from './remoteTypes';
+import type { RemoteSourceAdapter, RemoteSourceSecret } from './remoteTypes';
 import { normalizeRemotePath } from './remoteIdentity';
-import { WebDavRemoteSourceAdapter } from './adapters/WebDavRemoteSourceAdapter';
 
 type TokenRecord = {
   source: RemoteSourceSecret;
@@ -17,13 +18,24 @@ const defaultTokenTtlMs = 6 * 60 * 60 * 1000;
 const playbackTokenTtlMs = 24 * 60 * 60 * 1000;
 
 const safeHeader = (value: string | string[] | undefined): string | undefined => (typeof value === 'string' ? value : undefined);
+const contentTypeFor = (filePath: string): string => {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.flac')) return 'audio/flac';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a') || lower.endsWith('.mp4')) return 'audio/mp4';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.ogg') || lower.endsWith('.opus')) return 'audio/ogg';
+  if (lower.endsWith('.aac')) return 'audio/aac';
+  if (lower.endsWith('.aiff') || lower.endsWith('.aif')) return 'audio/aiff';
+  return 'application/octet-stream';
+};
 
 export class RemoteStreamProxyService {
   private server: Server | null = null;
   private port: number | null = null;
   private readonly tokens = new Map<string, TokenRecord>();
 
-  constructor(private readonly webdavAdapter: WebDavRemoteSourceAdapter) {}
+  constructor(private readonly getAdapter: (provider: string) => RemoteSourceAdapter) {}
 
   async createStreamUrl(source: RemoteSourceSecret, remotePath: string, stableKey?: string | null, expiresInSeconds?: number): Promise<RemoteStreamUrlResult> {
     await this.ensureStarted();
@@ -123,14 +135,30 @@ export class RemoteStreamProxyService {
   }
 
   private async forward(record: TokenRecord, request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (record.source.provider !== 'webdav' || !record.source.baseUrl) {
+    const adapter = this.getAdapter(record.source.provider);
+    if (!adapter.createProxyRequest) {
       response.writeHead(501);
       response.end();
       return;
     }
 
+    const proxyRequest = await adapter.createProxyRequest({
+      source: record.source,
+      remotePath: record.remotePath,
+      stableKey: record.stableKey,
+    });
+    if (proxyRequest.filePath) {
+      await this.forwardFile(proxyRequest.filePath, request, response);
+      return;
+    }
+    if (!proxyRequest.url) {
+      response.writeHead(502);
+      response.end();
+      return;
+    }
+
     const headers: Record<string, string> = {
-      ...this.webdavAdapter.createAuthHeaders({ source: record.source }),
+      ...(proxyRequest.headers ?? {}),
       Accept: '*/*',
     };
     const range = safeHeader(request.headers.range);
@@ -138,7 +166,7 @@ export class RemoteStreamProxyService {
       headers.Range = range;
     }
 
-    const upstream = await fetch(this.webdavAdapter.createBackendUrl(record.source.baseUrl, record.remotePath), {
+    const upstream = await fetch(proxyRequest.url, {
       method: request.method,
       headers,
     });
@@ -170,5 +198,74 @@ export class RemoteStreamProxyService {
     }
 
     Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]).pipe(response);
+  }
+
+  private async forwardFile(filePath: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) {
+      response.writeHead(404, { 'Cache-Control': 'no-store' });
+      response.end();
+      return;
+    }
+
+    const total = fileStat.size;
+    const baseHeaders: Record<string, string> = {
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=0, no-store',
+      'Content-Type': contentTypeFor(filePath),
+      'Last-Modified': fileStat.mtime.toUTCString(),
+    };
+    const range = safeHeader(request.headers.range);
+
+    if (range) {
+      const match = range.match(/^bytes=(\d*)-(\d*)$/u);
+      const rangeStart = match?.[1] ?? '';
+      const rangeEnd = match?.[2] ?? '';
+      let start = 0;
+      let end = total - 1;
+
+      if (match && rangeStart === '' && rangeEnd !== '') {
+        const suffixLength = Number(rangeEnd);
+        start = Math.max(0, total - suffixLength);
+      } else if (match) {
+        start = rangeStart === '' ? 0 : Number(rangeStart);
+        end = rangeEnd === '' ? total - 1 : Number(rangeEnd);
+      }
+
+      start = Math.max(0, start);
+      end = Math.min(total - 1, end);
+
+      if (!match || total <= 0 || !Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+        response.writeHead(416, {
+          ...baseHeaders,
+          'Content-Range': `bytes */${total}`,
+          'Content-Length': '0',
+        });
+        response.end();
+        return;
+      }
+
+      response.writeHead(206, {
+        ...baseHeaders,
+        'Content-Range': `bytes ${start}-${end}/${total}`,
+        'Content-Length': String(end - start + 1),
+      });
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
+      createReadStream(filePath, { start, end }).pipe(response);
+      return;
+    }
+
+    response.writeHead(200, {
+      ...baseHeaders,
+      'Content-Length': String(total),
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+    createReadStream(filePath).pipe(response);
   }
 }

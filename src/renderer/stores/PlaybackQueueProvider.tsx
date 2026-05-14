@@ -3,12 +3,16 @@ import type { PropsWithChildren } from 'react';
 import type { AudioPlaybackState } from '../../shared/types/audio';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { LocalFileResolveResult, PlaybackStatus } from '../../shared/types/playback';
+import type { PlayableTrack } from '../../shared/types/remoteSources';
+import { streamingProviderNames, streamingStableKey } from '../../shared/types/streaming';
+import type { StreamingProviderName } from '../../shared/types/streaming';
 
 export type QueueSource =
   | { type: 'songs'; label: string; search?: string; sort?: string; hideDuplicates?: boolean }
   | { type: 'album'; label: string; albumId: string }
   | { type: 'artist'; label: string; artistId?: string }
   | { type: 'folder'; label: string; folderId: string; path: string; recursive: boolean }
+  | { type: 'streaming'; label: string; provider: string }
   | { type: 'local-file'; label: string }
   | { type: 'manual'; label: string };
 
@@ -58,6 +62,7 @@ type PlaybackQueueContextValue = {
   playPrevious: () => Promise<PlaybackStatus | null>;
   playNext: () => Promise<PlaybackStatus | null>;
   setCurrentTrackId: (trackId: string | null) => void;
+  updateCurrentTrackSnapshot: (patch: Partial<Pick<LibraryTrack, 'duration' | 'coverThumb' | 'title' | 'artist' | 'album'>>) => void;
   syncPlaybackState: (state: AudioPlaybackState) => void;
   toggleShuffle: () => void;
   setRepeatMode: (mode: RepeatMode) => void;
@@ -76,6 +81,48 @@ type PlaybackHistorySession = {
 const pausedSessionTimeoutMs = 30 * 60 * 1000;
 
 const PlaybackQueueContext = createContext<PlaybackQueueContextValue | null>(null);
+
+const isStreamingProviderName = (provider: string | null | undefined): provider is StreamingProviderName =>
+  streamingProviderNames.includes(provider as StreamingProviderName);
+
+const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
+  if (track.mediaType === 'streaming') {
+    const provider = isStreamingProviderName(track.provider) ? track.provider : 'mock';
+    const providerTrackId = track.providerTrackId ?? track.id;
+    const stableKey = track.stableKey ?? streamingStableKey(provider, providerTrackId);
+
+    return {
+      mediaType: 'streaming',
+      trackId: track.id,
+      provider,
+      providerTrackId,
+      quality: track.streamingQuality,
+      stableKey,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      albumArtist: track.albumArtist,
+      duration: track.duration,
+      coverThumb: track.coverThumb,
+      playable: track.unavailable !== true,
+      unavailableReason: track.unavailable ? 'This streaming track is unavailable.' : null,
+    };
+  }
+
+  return {
+    mediaType: 'remote',
+    trackId: track.id,
+    sourceId: track.sourceId ?? null,
+    stableKey: track.stableKey ?? null,
+    remotePath: track.remotePath ?? null,
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    albumArtist: track.albumArtist,
+    duration: track.duration,
+    coverThumb: track.coverThumb,
+  };
+};
 
 const manualSource: QueueSource = { type: 'manual', label: 'Manual queue' };
 
@@ -240,6 +287,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         await window.echo?.library?.finishPlaybackHistory?.({
           historyId: session.historyId,
           playedSeconds,
+          durationSeconds: session.track.duration > 0 ? session.track.duration : undefined,
           completed,
         });
       } catch {
@@ -257,8 +305,28 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     }
 
     try {
+      const isStreamingTrack = item.track.mediaType === 'streaming';
       const result = await library.startPlaybackHistory(
-        item.track.isTemporary
+        isStreamingTrack
+          ? {
+              trackId: null,
+              mediaType: 'streaming',
+              provider: item.track.provider,
+              providerTrackId: item.track.providerTrackId,
+              stableKey: item.track.stableKey,
+              trackPath: item.track.stableKey ?? item.track.id,
+              title: item.track.title,
+              artist: item.track.artist,
+              album: item.track.album,
+              albumArtist: item.track.albumArtist,
+              coverId: item.track.coverId,
+              coverSnapshot: item.track.coverThumb,
+              durationSeconds: item.track.duration,
+              sourceType: 'streaming',
+              sourceLabel: item.source.label,
+              queueId: item.queueId,
+            }
+          : item.track.isTemporary
           ? {
               trackId: null,
               trackPath: item.track.path,
@@ -355,21 +423,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     await finishPlaybackHistorySession();
     const status =
-      track.mediaType === 'remote' && playback.playMediaItem
+      (track.mediaType === 'remote' || track.mediaType === 'streaming') && playback.playMediaItem
         ? await playback.playMediaItem({
-            item: {
-              mediaType: 'remote',
-              trackId: track.id,
-              sourceId: track.sourceId ?? null,
-              stableKey: track.stableKey ?? null,
-              remotePath: track.remotePath ?? null,
-              title: track.title,
-              artist: track.artist,
-              album: track.album,
-              albumArtist: track.albumArtist,
-              duration: track.duration,
-              coverThumb: track.coverThumb,
-            },
+            item: toPlayableTrack(track),
           })
         : await playback.playLocalFile({
             filePath: track.path,
@@ -388,7 +444,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     void (async () => {
       const settings = await mvApi.getSettings?.();
-      const candidates = settings?.autoSearch && mvApi.searchNetworkCandidates ? await mvApi.searchNetworkCandidates(trackId) : [];
+      const candidates = settings?.enabled !== false && settings?.autoSearch && mvApi.searchNetworkCandidates ? await mvApi.searchNetworkCandidates(trackId) : [];
       window.dispatchEvent(new CustomEvent('mv:candidatesChanged', { detail: { trackId, candidates } }));
       await mvApi.getSelected(trackId);
       window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
@@ -406,7 +462,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       setLastPlayedTrack(item.track);
       setCurrentQueueId(item.queueId);
       setCurrentTrackIdInternal(status.currentTrackId ?? item.track.id);
-      autoSearchMv(item.track.id);
+      if (item.track.mediaType !== 'streaming') {
+        autoSearchMv(item.track.id);
+      }
     },
     [autoSearchMv, setCurrentQueueId, setCurrentTrackIdInternal, setHistory, setLastPlayedTrack],
   );
@@ -722,6 +780,30 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [setCurrentQueueId, setCurrentTrackIdInternal],
   );
 
+  const updateCurrentTrackSnapshot = useCallback(
+    (patch: Partial<Pick<LibraryTrack, 'duration' | 'coverThumb' | 'title' | 'artist' | 'album'>>): void => {
+      const queueId = currentQueueIdRef.current;
+      const trackId = currentTrackIdRef.current;
+      setItems((current) =>
+        current.map((item) =>
+          (queueId && item.queueId === queueId) || (!queueId && trackId && item.track.id === trackId)
+            ? { ...item, track: { ...item.track, ...patch } }
+            : item,
+        ),
+      );
+      if (lastPlayedTrackRef.current && trackId && lastPlayedTrackRef.current.id === trackId) {
+        setLastPlayedTrack({ ...lastPlayedTrackRef.current, ...patch });
+      }
+      if (playbackHistorySessionRef.current && trackId && playbackHistorySessionRef.current.track.id === trackId) {
+        playbackHistorySessionRef.current.track = {
+          ...playbackHistorySessionRef.current.track,
+          ...patch,
+        };
+      }
+    },
+    [setItems, setLastPlayedTrack],
+  );
+
   const canGoPrevious = useMemo(() => {
     if (history.length > 0) {
       return true;
@@ -751,7 +833,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     }
 
     return currentIndex < 0 || currentIndex < items.length - 1 || repeatMode === 'all';
-  }, [currentItem, currentQueueId, currentTrackId, isShuffleEnabled, items, lastPlayedTrack, repeatMode]);
+  }, [currentItem, currentQueueId, currentTrackId, history, isShuffleEnabled, items, lastPlayedTrack, repeatMode]);
 
   const value = useMemo<PlaybackQueueContextValue>(
     () => ({
@@ -780,6 +862,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       playPrevious,
       playNext,
       setCurrentTrackId,
+      updateCurrentTrackSnapshot,
       syncPlaybackState,
       toggleShuffle,
       setRepeatMode: setRepeatModeInternal,
@@ -809,6 +892,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       repeatMode,
       replaceQueue,
       setCurrentTrackId,
+      updateCurrentTrackSnapshot,
       setRepeatModeInternal,
       syncPlaybackState,
       toggleShuffle,

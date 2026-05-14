@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, UIEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { ChevronDown, Disc3, RefreshCw, Search } from 'lucide-react';
 import type { LibraryAlbum, LibrarySort } from '../../shared/types/library';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
+import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
+import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
 
 const pageSize = 60;
 
@@ -18,8 +20,19 @@ export const AlbumsPage = (): JSX.Element => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const pageScrollTopRef = useRef(0);
+  const shouldRestorePageScrollRef = useRef(false);
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const { wallRef: albumWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLElement>({
+    itemCount: albums.length,
+    totalCount: total,
+    minColumnWidth: 164,
+    columnGap: 14,
+    rowGap: 14,
+    estimatedItemHeight: 214,
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -91,6 +104,7 @@ export const AlbumsPage = (): JSX.Element => {
 
   useEffect(() => {
     const handleLibraryChanged = (): void => {
+      writePageScrollTop(pageRootRef.current, 0);
       void loadAlbums(1, 'replace');
     };
 
@@ -98,32 +112,44 @@ export const AlbumsPage = (): JSX.Element => {
     return () => window.removeEventListener('library:changed', handleLibraryChanged);
   }, [loadAlbums]);
 
-  const handleAlbumWallScroll = useCallback(
-    (event: UIEvent<HTMLElement>): void => {
-      if (isLoadingRef.current || !hasMore) {
-        return;
-      }
+  useLayoutEffect(() => {
+    writePageScrollTop(pageRootRef.current, 0);
+  }, [search, sort]);
 
-      const target = event.currentTarget;
-      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+  useLayoutEffect(() => {
+    if (selectedAlbum || !shouldRestorePageScrollRef.current) {
+      return;
+    }
 
-      if (distanceToBottom < 420) {
-        void loadAlbums(page + 1, 'append');
-      }
-    },
-    [hasMore, loadAlbums, page],
-  );
+    writePageScrollTop(pageRootRef.current, pageScrollTopRef.current);
+    shouldRestorePageScrollRef.current = false;
+  }, [selectedAlbum]);
+
+  const openAlbumDetail = useCallback((album: LibraryAlbum): void => {
+    pageScrollTopRef.current = readPageScrollTop(pageRootRef.current);
+    shouldRestorePageScrollRef.current = true;
+    setSelectedAlbum(album);
+  }, []);
+
+  const handleLoadMoreAlbums = useCallback((): void => {
+    if (isLoadingRef.current || !hasMore) {
+      return;
+    }
+
+    void loadAlbums(page + 1, 'append');
+  }, [hasMore, loadAlbums, page]);
 
   const handleRefresh = useCallback((): void => {
+    writePageScrollTop(pageRootRef.current, 0);
     void loadAlbums(1, 'replace');
   }, [loadAlbums]);
 
   const handleAlbumKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, album: LibraryAlbum): void => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setSelectedAlbum(album);
+      openAlbumDetail(album);
     }
-  }, []);
+  }, [openAlbumDetail]);
 
   const handleAlbumCoverError = useCallback((album: LibraryAlbum): void => {
     if (!album.coverThumb) {
@@ -152,7 +178,7 @@ export const AlbumsPage = (): JSX.Element => {
   }
 
   return (
-    <div className="albums-page">
+    <div ref={pageRootRef} className="albums-page">
       <header className="songs-header">
         <div className="songs-title-group">
           <h1>Albums</h1>
@@ -191,7 +217,7 @@ export const AlbumsPage = (): JSX.Element => {
         </label>
       </div>
 
-      <section className="album-wall" aria-label="Album list" onScroll={handleAlbumWallScroll}>
+      <section ref={albumWallRef} className="album-wall" aria-label="Album list">
         {albums.map((album) => {
           const shouldShowCover = Boolean(album.coverThumb && failedCoverUrls[album.id] !== album.coverThumb);
 
@@ -201,7 +227,7 @@ export const AlbumsPage = (): JSX.Element => {
               key={album.id}
               role="button"
               tabIndex={0}
-              onClick={() => setSelectedAlbum(album)}
+              onClick={() => openAlbumDetail(album)}
               onKeyDown={(event) => handleAlbumKeyDown(event, album)}
             >
               <div className="album-cover" data-empty={!shouldShowCover} aria-hidden="true">
@@ -230,12 +256,14 @@ export const AlbumsPage = (): JSX.Element => {
         })}
         {/* TODO: If 3000/10000 album smoke tests still show scroll jank, replace this paged wall with @tanstack/react-virtual grid virtualization. */}
       </section>
+      <InfiniteScrollSentinel canLoadMore={hasMore} isLoading={isLoading} onLoadMore={handleLoadMoreAlbums} />
 
       {error || isLoading ? (
         <div className="list-footer">
           <span>{error ?? 'Loading albums...'}</span>
         </div>
       ) : null}
+      <MediaWallScrollSpacer height={spacerHeight} />
     </div>
   );
 };

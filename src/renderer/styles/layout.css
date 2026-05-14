@@ -1,12 +1,50 @@
 .app-shell {
+  --app-wallpaper-ui-border-alpha: 0.2;
+  --app-wallpaper-ui-titlebar-alpha: 0.74;
+  --app-wallpaper-ui-sidebar-top-alpha: 0.58;
+  --app-wallpaper-ui-sidebar-mid-alpha: 0.62;
+  --app-wallpaper-ui-sidebar-bottom-alpha: 0.72;
+  --app-wallpaper-ui-sidebar-base-alpha: 0.68;
+  --app-wallpaper-ui-page-top-alpha: 0.28;
+  --app-wallpaper-ui-page-bottom-alpha: 0.74;
+  --app-wallpaper-ui-page-base-alpha: 0.62;
+  --app-wallpaper-ui-player-alpha: 0.78;
+  --app-wallpaper-ui-soft-shadow-alpha: 0.08;
+  --app-wallpaper-ui-player-shadow-alpha: 0.045;
+  --app-wallpaper-ui-inset-alpha: 0.82;
+  --app-wallpaper-ui-unified-alpha: 1;
+  --app-wallpaper-ui-titlebar-blur: 18px;
+  --app-wallpaper-ui-sidebar-blur: 24px;
+  --app-wallpaper-ui-surface-blur: 18px;
+  position: relative;
   display: grid;
   grid-template-rows: var(--titlebar-height) minmax(0, 1fr) var(--player-height);
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background:
     linear-gradient(180deg, #fafafa 0%, var(--color-bg) 64%),
     var(--color-bg);
+}
+
+.app-wallpaper-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #eef2f7;
+  pointer-events: none;
+}
+
+.app-wallpaper-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  will-change: transform, filter;
 }
 
 .app-shell--standalone {
@@ -18,6 +56,8 @@
 .sidebar,
 .player-bar,
 .page-surface {
+  position: relative;
+  z-index: 1;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   box-shadow: var(--shadow-panel);
@@ -72,6 +112,8 @@
   grid-column: 2;
   min-height: 0;
   overflow: auto;
+  scrollbar-color: rgba(86, 105, 128, 0.34) transparent;
+  scrollbar-width: thin;
   padding: 38px 42px 28px;
   border-width: 0;
   border-radius: 0;
@@ -79,6 +121,26 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(245, 245, 247, 0.96) 46%),
     var(--color-bg);
   animation: page-enter 180ms ease-out both;
+}
+
+.page-surface::-webkit-scrollbar {
+  width: 9px;
+}
+
+.page-surface::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.page-surface::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(86, 105, 128, 0.24);
+  background-clip: padding-box;
+}
+
+.page-surface::-webkit-scrollbar-thumb:hover {
+  background: rgba(86, 105, 128, 0.42);
+  background-clip: padding-box;
 }
 
 .app-shell--standalone .app-titlebar {
@@ -279,6 +341,73 @@
   box-shadow:
     0 -8px 24px rgba(0, 0, 0, 0.045),
     inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.app-shell--wallpaper {
+  background: #eef2f7;
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgb(250 250 251 / var(--app-wallpaper-ui-unified-alpha));
+  backdrop-filter: blur(var(--app-wallpaper-ui-surface-blur)) saturate(1.08);
+  pointer-events: none;
+}
+
+.app-shell--wallpaper .app-titlebar {
+  border-color: rgb(116 134 156 / var(--app-wallpaper-ui-border-alpha));
+  background: rgb(250 250 251 / var(--app-wallpaper-ui-titlebar-alpha));
+  backdrop-filter: blur(var(--app-wallpaper-ui-titlebar-blur)) saturate(1.15);
+}
+
+.app-shell--wallpaper .sidebar {
+  border-color: rgb(116 134 156 / var(--app-wallpaper-ui-border-alpha));
+  background:
+    linear-gradient(
+      180deg,
+      rgb(255 255 255 / var(--app-wallpaper-ui-sidebar-top-alpha)) 0%,
+      rgb(241 246 250 / var(--app-wallpaper-ui-sidebar-mid-alpha)) 48%,
+      rgb(236 240 245 / var(--app-wallpaper-ui-sidebar-bottom-alpha)) 100%
+    ),
+    rgb(246 248 251 / var(--app-wallpaper-ui-sidebar-base-alpha));
+  backdrop-filter: blur(var(--app-wallpaper-ui-sidebar-blur)) saturate(1.16);
+  box-shadow:
+    inset -1px 0 0 rgb(255 255 255 / var(--app-wallpaper-ui-inset-alpha)),
+    inset 0 1px 0 rgb(255 255 255 / var(--app-wallpaper-ui-titlebar-alpha));
+}
+
+.app-shell--wallpaper .page-surface {
+  background:
+    linear-gradient(
+      180deg,
+      rgb(255 255 255 / var(--app-wallpaper-ui-page-top-alpha)),
+      rgb(245 245 247 / var(--app-wallpaper-ui-page-bottom-alpha)) 46%
+    ),
+    rgb(247 249 252 / var(--app-wallpaper-ui-page-base-alpha));
+  backdrop-filter: blur(var(--app-wallpaper-ui-surface-blur)) saturate(1.08);
+  box-shadow: 0 18px 46px rgb(34 47 62 / var(--app-wallpaper-ui-soft-shadow-alpha));
+}
+
+.app-shell--wallpaper .player-bar {
+  border-color: rgb(116 134 156 / var(--app-wallpaper-ui-border-alpha));
+  background: rgb(252 252 253 / var(--app-wallpaper-ui-player-alpha));
+  backdrop-filter: blur(var(--app-wallpaper-ui-surface-blur)) saturate(1.12);
+  box-shadow:
+    0 -8px 24px rgb(0 0 0 / var(--app-wallpaper-ui-player-shadow-alpha)),
+    inset 0 1px 0 rgb(255 255 255 / var(--app-wallpaper-ui-inset-alpha));
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .app-titlebar,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .sidebar,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .page-surface,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .player-bar {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 @keyframes page-enter {

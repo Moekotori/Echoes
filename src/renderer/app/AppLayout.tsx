@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { PlayerBar } from '../components/player/PlayerBar';
 import { AudioSettingsDrawer } from '../components/player/AudioSettingsDrawer';
 import { LyricsSettingsDrawer } from '../components/lyrics/LyricsSettingsDrawer';
@@ -19,6 +19,34 @@ type AppLayoutProps = {
   routes: AppRoute[];
 };
 
+type AppWallpaperSettings = Pick<
+  AppSettings,
+  | 'appCustomWallpaperPath'
+  | 'appWallpaperScalePercent'
+  | 'appWallpaperBlurPx'
+  | 'appWallpaperBrightnessPercent'
+  | 'appWallpaperUiOpacityPercent'
+  | 'appWallpaperUnifiedOpacityEnabled'
+>;
+
+const defaultAppWallpaperSettings: AppWallpaperSettings = {
+  appCustomWallpaperPath: null,
+  appWallpaperScalePercent: 100,
+  appWallpaperBlurPx: 0,
+  appWallpaperBrightnessPercent: 100,
+  appWallpaperUiOpacityPercent: 100,
+  appWallpaperUnifiedOpacityEnabled: false,
+};
+
+const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings => ({
+  appCustomWallpaperPath: settings.appCustomWallpaperPath,
+  appWallpaperScalePercent: settings.appWallpaperScalePercent,
+  appWallpaperBlurPx: settings.appWallpaperBlurPx,
+  appWallpaperBrightnessPercent: settings.appWallpaperBrightnessPercent,
+  appWallpaperUiOpacityPercent: settings.appWallpaperUiOpacityPercent,
+  appWallpaperUnifiedOpacityEnabled: settings.appWallpaperUnifiedOpacityEnabled,
+});
+
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const playbackQueue = usePlaybackQueue();
@@ -31,6 +59,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [audioDrawerStatus, setAudioDrawerStatus] = useState<AudioStatus | null>(null);
   const [isLyricsPlayerDrawerEnabled, setIsLyricsPlayerDrawerEnabled] = useState(false);
   const [isLyricsPlayerDrawerOpen, setIsLyricsPlayerDrawerOpen] = useState(false);
+  const [appWallpaperSettings, setAppWallpaperSettings] = useState<AppWallpaperSettings>(defaultAppWallpaperSettings);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previousRouteIdRef = useRef<AppRouteId>('songs');
@@ -42,6 +71,59 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const isStandaloneRoute = activeRoute.chrome === 'standalone';
   const isLyricsRoute = activeRouteId === 'lyrics';
   const shouldUseLyricsPlayerDrawer = isLyricsRoute && isLyricsPlayerDrawerEnabled;
+  const appWallpaperUrl = appWallpaperSettings.appCustomWallpaperPath
+    ? `echo-wallpaper://app/custom?path=${encodeURIComponent(appWallpaperSettings.appCustomWallpaperPath)}`
+    : null;
+  const visibleAppWallpaperUrl = appWallpaperUrl && !isLyricsRoute ? appWallpaperUrl : null;
+  const appWallpaperStyle = useMemo<CSSProperties>(() => {
+    const blurPx = appWallpaperSettings.appWallpaperBlurPx;
+    const brightnessPercent = appWallpaperSettings.appWallpaperBrightnessPercent;
+    const filterParts = [
+      blurPx > 0 ? `blur(${blurPx}px)` : null,
+      brightnessPercent !== 100 ? `brightness(${brightnessPercent}%)` : null,
+    ].filter(Boolean);
+
+    return {
+      filter: filterParts.length ? filterParts.join(' ') : 'none',
+      transform: `scale(${(appWallpaperSettings.appWallpaperScalePercent / 100).toFixed(2)})`,
+    };
+  }, [
+    appWallpaperSettings.appWallpaperBlurPx,
+    appWallpaperSettings.appWallpaperBrightnessPercent,
+    appWallpaperSettings.appWallpaperScalePercent,
+  ]);
+  const appShellStyle = useMemo(() => {
+    const uiAlpha = visibleAppWallpaperUrl
+      ? Math.max(0, Math.min(1, appWallpaperSettings.appWallpaperUiOpacityPercent / 100))
+      : 1;
+    const isUnified = visibleAppWallpaperUrl && appWallpaperSettings.appWallpaperUnifiedOpacityEnabled;
+    const scaledAlpha = (value: number): string => (uiAlpha * value).toFixed(3);
+    const unifiedAlpha = uiAlpha.toFixed(3);
+
+    return {
+      '--app-wallpaper-ui-unified-alpha': unifiedAlpha,
+      '--app-wallpaper-ui-border-alpha': isUnified ? '0' : scaledAlpha(0.2),
+      '--app-wallpaper-ui-titlebar-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.74),
+      '--app-wallpaper-ui-sidebar-top-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.58),
+      '--app-wallpaper-ui-sidebar-mid-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.62),
+      '--app-wallpaper-ui-sidebar-bottom-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.72),
+      '--app-wallpaper-ui-sidebar-base-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.68),
+      '--app-wallpaper-ui-page-top-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.28),
+      '--app-wallpaper-ui-page-bottom-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.74),
+      '--app-wallpaper-ui-page-base-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.62),
+      '--app-wallpaper-ui-player-alpha': isUnified ? unifiedAlpha : scaledAlpha(0.78),
+      '--app-wallpaper-ui-soft-shadow-alpha': isUnified ? '0' : scaledAlpha(0.08),
+      '--app-wallpaper-ui-player-shadow-alpha': isUnified ? '0' : scaledAlpha(0.045),
+      '--app-wallpaper-ui-inset-alpha': isUnified ? '0' : scaledAlpha(0.82),
+      '--app-wallpaper-ui-titlebar-blur': `${(uiAlpha * 18).toFixed(1)}px`,
+      '--app-wallpaper-ui-sidebar-blur': `${(uiAlpha * (isUnified ? 18 : 24)).toFixed(1)}px`,
+      '--app-wallpaper-ui-surface-blur': `${(uiAlpha * 18).toFixed(1)}px`,
+    } as CSSProperties;
+  }, [
+    appWallpaperSettings.appWallpaperUiOpacityPercent,
+    appWallpaperSettings.appWallpaperUnifiedOpacityEnabled,
+    visibleAppWallpaperUrl,
+  ]);
 
   const navigateRoute = useCallback(
     (routeId: AppRouteId): void => {
@@ -114,6 +196,64 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     return () => {
       cancelled = true;
       window.removeEventListener('settings:changed', refreshLyricsPlayerDrawerSetting);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshAppWallpaperSetting = (event?: Event): void => {
+      const patch = (event as CustomEvent<Partial<AppSettings>> | undefined)?.detail;
+      if (
+        patch &&
+        ('appCustomWallpaperPath' in patch ||
+          'appWallpaperScalePercent' in patch ||
+          'appWallpaperBlurPx' in patch ||
+          'appWallpaperBrightnessPercent' in patch ||
+          'appWallpaperUiOpacityPercent' in patch ||
+          'appWallpaperUnifiedOpacityEnabled' in patch)
+      ) {
+        setAppWallpaperSettings((current) => ({
+          appCustomWallpaperPath: 'appCustomWallpaperPath' in patch ? (patch.appCustomWallpaperPath ?? null) : current.appCustomWallpaperPath,
+          appWallpaperScalePercent: 'appWallpaperScalePercent' in patch
+            ? (patch.appWallpaperScalePercent ?? defaultAppWallpaperSettings.appWallpaperScalePercent)
+            : current.appWallpaperScalePercent,
+          appWallpaperBlurPx: 'appWallpaperBlurPx' in patch
+            ? (patch.appWallpaperBlurPx ?? defaultAppWallpaperSettings.appWallpaperBlurPx)
+            : current.appWallpaperBlurPx,
+          appWallpaperBrightnessPercent: 'appWallpaperBrightnessPercent' in patch
+            ? (patch.appWallpaperBrightnessPercent ?? defaultAppWallpaperSettings.appWallpaperBrightnessPercent)
+            : current.appWallpaperBrightnessPercent,
+          appWallpaperUiOpacityPercent: 'appWallpaperUiOpacityPercent' in patch
+            ? (patch.appWallpaperUiOpacityPercent ?? defaultAppWallpaperSettings.appWallpaperUiOpacityPercent)
+            : current.appWallpaperUiOpacityPercent,
+          appWallpaperUnifiedOpacityEnabled: 'appWallpaperUnifiedOpacityEnabled' in patch
+            ? (patch.appWallpaperUnifiedOpacityEnabled === true)
+            : current.appWallpaperUnifiedOpacityEnabled,
+        }));
+        return;
+      }
+
+      void window.echo?.app
+        ?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            setAppWallpaperSettings(selectAppWallpaperSettings(settings));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setAppWallpaperSettings(defaultAppWallpaperSettings);
+          }
+        });
+    };
+
+    refreshAppWallpaperSetting();
+    window.addEventListener('settings:changed', refreshAppWallpaperSetting);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', refreshAppWallpaperSetting);
     };
   }, []);
 
@@ -306,8 +446,18 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     <div
       className={`app-shell ${isStandaloneRoute ? 'app-shell--standalone' : ''} ${isLyricsRoute ? 'app-shell--lyrics' : ''} ${
         shouldUseLyricsPlayerDrawer ? 'app-shell--lyrics-player-drawer' : ''
-      } ${shouldUseLyricsPlayerDrawer && isLyricsPlayerDrawerOpen ? 'app-shell--lyrics-player-drawer-open' : ''}`}
+      } ${shouldUseLyricsPlayerDrawer && isLyricsPlayerDrawerOpen ? 'app-shell--lyrics-player-drawer-open' : ''} ${
+        visibleAppWallpaperUrl ? 'app-shell--wallpaper' : ''
+      }`}
+      data-wallpaper-unified-opacity={visibleAppWallpaperUrl && appWallpaperSettings.appWallpaperUnifiedOpacityEnabled ? 'true' : undefined}
+      style={appShellStyle}
     >
+      {visibleAppWallpaperUrl ? (
+        <div className="app-wallpaper-layer" aria-hidden="true">
+          <img src={visibleAppWallpaperUrl} alt="" style={appWallpaperStyle} />
+        </div>
+      ) : null}
+
       <AppTitleBar
         activeRouteId={activeRouteId}
         isAudioSettingsOpen={isAudioDrawerOpen}

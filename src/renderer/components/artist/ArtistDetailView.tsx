@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ListPlus, Play, Shuffle } from 'lucide-react';
 import type { LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { AlbumDetailView } from '../album/AlbumDetailView';
+import { readPageScrollTop, writePageScrollTop } from '../ui/InfiniteScrollSentinel';
 import { ArtistAlbumGrid } from './ArtistAlbumGrid';
 import { ArtistTrackList } from './ArtistTrackList';
 import { artistMark } from './artistVisual';
@@ -37,6 +38,9 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [areTracksLoading, setAreTracksLoading] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
+  const detailRootRef = useRef<HTMLDivElement | null>(null);
+  const detailScrollTopRef = useRef(0);
+  const shouldRestoreDetailScrollRef = useRef(false);
   const source = useMemo(() => ({ type: 'artist' as const, label: artist.name, artistId: artist.id }), [artist.id, artist.name]);
   const displayArtist = verifiedArtist ?? artist;
 
@@ -81,6 +85,15 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   useEffect(() => {
     setSelectedAlbum(null);
   }, [artist.id]);
+
+  useLayoutEffect(() => {
+    if (selectedAlbum || !shouldRestoreDetailScrollRef.current) {
+      return;
+    }
+
+    writePageScrollTop(detailRootRef.current, detailScrollTopRef.current);
+    shouldRestoreDetailScrollRef.current = false;
+  }, [selectedAlbum]);
 
   const handleLoadedTracksChange = useCallback((tracks: LibraryTrack[], total: number, isLoading: boolean): void => {
     setLoadedTracks(tracks);
@@ -142,6 +155,11 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
 
   const handleAppendTrack = useCallback((track: LibraryTrack): void => appendToQueue(track, source), [appendToQueue, source]);
   const handlePlayTrackNext = useCallback((track: LibraryTrack): void => playTrackNext(track, source), [playTrackNext, source]);
+  const handleSelectAlbum = useCallback((album: LibraryAlbum): void => {
+    detailScrollTopRef.current = readPageScrollTop(detailRootRef.current);
+    shouldRestoreDetailScrollRef.current = true;
+    setSelectedAlbum(album);
+  }, []);
   const canPlay = loadedTracks.length > 0;
 
   if (selectedAlbum) {
@@ -164,7 +182,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   }
 
   return (
-    <div className="artist-detail-page">
+    <div className="artist-detail-page" ref={detailRootRef}>
       <button className="artist-detail-back" type="button" onClick={onBack}>
         <ArrowLeft size={17} />
         Artists
@@ -219,7 +237,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         </div>
       </section>
 
-      <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} onAlbumSelect={setSelectedAlbum} />
+      <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} onAlbumSelect={handleSelectAlbum} />
 
       <ArtistTrackList
         artistId={displayArtist.id}
@@ -227,7 +245,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         currentTrackId={currentTrackId}
         onAppendToQueue={handleAppendTrack}
         onLoadedTracksChange={handleLoadedTracksChange}
-        onOpenAlbum={setSelectedAlbum}
+        onOpenAlbum={handleSelectAlbum}
         onPlayNext={handlePlayTrackNext}
         onPlayTrack={handlePlayTrack}
       />

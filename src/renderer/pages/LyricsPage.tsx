@@ -12,6 +12,11 @@ import type {
   LyricsSearchCandidate,
   TrackLyrics,
 } from "../../shared/types/lyrics";
+import type {
+  StreamingLyricsResult,
+  StreamingProviderName,
+} from "../../shared/types/streaming";
+import { streamingProviderNames } from "../../shared/types/streaming";
 import type { PlaybackStatus } from "../../shared/types/playback";
 import { LyricsView } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
@@ -44,6 +49,7 @@ type LyricsDisplaySettings = Pick<
   | "lyricsAutoAcceptScore"
   | "lyricsGlobalSyncOffsetMs"
   | "lyricsSecondaryFontSizePx"
+  | "lyricsContextOpacityPercent"
   | "lyricsCoverOpacityPercent"
   | "lyricsCoverBlurPx"
   | "lyricsCoverBrightnessPercent"
@@ -67,6 +73,7 @@ const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsAutoAcceptScore: 0.5,
   lyricsGlobalSyncOffsetMs: 0,
   lyricsSecondaryFontSizePx: 18,
+  lyricsContextOpacityPercent: 38,
   lyricsCoverOpacityPercent: 100,
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
@@ -105,6 +112,48 @@ const trackLyricsToState = (
           : lyrics.provider,
     lines: lyrics.lines,
     offsetMs: lyrics.offsetMs,
+  };
+};
+
+const isStreamingProviderName = (value: string | null | undefined): value is StreamingProviderName =>
+  streamingProviderNames.includes(value as StreamingProviderName);
+
+const isStreamingTrack = (
+  track: LibraryTrack | null,
+): track is LibraryTrack & { provider: StreamingProviderName; providerTrackId: string } =>
+  track?.mediaType === "streaming" &&
+  isStreamingProviderName(track.provider) &&
+  typeof track.providerTrackId === "string" &&
+  track.providerTrackId.trim().length > 0;
+
+const streamingLyricsToState = (
+  result: StreamingLyricsResult,
+  fallbackOffsetMs = 0,
+): LyricsState => {
+  const directLines = result.lines
+    .map((line) => ({
+      timeMs: line.timeMs ?? -1,
+      text: line.text.trim(),
+    }))
+    .filter((line) => line.text.length > 0);
+  const fallbackText = result.plainLyrics ?? result.syncedLyrics ?? "";
+  const fallbackLines = fallbackText
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((text) => ({ timeMs: -1, text }));
+  const lines = directLines.length > 0 ? directLines : fallbackLines;
+  const hasTimedLines = lines.some((line) => line.timeMs >= 0);
+
+  if (result.status === "missing" || lines.length === 0) {
+    return emptyLyrics(fallbackOffsetMs);
+  }
+
+  return {
+    kind: hasTimedLines || Boolean(result.syncedLyrics) ? "synced" : "plain",
+    source: result.provider === "netease" || result.provider === "qqmusic" ? result.provider : "online",
+    lines,
+    offsetMs: fallbackOffsetMs,
   };
 };
 
@@ -219,6 +268,7 @@ const selectLyricsDisplaySettings = (
   lyricsAutoAcceptScore: settings.lyricsAutoAcceptScore,
   lyricsGlobalSyncOffsetMs: settings.lyricsGlobalSyncOffsetMs,
   lyricsSecondaryFontSizePx: settings.lyricsSecondaryFontSizePx ?? fallbackLyricsDisplaySettings.lyricsSecondaryFontSizePx,
+  lyricsContextOpacityPercent: settings.lyricsContextOpacityPercent ?? fallbackLyricsDisplaySettings.lyricsContextOpacityPercent,
   lyricsCoverOpacityPercent: settings.lyricsCoverOpacityPercent,
   lyricsCoverBlurPx: settings.lyricsCoverBlurPx,
   lyricsCoverBrightnessPercent: settings.lyricsCoverBrightnessPercent,
@@ -241,6 +291,7 @@ const lyricsDisplaySettingsKeys = [
   "lyricsAutoAcceptScore",
   "lyricsGlobalSyncOffsetMs",
   "lyricsSecondaryFontSizePx",
+  "lyricsContextOpacityPercent",
   "lyricsCoverOpacityPercent",
   "lyricsCoverBlurPx",
   "lyricsCoverBrightnessPercent",
@@ -418,6 +469,16 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     (queue.lastPlayedTrack?.id === statusTrackId
       ? queue.lastPlayedTrack
       : null);
+  const streamingTarget = useMemo(
+    () =>
+      isStreamingTrack(currentTrack)
+        ? {
+            provider: currentTrack.provider,
+            providerTrackId: currentTrack.providerTrackId,
+          }
+        : null,
+    [currentTrack],
+  );
   const filePath =
     currentTrack?.path ??
     audioStatus?.currentFilePath ??
@@ -450,6 +511,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           : "none",
         "--lyrics-font-size": `${lyricsDisplaySettings.lyricsFontSizePx}px`,
         "--lyrics-secondary-font-size": `${lyricsDisplaySettings.lyricsSecondaryFontSizePx}px`,
+        "--lyrics-context-opacity": (
+          (lyricsDisplaySettings.lyricsContextOpacityPercent ?? fallbackLyricsDisplaySettings.lyricsContextOpacityPercent ?? 38) / 100
+        ).toFixed(2),
         "--lyrics-color": lyricsDisplaySettings.lyricsColor,
         "--lyrics-cover-opacity": (
           lyricsDisplaySettings.lyricsCoverOpacityPercent / 100
@@ -468,6 +532,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       lyricsDisplaySettings.lyricsBackgroundScalePercent,
       lyricsDisplaySettings.lyricsFontSizePx,
       lyricsDisplaySettings.lyricsSecondaryFontSizePx,
+      lyricsDisplaySettings.lyricsContextOpacityPercent,
       lyricsWallpaperUrl,
     ],
   );
@@ -582,10 +647,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       }
       setLyricsDisplaySettings(fallbackLyricsDisplaySettings);
     } finally {
-      if (loadVersion !== lyricsDisplaySettingsLoadVersionRef.current) {
-        return;
+      if (loadVersion === lyricsDisplaySettingsLoadVersionRef.current) {
+        setIsLyricsDisplaySettingsReady(true);
       }
-      setIsLyricsDisplaySettingsReady(true);
     }
   }, []);
 
@@ -705,8 +769,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       }
     },
     [
-      lyricsDisplaySettings.lyricsAutoAcceptScore,
-      lyricsDisplaySettings.lyricsAutoSearch,
+      lyricsDisplaySettings,
       trackId,
     ],
   );
@@ -739,6 +802,63 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setLyricsStatus(null);
       setCandidates([]);
       setActiveCandidateSource("all");
+      return;
+    }
+
+    if (streamingTarget) {
+      const streamingApi = window.echo?.streaming;
+      if (!streamingApi?.getLyrics) {
+        lyricsRequestRef.current += 1;
+        setLyrics(emptyLyrics(0));
+        dispatchCurrentLyricsProviderChanged(null);
+        setLyricsStatus("流媒体歌词服务不可用");
+        return;
+      }
+
+      const requestId = lyricsRequestRef.current + 1;
+      lyricsRequestRef.current = requestId;
+      setIsLyricsLoading(true);
+      setIsCandidateLoading(false);
+      setLyrics(emptyLyrics(0));
+      dispatchCurrentLyricsProviderChanged(null);
+      setLyricsStatus("正在加载流媒体歌词...");
+      setCandidates([]);
+      setActiveCandidateSource("all");
+
+      // Streaming lyrics are exact-provider lookups: provider + providerTrackId, no local candidate matching.
+      void streamingApi
+        .getLyrics(streamingTarget)
+        .then((streamingLyrics) => {
+          if (lyricsRequestRef.current !== requestId) {
+            return;
+          }
+
+          const nextLyrics = streamingLyricsToState(streamingLyrics);
+          setLyrics(nextLyrics);
+          dispatchCurrentLyricsProviderChanged(null);
+          setLyricsStatus(nextLyrics.lines.length > 0 ? null : "未找到歌词");
+          setError(null);
+        })
+        .catch((lyricsError) => {
+          if (lyricsRequestRef.current !== requestId) {
+            return;
+          }
+
+          setLyrics(emptyLyrics(0));
+          dispatchCurrentLyricsProviderChanged(null);
+          setLyricsStatus("未找到歌词");
+          setError(
+            lyricsError instanceof Error
+              ? lyricsError.message
+              : String(lyricsError),
+          );
+        })
+        .finally(() => {
+          if (lyricsRequestRef.current === requestId) {
+            setIsLyricsLoading(false);
+            setIsCandidateLoading(false);
+          }
+        });
       return;
     }
 
@@ -820,6 +940,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     isLyricsDisplaySettingsReady,
     lyricsDisplaySettings.lyricsAutoSearch,
     lyricsDisplaySettings.lyricsEnabled,
+    streamingTarget,
     trackId,
     tryAutoApplyCandidate,
   ]);
@@ -827,6 +948,38 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const handleSearchLyrics = useCallback(async (searchText?: string): Promise<void> => {
     if (!lyricsDisplaySettings.lyricsEnabled) {
       setLyricsStatus(null);
+      return;
+    }
+
+    if (streamingTarget) {
+      const streamingApi = window.echo?.streaming;
+      if (!streamingApi?.getLyrics) {
+        setError("流媒体歌词服务不可用");
+        return;
+      }
+
+      setIsCandidateLoading(false);
+      setIsLyricsLoading(true);
+      setLyricsStatus("正在加载流媒体歌词...");
+      try {
+        const streamingLyrics = await streamingApi.getLyrics(streamingTarget);
+        const nextLyrics = streamingLyricsToState(streamingLyrics, lyrics.offsetMs);
+        setLyrics(nextLyrics);
+        dispatchCurrentLyricsProviderChanged(null);
+        setCandidates([]);
+        setActiveCandidateSource("all");
+        setLyricsStatus(nextLyrics.lines.length > 0 ? null : "未找到歌词");
+        setError(null);
+      } catch (lyricsError) {
+        setLyricsStatus("未找到歌词");
+        setError(
+          lyricsError instanceof Error
+            ? lyricsError.message
+            : String(lyricsError),
+        );
+      } finally {
+        setIsLyricsLoading(false);
+      }
       return;
     }
 
@@ -866,6 +1019,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyrics.kind,
     lyrics.lines.length,
     lyricsDisplaySettings.lyricsEnabled,
+    lyrics.offsetMs,
+    streamingTarget,
     trackId,
     tryAutoApplyCandidate,
   ]);
@@ -873,6 +1028,11 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const handleRematchLyrics = useCallback(async (): Promise<void> => {
     if (!lyricsDisplaySettings.lyricsEnabled) {
       setLyricsStatus(null);
+      return;
+    }
+
+    if (streamingTarget) {
+      await handleSearchLyrics();
       return;
     }
 
@@ -907,7 +1067,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     } finally {
       setIsCandidateLoading(false);
     }
-  }, [lyrics.offsetMs, lyricsDisplaySettings.lyricsEnabled, trackId, tryAutoApplyCandidate]);
+  }, [handleSearchLyrics, lyrics.offsetMs, lyricsDisplaySettings.lyricsEnabled, streamingTarget, trackId, tryAutoApplyCandidate]);
 
   useEffect(() => {
     const handleSearchRequested = (event: Event): void => {
@@ -1193,6 +1353,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
       <MvPanel
         trackId={trackId ?? null}
+        streamingTarget={streamingTarget}
         title={title}
         artist={artist}
         coverUrl={coverUrl}

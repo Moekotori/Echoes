@@ -14,13 +14,14 @@ import {
 } from '../../shared/types/audio';
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
-const lyricsWallpaperExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const wallpaperExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const defaultLyricsColor = '#314054';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
 const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
 
 export const getLyricsWallpaperDirectory = (): string => join(app.getPath('userData'), 'lyrics-wallpapers');
+export const getAppWallpaperDirectory = (): string => join(app.getPath('userData'), 'app-wallpapers');
 
 const isPathInsideDirectory = (directory: string, filePath: string): boolean => {
   const relativePath = relative(resolve(directory), resolve(filePath));
@@ -44,6 +45,12 @@ export const defaultSettings: AppSettings = {
   artistWallAlbumArtwork: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
+  appCustomWallpaperPath: null,
+  appWallpaperScalePercent: 100,
+  appWallpaperBlurPx: 0,
+  appWallpaperBrightnessPercent: 100,
+  appWallpaperUiOpacityPercent: 100,
+  appWallpaperUnifiedOpacityEnabled: false,
   networkMetadataEnabled: false,
   networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
   lyricsNetworkEnabled: true,
@@ -66,6 +73,7 @@ export const defaultSettings: AppSettings = {
   lyricsTranslationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsSecondaryFontSizePx: 18,
+  lyricsContextOpacityPercent: 38,
   lyricsColor: defaultLyricsColor,
   lyricsBackgroundMode: 'theme',
   lyricsCustomWallpaperPath: null,
@@ -73,6 +81,7 @@ export const defaultSettings: AppSettings = {
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
   lyricsBackgroundScalePercent: 100,
+  mvEnabled: true,
   mvEnabledProviders: ['bilibili', 'youtube'],
   mvProviderOrder: ['bilibili', 'youtube'],
   mvAutoSearch: true,
@@ -82,6 +91,10 @@ export const defaultSettings: AppSettings = {
   mvImmersiveBackgroundScalePercent: 115,
   mvImmersiveBackgroundOffsetXPercent: 50,
   mvImmersiveBackgroundOffsetYPercent: 50,
+  mvImmersiveBackgroundBlurPx: 0,
+  mvImmersiveBackgroundBrightnessPercent: 100,
+  mvImmersiveBackgroundOverlayOpacityPercent: 0,
+  mvLyricsReadabilityEnhanced: false,
   mvRestartAudioOnLoad: false,
   mvMaxQuality: '1080p',
   mvAllow60fps: true,
@@ -165,22 +178,26 @@ const normalizeLyricsProviderList = (value: unknown, fallback: LyricsProviderId[
 const normalizeMvMaxQuality = (value: unknown): MvSettings['maxQuality'] =>
   value === '720p' || value === '1080p' || value === '1440p' || value === '2160p' || value === 'max' ? value : defaultSettings.mvMaxQuality;
 
-const normalizeLyricsWallpaperPath = (value: unknown): string | null => {
+const normalizeWallpaperPath = (value: unknown, directory: string): string | null => {
   if (typeof value !== 'string') {
     return null;
   }
 
   const normalized = resolve(value.trim());
-  if (!normalized || !lyricsWallpaperExtensions.has(extname(normalized).toLowerCase())) {
+  if (!normalized || !wallpaperExtensions.has(extname(normalized).toLowerCase())) {
     return null;
   }
 
-  if (!isPathInsideDirectory(getLyricsWallpaperDirectory(), normalized) || !existsSync(normalized)) {
+  if (!isPathInsideDirectory(directory, normalized) || !existsSync(normalized)) {
     return null;
   }
 
   return normalized;
 };
+
+const normalizeLyricsWallpaperPath = (value: unknown): string | null => normalizeWallpaperPath(value, getLyricsWallpaperDirectory());
+
+const normalizeAppWallpaperPath = (value: unknown): string | null => normalizeWallpaperPath(value, getAppWallpaperDirectory());
 
 export const normalizeChannelBalanceSettings = (value: unknown): ChannelBalanceState => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -232,6 +249,10 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ? settings.scanPerformanceMode
       : defaultSettings.scanPerformanceMode;
   const duplicateTracksMode = settings.duplicateTracksMode === 'strict' ? settings.duplicateTracksMode : defaultSettings.duplicateTracksMode;
+  const appWallpaperScalePercent = Number(settings.appWallpaperScalePercent);
+  const appWallpaperBlurPx = Number(settings.appWallpaperBlurPx);
+  const appWallpaperBrightnessPercent = Number(settings.appWallpaperBrightnessPercent);
+  const appWallpaperUiOpacityPercent = Number(settings.appWallpaperUiOpacityPercent);
   const providers = Array.isArray(settings.networkMetadataProviders)
     ? settings.networkMetadataProviders.filter(
         (provider): provider is AppSettings['networkMetadataProviders'][number] =>
@@ -248,6 +269,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   const lyricsGlobalSyncOffsetMs = Number(settings.lyricsGlobalSyncOffsetMs);
   const lyricsFontSizePx = Number(settings.lyricsFontSizePx);
   const lyricsSecondaryFontSizePx = Number(settings.lyricsSecondaryFontSizePx);
+  const lyricsContextOpacityPercent = Number(settings.lyricsContextOpacityPercent);
   const lyricsCoverOpacityPercent = Number(settings.lyricsCoverOpacityPercent);
   const lyricsCoverBlurPx = Number(settings.lyricsCoverBlurPx);
   const lyricsCoverBrightnessPercent = Number(settings.lyricsCoverBrightnessPercent);
@@ -259,6 +281,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   const mvImmersiveBackgroundScalePercent = Number(settings.mvImmersiveBackgroundScalePercent);
   const mvImmersiveBackgroundOffsetXPercent = Number(settings.mvImmersiveBackgroundOffsetXPercent);
   const mvImmersiveBackgroundOffsetYPercent = Number(settings.mvImmersiveBackgroundOffsetYPercent);
+  const mvImmersiveBackgroundBlurPx = Number(settings.mvImmersiveBackgroundBlurPx);
+  const mvImmersiveBackgroundBrightnessPercent = Number(settings.mvImmersiveBackgroundBrightnessPercent);
+  const mvImmersiveBackgroundOverlayOpacityPercent = Number(settings.mvImmersiveBackgroundOverlayOpacityPercent);
   const lyricsEnabledProviders = normalizeLyricsProviderList(settings.lyricsEnabledProviders, defaultSettings.lyricsEnabledProviders ?? defaultLyricsProviderOrder);
   const lyricsProviderOrder = normalizeLyricsProviderList(
     settings.lyricsProviderOrder,
@@ -270,6 +295,20 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     coverCacheDir: normalizeCoverCacheDir(settings.coverCacheDir),
     hideToTrayOnClose: settings.hideToTrayOnClose === true,
+    appCustomWallpaperPath: normalizeAppWallpaperPath(settings.appCustomWallpaperPath),
+    appWallpaperScalePercent: Number.isFinite(appWallpaperScalePercent)
+      ? Math.round(clamp(appWallpaperScalePercent, 100, 220))
+      : defaultSettings.appWallpaperScalePercent,
+    appWallpaperBlurPx: Number.isFinite(appWallpaperBlurPx)
+      ? Math.round(clamp(appWallpaperBlurPx, 0, 40))
+      : defaultSettings.appWallpaperBlurPx,
+    appWallpaperBrightnessPercent: Number.isFinite(appWallpaperBrightnessPercent)
+      ? Math.round(clamp(appWallpaperBrightnessPercent, 40, 140))
+      : defaultSettings.appWallpaperBrightnessPercent,
+    appWallpaperUiOpacityPercent: Number.isFinite(appWallpaperUiOpacityPercent)
+      ? Math.round(clamp(appWallpaperUiOpacityPercent, 0, 100))
+      : defaultSettings.appWallpaperUiOpacityPercent,
+    appWallpaperUnifiedOpacityEnabled: settings.appWallpaperUnifiedOpacityEnabled === true,
     networkMetadataEnabled: settings.networkMetadataEnabled === true,
     networkMetadataProviders: providers.length ? providers : defaultSettings.networkMetadataProviders,
     lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
@@ -311,6 +350,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsSecondaryFontSizePx: Number.isFinite(lyricsSecondaryFontSizePx)
       ? Math.round(clamp(lyricsSecondaryFontSizePx, 12, 32))
       : defaultSettings.lyricsSecondaryFontSizePx,
+    lyricsContextOpacityPercent: Number.isFinite(lyricsContextOpacityPercent)
+      ? Math.round(clamp(lyricsContextOpacityPercent, 0, 100))
+      : defaultSettings.lyricsContextOpacityPercent,
     lyricsColor: normalizeLyricsColor(settings.lyricsColor),
     lyricsBackgroundMode: normalizeLyricsBackgroundMode(settings.lyricsBackgroundMode),
     lyricsCustomWallpaperPath: normalizeLyricsWallpaperPath(settings.lyricsCustomWallpaperPath),
@@ -326,6 +368,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsBackgroundScalePercent: Number.isFinite(lyricsBackgroundScalePercent)
       ? Math.round(clamp(lyricsBackgroundScalePercent, 70, 180))
       : defaultSettings.lyricsBackgroundScalePercent,
+    mvEnabled: settings.mvEnabled !== false,
     mvEnabledProviders: normalizeMvProviderList(settings.mvEnabledProviders, defaultSettings.mvEnabledProviders),
     mvProviderOrder: [
       ...mvProviderOrder,
@@ -346,6 +389,16 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvImmersiveBackgroundOffsetYPercent: Number.isFinite(mvImmersiveBackgroundOffsetYPercent)
       ? Math.round(clamp(mvImmersiveBackgroundOffsetYPercent, 0, 100))
       : defaultSettings.mvImmersiveBackgroundOffsetYPercent,
+    mvImmersiveBackgroundBlurPx: Number.isFinite(mvImmersiveBackgroundBlurPx)
+      ? Math.round(clamp(mvImmersiveBackgroundBlurPx, 0, 32))
+      : defaultSettings.mvImmersiveBackgroundBlurPx,
+    mvImmersiveBackgroundBrightnessPercent: Number.isFinite(mvImmersiveBackgroundBrightnessPercent)
+      ? Math.round(clamp(mvImmersiveBackgroundBrightnessPercent, 60, 140))
+      : defaultSettings.mvImmersiveBackgroundBrightnessPercent,
+    mvImmersiveBackgroundOverlayOpacityPercent: Number.isFinite(mvImmersiveBackgroundOverlayOpacityPercent)
+      ? Math.round(clamp(mvImmersiveBackgroundOverlayOpacityPercent, 0, 100))
+      : defaultSettings.mvImmersiveBackgroundOverlayOpacityPercent,
+    mvLyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
     mvRestartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     mvMaxQuality: normalizeMvMaxQuality(settings.mvMaxQuality),
     mvAllow60fps: settings.mvAllow60fps !== false,

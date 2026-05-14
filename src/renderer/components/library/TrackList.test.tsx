@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TrackList } from './TrackList';
 import type { LibraryTrack } from '../../../shared/types/library';
 
@@ -49,5 +49,45 @@ describe('TrackList', () => {
 
     expect(screen.getByRole('list').getAttribute('data-virtualized')).toBe('true');
     expect(screen.queryByText(/没有可显示的歌曲/)).toBeNull();
+  });
+
+  it('sizes the virtual spacer from totalCount when only part of the library is loaded', () => {
+    const tracks = Array.from({ length: 2 }, (_, index) => track(index + 1));
+    const { container } = render(<TrackList currentTrackId={null} tracks={tracks} totalCount={100} loadedCount={2} />);
+
+    expect(screen.getByRole('list').getAttribute('data-total-count')).toBe('100');
+    expect(screen.getByRole('list').getAttribute('data-loaded-count')).toBe('2');
+    expect((container.querySelector('.track-virtual-spacer') as HTMLElement).style.height).toBe('7600px');
+  });
+
+  it('renders unloaded rows as lightweight skeletons without row action buttons', () => {
+    render(<TrackList currentTrackId={null} tracks={[]} totalCount={20} loadedCount={0} />);
+
+    expect(screen.queryByText(/没有可显示的歌曲/)).toBeNull();
+    expect(document.querySelector('.track-row-skeleton')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('only requests one next page while the loaded boundary is still the same', () => {
+    const onEndReached = vi.fn();
+    const tracks = Array.from({ length: 2 }, (_, index) => track(index + 1));
+    const { rerender } = render(
+      <TrackList currentTrackId={null} tracks={tracks} totalCount={100} loadedCount={2} canLoadMore onEndReached={onEndReached} />,
+    );
+    const list = screen.getByRole('list');
+
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 7600 });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 500 });
+    list.scrollTop = 7100;
+    fireEvent.scroll(list);
+    fireEvent.scroll(list);
+
+    expect(onEndReached).toHaveBeenCalledTimes(1);
+
+    const nextTracks = Array.from({ length: 4 }, (_, index) => track(index + 1));
+    rerender(<TrackList currentTrackId={null} tracks={nextTracks} totalCount={100} loadedCount={4} canLoadMore onEndReached={onEndReached} />);
+    fireEvent.scroll(list);
+
+    expect(onEndReached).toHaveBeenCalledTimes(2);
   });
 });

@@ -54,4 +54,14 @@ describe('ArtistAlbumGrid', () => {
     await waitFor(() => expect(selected).toHaveBeenCalledTimes(3));
     expect(selected).toHaveBeenCalledWith(expect.objectContaining({ id: 'album-1', title: 'Refrain' }));
   });
+
+  it('reserves scroll height for unloaded artist albums', async () => {
+    installLibrary(vi.fn().mockResolvedValue(page([album()], { total: 24, hasMore: true })));
+
+    const { container } = render(<ArtistAlbumGrid artistId="artist-1" artistName="Archouchou" onAlbumSelect={vi.fn()} />);
+
+    await screen.findByRole('button', { name: /Refrain/i });
+    await waitFor(() => expect(container.querySelector('.media-wall-scroll-spacer')).toBeTruthy());
+    expect((container.querySelector('.media-wall-scroll-spacer') as HTMLElement).style.height).toBe('5244px');
+  });
 });

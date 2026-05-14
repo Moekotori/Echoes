@@ -334,6 +334,18 @@
   gap: 3px;
 }
 
+.artist-track-virtual-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.artist-track-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 .artist-track-header,
 .artist-track-row {
   display: grid;
@@ -362,6 +374,55 @@
   border: 1px solid transparent;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.54);
+}
+
+.artist-track-row-skeleton {
+  pointer-events: none;
+}
+
+.artist-track-skeleton-cover,
+.artist-track-skeleton-copy span,
+.artist-track-skeleton-pill,
+.artist-track-skeleton-actions {
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(226, 234, 242, 0.72), rgba(247, 250, 253, 0.95), rgba(226, 234, 242, 0.72));
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.artist-track-skeleton-cover {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
+.artist-track-skeleton-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.artist-track-skeleton-copy span:first-child {
+  width: min(240px, 72%);
+  height: 13px;
+}
+
+.artist-track-skeleton-copy span:last-child {
+  width: min(180px, 54%);
+  height: 10px;
+}
+
+.artist-track-skeleton-pill {
+  justify-self: end;
+  width: min(120px, 70%);
+  height: 12px;
+}
+
+.artist-track-skeleton-actions {
+  justify-self: end;
+  width: 86px;
+  height: 26px;
 }
 
 .artist-track-row:hover,

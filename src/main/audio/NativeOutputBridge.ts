@@ -54,6 +54,7 @@ const defaultLogger = (message: string): void => {
   console.warn(message);
 };
 
+const sharedReadyTimeoutMs = 15_000;
 const slowNativeModeReadyTimeoutMs = 45_000;
 const maxPositionExtrapolationMs = 250;
 
@@ -75,12 +76,18 @@ const createHostError = (
   hostBinary: string,
   args: string[],
   stderrLines: string[],
+  metadata: { elapsedMs: number; mode: 'shared' | 'exclusive' | 'asio' },
 ): Error => {
   const stderr = stderrLines.join(' | ');
-  const details = [`host="${hostBinary}"`, `args="${args.join(' ')}"`];
+  const details = [
+    `host="${hostBinary}"`,
+    `args="${args.join(' ')}"`,
+    `mode="${metadata.mode}"`,
+    `elapsedMs=${Math.max(0, Math.round(metadata.elapsedMs))}`,
+  ];
 
   if (stderr) {
-    details.push(`stderr="${stderr}"`);
+    details.push(`stderrTail="${stderr}"`);
   }
 
   return new Error(`echo-audio-host ${reason}; ${details.join('; ')}`);
@@ -203,7 +210,7 @@ export class NativeOutputBridge extends EventEmitter {
     super();
     this.hostBinary = dependencies.hostBinary ?? null;
     this.spawn = dependencies.spawn ?? nodeSpawn;
-    this.readyTimeoutMs = dependencies.readyTimeoutMs ?? 5000;
+    this.readyTimeoutMs = dependencies.readyTimeoutMs ?? sharedReadyTimeoutMs;
     this.logger = dependencies.logger ?? defaultLogger;
     this.on('error', () => undefined);
   }
@@ -269,6 +276,13 @@ export class NativeOutputBridge extends EventEmitter {
 
       const args = this.createSpawnArgs(options);
       const stderrLines: string[] = [];
+      const startedAtMs = performance.now();
+      const mode = options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
+      const createError = (reason: string): Error =>
+        createHostError(reason, bin, args, stderrLines, {
+          elapsedMs: performance.now() - startedAtMs,
+          mode,
+        });
       let settled = false;
       const settleResolve = (value: NativeBridgeReadyResult): void => {
         if (settled) {
@@ -306,7 +320,7 @@ export class NativeOutputBridge extends EventEmitter {
       });
 
       this.proc.on('error', (error) => {
-        const hostError = createHostError(`spawn_error:${error.message}`, bin, args, stderrLines);
+        const hostError = createError(`spawn_error:${error.message}`);
         settleReject(hostError);
         this.emit('error', hostError);
       });
@@ -326,7 +340,7 @@ export class NativeOutputBridge extends EventEmitter {
           code === -2
             ? 'exclusive_denied'
             : code != null ? `exit_code_${code}` : `exit_signal_${signal ?? '?'}`;
-        const error = createHostError(reason, bin, args, stderrLines);
+        const error = createError(reason);
 
         if (!wasReady) {
           settleReject(error);
@@ -345,7 +359,7 @@ export class NativeOutputBridge extends EventEmitter {
         this.readyTimer = null;
         if (!this.ready) {
           this.stop();
-          settleReject(createHostError('timeout_waiting_for_ready', bin, args, stderrLines));
+          settleReject(createError('timeout_waiting_for_ready'));
         }
       }, readyTimeoutMs);
     });

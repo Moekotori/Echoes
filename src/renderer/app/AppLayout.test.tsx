@@ -76,6 +76,40 @@ describe('AppLayout standalone routes', () => {
     expect(container.querySelector('.app-shell--lyrics-player-drawer-open')).toBeTruthy();
     expect(screen.getByRole('contentinfo')).toBeTruthy();
   });
+
+  it('does not apply the app wallpaper layer to the standalone lyrics and MV page', async () => {
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          lyricsPlayerBarDrawerEnabled: false,
+          appCustomWallpaperPath: 'D:\\Echo\\app-wallpapers\\wallpaper.png',
+          appWallpaperScalePercent: 100,
+          appWallpaperBlurPx: 12,
+          appWallpaperBrightnessPercent: 80,
+          appWallpaperUiOpacityPercent: 0,
+          appWallpaperUnifiedOpacityEnabled: true,
+          smtcEnabled: true,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(container.querySelector('.app-shell--wallpaper')).toBeTruthy());
+    expect(container.querySelector('.app-wallpaper-layer')).toBeTruthy();
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(container.querySelector('.app-shell--lyrics')).toBeTruthy();
+    expect(container.querySelector('.app-shell--wallpaper')).toBeNull();
+    expect(container.querySelector('.app-wallpaper-layer')).toBeNull();
+  });
 });
 
 describe('AppLayout local file open integration', () => {

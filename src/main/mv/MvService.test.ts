@@ -247,6 +247,20 @@ describe('MvService', () => {
     });
   });
 
+  it('does not search network MV candidates when MV is disabled', async () => {
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => []),
+      resolve: vi.fn(async () => []),
+    };
+    const { service, track } = createHarness([provider]);
+
+    service.setSettings({ enabled: false });
+
+    await expect(service.searchNetworkCandidates(track.id)).resolves.toEqual([]);
+    expect(provider.search).not.toHaveBeenCalled();
+  });
+
   it('uses the configured auto-apply threshold for network MV candidates', async () => {
     const candidate: MvMatchCandidate = {
       id: 'bilibili:BV1threshold',

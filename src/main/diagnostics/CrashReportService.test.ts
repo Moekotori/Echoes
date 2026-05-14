@@ -193,6 +193,75 @@ describe('CrashReportService', () => {
     expect(readFileSync(join(service.getSessionDir()!, 'crash.log'), 'utf8')).toContain('White screen');
   });
 
+  it('writes audio crash reports with safe audio status snapshots', async () => {
+    const service = new CrashReportService(tempDir);
+    const outputPath = join(tempDir, 'diagnostics.zip');
+    service.initialize();
+
+    service.reportAudioError({
+      message: 'echo-audio-host timeout_waiting_for_ready; host="D:\\Program Files\\ECHO Next\\echo-audio-host.exe"',
+      phase: 'output-start',
+      severity: 'recoverable',
+      details: {
+        selectedDevicePath: 'D:\\Devices\\private-device.json',
+      },
+      audioStatus: {
+        host: 'error',
+        state: 'error',
+        outputDeviceId: 'device-1',
+        outputDeviceName: 'Speakers',
+        outputDeviceType: null,
+        outputBackend: 'native',
+        outputMode: 'shared',
+        volume: 1,
+        playbackRate: 1,
+        playbackSpeedMode: 'nightcore',
+        currentFilePath: 'D:\\Music\\private-song.flac',
+        currentTrackId: 'track-1',
+        durationSeconds: 120,
+        positionSeconds: 12,
+        channels: 2,
+        codec: 'flac',
+        bitDepth: 16,
+        bitrate: null,
+        fileSampleRate: 44100,
+        decoderOutputSampleRate: 44100,
+        requestedOutputSampleRate: null,
+        actualDeviceSampleRate: 44100,
+        sharedDeviceSampleRate: 44100,
+        resampling: false,
+        bitPerfectCandidate: false,
+        sampleRateMismatch: false,
+        eqEnabled: false,
+        channelBalanceEnabled: false,
+        dspActive: false,
+        preampDb: 0,
+        eqPresetName: null,
+        clippingRisk: false,
+        bitPerfectDisabledReason: null,
+        warnings: ['shared_output_recovered_to_default_device'],
+        error: 'echo-audio-host timeout_waiting_for_ready',
+      },
+    });
+
+    await service.exportDiagnosticsZip(outputPath);
+
+    const latest = readJson<{ type: string; severity: string; audioStatus: { currentFilePath: unknown } }>(
+      join(service.getSessionDir()!, 'audio-crash.latest.json'),
+    );
+    expect(latest.type).toBe('audio');
+    expect(latest.severity).toBe('recoverable');
+    expect(latest.audioStatus.currentFilePath).toEqual({
+      basename: 'private-song.flac',
+      pathHash: expect.any(String),
+    });
+
+    const entries = unzipEntries(outputPath);
+    expect(Object.keys(entries)).toContain('audio-crash.latest.json');
+    expect(Object.keys(entries).some((name) => name.startsWith('audio-crashes/audio-crash-'))).toBe(true);
+    expect(Object.values(entries).join('\n')).not.toContain('D:\\Music\\private-song.flac');
+  });
+
   it('redacts sensitive log payload fields', () => {
     const sanitized = sanitizeLogPayload({
       token: 'abc',

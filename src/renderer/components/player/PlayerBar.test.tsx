@@ -111,6 +111,55 @@ afterEach(() => {
 });
 
 describe('PlayerBar', () => {
+  it('shows a short audiohost timeout message in the footer', async () => {
+    const track = makeTrack(12);
+    const rawError =
+      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000; stderrTail="[echo-audio-host] createDevice is still waiting"';
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'error',
+          currentTrackId: track.id,
+          positionMs: 0,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(track),
+          state: 'error',
+          error: rawError,
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(track),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <PlayerBar />
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText('音频引擎启动超时，已尝试默认输出')).toBeTruthy();
+    expect(screen.queryByText(/timeout_waiting_for_ready/)).toBeNull();
+  });
+
   it('hydrates restored playback from the library so cover art survives restart', async () => {
     const restoredTrack = makeTrack(9, {
       title: 'Restored Track',
@@ -387,7 +436,7 @@ describe('PlayerBar', () => {
       },
     } as unknown as Window['echo'];
 
-    const { container } = render(
+    render(
       <PlaybackQueueProvider>
         <QueueSeed tracks={[track]} />
       </PlaybackQueueProvider>,
@@ -401,6 +450,92 @@ describe('PlayerBar', () => {
     fireEvent.mouseEnter(screen.getByRole('button', { name: '播放速度' }).parentElement!);
     expect(screen.getByText('1.00x')).toBeTruthy();
     expect(screen.queryByText('100%')).toBeNull();
+  });
+
+  it('handles the space playback shortcut even when the focused target stops keydown bubbling', async () => {
+    const track = makeTrack(1);
+    const pause = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: track.id,
+      positionMs: 4000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+        <div data-testid="space-blocker" tabIndex={0} onKeyDown={(event) => event.stopPropagation()} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    fireEvent.keyDown(screen.getByTestId('space-blocker'), { code: 'Space', key: ' ' });
+
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not hijack space typed into editable fields', async () => {
+    const track = makeTrack(1);
+    const pause = vi.fn();
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+        <input aria-label="Search text" />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    fireEvent.keyDown(screen.getByLabelText('Search text'), { code: 'Space', key: ' ' });
+
+    expect(pause).not.toHaveBeenCalled();
   });
 
   it('routes SMTC previous and next commands through the playback queue', async () => {

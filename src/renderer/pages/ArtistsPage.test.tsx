@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ArtistsPage } from './ArtistsPage';
 import type { LibraryArtist, LibraryPage } from '../../shared/types/library';
@@ -65,14 +65,26 @@ const installLibrary = (
   } as unknown as Window['echo'];
 };
 
-const setScrollableArtistWall = (element: HTMLElement): void => {
+const renderArtistsPage = (): ReturnType<typeof render> =>
+  render(
+    <main className="page-surface">
+      <ArtistsPage />
+    </main>,
+  );
+
+const setScrollablePageSurface = (element: HTMLElement): void => {
   Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 2000 });
   Object.defineProperty(element, 'clientHeight', { configurable: true, value: 900 });
 };
 
+beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', undefined);
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -81,7 +93,7 @@ describe('ArtistsPage', () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1', { name: '安田レイ' })], { total: 12 }));
     installLibrary(getArtists);
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
 
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
     expect(getArtists).toHaveBeenCalledWith({ page: 1, pageSize: 96, search: '', sort: 'default' });
@@ -90,21 +102,22 @@ describe('ArtistsPage', () => {
     expect(screen.getByText('安田')).toBeTruthy();
   });
 
-  it('loads the next artist page when the wall scrolls near the bottom', async () => {
+  it('loads the next artist page when the page surface scrolls near the bottom', async () => {
     const getArtists = vi
       .fn()
       .mockResolvedValueOnce(page([artist('1')], { page: 1, total: 2, hasMore: true }))
       .mockResolvedValueOnce(page([artist('2')], { page: 2, total: 2, hasMore: false }));
     installLibrary(getArtists);
 
-    render(<ArtistsPage />);
+    const { container } = renderArtistsPage();
 
-    const wall = await screen.findByLabelText('Artist list');
+    await screen.findByLabelText('Artist list');
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
 
-    setScrollableArtistWall(wall);
-    wall.scrollTop = 760;
-    fireEvent.scroll(wall);
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 760;
+    fireEvent.scroll(pageSurface);
 
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(2));
     expect(getArtists).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 96, search: '', sort: 'default' });
@@ -120,7 +133,7 @@ describe('ArtistsPage', () => {
       .mockResolvedValueOnce(page([artist('popular')], { total: 1 }));
     installLibrary(getArtists);
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
 
     fireEvent.change(screen.getByPlaceholderText('Search artists'), { target: { value: '2hollis' } });
@@ -133,19 +146,49 @@ describe('ArtistsPage', () => {
     expect(getArtists).toHaveBeenNthCalledWith(3, { page: 1, pageSize: 96, search: '2hollis', sort: 'frequent' });
   });
 
+  it('search and sort reset the page surface scroll position', async () => {
+    const getArtists = vi
+      .fn()
+      .mockResolvedValueOnce(page([artist('1')], { total: 120, hasMore: true }))
+      .mockResolvedValueOnce(page([artist('search', { name: '2hollis / Nate Sib' })], { total: 1 }))
+      .mockResolvedValueOnce(page([artist('popular')], { total: 1 }));
+    installLibrary(getArtists);
+
+    const { container } = renderArtistsPage();
+    await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
+
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 640;
+
+    fireEvent.change(screen.getByPlaceholderText('Search artists'), { target: { value: '2hollis' } });
+    await new Promise((resolve) => window.setTimeout(resolve, 275));
+    await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(2));
+    expect(pageSurface.scrollTop).toBe(0);
+
+    pageSurface.scrollTop = 520;
+    fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'frequent' } });
+    await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(3));
+    expect(pageSurface.scrollTop).toBe(0);
+  });
+
   it('opens artist detail on click and returns with Back', async () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1')]));
     installLibrary(getArtists);
 
-    render(<ArtistsPage />);
+    const { container } = renderArtistsPage();
 
     await screen.findByText('Artist 1');
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 580;
     fireEvent.click(screen.getByText('Artist 1').closest('[role="button"]')!);
 
     expect(screen.getByText('Detail: Artist 1')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to artists' }));
 
+    expect(pageSurface.scrollTop).toBe(580);
     expect(screen.getByText('Artist 1')).toBeTruthy();
   });
 
@@ -153,7 +196,7 @@ describe('ArtistsPage', () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1'), artist('2')]));
     installLibrary(getArtists);
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
 
     await screen.findByText('Artist 1');
     fireEvent.keyDown(screen.getByText('Artist 1').closest('[role="button"]')!, { key: 'Enter' });
@@ -168,7 +211,7 @@ describe('ArtistsPage', () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
     installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: false }));
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
 
     await screen.findByText('Artist 1');
     expect(screen.getByText('AR')).toBeTruthy();
@@ -179,7 +222,7 @@ describe('ArtistsPage', () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
     installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: true }));
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
 
     await screen.findByText('Artist 1');
     await waitFor(() => expect(document.querySelector('.artist-avatar img')).toBeTruthy());
@@ -193,7 +236,7 @@ describe('ArtistsPage', () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
     installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: true }));
 
-    render(<ArtistsPage />);
+    renderArtistsPage();
 
     await screen.findByText('Artist 1');
     await waitFor(() => expect(document.querySelector('.artist-avatar img')).toBeTruthy());

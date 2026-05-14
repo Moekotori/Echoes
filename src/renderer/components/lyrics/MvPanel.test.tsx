@@ -121,6 +121,15 @@ describe('MvPanel', () => {
     expect(screen.queryByText('Choose file')).toBeNull();
   });
 
+  it('does not load or render MV when MV is disabled', async () => {
+    const { container } = renderPanel(makeVideo(), true, { ...defaultMvSettings, enabled: false });
+
+    expect(await screen.findByText('MV disabled')).toBeTruthy();
+    expect(container.querySelector('video')).toBeNull();
+    expect(window.echo.mv.getSelected).not.toHaveBeenCalled();
+    expect(window.echo.mv.searchNetworkCandidates).not.toHaveBeenCalled();
+  });
+
   it('preloads MV candidates while audio is playing', async () => {
     const selectedAfterSearch = makeVideo({ provider: 'bilibili' });
     const getSelected = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(selectedAfterSearch);
@@ -169,6 +178,57 @@ describe('MvPanel', () => {
     expect(video?.autoplay).toBe(true);
     expect(video?.controls).toBe(false);
     expect(container.querySelector('.lyrics-mv-toolbar')).toBeNull();
+  });
+
+  it('applies immersive MV visual tuning variables', async () => {
+    const { container } = renderPanel(makeVideo(), true, {
+      ...defaultMvSettings,
+      immersiveBackground: true,
+      immersiveBackgroundBlurPx: 10,
+      immersiveBackgroundBrightnessPercent: 118,
+      immersiveBackgroundOverlayOpacityPercent: 35,
+    });
+
+    const background = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-background') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    expect(background.style.getPropertyValue('--mv-immersive-blur')).toBe('10px');
+    expect(background.style.getPropertyValue('--mv-immersive-brightness')).toBe('118%');
+    expect(background.style.getPropertyValue('--mv-immersive-overlay-opacity')).toBe('0.35');
+  });
+
+  it('marks the immersive MV background when lyrics readability enhancement is enabled', async () => {
+    const { container } = renderPanel(makeVideo(), true, {
+      ...defaultMvSettings,
+      immersiveBackground: true,
+      lyricsReadabilityEnhanced: true,
+    });
+
+    const background = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-background') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    expect(background.dataset.lyricsReadability).toBe('true');
+  });
+
+  it('leaves the immersive MV readability marker absent by default', async () => {
+    const { container } = renderPanel(makeVideo(), true, {
+      ...defaultMvSettings,
+      immersiveBackground: true,
+    });
+
+    const background = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-background') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    expect(background.dataset.lyricsReadability).toBeUndefined();
   });
 
   it('clears the previous MV as soon as the track changes', async () => {

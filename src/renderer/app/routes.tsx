@@ -13,6 +13,7 @@ import {
   ListMusic,
   Mic2,
   Music2,
+  Radio,
   Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -29,6 +30,7 @@ import { SongsPage } from '../pages/SongsPage';
 import { LyricsPage } from '../pages/LyricsPage';
 import { LikedPage } from '../pages/LikedPage';
 import { RemoteSourcesPanel } from '../components/settings/RemoteSourcesPanel';
+import { StreamingSearchPage } from '../components/streaming/StreamingSearchPage';
 import { EmptyState } from '../components/ui/EmptyState';
 import type { TranslationKey } from '../i18n/locales';
 
@@ -40,6 +42,7 @@ export type AppRouteId =
   | 'artists'
   | 'folders'
   | 'remote'
+  | 'streaming'
   | 'queue'
   | 'history'
   | 'playlists'
@@ -59,6 +62,7 @@ export type AppRoute = {
   icon: LucideIcon;
   placement: 'main' | 'utility';
   chrome?: 'shell' | 'standalone';
+  hideFromSidebar?: boolean;
   element: JSX.Element;
 };
 
@@ -106,6 +110,8 @@ export const appRoutes: AppRoute[] = [
     icon: Captions,
     placement: 'main',
     chrome: 'standalone',
+    // The standalone lyrics page is still reachable from the player controls; avoid a duplicate sidebar entry beside Lyrics Settings.
+    hideFromSidebar: true,
     element: <LyricsPage />,
   },
   {
@@ -147,6 +153,14 @@ export const appRoutes: AppRoute[] = [
     icon: Cloud,
     placement: 'main',
     element: <RemoteSourcesPanel />,
+  },
+  {
+    id: 'streaming',
+    label: 'Streaming',
+    description: 'Streaming music sources.',
+    icon: Radio,
+    placement: 'main',
+    element: <StreamingSearchPage />,
   },
   {
     id: 'queue',

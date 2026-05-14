@@ -11,6 +11,12 @@ export type AppSettings = {
   artistWallAlbumArtwork: boolean;
   coverCacheDir: string | null;
   hideToTrayOnClose: boolean;
+  appCustomWallpaperPath: string | null;
+  appWallpaperScalePercent: number;
+  appWallpaperBlurPx: number;
+  appWallpaperBrightnessPercent: number;
+  appWallpaperUiOpacityPercent: number;
+  appWallpaperUnifiedOpacityEnabled: boolean;
   networkMetadataEnabled: boolean;
   networkMetadataProviders: Array<'mock' | 'musicbrainz' | 'cover-art-archive' | 'netease-cloud-music' | 'qq-music'>;
   lyricsNetworkEnabled: boolean;
@@ -33,6 +39,7 @@ export type AppSettings = {
   lyricsTranslationEnabled: boolean;
   lyricsFontSizePx: number;
   lyricsSecondaryFontSizePx?: number;
+  lyricsContextOpacityPercent?: number;
   lyricsColor: string;
   lyricsBackgroundMode: LyricsBackgroundMode;
   lyricsCustomWallpaperPath: string | null;
@@ -40,6 +47,7 @@ export type AppSettings = {
   lyricsCoverBlurPx: number;
   lyricsCoverBrightnessPercent: number;
   lyricsBackgroundScalePercent: number;
+  mvEnabled?: boolean;
   mvEnabledProviders: NetworkMvProviderId[];
   mvProviderOrder: NetworkMvProviderId[];
   mvAutoSearch: boolean;
@@ -49,6 +57,10 @@ export type AppSettings = {
   mvImmersiveBackgroundScalePercent?: number;
   mvImmersiveBackgroundOffsetXPercent?: number;
   mvImmersiveBackgroundOffsetYPercent?: number;
+  mvImmersiveBackgroundBlurPx?: number;
+  mvImmersiveBackgroundBrightnessPercent?: number;
+  mvImmersiveBackgroundOverlayOpacityPercent?: number;
+  mvLyricsReadabilityEnhanced?: boolean;
   mvRestartAudioOnLoad?: boolean;
   mvMaxQuality: MvMaxQuality;
   mvAllow60fps: boolean;

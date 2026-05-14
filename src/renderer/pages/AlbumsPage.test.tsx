@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AlbumsPage } from './AlbumsPage';
 import type { LibraryAlbum, LibraryPage, LibraryTrack } from '../../shared/types/library';
@@ -110,7 +110,9 @@ const installLibrary = (
 const renderAlbumsPage = (): ReturnType<typeof render> =>
   render(
     <PlaybackQueueProvider>
-      <AlbumsPage />
+      <main className="page-surface">
+        <AlbumsPage />
+      </main>
     </PlaybackQueueProvider>,
   );
 
@@ -123,19 +125,26 @@ const QueueProbe = (): JSX.Element => {
 const renderAlbumsPageWithQueueProbe = (): ReturnType<typeof render> =>
   render(
     <PlaybackQueueProvider>
-      <AlbumsPage />
+      <main className="page-surface">
+        <AlbumsPage />
+      </main>
       <QueueProbe />
     </PlaybackQueueProvider>,
   );
 
-const setScrollableAlbumWall = (element: HTMLElement): void => {
+const setScrollablePageSurface = (element: HTMLElement): void => {
   Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 2000 });
   Object.defineProperty(element, 'clientHeight', { configurable: true, value: 900 });
 };
 
+beforeEach(() => {
+  vi.stubGlobal('IntersectionObserver', undefined);
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -152,21 +161,22 @@ describe('AlbumsPage', () => {
     expect(getTracks).not.toHaveBeenCalled();
   });
 
-  it('loads page 2 only after the album wall scrolls near the bottom', async () => {
+  it('loads page 2 when the page surface scrolls near the bottom', async () => {
     const getAlbums = vi
       .fn()
       .mockResolvedValueOnce(page([album('1')], { page: 1, total: 2, hasMore: true }))
       .mockResolvedValueOnce(page([album('2')], { page: 2, total: 2, hasMore: false }));
     installLibrary(getAlbums);
 
-    renderAlbumsPage();
+    const { container } = renderAlbumsPage();
 
-    const wall = await screen.findByLabelText('Album list');
+    await screen.findByLabelText('Album list');
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
 
-    setScrollableAlbumWall(wall);
-    wall.scrollTop = 760;
-    fireEvent.scroll(wall);
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 760;
+    fireEvent.scroll(pageSurface);
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
     expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 60, search: '', sort: 'default' });
@@ -193,6 +203,32 @@ describe('AlbumsPage', () => {
     fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'artist' } });
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(3));
     expect(getAlbums).toHaveBeenNthCalledWith(3, { page: 1, pageSize: 60, search: 'search', sort: 'artist' });
+  });
+
+  it('search and sort reset the page surface scroll position', async () => {
+    const getAlbums = vi
+      .fn()
+      .mockResolvedValueOnce(page([album('1')], { page: 1, total: 120, hasMore: true }))
+      .mockResolvedValueOnce(page([album('search')], { page: 1, total: 1, hasMore: false }))
+      .mockResolvedValueOnce(page([album('artist-sort')], { page: 1, total: 1, hasMore: false }));
+    installLibrary(getAlbums);
+
+    const { container } = renderAlbumsPage();
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
+
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 640;
+
+    fireEvent.change(screen.getByPlaceholderText('Search albums / artists'), { target: { value: 'search' } });
+    await new Promise((resolve) => window.setTimeout(resolve, 275));
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
+    expect(pageSurface.scrollTop).toBe(0);
+
+    pageSurface.scrollTop = 520;
+    fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'artist' } });
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(3));
+    expect(pageSurface.scrollTop).toBe(0);
   });
 
   it('library:changed reloads page 1', async () => {
@@ -249,8 +285,9 @@ describe('AlbumsPage', () => {
     const { container } = renderAlbumsPage();
 
     await screen.findByText('Album 1');
-    fireEvent.change(screen.getByPlaceholderText('Search albums / artists'), { target: { value: 'kept search' } });
-    fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'artist' } });
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 640;
     fireEvent.click(screen.getByText('Album 1'));
 
     await screen.findByLabelText('Album 1 album details');
@@ -266,8 +303,7 @@ describe('AlbumsPage', () => {
     ));
 
     fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
-    expect((screen.getByPlaceholderText('Search albums / artists') as HTMLInputElement).value).toBe('kept search');
-    expect(screen.getByDisplayValue('Artist')).toBeTruthy();
+    expect(pageSurface.scrollTop).toBe(640);
     expect(screen.getByText('Album 1')).toBeTruthy();
   });
 

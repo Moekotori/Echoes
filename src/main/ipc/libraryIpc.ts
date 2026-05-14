@@ -285,12 +285,22 @@ const normalizeStartPlaybackHistoryRequest = (value: unknown): StartPlaybackHist
 
   return {
     trackId,
+    mediaType:
+      input.mediaType === 'local' || input.mediaType === 'remote' || input.mediaType === 'streaming'
+        ? input.mediaType
+        : undefined,
+    sourceId: typeof input.sourceId === 'string' && input.sourceId.trim() ? input.sourceId : null,
+    provider: typeof input.provider === 'string' && input.provider.trim() ? input.provider : null,
+    providerTrackId: typeof input.providerTrackId === 'string' && input.providerTrackId.trim() ? input.providerTrackId : null,
+    stableKey: typeof input.stableKey === 'string' && input.stableKey.trim() ? input.stableKey : null,
+    remotePath: typeof input.remotePath === 'string' && input.remotePath.trim() ? input.remotePath : null,
     trackPath: typeof input.trackPath === 'string' && input.trackPath.trim() ? input.trackPath : undefined,
     title: typeof input.title === 'string' ? input.title : undefined,
     artist: typeof input.artist === 'string' ? input.artist : undefined,
     album: typeof input.album === 'string' ? input.album : undefined,
     albumArtist: typeof input.albumArtist === 'string' ? input.albumArtist : undefined,
     coverId: typeof input.coverId === 'string' || input.coverId === null ? (input.coverId as string | null) : undefined,
+    coverSnapshot: typeof input.coverSnapshot === 'string' && input.coverSnapshot.trim() ? input.coverSnapshot : null,
     durationSeconds,
     sourceType: typeof input.sourceType === 'string' && input.sourceType.trim() ? input.sourceType : null,
     sourceLabel: typeof input.sourceLabel === 'string' && input.sourceLabel.trim() ? input.sourceLabel : null,
@@ -313,6 +323,10 @@ const normalizeFinishPlaybackHistoryRequest = (value: unknown): FinishPlaybackHi
   return {
     historyId: requireText(input.historyId, 'historyId'),
     playedSeconds,
+    durationSeconds:
+      typeof input.durationSeconds === 'number' && Number.isFinite(input.durationSeconds) && input.durationSeconds > 0
+        ? input.durationSeconds
+        : undefined,
     completed: typeof input.completed === 'boolean' ? input.completed : undefined,
     endedAt: typeof input.endedAt === 'string' && input.endedAt.trim() ? input.endedAt : undefined,
   };

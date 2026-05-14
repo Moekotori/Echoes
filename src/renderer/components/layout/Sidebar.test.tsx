@@ -16,6 +16,15 @@ const routes: AppRoute[] = [
     element: <div>Songs</div>,
   },
   {
+    id: 'lyrics',
+    label: 'Lyrics',
+    description: 'Lyrics',
+    icon: Music2,
+    placement: 'main',
+    hideFromSidebar: true,
+    element: <div>Lyrics</div>,
+  },
+  {
     id: 'import-folder',
     label: 'Import Folder',
     description: 'Import Folder',
@@ -77,6 +86,13 @@ describe('Sidebar direct import actions', () => {
     await waitFor(() => expect(onImportFolder).toHaveBeenCalledTimes(1));
     expect(onImportFile).not.toHaveBeenCalled();
     expect(onRouteChange).not.toHaveBeenCalled();
+  });
+
+  it('hides routes marked as hidden from the sidebar', () => {
+    renderSidebar({ onRouteChange: vi.fn(), onImportFolder: vi.fn(), onImportFile: vi.fn() });
+
+    expect(screen.queryByRole('button', { name: 'Lyrics' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Songs' })).toBeTruthy();
   });
 
   it('opens the audio file picker from Import File without navigating', async () => {

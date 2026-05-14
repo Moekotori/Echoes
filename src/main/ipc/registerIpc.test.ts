@@ -32,6 +32,12 @@ vi.mock('../app/appSettings', () => ({
     artistWallAlbumArtwork: false,
     coverCacheDir: null,
     hideToTrayOnClose: false,
+    appCustomWallpaperPath: null,
+    appWallpaperScalePercent: 100,
+    appWallpaperBlurPx: 0,
+    appWallpaperBrightnessPercent: 100,
+    appWallpaperUiOpacityPercent: 100,
+    appWallpaperUnifiedOpacityEnabled: false,
     networkMetadataEnabled: false,
     networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
     channelBalance: {
@@ -63,6 +69,8 @@ vi.mock('../app/appSettings', () => ({
     smtcEnabled: true,
   },
   getAppSettings: vi.fn(() => ({ coverCacheDir: null, hideToTrayOnClose: false })),
+  getAppWallpaperDirectory: vi.fn(() => 'D:\\Echo\\app-wallpapers'),
+  getLyricsWallpaperDirectory: vi.fn(() => 'D:\\Echo\\lyrics-wallpapers'),
   setAppSettings: setAppSettingsMock,
 }));
 
@@ -191,6 +199,20 @@ describe('app IPC cover cache directory', () => {
     showOpenDialogMock.mockResolvedValue({ canceled: true, filePaths: [] });
 
     const result = await handlers[IpcChannels.AppChooseLyricsWallpaper]!();
+
+    expect(result).toBeNull();
+    expect(showOpenDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [{ name: 'Image files', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+        properties: ['openFile'],
+      }),
+    );
+  });
+
+  it('uses an image-only picker for app wallpaper selection', async () => {
+    showOpenDialogMock.mockResolvedValue({ canceled: true, filePaths: [] });
+
+    const result = await handlers[IpcChannels.AppChooseAppWallpaper]!();
 
     expect(result).toBeNull();
     expect(showOpenDialogMock).toHaveBeenCalledWith(

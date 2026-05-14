@@ -69,6 +69,7 @@ export const SongsPage = (): JSX.Element => {
   const [versionTrack, setVersionTrack] = useState<LibraryTrack | null>(null);
   const [versionsBusy, setVersionsBusy] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [listVersion, setListVersion] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -78,6 +79,7 @@ export const SongsPage = (): JSX.Element => {
   const [tagEditorError, setTagEditorError] = useState<string | null>(null);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const requestIdRef = useRef(0);
+  const isLoadingRef = useRef(false);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const { currentTrackId, playTrack, appendToQueue, playTrackNext, items: queueItems, removeQueueItem } = usePlaybackQueue();
@@ -113,11 +115,19 @@ export const SongsPage = (): JSX.Element => {
 
   const loadTracks = useCallback(
     async (nextPage: number, mode: 'replace' | 'append') => {
+      if (mode === 'append' && isLoadingRef.current) {
+        return;
+      }
+
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      isLoadingRef.current = true;
       setIsLoading(true);
       setError(null);
       setStatusMessage(null);
+      if (mode === 'replace') {
+        setListVersion((current) => current + 1);
+      }
 
       try {
         const library = window.echo?.library;
@@ -154,6 +164,7 @@ export const SongsPage = (): JSX.Element => {
         }
       } finally {
         if (requestIdRef.current === requestId) {
+          isLoadingRef.current = false;
           setIsLoading(false);
         }
       }
@@ -618,9 +629,13 @@ export const SongsPage = (): JSX.Element => {
       ) : null}
 
       <TrackList
+        key={listVersion}
         tracks={tracks}
         currentTrackId={currentTrackId}
         canLoadMore={hasMore && !isLoading}
+        totalCount={total}
+        loadedCount={tracks.length}
+        isLoadingMore={isLoading}
         onEndReached={handleLoadMore}
         onAddToQueue={handleAddTrackToQueue}
         duplicateHiddenCounts={duplicateHiddenCounts}
@@ -657,8 +672,18 @@ export const SongsPage = (): JSX.Element => {
       />
 
       {versionTrack ? (
-        <div className="duplicate-version-overlay" role="dialog" aria-modal="true" aria-label="重复歌曲版本">
-          <section className="duplicate-version-panel">
+        <div
+          className="duplicate-version-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="重复歌曲版本"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setVersionTrack(null);
+            }
+          }}
+        >
+          <section className="duplicate-version-panel" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <span>Duplicate Track Merge View</span>

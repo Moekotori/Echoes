@@ -887,12 +887,18 @@ export class LibraryStore {
   createPlaybackHistoryEntry(input: {
     trackId: string | null;
     trackPath: string;
+    mediaType?: 'local' | 'remote' | 'streaming';
+    provider?: string | null;
+    providerTrackId?: string | null;
+    stableKey?: string | null;
     title: string;
     artist: string;
     album: string;
     albumArtist: string;
     coverId: string | null;
+    coverSnapshot?: string | null;
     durationSeconds: number;
+    durationSnapshot?: number | null;
     sourceType?: string | null;
     sourceLabel?: string | null;
     queueId?: string | null;
@@ -904,18 +910,35 @@ export class LibraryStore {
     const sourceType = textOrNull(input.sourceType);
     const sourceLabel = textOrNull(input.sourceLabel);
     const queueId = textOrNull(input.queueId);
-    const historyKey = playbackHistoryKey(input.trackId, input.trackPath);
+    const mediaType = input.mediaType ?? 'local';
+    const provider = textOrNull(input.provider);
+    const providerTrackId = textOrNull(input.providerTrackId);
+    const stableKey = textOrNull(input.stableKey);
+    const durationSnapshot = input.durationSnapshot ?? durationSeconds;
+    const coverSnapshot = textOrNull(input.coverSnapshot);
+    const historyKey = stableKey ?? playbackHistoryKey(input.trackId, input.trackPath);
 
     return this.transaction(() => {
       this.run(
         `INSERT INTO playback_history (
-          id, track_id, track_path, title, artist, album, album_artist, cover_id,
+          id, track_id, track_path, media_type, provider, provider_track_id, stable_key,
+          title_snapshot, artist_snapshot, album_snapshot, duration_snapshot, cover_snapshot,
+          title, artist, album, album_artist, cover_id,
           started_at, ended_at, played_seconds, duration_seconds, completed,
           source_type, source_label, queue_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.trackId,
         input.trackPath,
+        mediaType,
+        provider,
+        providerTrackId,
+        stableKey,
+        input.title,
+        input.artist,
+        input.album,
+        durationSnapshot,
+        coverSnapshot,
         input.title,
         input.artist,
         input.album,
@@ -934,13 +957,24 @@ export class LibraryStore {
 
       this.run(
         `INSERT INTO playback_history_stats (
-          history_key, track_id, track_path, title, artist, album, album_artist, cover_id,
+          history_key, track_id, track_path, media_type, provider, provider_track_id, stable_key,
+          title_snapshot, artist_snapshot, album_snapshot, duration_snapshot, cover_snapshot,
+          title, artist, album, album_artist, cover_id,
           play_count, completed_count, total_played_seconds, duration_seconds,
           last_started_at, last_ended_at, source_type, source_label, queue_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(history_key) DO UPDATE SET
           track_id = excluded.track_id,
           track_path = excluded.track_path,
+          media_type = excluded.media_type,
+          provider = excluded.provider,
+          provider_track_id = excluded.provider_track_id,
+          stable_key = excluded.stable_key,
+          title_snapshot = excluded.title_snapshot,
+          artist_snapshot = excluded.artist_snapshot,
+          album_snapshot = excluded.album_snapshot,
+          duration_snapshot = excluded.duration_snapshot,
+          cover_snapshot = excluded.cover_snapshot,
           title = excluded.title,
           artist = excluded.artist,
           album = excluded.album,
@@ -956,6 +990,15 @@ export class LibraryStore {
         historyKey,
         input.trackId,
         input.trackPath,
+        mediaType,
+        provider,
+        providerTrackId,
+        stableKey,
+        input.title,
+        input.artist,
+        input.album,
+        durationSnapshot,
+        coverSnapshot,
         input.title,
         input.artist,
         input.album,
@@ -984,7 +1027,7 @@ export class LibraryStore {
 
   finishPlaybackHistoryEntry(
     id: string,
-    input: { playedSeconds: number; completed?: boolean; endedAt?: string },
+    input: { playedSeconds: number; durationSeconds?: number; completed?: boolean; endedAt?: string },
   ): PlaybackHistoryEntry | null {
     return this.transaction(() => {
       const current = this.getRow('SELECT * FROM playback_history WHERE id = ?', id);
@@ -994,7 +1037,11 @@ export class LibraryStore {
 
       const endedAt = input.endedAt ?? nowIso();
       const playedSeconds = Math.max(0, Number(input.playedSeconds) || 0);
-      const durationSeconds = Number(current.duration_seconds ?? 0);
+      const currentDurationSeconds = Number(current.duration_seconds ?? 0);
+      const durationSeconds =
+        typeof input.durationSeconds === 'number' && Number.isFinite(input.durationSeconds) && input.durationSeconds > 0
+          ? input.durationSeconds
+          : currentDurationSeconds;
       const completed = input.completed ?? this.isPlaybackCompleted(playedSeconds, durationSeconds);
       const previousPlayedSeconds = Math.max(0, Number(current.played_seconds ?? 0) || 0);
       const wasCompleted = Number(current.completed ?? 0) === 1;
@@ -1004,10 +1051,14 @@ export class LibraryStore {
         `UPDATE playback_history SET
           ended_at = ?,
           played_seconds = ?,
+          duration_seconds = ?,
+          duration_snapshot = COALESCE(duration_snapshot, ?),
           completed = ?
         WHERE id = ?`,
         endedAt,
         playedSeconds,
+        durationSeconds,
+        durationSeconds,
         completed ? 1 : 0,
         id,
       );
@@ -1016,11 +1067,15 @@ export class LibraryStore {
         `UPDATE playback_history_stats SET
           total_played_seconds = MAX(0, COALESCE(total_played_seconds, 0) + ?),
           completed_count = MAX(0, COALESCE(completed_count, 0) + ?),
+          duration_seconds = ?,
+          duration_snapshot = COALESCE(duration_snapshot, ?),
           last_ended_at = ?,
           updated_at = ?
         WHERE history_key = ?`,
         playedSeconds - previousPlayedSeconds,
         (completed ? 1 : 0) - (wasCompleted ? 1 : 0),
+        durationSeconds,
+        durationSeconds,
         endedAt,
         endedAt,
         historyKey,
@@ -1042,6 +1097,8 @@ export class LibraryStore {
       likePredicate('playback_history_stats.title'),
       likePredicate('playback_history_stats.artist'),
       likePredicate("COALESCE(playback_history_stats.album, '')"),
+      likePredicate("COALESCE(playback_history_stats.title_snapshot, '')"),
+      likePredicate("COALESCE(playback_history_stats.artist_snapshot, '')"),
       likePredicate('playback_history_stats.track_path'),
     ]);
     const clauses: string[] = [];
@@ -1078,6 +1135,15 @@ export class LibraryStore {
          history_key AS id,
          track_id,
          track_path,
+         media_type,
+         provider,
+         provider_track_id,
+         stable_key,
+         title_snapshot,
+         artist_snapshot,
+         album_snapshot,
+         duration_snapshot,
+         cover_snapshot,
          title,
          artist,
          album,
@@ -3079,21 +3145,34 @@ export class LibraryStore {
 
   private mapPlaybackHistoryEntry(row: DbRow): PlaybackHistoryEntry {
     const coverId = textOrNull(row.cover_id);
+    const mediaType =
+      row.media_type === 'remote' || row.media_type === 'streaming' ? row.media_type : 'local';
+    const title = textOrNull(row.title_snapshot) ?? String(row.title);
+    const artist = textOrNull(row.artist_snapshot) ?? String(row.artist);
+    const album = textOrNull(row.album_snapshot) ?? String(row.album ?? '');
+    const durationSnapshot = numberOrNull(row.duration_snapshot);
+    const coverSnapshot = textOrNull(row.cover_snapshot);
 
     return {
       id: String(row.id),
       trackId: textOrNull(row.track_id),
       trackPath: String(row.track_path),
-      title: String(row.title),
-      artist: String(row.artist),
-      album: String(row.album ?? ''),
+      mediaType,
+      provider: textOrNull(row.provider),
+      providerTrackId: textOrNull(row.provider_track_id),
+      stableKey: textOrNull(row.stable_key),
+      title,
+      artist,
+      album,
       albumArtist: String(row.album_artist ?? ''),
       coverId,
-      coverThumb: coverId ? this.toCoverUrl(coverId, 'thumb') : null,
+      coverThumb: coverId ? this.toCoverUrl(coverId, 'thumb') : coverSnapshot,
       startedAt: String(row.started_at),
       endedAt: textOrNull(row.ended_at),
       playedSeconds: Number(row.history_played_seconds_total ?? row.played_seconds ?? 0),
       durationSeconds: Number(row.duration_seconds ?? 0),
+      durationSnapshot,
+      coverSnapshot,
       playCount: Number(row.history_play_count ?? 1),
       completed: Number(row.completed_count ?? row.completed ?? 0) > 0,
       sourceType: textOrNull(row.source_type),

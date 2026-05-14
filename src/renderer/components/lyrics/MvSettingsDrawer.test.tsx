@@ -179,6 +179,17 @@ describe('MvSettingsDrawer', () => {
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoSearch: false }));
   });
 
+  it('toggles the top-level MV switch from the top of the drawer', async () => {
+    renderDrawer();
+
+    const toggle = await screen.findByRole('button', { name: /Enable MV/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ enabled: false }));
+  });
+
   it('updates the automatic MV apply threshold from the drawer', async () => {
     renderDrawer();
 
@@ -210,6 +221,66 @@ describe('MvSettingsDrawer', () => {
     fireEvent.change(slider, { target: { value: '140' } });
 
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ immersiveBackgroundScalePercent: 140 }));
+  });
+
+  it('updates immersive MV visual tuning controls', async () => {
+    renderDrawer();
+
+    const blur = await screen.findByRole('slider', { name: /Glass blur/ });
+    const brightness = screen.getByRole('slider', { name: /Background brightness/ });
+    const overlay = screen.getByRole('slider', { name: /Dark overlay/ });
+
+    expect((blur as HTMLInputElement).value).toBe('0');
+    expect((brightness as HTMLInputElement).value).toBe('100');
+    expect((overlay as HTMLInputElement).value).toBe('0');
+    expect(screen.queryByRole('slider', { name: /Horizontal position/ })).toBeNull();
+    expect(screen.queryByRole('slider', { name: /Vertical position/ })).toBeNull();
+
+    fireEvent.change(blur, { target: { value: '10' } });
+    fireEvent.change(brightness, { target: { value: '118' } });
+    fireEvent.change(overlay, { target: { value: '35' } });
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ immersiveBackgroundBlurPx: 10 }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ immersiveBackgroundBrightnessPercent: 118 }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ immersiveBackgroundOverlayOpacityPercent: 35 }));
+  });
+
+  it('toggles immersive MV lyrics readability enhancement from the drawer', async () => {
+    renderDrawer();
+
+    const toggle = await screen.findByRole('button', { name: /Lyrics readability boost/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ lyricsReadabilityEnhanced: true }));
+  });
+
+  it('resets immersive MV background tuning', async () => {
+    renderDrawer({
+      ...defaultMvSettings,
+      immersiveBackgroundScalePercent: 160,
+      immersiveBackgroundOffsetXPercent: 12,
+      immersiveBackgroundOffsetYPercent: 88,
+      immersiveBackgroundBlurPx: 16,
+      immersiveBackgroundBrightnessPercent: 70,
+      immersiveBackgroundOverlayOpacityPercent: 80,
+      lyricsReadabilityEnhanced: true,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /Reset immersive background/ }));
+
+    await waitFor(() =>
+      expect(window.echo.mv.setSettings).toHaveBeenCalledWith({
+        immersiveBackgroundScalePercent: 115,
+        immersiveBackgroundOffsetXPercent: 50,
+        immersiveBackgroundOffsetYPercent: 50,
+        immersiveBackgroundBlurPx: 0,
+        immersiveBackgroundBrightnessPercent: 100,
+        immersiveBackgroundOverlayOpacityPercent: 0,
+        lyricsReadabilityEnhanced: false,
+      }),
+    );
   });
 
   it('reorders network sources by dragging the priority handle', async () => {

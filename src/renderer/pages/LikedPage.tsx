@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Disc3, Heart, ListFilter, Play, Search, Shuffle, Trash2 } from 'lucide-react';
 import type { LibraryAlbum, LibraryPage, LibraryPlaylistItem, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
 import { TrackList } from '../components/library/TrackList';
+import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
+import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
@@ -72,21 +74,35 @@ export const LikedPage = (): JSX.Element => {
   const [trackTotal, setTrackTotal] = useState(0);
   const [albumTotal, setAlbumTotal] = useState(0);
   const [trackPage, setTrackPage] = useState(1);
-  const [, setAlbumPage] = useState(1);
+  const [albumPage, setAlbumPage] = useState(1);
   const [trackHasMore, setTrackHasMore] = useState(false);
-  const [, setAlbumHasMore] = useState(false);
+  const [albumHasMore, setAlbumHasMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('recent');
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isTrackLoading, setIsTrackLoading] = useState(false);
+  const [isAlbumLoading, setIsAlbumLoading] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
-  const requestIdRef = useRef(0);
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const pageScrollTopRef = useRef(0);
+  const shouldRestorePageScrollRef = useRef(false);
+  const trackRequestIdRef = useRef(0);
+  const albumRequestIdRef = useRef(0);
   const { currentTrackId, playTrack, replaceQueue } = usePlaybackQueue();
 
   const tracks = useMemo(() => trackItems.map(itemToTrack), [trackItems]);
   const albums = useMemo(() => albumItems.map(itemToAlbum), [albumItems]);
   const likedTrackMap = useMemo(() => Object.fromEntries(tracks.map((track) => [track.id, true])), [tracks]);
+  const isLoading = isTrackLoading || isAlbumLoading;
+  const { wallRef: likedAlbumWallRef, spacerHeight: likedAlbumSpacerHeight } = useMediaWallScrollSpacer<HTMLElement>({
+    itemCount: albums.length,
+    totalCount: albumTotal,
+    minColumnWidth: 164,
+    columnGap: 14,
+    rowGap: 14,
+    estimatedItemHeight: 214,
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 250);
@@ -95,9 +111,9 @@ export const LikedPage = (): JSX.Element => {
 
   const loadTracks = useCallback(
     async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
-      const requestId = requestIdRef.current + 1;
-      requestIdRef.current = requestId;
-      setIsLoading(true);
+      const requestId = trackRequestIdRef.current + 1;
+      trackRequestIdRef.current = requestId;
+      setIsTrackLoading(true);
       setError(null);
 
       try {
@@ -117,7 +133,7 @@ export const LikedPage = (): JSX.Element => {
           sort,
         });
 
-        if (requestIdRef.current !== requestId) {
+        if (trackRequestIdRef.current !== requestId) {
           return;
         }
 
@@ -126,12 +142,12 @@ export const LikedPage = (): JSX.Element => {
         setTrackTotal(result.total);
         setTrackHasMore(result.hasMore);
       } catch (loadError) {
-        if (requestIdRef.current === requestId) {
+        if (trackRequestIdRef.current === requestId) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
         }
       } finally {
-        if (requestIdRef.current === requestId) {
-          setIsLoading(false);
+        if (trackRequestIdRef.current === requestId) {
+          setIsTrackLoading(false);
         }
       }
     },
@@ -140,9 +156,9 @@ export const LikedPage = (): JSX.Element => {
 
   const loadAlbums = useCallback(
     async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
-      const requestId = requestIdRef.current + 1;
-      requestIdRef.current = requestId;
-      setIsLoading(true);
+      const requestId = albumRequestIdRef.current + 1;
+      albumRequestIdRef.current = requestId;
+      setIsAlbumLoading(true);
       setError(null);
 
       try {
@@ -162,7 +178,7 @@ export const LikedPage = (): JSX.Element => {
           sort,
         });
 
-        if (requestIdRef.current !== requestId) {
+        if (albumRequestIdRef.current !== requestId) {
           return;
         }
 
@@ -171,12 +187,12 @@ export const LikedPage = (): JSX.Element => {
         setAlbumTotal(result.total);
         setAlbumHasMore(result.hasMore);
       } catch (loadError) {
-        if (requestIdRef.current === requestId) {
+        if (albumRequestIdRef.current === requestId) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
         }
       } finally {
-        if (requestIdRef.current === requestId) {
-          setIsLoading(false);
+        if (albumRequestIdRef.current === requestId) {
+          setIsAlbumLoading(false);
         }
       }
     },
@@ -198,6 +214,33 @@ export const LikedPage = (): JSX.Element => {
       window.removeEventListener(likedAlbumsChangedEvent, reloadAlbums);
     };
   }, [loadAlbums, loadTracks]);
+
+  useLayoutEffect(() => {
+    writePageScrollTop(pageRootRef.current, 0);
+  }, [search, sort, tab]);
+
+  useLayoutEffect(() => {
+    if (selectedAlbum || !shouldRestorePageScrollRef.current) {
+      return;
+    }
+
+    writePageScrollTop(pageRootRef.current, pageScrollTopRef.current);
+    shouldRestorePageScrollRef.current = false;
+  }, [selectedAlbum]);
+
+  const openAlbumDetail = useCallback((album: LibraryAlbum): void => {
+    pageScrollTopRef.current = readPageScrollTop(pageRootRef.current);
+    shouldRestorePageScrollRef.current = true;
+    setSelectedAlbum(album);
+  }, []);
+
+  const handleLoadMoreAlbums = useCallback((): void => {
+    if (isAlbumLoading || !albumHasMore) {
+      return;
+    }
+
+    void loadAlbums(albumPage + 1, 'append');
+  }, [albumHasMore, albumPage, isAlbumLoading, loadAlbums]);
 
   const handlePlayAll = useCallback(async (): Promise<void> => {
     const playable = tracks.filter((track) => !track.unavailable && track.path);
@@ -266,7 +309,7 @@ export const LikedPage = (): JSX.Element => {
   }
 
   return (
-    <div className="liked-page">
+    <div ref={pageRootRef} className="liked-page">
       <header className="liked-hero">
         <div>
           <span className="queue-kicker">Library</span>
@@ -321,7 +364,7 @@ export const LikedPage = (): JSX.Element => {
           <TrackList
             tracks={tracks}
             currentTrackId={currentTrackId}
-            canLoadMore={trackHasMore && !isLoading}
+            canLoadMore={trackHasMore && !isTrackLoading}
             likedTrackIds={likedTrackMap}
             onEndReached={() => void loadTracks(trackPage + 1, 'append')}
             onPlay={(track) => void playTrack(track, { replaceQueueWith: tracks.filter((item) => !item.unavailable), source: { type: 'manual', label: '喜欢的歌曲' } })}
@@ -331,30 +374,34 @@ export const LikedPage = (): JSX.Element => {
           <div className="queue-empty-state"><Heart size={24} /><strong>还没有喜欢的歌曲</strong><span>在歌曲或专辑页面点击爱心即可收藏到这里</span></div>
         )
       ) : (
-        <section className="album-wall liked-album-wall" aria-label="喜欢的专辑">
-          {albums.length > 0 ? albums.map((album) => {
-            const item = albumItems.find((candidate) => (candidate.mediaId ?? candidate.id) === album.id);
-            const unavailable = item?.unavailable === true || !item?.album;
-            return (
-              <article className="album-card" data-unavailable={unavailable ? 'true' : undefined} key={item?.id ?? album.id} role="button" tabIndex={0} onClick={() => !unavailable && setSelectedAlbum(album)}>
-                <div className="album-cover" data-empty={!album.coverThumb} aria-hidden="true">
-                  {album.coverThumb ? <img alt="" decoding="async" draggable={false} height={320} loading="lazy" src={album.coverThumb} width={320} /> : <Disc3 size={24} />}
-                </div>
-                <div className="album-copy">
-                  <strong>{album.title}</strong>
-                  <span>{album.albumArtist}</span>
-                  <small>{unavailable ? '专辑不可用' : `${album.trackCount} tracks`}</small>
-                </div>
-                <button className="album-card-like is-liked" type="button" aria-label={`Unlike ${album.title}`} aria-pressed="true" onClick={(event) => { event.stopPropagation(); void handleToggleAlbumLiked(album); }}>
-                  <Heart size={16} fill="currentColor" />
-                </button>
-              </article>
-            );
-          }) : <div className="queue-empty-state"><Heart size={24} /><strong>还没有喜欢的专辑</strong><span>在歌曲或专辑页面点击爱心即可收藏到这里</span></div>}
-        </section>
+        <>
+          <section ref={likedAlbumWallRef} className="album-wall liked-album-wall" aria-label="喜欢的专辑">
+            {albums.length > 0 ? albums.map((album) => {
+              const item = albumItems.find((candidate) => (candidate.mediaId ?? candidate.id) === album.id);
+              const unavailable = item?.unavailable === true || !item?.album;
+              return (
+                <article className="album-card" data-unavailable={unavailable ? 'true' : undefined} key={item?.id ?? album.id} role="button" tabIndex={0} onClick={() => !unavailable && openAlbumDetail(album)}>
+                  <div className="album-cover" data-empty={!album.coverThumb} aria-hidden="true">
+                    {album.coverThumb ? <img alt="" decoding="async" draggable={false} height={320} loading="lazy" src={album.coverThumb} width={320} /> : <Disc3 size={24} />}
+                  </div>
+                  <div className="album-copy">
+                    <strong>{album.title}</strong>
+                    <span>{album.albumArtist}</span>
+                    <small>{unavailable ? '专辑不可用' : `${album.trackCount} tracks`}</small>
+                  </div>
+                  <button className="album-card-like is-liked" type="button" aria-label={`Unlike ${album.title}`} aria-pressed="true" onClick={(event) => { event.stopPropagation(); void handleToggleAlbumLiked(album); }}>
+                    <Heart size={16} fill="currentColor" />
+                  </button>
+                </article>
+              );
+            }) : <div className="queue-empty-state"><Heart size={24} /><strong>还没有喜欢的专辑</strong><span>在歌曲或专辑页面点击爱心即可收藏到这里</span></div>}
+          </section>
+          <InfiniteScrollSentinel canLoadMore={albumHasMore} isLoading={isAlbumLoading} onLoadMore={handleLoadMoreAlbums} />
+        </>
       )}
 
       {error || isLoading ? <div className="list-footer"><span>{error ?? '正在读取喜欢的音乐...'}</span></div> : null}
+      {tab === 'albums' ? <MediaWallScrollSpacer height={likedAlbumSpacerHeight} /> : null}
     </div>
   );
 };

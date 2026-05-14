@@ -760,6 +760,75 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 21,
+    apply: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS streaming_tracks (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          provider_track_id TEXT NOT NULL,
+          stable_key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          artist TEXT NOT NULL,
+          album TEXT NOT NULL,
+          album_id TEXT,
+          album_artist TEXT,
+          duration REAL,
+          cover_url TEXT,
+          cover_id TEXT,
+          qualities_json TEXT NOT NULL DEFAULT '[]',
+          playable INTEGER NOT NULL DEFAULT 1,
+          unavailable_reason TEXT,
+          lyrics_status TEXT NOT NULL DEFAULT 'unknown',
+          mv_status TEXT NOT NULL DEFAULT 'unknown',
+          raw_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(provider, provider_track_id),
+          UNIQUE(stable_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS streaming_api_cache (
+          cache_key TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_streaming_tracks_provider ON streaming_tracks(provider);
+        CREATE INDEX IF NOT EXISTS idx_streaming_tracks_title ON streaming_tracks(title);
+        CREATE INDEX IF NOT EXISTS idx_streaming_tracks_artist ON streaming_tracks(artist);
+        CREATE INDEX IF NOT EXISTS idx_streaming_tracks_album ON streaming_tracks(album);
+      `);
+    },
+  },
+  {
+    id: 22,
+    apply: (database) => {
+      for (const tableName of ['playback_history', 'playback_history_stats']) {
+        addColumnIfMissing(database, tableName, 'media_type', "media_type TEXT NOT NULL DEFAULT 'local'");
+        addColumnIfMissing(database, tableName, 'provider', 'provider TEXT');
+        addColumnIfMissing(database, tableName, 'provider_track_id', 'provider_track_id TEXT');
+        addColumnIfMissing(database, tableName, 'stable_key', 'stable_key TEXT');
+        addColumnIfMissing(database, tableName, 'title_snapshot', 'title_snapshot TEXT');
+        addColumnIfMissing(database, tableName, 'artist_snapshot', 'artist_snapshot TEXT');
+        addColumnIfMissing(database, tableName, 'album_snapshot', 'album_snapshot TEXT');
+        addColumnIfMissing(database, tableName, 'duration_snapshot', 'duration_snapshot REAL');
+        addColumnIfMissing(database, tableName, 'cover_snapshot', 'cover_snapshot TEXT');
+      }
+
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_playback_history_media_type ON playback_history(media_type);
+        CREATE INDEX IF NOT EXISTS idx_playback_history_stable_key ON playback_history(stable_key);
+        CREATE INDEX IF NOT EXISTS idx_playback_history_stats_media_type ON playback_history_stats(media_type);
+        CREATE INDEX IF NOT EXISTS idx_playback_history_stats_stable_key ON playback_history_stats(stable_key);
+      `);
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

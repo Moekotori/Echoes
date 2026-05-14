@@ -60,13 +60,26 @@ const createDecoderError = (
   stderrLines: string[],
 ): Error => {
   const stderr = stderrLines.join(' | ');
-  const details = [`ffmpeg="${ffmpegPath}"`, `args="${args.join(' ')}"`];
+  const details = [`ffmpeg="${ffmpegPath}"`, `args="${args.map(redactUrlSecrets).join(' ')}"`];
 
   if (stderr) {
     details.push(`stderr="${stderr}"`);
   }
 
   return new Error(`${reason}; ${details.join('; ')}`);
+};
+
+const redactUrlSecrets = (value: string): string => {
+  try {
+    const url = new URL(value);
+    if (url.search) {
+      url.search = '?redacted';
+    }
+
+    return url.toString();
+  } catch {
+    return value;
+  }
 };
 
 export const resolveDecoderFfmpegPath = (dependencies: DecoderPipelineDependencies = {}): string => {
@@ -127,7 +140,7 @@ export class DecoderPipeline {
     };
 
     this.logger(
-      `[DecoderPipeline] probe: file="${filePath}" codec=${result.codec ?? 'n/a'} sampleRate=${
+      `[DecoderPipeline] probe: file="${redactUrlSecrets(filePath)}" codec=${result.codec ?? 'n/a'} sampleRate=${
         result.fileSampleRate ?? 'n/a'
       } channels=${result.channels} duration=${result.durationSeconds}`,
     );
@@ -157,7 +170,7 @@ export class DecoderPipeline {
     let proc: DecoderChildProcess;
 
     try {
-      this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${args.join(' ')}`);
+      this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${args.map(redactUrlSecrets).join(' ')}`);
       proc = this.spawn(this.ffmpegPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,

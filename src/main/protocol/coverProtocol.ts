@@ -2,14 +2,26 @@ import { existsSync, readFileSync } from 'node:fs';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { protocol } from 'electron';
 import type { CoverVariant } from '../library/libraryTypes';
-import { getAppSettings, getLyricsWallpaperDirectory } from '../app/appSettings';
+import { getAppSettings, getAppWallpaperDirectory, getLyricsWallpaperDirectory } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
 import { defaultCoverSvg } from '../library/workers/TsCoverExtractor';
 
 const cacheControlHeader = 'public, max-age=31536000, immutable';
 const wallpaperCacheControlHeader = 'no-store';
 const remoteImageCacheControlHeader = 'public, max-age=86400';
-const allowedRemoteImageHosts = new Set(['i0.hdslb.com', 'i1.hdslb.com', 'i2.hdslb.com', 'archive.biliimg.com']);
+const allowedRemoteImageHosts = new Set([
+  'i0.hdslb.com',
+  'i1.hdslb.com',
+  'i2.hdslb.com',
+  'archive.biliimg.com',
+  'p.music.126.net',
+  'p1.music.126.net',
+  'p2.music.126.net',
+  'p3.music.126.net',
+  'p4.music.126.net',
+  'y.gtimg.cn',
+  'qpic.y.qq.com',
+]);
 
 const isCoverVariant = (value: string): value is CoverVariant =>
   value === 'thumb' || value === 'album' || value === 'large' || value === 'original';
@@ -137,12 +149,23 @@ export const registerCoverProtocolHandler = (): void => {
     try {
       const url = new URL(request.url);
 
-      if (url.hostname !== 'lyrics' || url.pathname.replace(/^\/+/, '') !== 'custom') {
+      if (url.pathname.replace(/^\/+/, '') !== 'custom') {
         return missingCoverResponse();
       }
 
-      const wallpaperPath = getAppSettings().lyricsCustomWallpaperPath;
-      if (!wallpaperPath || !isPathInsideDirectory(getLyricsWallpaperDirectory(), wallpaperPath) || !existsSync(wallpaperPath)) {
+      const settings = getAppSettings();
+      const wallpaperPath = url.hostname === 'lyrics'
+        ? settings.lyricsCustomWallpaperPath
+        : url.hostname === 'app'
+          ? settings.appCustomWallpaperPath
+          : null;
+      const wallpaperDirectory = url.hostname === 'lyrics'
+        ? getLyricsWallpaperDirectory()
+        : url.hostname === 'app'
+          ? getAppWallpaperDirectory()
+          : null;
+
+      if (!wallpaperPath || !wallpaperDirectory || !isPathInsideDirectory(wallpaperDirectory, wallpaperPath) || !existsSync(wallpaperPath)) {
         return missingCoverResponse();
       }
 

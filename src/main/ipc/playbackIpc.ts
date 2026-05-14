@@ -4,15 +4,18 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { LocalFileResolveResult, PlaybackMediaStartRequest, PlaybackProbeHint, PlaybackStartRequest, PlaybackStatus } from '../../shared/types/playback';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
+import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import { getAudioSession } from '../audio/AudioSession';
 import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
 import { resolveLocalAudioFiles } from '../app/localFileOpen';
+import { getStreamingService } from '../streaming/StreamingService';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
 const latencyProfiles = new Set<AudioLatencyProfile>(['stable', 'balanced', 'lowLatency']);
 const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
+const streamingProviders = new Set<StreamingProviderName>(streamingProviderNames);
 
 const requireText = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -95,6 +98,19 @@ const optionalText = (value: unknown): string | null | undefined => {
   return typeof value === 'string' && value.trim() ? value : undefined;
 };
 
+const isStreamingProviderName = (value: string | null): value is StreamingProviderName =>
+  Boolean(value && streamingProviders.has(value as StreamingProviderName));
+
+const optionalStreamingQuality = (value: unknown): StreamingAudioQuality | undefined =>
+  value === 'standard' || value === 'high' || value === 'lossless' || value === 'hires' ? value : undefined;
+
+const isHttpUrl = (value: string): boolean => /^https?:\/\//iu.test(value);
+
+const isLikelyExpiredUrlError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /403|404|expired|forbidden|unauthorized|invalid data|server returned|http error/iu.test(message);
+};
+
 const normalizeProbeHint = (value: unknown): PlaybackProbeHint | undefined => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -158,21 +174,49 @@ const normalizeMediaItem = (value: unknown): PlayableTrack => {
   }
 
   const input = value as Record<string, unknown>;
-  const mediaType = input.mediaType === 'remote' ? 'remote' : 'local';
-  return {
-    mediaType,
+  const mediaType = input.mediaType === 'remote' || input.mediaType === 'streaming' ? input.mediaType : 'local';
+  const provider = optionalText(input.provider) ?? null;
+  const base = {
     trackId: requireText(input.trackId, 'trackId'),
-    sourceId: optionalText(input.sourceId) ?? null,
-    stableKey: optionalText(input.stableKey) ?? null,
-    path: optionalText(input.path) ?? null,
-    remotePath: optionalText(input.remotePath) ?? null,
     title: typeof input.title === 'string' ? input.title : '',
     artist: typeof input.artist === 'string' ? input.artist : '',
     album: typeof input.album === 'string' ? input.album : '',
-    albumArtist: typeof input.albumArtist === 'string' ? input.albumArtist : '',
+    albumArtist: typeof input.albumArtist === 'string' ? input.albumArtist : null,
     duration: typeof input.duration === 'number' && Number.isFinite(input.duration) ? input.duration : null,
     coverThumb: optionalText(input.coverThumb) ?? null,
-    streamUrl: optionalText(input.streamUrl) ?? null,
+  };
+
+  if (mediaType === 'remote') {
+    return {
+      ...base,
+      mediaType,
+      sourceId: optionalText(input.sourceId) ?? null,
+      stableKey: optionalText(input.stableKey) ?? null,
+      remotePath: optionalText(input.remotePath) ?? null,
+    };
+  }
+
+  if (mediaType === 'streaming') {
+    if (!isStreamingProviderName(provider)) {
+      throw new Error('streaming provider is required for playback');
+    }
+
+    return {
+      ...base,
+      mediaType,
+      provider,
+      providerTrackId: requireText(input.providerTrackId, 'providerTrackId'),
+      quality: optionalStreamingQuality(input.quality),
+      stableKey: requireText(input.stableKey, 'stableKey'),
+      playable: input.playable !== false,
+      unavailableReason: optionalText(input.unavailableReason) ?? null,
+    };
+  }
+
+  return {
+    ...base,
+    mediaType: 'local',
+    path: requireText(input.path, 'path'),
   };
 };
 
@@ -273,25 +317,85 @@ export const registerPlaybackIpc = (): void => {
       durationSeconds = refreshed?.duration && refreshed.duration > 0 ? refreshed.duration : null;
     }
 
-    const filePath =
-      item.mediaType === 'remote'
-        ? (
-            await getRemoteSourceService().createStreamUrl({
-              trackId: item.trackId,
-              sourceId: item.sourceId ?? undefined,
-              remotePath: item.remotePath ?? undefined,
-              stableKey: item.stableKey ?? undefined,
-            })
-          ).url
-        : requireText(item.path, 'path');
+    let filePath: string;
+    let probe: PlaybackProbeHint | undefined = durationSeconds ? { durationSeconds } : undefined;
 
-    await getAudioSession().playLocalFile({
-      filePath,
-      trackId: item.trackId,
-      startSeconds: request.startSeconds,
-      output: request.output,
-      probe: durationSeconds ? { durationSeconds } : undefined,
-    });
+    if (item.mediaType === 'remote') {
+      filePath = (
+        await getRemoteSourceService().createStreamUrl({
+          trackId: item.trackId,
+          sourceId: item.sourceId ?? undefined,
+          remotePath: item.remotePath ?? undefined,
+          stableKey: item.stableKey ?? undefined,
+        })
+      ).url;
+    } else if (item.mediaType === 'streaming') {
+      const playbackRequest = {
+        provider: item.provider,
+        providerTrackId: item.providerTrackId,
+        quality: item.quality,
+      };
+
+      const source = await getStreamingService().resolvePlayback(playbackRequest);
+
+      if (source.requiresProxy) {
+        throw new Error('This streaming source requires the streaming proxy adapter, which is not enabled yet.');
+      }
+
+      filePath = source.url;
+      probe =
+        durationSeconds || isHttpUrl(source.url)
+          ? {
+              durationSeconds: durationSeconds ?? undefined,
+              fileSampleRate: source.sampleRate,
+              channels: 2,
+              codec: source.codec,
+              bitDepth: source.bitDepth,
+              bitrate: source.bitrate,
+            }
+          : undefined;
+    } else {
+      filePath = item.path;
+    }
+
+    try {
+      await getAudioSession().playLocalFile({
+        filePath,
+        trackId: item.trackId,
+        startSeconds: request.startSeconds,
+        output: request.output,
+        probe,
+      });
+    } catch (error) {
+      if (item.mediaType !== 'streaming' || !isLikelyExpiredUrlError(error)) {
+        throw error;
+      }
+
+      const playbackRequest = {
+        provider: item.provider,
+        providerTrackId: item.providerTrackId,
+        quality: item.quality,
+      };
+      getStreamingService().invalidatePlayback(playbackRequest);
+      const refreshedSource = await getStreamingService().resolvePlayback(playbackRequest);
+      await getAudioSession().playLocalFile({
+        filePath: refreshedSource.url,
+        trackId: item.trackId,
+        startSeconds: request.startSeconds,
+        output: request.output,
+        probe:
+          durationSeconds || isHttpUrl(refreshedSource.url)
+            ? {
+                durationSeconds: durationSeconds ?? undefined,
+                fileSampleRate: refreshedSource.sampleRate,
+                channels: 2,
+                codec: refreshedSource.codec,
+                bitDepth: refreshedSource.bitDepth,
+                bitrate: refreshedSource.bitrate,
+              }
+            : undefined,
+      });
+    }
     savePlaybackMemoryNow();
     const status = toPlaybackStatus();
     if (item.mediaType === 'remote' && status.durationMs > 0) {

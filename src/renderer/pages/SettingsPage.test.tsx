@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { SettingsPage } from './SettingsPage';
 import type { AppSettings } from '../../shared/types/appSettings';
@@ -9,6 +9,12 @@ const settings: AppSettings = {
   artistWallAlbumArtwork: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
+  appCustomWallpaperPath: null,
+  appWallpaperScalePercent: 100,
+  appWallpaperBlurPx: 0,
+  appWallpaperBrightnessPercent: 100,
+  appWallpaperUiOpacityPercent: 100,
+  appWallpaperUnifiedOpacityEnabled: false,
   networkMetadataEnabled: false,
   networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
   lyricsNetworkEnabled: true,
@@ -72,6 +78,8 @@ const getSettingsMock = vi.fn();
 const setSettingsMock = vi.fn();
 const resetSettingsMock = vi.fn();
 const clearCacheMock = vi.fn();
+const chooseLyricsWallpaperMock = vi.fn();
+const chooseAppWallpaperMock = vi.fn();
 
 vi.mock('../i18n/I18nProvider', () => ({
   useI18n: () => ({
@@ -88,6 +96,7 @@ vi.mock('../utils/echoBridge', () => ({
     getDefaultCacheDirectory: vi.fn().mockResolvedValue('D:\\Cache'),
     getSettings: getSettingsMock,
     getVersion: vi.fn().mockResolvedValue('1.0.1'),
+    chooseAppWallpaper: chooseAppWallpaperMock,
     resetSettings: resetSettingsMock,
     setCoverCacheDirectory: vi.fn(),
     setSettings: setSettingsMock,
@@ -154,9 +163,21 @@ vi.mock('../components/settings/RemoteSourcesPanel', () => ({
   RemoteSourcesPanel: () => <div />,
 }));
 
+beforeEach(() => {
+  window.echo = {
+    app: {
+      getSettings: getSettingsMock,
+      setSettings: setSettingsMock,
+      chooseLyricsWallpaper: chooseLyricsWallpaperMock,
+      chooseAppWallpaper: chooseAppWallpaperMock,
+    },
+  } as unknown as Window['echo'];
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  delete (window as { echo?: Window['echo'] }).echo;
 });
 
 describe('SettingsPage', () => {
@@ -193,9 +214,34 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('route.lyricsSettings.label')[0]);
-    const row = screen.getByText('底栏抽屉').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button'));
+    expect(screen.queryByText('Lyrics Engine')).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    fireEvent.click(await screen.findByRole('checkbox', { name: /底栏抽屉/ }));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ lyricsPlayerBarDrawerEnabled: true }));
+  });
+
+  it('shows app wallpaper controls only after choosing a custom wallpaper', async () => {
+    const wallpaperPath = 'D:\\Echo\\app-wallpapers\\wallpaper.png';
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    chooseAppWallpaperMock.mockResolvedValue(wallpaperPath);
+    setSettingsMock.mockResolvedValue({ ...settings, appCustomWallpaperPath: wallpaperPath });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.appearance.label')[0]);
+    expect(screen.queryByText('壁纸缩放')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /选择壁纸/ }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appCustomWallpaperPath: wallpaperPath }));
+    expect(await screen.findByText('壁纸缩放')).toBeTruthy();
+    expect(screen.getByText('壁纸模糊度')).toBeTruthy();
+    expect(screen.getByText('壁纸亮度')).toBeTruthy();
+    expect(screen.getByText('UI 透明度')).toBeTruthy();
+    expect(screen.getByText('统一透明度')).toBeTruthy();
   });
 });

@@ -7,18 +7,31 @@ vi.mock('../components/library/TrackList', () => ({
   TrackList: ({
     tracks,
     currentTrackId,
+    canLoadMore,
     duplicateHiddenCounts,
+    isLoadingMore,
+    loadedCount,
+    onEndReached,
     onPlay,
     onShowVersions,
+    totalCount,
   }: {
     tracks: LibraryTrack[];
     currentTrackId: string | null;
+    canLoadMore?: boolean;
     duplicateHiddenCounts?: Record<string, number>;
+    isLoadingMore?: boolean;
+    loadedCount?: number;
+    onEndReached?: () => void;
     onPlay?: (track: LibraryTrack) => void;
     onShowVersions?: (track: LibraryTrack) => void;
+    totalCount?: number;
   }) => (
-    <div>
+    <div data-testid="track-list" data-total-count={totalCount ?? tracks.length} data-loaded-count={loadedCount ?? tracks.length} data-loading-more={String(isLoadingMore)}>
       <span data-testid="current-track-id">{currentTrackId ?? 'none'}</span>
+      <button type="button" disabled={!canLoadMore} onClick={onEndReached}>
+        mock-load-more
+      </button>
       {tracks.map((track) => (
         <div key={track.id}>
           <button type="button" onClick={() => onPlay?.(track)}>
@@ -76,6 +89,15 @@ const makePage = (items: LibraryTrack[]): LibraryPage<LibraryTrack> => ({
   pageSize: 100,
   total: items.length,
   hasMore: false,
+});
+
+const makePagedResult = (items: LibraryTrack[], overrides: Partial<LibraryPage<LibraryTrack>> = {}): LibraryPage<LibraryTrack> => ({
+  items,
+  page: 1,
+  pageSize: 100,
+  total: items.length,
+  hasMore: false,
+  ...overrides,
 });
 
 const installEcho = (tracks: LibraryTrack[] = []) => {
@@ -256,5 +278,56 @@ describe('SongsPage', () => {
 
     await waitFor(() => expect(window.confirm).toHaveBeenCalledWith('清空歌曲列表？\n这会从列表移除 1 首歌曲，不会删除本地音乐文件。'));
     await waitFor(() => expect(window.echo.library.clearTracks).toHaveBeenCalledTimes(1));
+  });
+
+  it('passes the full library total to TrackList after the first page loads', async () => {
+    const firstPageTracks = Array.from({ length: 100 }, (_, index) => makeTrack({ id: `track-${index + 1}`, title: `Song ${index + 1}` }));
+    installEcho();
+    vi.mocked(window.echo.library.getTracks).mockResolvedValue(makePagedResult(firstPageTracks, { total: 10000, hasMore: true }));
+
+    await renderSongsPage();
+
+    await waitFor(() => expect(screen.getByTestId('track-list').getAttribute('data-total-count')).toBe('10000'));
+    expect(screen.getByTestId('track-list').getAttribute('data-loaded-count')).toBe('100');
+  });
+
+  it('keeps TrackList totalCount stable when appending the second song page', async () => {
+    const firstPageTracks = Array.from({ length: 100 }, (_, index) => makeTrack({ id: `track-${index + 1}`, title: `Song ${index + 1}` }));
+    const secondPageTracks = Array.from({ length: 100 }, (_, index) => makeTrack({ id: `track-${index + 101}`, title: `Song ${index + 101}` }));
+    installEcho();
+    vi.mocked(window.echo.library.getTracks)
+      .mockResolvedValueOnce(makePagedResult(firstPageTracks, { page: 1, total: 10000, hasMore: true }))
+      .mockResolvedValueOnce(makePagedResult(secondPageTracks, { page: 2, total: 10000, hasMore: true }));
+
+    await renderSongsPage();
+    await waitFor(() => expect(screen.getByTestId('track-list').getAttribute('data-loaded-count')).toBe('100'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'mock-load-more' }));
+
+    await waitFor(() => expect(screen.getByTestId('track-list').getAttribute('data-loaded-count')).toBe('200'));
+    expect(screen.getByTestId('track-list').getAttribute('data-total-count')).toBe('10000');
+    expect(window.echo.library.getTracks).toHaveBeenNthCalledWith(2, expect.objectContaining({ page: 2 }));
+  });
+
+  it('closes the duplicate version panel when clicking the overlay outside the panel', async () => {
+    const track = makeTrack();
+    const hiddenTrack = makeTrack({ id: 'track-2', path: 'D:\\Music\\Song Copy.flac' });
+    installEcho([track]);
+    vi.mocked(window.echo.library.getDuplicateTrackVersions).mockResolvedValue([
+      { groupId: 'group-1', track, qualityScore: 100, rank: 1, hidden: false, reasons: [] },
+      { groupId: 'group-1', track: hiddenTrack, qualityScore: 80, rank: 2, hidden: true, reasons: [] },
+    ]);
+
+    await renderSongsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /版本/ }));
+    const dialog = await screen.findByRole('dialog', { name: '重复歌曲版本' });
+
+    fireEvent.click(screen.getByText('Duplicate Track Merge View'));
+    expect(screen.queryByRole('dialog', { name: '重复歌曲版本' })).not.toBeNull();
+
+    fireEvent.click(dialog);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '重复歌曲版本' })).toBeNull());
   });
 });

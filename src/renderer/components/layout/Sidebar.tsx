@@ -17,8 +17,9 @@ export const Sidebar = ({
   onImportFile,
 }: SidebarProps): JSX.Element => {
   const { t } = useI18n();
-  const mainRoutes = routes.filter((route) => route.placement === 'main');
-  const utilityRoutes = routes.filter((route) => route.placement === 'utility');
+  const visibleRoutes = routes.filter((route) => !route.hideFromSidebar);
+  const mainRoutes = visibleRoutes.filter((route) => route.placement === 'main');
+  const utilityRoutes = visibleRoutes.filter((route) => route.placement === 'utility');
 
   return (
     <aside className="sidebar" aria-label={t('app.navigation.main')}>

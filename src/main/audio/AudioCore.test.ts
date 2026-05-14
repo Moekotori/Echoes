@@ -241,6 +241,33 @@ const createSessionHarness = (
   return { decoder, bridges, session };
 };
 
+const createLongRunningSessionHarness = (
+  probes: AudioProbeResult[],
+  readySampleRates: number[] = [],
+  devices: AudioDeviceInfo[] = [],
+  sessionOptions: Partial<AudioSessionDependencies> = {},
+) => {
+  const decoder = new PcmChunkDecoder(new Map(probes.map((item) => [item.filePath, item])), [pcmBuffer([0, 0, 0, 0])]);
+  const bridges: FakeBridge[] = [];
+  let bridgeIndex = 0;
+  const session = new AudioSession({
+    decoder,
+    deviceService: {
+      listDevices: () => devices,
+    },
+    createBridge: () => {
+      const bridge = new FakeBridge(readySampleRates[bridgeIndex]);
+      bridgeIndex += 1;
+      bridges.push(bridge);
+      return bridge;
+    },
+    logger: noopLogger,
+    ...sessionOptions,
+  });
+
+  return { decoder, bridges, session };
+};
+
 class PendingProbeDecoder extends FakeDecoder {
   private resolveProbe: ((probe: AudioProbeResult) => void) | null = null;
 
@@ -458,10 +485,12 @@ describe('Audio Core sample-rate regression guard', () => {
     const failingBridge = new ConfigurableStartupFailingBridge('output open failed: device disappeared');
     const fallbackBridge = new FakeBridge(48000);
     const bridges = [failingBridge, fallbackBridge];
+    const reportAudioError = vi.fn();
     const session = new AudioSession({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
+      reportAudioError,
       logger: noopLogger,
     });
 
@@ -476,6 +505,76 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(fallbackBridge.startOptions?.deviceName).toBeUndefined();
     expect(status.state).toBe('playing');
     expect(status.warnings).toContain('shared_output_fell_back_to_default_device');
+  });
+
+  it('marks selected shared device timeout recovery when the default shared device starts', async () => {
+    const failingBridge = new ConfigurableStartupFailingBridge(
+      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+    );
+    const fallbackBridge = new FakeBridge(48000);
+    const bridges = [failingBridge, fallbackBridge];
+    const reportAudioError = vi.fn();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      reportAudioError,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC' },
+    });
+
+    expect(fallbackBridge.startOptions?.deviceIndex).toBeUndefined();
+    expect(fallbackBridge.startOptions?.deviceName).toBeUndefined();
+    expect(status.state).toBe('playing');
+    expect(status.warnings).toContain('shared_output_recovered_to_default_device');
+    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('timeout_waiting_for_ready'),
+      phase: 'output-start',
+      severity: 'recoverable',
+    }));
+  });
+
+  it('uses safe shared output when the default shared device also fails', async () => {
+    const defaultBridge = new ConfigurableStartupFailingBridge(
+      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+    );
+    const safeBridge = new FakeBridge(48000);
+    const bridges = [defaultBridge, safeBridge];
+    const reportAudioError = vi.fn();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      reportAudioError,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared' },
+    });
+
+    expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
+    expect(safeBridge.startOptions).not.toHaveProperty('deviceIndex');
+    expect(safeBridge.startOptions).not.toHaveProperty('deviceName');
+    expect(safeBridge.startOptions).toMatchObject({
+      bufferSizeFrames: 8192,
+      fifoCapacityMs: 1500,
+      startupPrebufferMs: 250,
+    });
+    expect(status.state).toBe('playing');
+    expect(status.latencyProfile).toBe('stable');
+    expect(status.sharedStabilityTier).toBe('emergency');
+    expect(status.warnings).toContain('shared_output_recovered_safe_mode');
+    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('timeout_waiting_for_ready'),
+      phase: 'safe-shared-fallback',
+      severity: 'recoverable',
+    }));
   });
 
   it('uses library probe hints and avoids device enumeration on the playback hot path', async () => {
@@ -730,7 +829,7 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('pause stops the native host immediately and preserves current position', async () => {
+  it('pause stops the active native host and prewarms resume output at the current position', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
 
     await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
@@ -740,9 +839,11 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.state).toBe('paused');
     expect(status.positionSeconds).toBe(12.5);
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges).toHaveLength(2);
+    expect(bridges[1].startOptions).toMatchObject({ startSeconds: 12.5 });
   });
 
-  it('play resumes a paused file from the paused position on a fresh output host', async () => {
+  it('play resumes a paused file from the prewarmed output host', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
 
     await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
@@ -768,16 +869,18 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(pausedStatus.state).toBe('paused');
     expect(pausedStatus.positionSeconds).toBe(33);
-    expect(bridges).toHaveLength(1);
+    expect(bridges).toHaveLength(3);
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges[1].stop).toHaveBeenCalledTimes(1);
+    expect(bridges[2].startOptions).toMatchObject({ startSeconds: 33 });
 
     await session.play();
-    expect(bridges).toHaveLength(2);
+    expect(bridges).toHaveLength(3);
     expect(session.getStatus().positionSeconds).toBe(33);
   });
 
   it('seek while playing reuses the active output host', async () => {
-    const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
+    const { bridges, decoder, session } = createLongRunningSessionHarness([probe('song.flac', 44100)]);
 
     await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
     bridges[0].positionSeconds = 12;
@@ -850,12 +953,13 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(pausedStatus.state).toBe('paused');
     expect(pausedStatus.outputDeviceId).toBe('shared:5');
-    expect(bridges).toHaveLength(1);
+    expect(bridges).toHaveLength(2);
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges[1].stop).toHaveBeenCalledTimes(1);
 
     await session.play();
-    expect(bridges).toHaveLength(2);
-    expect(bridges[1].startOptions).toMatchObject({
+    expect(bridges).toHaveLength(3);
+    expect(bridges[2].startOptions).toMatchObject({
       startSeconds: 9,
       deviceIndex: 5,
       deviceName: 'Mi Monitor (NVIDIA High Definition Audio)',
@@ -908,7 +1012,7 @@ describe('AudioSession playback watchdog', () => {
     pausedHarness.session.pause();
     await pausedHarness.session.checkPlaybackWatchdog();
     await pausedHarness.session.checkPlaybackWatchdog();
-    expect(pausedHarness.bridges).toHaveLength(1);
+    expect(pausedHarness.bridges).toHaveLength(2);
 
     const pendingDecoder = new PendingProbeDecoder(new Map());
     const loadingBridges: FakeBridge[] = [];
@@ -1455,6 +1559,47 @@ describe('DecoderPipeline ffmpeg resolution', () => {
 });
 
 describe('NativeOutputBridge diagnostics', () => {
+  it('includes elapsed time, output mode, and stderr tail when ready times out', async () => {
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stderr.write('[echo-audio-host] createDevice is still waiting\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      readyTimeoutMs: 5,
+      logger: noopLogger,
+    });
+
+    let message = '';
+    try {
+      await bridge.start({
+        requestedOutputSampleRate: 44100,
+        channels: 2,
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('echo-audio-host timeout_waiting_for_ready');
+    expect(message).toContain('mode="shared"');
+    expect(message).toMatch(/elapsedMs=\d+/);
+    expect(message).toContain('stderrTail="[echo-audio-host] createDevice is still waiting"');
+  });
+
   it('includes host stderr and spawn details when the native host exits before ready', async () => {
     const fakeSpawn = (): ChildProcessWithoutNullStreams => {
       const stdin = new PassThrough();

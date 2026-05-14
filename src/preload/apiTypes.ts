@@ -76,6 +76,17 @@ import type {
   RemoteSyncStatus,
   TestRemoteSourceResult,
 } from '../shared/types/remoteSources';
+import type {
+  StreamingLyricsResult,
+  StreamingMvResult,
+  StreamingPlaybackRequest,
+  StreamingPlaybackSource,
+  StreamingProviderDescriptor,
+  StreamingProviderName,
+  StreamingSearchRequest,
+  StreamingSearchResult,
+  StreamingTrack,
+} from '../shared/types/streaming';
 
 export type FontFileAsset = {
   path: string;
@@ -94,6 +105,7 @@ export type EchoApi = {
     resetSettings: () => Promise<AppSettings>;
     chooseFontFile: () => Promise<FontFileAsset | null>;
     chooseLyricsWallpaper: () => Promise<string | null>;
+    chooseAppWallpaper: () => Promise<string | null>;
     loadFontFile: (path: string) => Promise<FontFileAsset>;
     chooseCacheDirectory: () => Promise<string | null>;
     getDefaultCacheDirectory: () => Promise<string>;
@@ -222,6 +234,14 @@ export type EchoApi = {
     setBackgroundPaused: (paused: boolean) => Promise<RemoteBackgroundGlobalStatus>;
     getBackgroundGlobalStatus: () => Promise<RemoteBackgroundGlobalStatus>;
     updateRuntimeLimits: (sourceId: string, limits: RemoteRuntimeLimits) => Promise<RemoteBackgroundJobStatus>;
+  };
+  streaming: {
+    search: (request: StreamingSearchRequest) => Promise<StreamingSearchResult>;
+    getTrack: (request: { provider: StreamingProviderName; providerTrackId: string }) => Promise<StreamingTrack>;
+    resolvePlayback: (request: StreamingPlaybackRequest) => Promise<StreamingPlaybackSource>;
+    getLyrics: (request: { provider: StreamingProviderName; providerTrackId: string }) => Promise<StreamingLyricsResult>;
+    getMv: (request: { provider: StreamingProviderName; providerTrackId: string }) => Promise<StreamingMvResult>;
+    getProviders: () => Promise<StreamingProviderDescriptor[]>;
   };
   lyrics: {
     getForTrack: (trackId: string) => Promise<TrackLyrics | null>;

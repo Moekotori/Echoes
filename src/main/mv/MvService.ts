@@ -252,6 +252,10 @@ const customMvFromUrl = (value: string): { provider: NetworkMvProviderId; source
 const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings> => {
   const normalized: Partial<MvSettings> = {};
 
+  if (typeof patch.enabled === 'boolean') {
+    normalized.enabled = patch.enabled;
+  }
+
   if (Array.isArray(patch.enabledProviders)) {
     normalized.enabledProviders = patch.enabledProviders.filter((provider): provider is NetworkMvProviderId =>
       networkProviders.includes(provider as NetworkMvProviderId),
@@ -300,6 +304,22 @@ const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings>
     normalized.immersiveBackgroundOffsetYPercent = normalizePercent(patch.immersiveBackgroundOffsetYPercent, 50, 0, 100);
   }
 
+  if (typeof patch.immersiveBackgroundBlurPx === 'number' && Number.isFinite(patch.immersiveBackgroundBlurPx)) {
+    normalized.immersiveBackgroundBlurPx = normalizePercent(patch.immersiveBackgroundBlurPx, 0, 0, 32);
+  }
+
+  if (typeof patch.immersiveBackgroundBrightnessPercent === 'number' && Number.isFinite(patch.immersiveBackgroundBrightnessPercent)) {
+    normalized.immersiveBackgroundBrightnessPercent = normalizePercent(patch.immersiveBackgroundBrightnessPercent, 100, 60, 140);
+  }
+
+  if (typeof patch.immersiveBackgroundOverlayOpacityPercent === 'number' && Number.isFinite(patch.immersiveBackgroundOverlayOpacityPercent)) {
+    normalized.immersiveBackgroundOverlayOpacityPercent = normalizePercent(patch.immersiveBackgroundOverlayOpacityPercent, 0, 0, 100);
+  }
+
+  if (typeof patch.lyricsReadabilityEnhanced === 'boolean') {
+    normalized.lyricsReadabilityEnhanced = patch.lyricsReadabilityEnhanced;
+  }
+
   if (typeof patch.restartAudioOnLoad === 'boolean') {
     normalized.restartAudioOnLoad = patch.restartAudioOnLoad;
   }
@@ -310,6 +330,7 @@ const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings>
 const appSettingsToMvSettings = (): MvSettings => {
   const settings = getAppSettings();
   return {
+    enabled: settings.mvEnabled !== false,
     autoSearch: settings.mvAutoSearch,
     autoPreload: settings.mvAutoPreload !== false,
     autoApplyThreshold: normalizeAutoApplyThreshold(settings.mvAutoApplyThreshold),
@@ -317,6 +338,10 @@ const appSettingsToMvSettings = (): MvSettings => {
     immersiveBackgroundScalePercent: normalizePercent(settings.mvImmersiveBackgroundScalePercent, 115, 100, 220),
     immersiveBackgroundOffsetXPercent: normalizePercent(settings.mvImmersiveBackgroundOffsetXPercent, 50, 0, 100),
     immersiveBackgroundOffsetYPercent: normalizePercent(settings.mvImmersiveBackgroundOffsetYPercent, 50, 0, 100),
+    immersiveBackgroundBlurPx: normalizePercent(settings.mvImmersiveBackgroundBlurPx, 0, 0, 32),
+    immersiveBackgroundBrightnessPercent: normalizePercent(settings.mvImmersiveBackgroundBrightnessPercent, 100, 60, 140),
+    immersiveBackgroundOverlayOpacityPercent: normalizePercent(settings.mvImmersiveBackgroundOverlayOpacityPercent, 0, 0, 100),
+    lyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
     restartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     enabledProviders: settings.mvEnabledProviders,
     providerOrder: settings.mvProviderOrder,
@@ -363,6 +388,9 @@ export class MvService {
     const normalized = normalizeSettingsPatch(patch);
     const appSettingsPatch: Parameters<typeof setAppSettings>[0] = {};
 
+    if (typeof normalized.enabled === 'boolean') {
+      appSettingsPatch.mvEnabled = normalized.enabled;
+    }
     if (normalized.enabledProviders) {
       appSettingsPatch.mvEnabledProviders = normalized.enabledProviders;
     }
@@ -396,6 +424,18 @@ export class MvService {
     if (typeof normalized.immersiveBackgroundOffsetYPercent === 'number') {
       appSettingsPatch.mvImmersiveBackgroundOffsetYPercent = normalized.immersiveBackgroundOffsetYPercent;
     }
+    if (typeof normalized.immersiveBackgroundBlurPx === 'number') {
+      appSettingsPatch.mvImmersiveBackgroundBlurPx = normalized.immersiveBackgroundBlurPx;
+    }
+    if (typeof normalized.immersiveBackgroundBrightnessPercent === 'number') {
+      appSettingsPatch.mvImmersiveBackgroundBrightnessPercent = normalized.immersiveBackgroundBrightnessPercent;
+    }
+    if (typeof normalized.immersiveBackgroundOverlayOpacityPercent === 'number') {
+      appSettingsPatch.mvImmersiveBackgroundOverlayOpacityPercent = normalized.immersiveBackgroundOverlayOpacityPercent;
+    }
+    if (typeof normalized.lyricsReadabilityEnhanced === 'boolean') {
+      appSettingsPatch.mvLyricsReadabilityEnhanced = normalized.lyricsReadabilityEnhanced;
+    }
     if (typeof normalized.restartAudioOnLoad === 'boolean') {
       appSettingsPatch.mvRestartAudioOnLoad = normalized.restartAudioOnLoad;
     }
@@ -420,7 +460,7 @@ export class MvService {
   async getSelectedOrAutoApplyVideo(trackId: string): Promise<TrackVideo | null> {
     const selected = this.getSelectedVideo(trackId);
     const settings = this.getSettings();
-    if (selected || !settings.autoSearch) {
+    if (selected || settings.enabled === false || !settings.autoSearch) {
       return selected;
     }
 
@@ -441,6 +481,10 @@ export class MvService {
   async searchNetworkCandidates(trackId: string, query?: string): Promise<MvMatchCandidate[]> {
     const track = this.getExistingTrack(trackId);
     const settings = this.getSettings();
+    if (settings.enabled === false) {
+      return [];
+    }
+
     const queryOverride = query?.trim() || undefined;
     const enabled = new Set(settings.enabledProviders);
     const orderedProviders = settings.providerOrder.filter((provider) => enabled.has(provider));

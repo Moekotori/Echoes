@@ -22,6 +22,12 @@ describe('app settings normalization', () => {
     expect(settings.coverCacheDir).toBeNull();
     expect(settings.albumMergeStrategy).toBe('standard');
     expect(settings.artistWallAlbumArtwork).toBe(false);
+    expect(settings.appCustomWallpaperPath).toBeNull();
+    expect(settings.appWallpaperScalePercent).toBe(100);
+    expect(settings.appWallpaperBlurPx).toBe(0);
+    expect(settings.appWallpaperBrightnessPercent).toBe(100);
+    expect(settings.appWallpaperUiOpacityPercent).toBe(100);
+    expect(settings.appWallpaperUnifiedOpacityEnabled).toBe(false);
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.hideToTrayOnClose).toBe(true);
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
@@ -40,6 +46,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsRomanizationEnabled).toBe(true);
     expect(settings.lyricsTranslationEnabled).toBe(true);
     expect(settings.lyricsFontSizePx).toBe(36);
+    expect(settings.lyricsContextOpacityPercent).toBe(38);
     expect(settings.lyricsColor).toBe('#314054');
     expect(settings.lyricsBackgroundMode).toBe('theme');
     expect(settings.lyricsCustomWallpaperPath).toBeNull();
@@ -47,6 +54,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsCoverBlurPx).toBe(10);
     expect(settings.lyricsCoverBrightnessPercent).toBe(100);
     expect(settings.lyricsBackgroundScalePercent).toBe(100);
+    expect(settings.mvEnabled).toBe(true);
     expect(settings.mvEnabledProviders).toEqual(['bilibili', 'youtube']);
     expect(settings.mvProviderOrder).toEqual(['bilibili', 'youtube']);
     expect(settings.mvAutoSearch).toBe(true);
@@ -55,6 +63,10 @@ describe('app settings normalization', () => {
     expect(settings.mvImmersiveBackgroundScalePercent).toBe(115);
     expect(settings.mvImmersiveBackgroundOffsetXPercent).toBe(50);
     expect(settings.mvImmersiveBackgroundOffsetYPercent).toBe(50);
+    expect(settings.mvImmersiveBackgroundBlurPx).toBe(0);
+    expect(settings.mvImmersiveBackgroundBrightnessPercent).toBe(100);
+    expect(settings.mvImmersiveBackgroundOverlayOpacityPercent).toBe(0);
+    expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
     expect(settings.mvMaxQuality).toBe('1080p');
     expect(settings.mvAllow60fps).toBe(true);
   });
@@ -85,6 +97,44 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: 'yes' as never }).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: true }).artistWallAlbumArtwork).toBe(true);
+  });
+
+  it('normalizes app wallpaper settings without accepting unsafe paths', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(
+      normalizeSettings({
+        appCustomWallpaperPath: 'D:\\Outside\\wallpaper.png',
+        appWallpaperScalePercent: 999,
+        appWallpaperBlurPx: 99,
+        appWallpaperBrightnessPercent: 12,
+        appWallpaperUiOpacityPercent: -10,
+        appWallpaperUnifiedOpacityEnabled: true,
+      }),
+    ).toMatchObject({
+      appCustomWallpaperPath: null,
+      appWallpaperScalePercent: 220,
+      appWallpaperBlurPx: 40,
+      appWallpaperBrightnessPercent: 40,
+      appWallpaperUiOpacityPercent: 0,
+      appWallpaperUnifiedOpacityEnabled: true,
+    });
+
+    expect(
+      normalizeSettings({
+        appWallpaperScalePercent: 80,
+        appWallpaperBlurPx: -4,
+        appWallpaperBrightnessPercent: 180,
+        appWallpaperUiOpacityPercent: 128,
+        appWallpaperUnifiedOpacityEnabled: 'yes' as never,
+      }),
+    ).toMatchObject({
+      appWallpaperScalePercent: 100,
+      appWallpaperBlurPx: 0,
+      appWallpaperBrightnessPercent: 140,
+      appWallpaperUiOpacityPercent: 100,
+      appWallpaperUnifiedOpacityEnabled: false,
+    });
   });
 
   it('keeps Discord Rich Presence disabled by default', async () => {
@@ -169,6 +219,7 @@ describe('app settings normalization', () => {
         lyricsRomanizationEnabled: false,
         lyricsTranslationEnabled: false,
         lyricsFontSizePx: 999,
+        lyricsContextOpacityPercent: 1000,
         lyricsColor: 'red',
         lyricsBackgroundMode: 'album' as never,
         lyricsCustomWallpaperPath: 'D:\\Outside\\wallpaper.png',
@@ -197,6 +248,7 @@ describe('app settings normalization', () => {
       lyricsRomanizationEnabled: false,
       lyricsTranslationEnabled: false,
       lyricsFontSizePx: 56,
+      lyricsContextOpacityPercent: 100,
       lyricsColor: '#314054',
       lyricsBackgroundMode: 'theme',
       lyricsCustomWallpaperPath: null,
@@ -210,6 +262,7 @@ describe('app settings normalization', () => {
       normalizeSettings({
         lyricsFontSizePx: 12,
         lyricsAutoAcceptScore: 0.1,
+        lyricsContextOpacityPercent: 64.4,
         lyricsColor: '#ff3366',
         lyricsBackgroundMode: 'cover',
         lyricsCoverOpacityPercent: 64.4,
@@ -220,6 +273,7 @@ describe('app settings normalization', () => {
     ).toMatchObject({
       lyricsFontSizePx: 22,
       lyricsAutoAcceptScore: 0.3,
+      lyricsContextOpacityPercent: 64,
       lyricsColor: '#FF3366',
       lyricsBackgroundMode: 'cover',
       lyricsCoverOpacityPercent: 64,
@@ -272,6 +326,7 @@ describe('app settings normalization', () => {
     expect(
       normalizeSettings({
         mvEnabledProviders: ['youtube', 'qqmusic', 'youtube'] as never,
+        mvEnabled: false,
         mvProviderOrder: ['youtube'] as never,
         mvAutoSearch: false,
         mvAutoApplyThreshold: 0.82,
@@ -279,11 +334,16 @@ describe('app settings normalization', () => {
         mvImmersiveBackgroundScalePercent: 180,
         mvImmersiveBackgroundOffsetXPercent: 18,
         mvImmersiveBackgroundOffsetYPercent: 76,
+        mvImmersiveBackgroundBlurPx: 12,
+        mvImmersiveBackgroundBrightnessPercent: 118,
+        mvImmersiveBackgroundOverlayOpacityPercent: 42,
+        mvLyricsReadabilityEnhanced: true,
         mvMaxQuality: 'max',
         mvAllow60fps: false,
       }),
     ).toMatchObject({
       mvEnabledProviders: ['youtube'],
+      mvEnabled: false,
       mvProviderOrder: ['youtube', 'bilibili'],
       mvAutoSearch: false,
       mvAutoApplyThreshold: 0.82,
@@ -291,6 +351,10 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundScalePercent: 180,
       mvImmersiveBackgroundOffsetXPercent: 18,
       mvImmersiveBackgroundOffsetYPercent: 76,
+      mvImmersiveBackgroundBlurPx: 12,
+      mvImmersiveBackgroundBrightnessPercent: 118,
+      mvImmersiveBackgroundOverlayOpacityPercent: 42,
+      mvLyricsReadabilityEnhanced: true,
       mvMaxQuality: 'max',
       mvAllow60fps: false,
     });
@@ -302,6 +366,10 @@ describe('app settings normalization', () => {
         mvImmersiveBackgroundScalePercent: 999,
         mvImmersiveBackgroundOffsetXPercent: -10,
         mvImmersiveBackgroundOffsetYPercent: 140,
+        mvImmersiveBackgroundBlurPx: 99,
+        mvImmersiveBackgroundBrightnessPercent: 12,
+        mvImmersiveBackgroundOverlayOpacityPercent: -10,
+        mvLyricsReadabilityEnhanced: 'yes' as never,
       }),
     ).toMatchObject({
       mvAutoSearch: true,
@@ -310,6 +378,10 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundScalePercent: 220,
       mvImmersiveBackgroundOffsetXPercent: 0,
       mvImmersiveBackgroundOffsetYPercent: 100,
+      mvImmersiveBackgroundBlurPx: 32,
+      mvImmersiveBackgroundBrightnessPercent: 60,
+      mvImmersiveBackgroundOverlayOpacityPercent: 0,
+      mvLyricsReadabilityEnhanced: false,
       mvMaxQuality: '1080p',
       mvAllow60fps: true,
     });

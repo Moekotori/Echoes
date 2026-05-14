@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Disc3, ListPlus, MoreHorizontal, Play, SkipForward } from 'lucide-react';
 import type { EditableTrackTags, LibraryAlbum, LibraryPage, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { TrackContextMenu } from '../library/TrackContextMenu';
 import type { TrackMenuAction } from '../library/TrackContextMenu';
 import { TrackTagEditorDrawer } from '../library/TrackTagEditorDrawer';
+import { getPageScrollContainer } from '../ui/InfiniteScrollSentinel';
 
 type ArtistTrackListProps = {
   artistId: string;
@@ -24,6 +26,9 @@ type TrackMenuState = {
 };
 
 const pageSize = 50;
+const artistTrackRowHeight = 80;
+const artistTrackCompactRowHeight = 120;
+const artistTrackLoadAheadRows = 10;
 
 const formatDuration = (duration: number): string => {
   if (!Number.isFinite(duration) || duration <= 0) {
@@ -75,7 +80,57 @@ export const ArtistTrackList = ({
   const [isSavingTags, setIsSavingTags] = useState(false);
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const loadRequestedRef = useRef(false);
+  const virtualSpacerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const [estimatedRowHeight, setEstimatedRowHeight] = useState(artistTrackRowHeight);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
+  const virtualCount = Math.max(total, tracks.length);
+  const loadedBoundary = tracks.length;
+  const rowVirtualizer = useVirtualizer({
+    count: virtualCount,
+    getScrollElement: () => getPageScrollContainer(virtualSpacerRef.current),
+    estimateSize: () => estimatedRowHeight,
+    overscan: 8,
+    scrollMargin,
+  });
+
+  useLayoutEffect(() => {
+    const calculateScrollMargin = (): void => {
+      const spacer = virtualSpacerRef.current;
+      const scrollContainer = getPageScrollContainer(spacer);
+
+      if (!spacer || !scrollContainer) {
+        setScrollMargin(0);
+        return;
+      }
+
+      const spacerRect = spacer.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const nextScrollMargin = Math.max(0, Math.round(spacerRect.top - containerRect.top + scrollContainer.scrollTop));
+      setScrollMargin((current) => (current === nextScrollMargin ? current : nextScrollMargin));
+    };
+
+    calculateScrollMargin();
+    window.addEventListener('resize', calculateScrollMargin);
+    return () => window.removeEventListener('resize', calculateScrollMargin);
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.('(max-width: 820px)');
+
+    if (!mediaQuery) {
+      return undefined;
+    }
+
+    const updateEstimate = (): void => {
+      setEstimatedRowHeight(mediaQuery.matches ? artistTrackCompactRowHeight : artistTrackRowHeight);
+    };
+
+    updateEstimate();
+    mediaQuery.addEventListener('change', updateEstimate);
+    return () => mediaQuery.removeEventListener('change', updateEstimate);
+  }, []);
 
   const loadTracks = useCallback(
     async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
@@ -142,11 +197,46 @@ export const ArtistTrackList = ({
     onLoadedTracksChange?.(tracks, total, isLoading);
   }, [isLoading, onLoadedTracksChange, total, tracks]);
 
+  useEffect(() => {
+    if (!isLoading) {
+      loadRequestedRef.current = false;
+    }
+  }, [isLoading, loadedBoundary]);
+
   const handleLoadMore = useCallback((): void => {
     if (!isLoadingRef.current && hasMore) {
       void loadTracks(page + 1, 'append');
     }
   }, [hasMore, loadTracks, page]);
+
+  const requestLoadMore = useCallback(
+    (lastVisibleIndex: number): void => {
+      if (!hasMore || isLoading || loadRequestedRef.current || loadedBoundary >= virtualCount) {
+        return;
+      }
+
+      if (lastVisibleIndex >= Math.max(0, loadedBoundary - artistTrackLoadAheadRows)) {
+        loadRequestedRef.current = true;
+        handleLoadMore();
+      }
+    },
+    [handleLoadMore, hasMore, isLoading, loadedBoundary, virtualCount],
+  );
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const renderedVirtualItems =
+    virtualItems.length > 0
+      ? virtualItems
+      : tracks.slice(0, Math.min(tracks.length, 20)).map((_, index) => ({
+          index,
+          key: `fallback-${index}`,
+          start: index * estimatedRowHeight + scrollMargin,
+        }));
+  const lastVirtualIndex = renderedVirtualItems.at(-1)?.index ?? -1;
+
+  useEffect(() => {
+    requestLoadMore(lastVirtualIndex);
+  }, [lastVirtualIndex, requestLoadMore]);
 
   const handleOpenTrackMenu = useCallback((track: LibraryTrack, position: { x: number; y: number }): void => {
     setTrackMenu({ track, position });
@@ -365,8 +455,8 @@ export const ArtistTrackList = ({
         <small>{tracks.length === total ? `${total} tracks` : `${tracks.length} of ${total} tracks`}</small>
       </header>
 
-      <div className="artist-track-list" role="list">
-        {tracks.length > 0 ? (
+      <div className="artist-track-list" role="list" data-virtualized="true" data-total-count={virtualCount} data-loaded-count={loadedBoundary}>
+        {virtualCount > 0 ? (
           <div className="artist-track-header" aria-hidden="true">
             <span>Title</span>
             <span>Album</span>
@@ -376,58 +466,85 @@ export const ArtistTrackList = ({
           </div>
         ) : null}
 
-        {tracks.map((track) => {
-          const isPlaying = track.id === currentTrackId;
-          const tags = technicalTags(track);
+        <div className="artist-track-virtual-spacer" ref={virtualSpacerRef} style={{ height: rowVirtualizer.getTotalSize() }}>
+          {renderedVirtualItems.map((virtualRow) => {
+            const track = tracks[virtualRow.index];
 
-          return (
-            <div
-              className="artist-track-row"
-              data-playing={isPlaying}
-              key={track.id}
-              role="listitem"
-              onContextMenu={(event) => handleTrackContextMenu(event, track)}
-            >
-              <button className="artist-track-main" type="button" onClick={() => void onPlayTrack(track)}>
-                <span className="artist-track-cover" data-empty={!track.coverThumb} aria-hidden="true">
-                  {track.coverThumb ? (
-                    <img alt="" decoding="async" draggable={false} height={48} loading="lazy" src={track.coverThumb} width={48} />
-                  ) : (
-                    <Disc3 size={17} />
-                  )}
-                  <Play className="artist-track-play" size={13} fill="currentColor" aria-hidden="true" />
-                </span>
-                <span className="artist-track-copy">
-                  <strong>{track.title}</strong>
-                  <small>{track.artist}</small>
-                </span>
-              </button>
-              <span className="artist-track-album">{track.album || 'Unknown Album'}</span>
-              <span className="artist-track-tags" aria-label="Track format">
-                {tags.length > 0 ? tags.map((tag) => <em key={`${track.id}-${tag}`}>{tag}</em>) : <em>Local</em>}
-              </span>
-              <span className="artist-track-duration">{formatDuration(track.duration)}</span>
-              <span className="artist-track-actions">
-                <button type="button" aria-label={`Play ${track.title} next`} title="Play next" onClick={() => onPlayNext(track)}>
-                  <SkipForward size={15} />
-                </button>
-                <button type="button" aria-label={`Add ${track.title} to queue`} title="Add to queue" onClick={() => onAppendToQueue(track)}>
-                  <ListPlus size={15} />
-                </button>
-                <button type="button" aria-label={`More actions for ${track.title}`} title="More" onClick={(event) => handleMoreClick(event, track)}>
-                  <MoreHorizontal size={15} />
-                </button>
-              </span>
-            </div>
-          );
-        })}
+            if (!track) {
+              return (
+                <div
+                  className="artist-track-virtual-row"
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+                >
+                  <div className="artist-track-row artist-track-row-skeleton" role="listitem" aria-label="Loading track" data-skeleton="true">
+                    <span className="artist-track-skeleton-cover" aria-hidden="true" />
+                    <span className="artist-track-skeleton-copy" aria-hidden="true">
+                      <span />
+                      <span />
+                    </span>
+                    <span className="artist-track-skeleton-pill" aria-hidden="true" />
+                    <span className="artist-track-skeleton-pill" aria-hidden="true" />
+                    <span className="artist-track-skeleton-actions" aria-hidden="true" />
+                  </div>
+                </div>
+              );
+            }
+
+            const isPlaying = track.id === currentTrackId;
+            const tags = technicalTags(track);
+
+            return (
+              <div
+                className="artist-track-virtual-row"
+                key={track.id}
+                data-index={virtualRow.index}
+                style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+              >
+                <div
+                  className="artist-track-row"
+                  data-playing={isPlaying}
+                  role="listitem"
+                  onContextMenu={(event) => handleTrackContextMenu(event, track)}
+                >
+                  <button className="artist-track-main" type="button" onClick={() => void onPlayTrack(track)}>
+                    <span className="artist-track-cover" data-empty={!track.coverThumb} aria-hidden="true">
+                      {track.coverThumb ? (
+                        <img alt="" decoding="async" draggable={false} height={48} loading="lazy" src={track.coverThumb} width={48} />
+                      ) : (
+                        <Disc3 size={17} />
+                      )}
+                      <Play className="artist-track-play" size={13} fill="currentColor" aria-hidden="true" />
+                    </span>
+                    <span className="artist-track-copy">
+                      <strong>{track.title}</strong>
+                      <small>{track.artist}</small>
+                    </span>
+                  </button>
+                  <span className="artist-track-album">{track.album || 'Unknown Album'}</span>
+                  <span className="artist-track-tags" aria-label="Track format">
+                    {tags.length > 0 ? tags.map((tag) => <em key={`${track.id}-${tag}`}>{tag}</em>) : <em>Local</em>}
+                  </span>
+                  <span className="artist-track-duration">{formatDuration(track.duration)}</span>
+                  <span className="artist-track-actions">
+                    <button type="button" aria-label={`Play ${track.title} next`} title="Play next" onClick={() => onPlayNext(track)}>
+                      <SkipForward size={15} />
+                    </button>
+                    <button type="button" aria-label={`Add ${track.title} to queue`} title="Add to queue" onClick={() => onAppendToQueue(track)}>
+                      <ListPlus size={15} />
+                    </button>
+                    <button type="button" aria-label={`More actions for ${track.title}`} title="More" onClick={(event) => handleMoreClick(event, track)}>
+                      <MoreHorizontal size={15} />
+                    </button>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {hasMore ? (
-        <button className="artist-load-more" type="button" disabled={isLoading} onClick={handleLoadMore}>
-          {isLoading ? 'Loading...' : 'Load more songs'}
-        </button>
-      ) : null}
       {error ? <p className="artist-detail-error">{error}</p> : null}
       {statusMessage ? <p className="artist-detail-status">{statusMessage}</p> : null}
       {!isLoading && tracks.length === 0 && !error ? <p className="artist-detail-empty">No songs are grouped under this artist yet.</p> : null}

@@ -228,6 +228,10 @@ export type PlaybackHistoryEntry = {
   id: string;
   trackId: string | null;
   trackPath: string;
+  mediaType: 'local' | 'remote' | 'streaming';
+  provider: string | null;
+  providerTrackId: string | null;
+  stableKey: string | null;
   title: string;
   artist: string;
   album: string;
@@ -238,6 +242,8 @@ export type PlaybackHistoryEntry = {
   endedAt: string | null;
   playedSeconds: number;
   durationSeconds: number;
+  durationSnapshot: number | null;
+  coverSnapshot: string | null;
   playCount: number;
   completed: boolean;
   sourceType: string | null;
@@ -256,8 +262,10 @@ export type PlaybackHistoryQuery = {
 
 export type StartPlaybackHistoryRequest = {
   trackId: string | null;
-  mediaType?: 'local' | 'remote';
+  mediaType?: 'local' | 'remote' | 'streaming';
   sourceId?: string | null;
+  provider?: string | null;
+  providerTrackId?: string | null;
   stableKey?: string | null;
   remotePath?: string | null;
   trackPath?: string;
@@ -266,6 +274,7 @@ export type StartPlaybackHistoryRequest = {
   album?: string;
   albumArtist?: string;
   coverId?: string | null;
+  coverSnapshot?: string | null;
   durationSeconds?: number;
   sourceType?: string | null;
   sourceLabel?: string | null;
@@ -279,6 +288,7 @@ export type StartPlaybackHistoryResult = {
 export type FinishPlaybackHistoryRequest = {
   historyId: string;
   playedSeconds: number;
+  durationSeconds?: number;
   completed?: boolean;
   endedAt?: string;
 };
@@ -292,11 +302,13 @@ export type PlaybackHistorySummary = {
 
 export type LibraryTrack = {
   id: string;
-  mediaType?: 'local' | 'remote';
+  mediaType?: 'local' | 'remote' | 'streaming';
   isTemporary?: boolean;
   path: string;
   sourceId?: string | null;
   provider?: string | null;
+  providerTrackId?: string | null;
+  streamingQuality?: 'standard' | 'high' | 'lossless' | 'hires';
   remotePath?: string | null;
   stableKey?: string | null;
   title: string;

@@ -28,6 +28,7 @@ export type MvQualityVariant = {
 };
 
 export type MvSettings = {
+  enabled?: boolean;
   autoSearch: boolean;
   autoPreload: boolean;
   autoApplyThreshold?: number;
@@ -35,6 +36,10 @@ export type MvSettings = {
   immersiveBackgroundScalePercent?: number;
   immersiveBackgroundOffsetXPercent?: number;
   immersiveBackgroundOffsetYPercent?: number;
+  immersiveBackgroundBlurPx?: number;
+  immersiveBackgroundBrightnessPercent?: number;
+  immersiveBackgroundOverlayOpacityPercent?: number;
+  lyricsReadabilityEnhanced?: boolean;
   restartAudioOnLoad: boolean;
   enabledProviders: NetworkMvProviderId[];
   providerOrder: NetworkMvProviderId[];

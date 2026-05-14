@@ -9,6 +9,7 @@ import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
 import { PlayerVolumeControl } from './PlayerVolumeControl';
+import { formatAudioHostError } from './audioErrorFormat';
 import { applyMediaSessionSnapshot, bindMediaSessionActions, clearMediaSession } from './mediaSession';
 import { titleFromPath } from './playerFormat';
 
@@ -26,6 +27,19 @@ const playerArtworkUrl = (track: { coverId: string | null; coverThumb: string | 
 
 const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
   window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
+};
+
+const isPlaybackShortcutTextTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  const editableTarget = target.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]');
+  if (editableTarget) {
+    return true;
+  }
+
+  return target instanceof HTMLElement && target.isContentEditable;
 };
 
 export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
@@ -72,9 +86,10 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       if (nextTrackId) {
         setQueueCurrentTrackId(nextTrackId);
       }
-      setError(nextAudioStatus.error);
+      setError(formatAudioHostError(nextAudioStatus.error));
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
+      setError(formatAudioHostError(message));
     }
   }, [setQueueCurrentTrackId]);
 
@@ -94,7 +109,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const title = currentTrack?.title ?? titleFromPath(filePath);
   const artist = currentTrack?.artist || currentTrack?.albumArtist || (filePath ? 'Local file' : 'Ready');
   const artworkUrl = playerArtworkUrl(currentTrack);
-  const isLibraryCurrentTrack = Boolean(currentTrack && !currentTrack.isTemporary);
+  const isLibraryCurrentTrack = Boolean(currentTrack && !currentTrack.isTemporary && currentTrack.mediaType !== 'streaming');
 
   const refreshCurrentTrackLiked = useCallback(async (): Promise<void> => {
     if (!trackId || !isLibraryCurrentTrack || !window.echo?.library) {
@@ -113,6 +128,14 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   useEffect(() => {
     queue.syncPlaybackState(state);
   }, [queue, state]);
+
+  useEffect(() => {
+    if (!currentTrack || currentTrack.mediaType !== 'streaming' || currentTrack.duration > 0 || durationSeconds <= 0) {
+      return;
+    }
+
+    queue.updateCurrentTrackSnapshot({ duration: durationSeconds });
+  }, [currentTrack, durationSeconds, queue]);
 
   useEffect(() => {
     void refreshCurrentTrackLiked();
@@ -158,7 +181,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     void (async () => {
       try {
         const settings = await mv.getSettings();
-        if (cancelled || !settings.autoPreload) {
+        if (cancelled || settings.enabled === false || !settings.autoPreload) {
           return;
         }
 
@@ -232,7 +255,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
             }
           : current,
       );
-      setError(nextAudioStatus.error);
+      setError(formatAudioHostError(nextAudioStatus.error));
     });
 
     return () => unsubscribe?.();
@@ -286,7 +309,8 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         }
         await refreshStatus();
       } catch (actionError) {
-        setError(actionError instanceof Error ? actionError.message : String(actionError));
+        const message = actionError instanceof Error ? actionError.message : String(actionError);
+        setError(formatAudioHostError(message));
       }
     },
     [refreshStatus, setQueueCurrentTrackId],
@@ -424,15 +448,11 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.code !== 'Space' || event.repeat) {
+      if ((event.code !== 'Space' && event.key !== ' ') || event.repeat) {
         return;
       }
 
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName;
-      const isTextInput = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
-
-      if (target?.isContentEditable || isTextInput) {
+      if (isPlaybackShortcutTextTarget(event.target)) {
         return;
       }
 
@@ -440,8 +460,8 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       void handlePlayPause();
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [handlePlayPause]);
 
   useEffect(() => {
@@ -484,7 +504,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         setSeekPreviewSeconds(null);
       }
     },
-    [durationSeconds, refreshStatus],
+    [durationSeconds, refreshStatus, trackId],
   );
 
   useEffect(() => {

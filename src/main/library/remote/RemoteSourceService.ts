@@ -25,12 +25,20 @@ import { RemoteLibrarySyncService } from './RemoteLibrarySyncService';
 import { RemoteStreamProxyService } from './RemoteStreamProxyService';
 import type { RemoteSourceAdapter } from './remoteTypes';
 import { WebDavRemoteSourceAdapter } from './adapters/WebDavRemoteSourceAdapter';
+import { EmbyRemoteSourceAdapter, JellyfinRemoteSourceAdapter } from './adapters/MediaServerRemoteSourceAdapter';
+import { SubsonicRemoteSourceAdapter } from './adapters/SubsonicRemoteSourceAdapter';
+import { RemoteFileSystemAdapter } from './adapters/RemoteFileSystemAdapter';
 import { CoverService } from '../CoverService';
 import { resolveConfiguredCoverCacheDir } from '../CoverCacheManager';
 
 export class RemoteSourceService {
   private readonly store: RemoteLibraryStore;
   private readonly webdavAdapter = new WebDavRemoteSourceAdapter();
+  private readonly jellyfinAdapter = new JellyfinRemoteSourceAdapter();
+  private readonly embyAdapter = new EmbyRemoteSourceAdapter();
+  private readonly subsonicAdapter = new SubsonicRemoteSourceAdapter();
+  private readonly smbAdapter = new RemoteFileSystemAdapter('smb');
+  private readonly sshfsAdapter = new RemoteFileSystemAdapter('sshfs');
   private readonly proxy: RemoteStreamProxyService;
   private readonly backgroundQueue: RemoteBackgroundJobQueue;
   private readonly syncService: RemoteLibrarySyncService;
@@ -41,10 +49,12 @@ export class RemoteSourceService {
     coverCacheDir: string | null = null,
   ) {
     this.store = new RemoteLibraryStore(database);
-    this.proxy = new RemoteStreamProxyService(this.webdavAdapter);
-    this.webdavAdapter.setStreamUrlResolver((input) =>
-      this.proxy.createStreamUrl(input.source, input.remotePath, input.stableKey, input.expiresInSeconds),
-    );
+    this.proxy = new RemoteStreamProxyService((provider) => this.getAdapter(provider));
+    for (const adapter of [this.webdavAdapter, this.jellyfinAdapter, this.embyAdapter, this.subsonicAdapter, this.smbAdapter, this.sshfsAdapter]) {
+      adapter.setStreamUrlResolver((input) =>
+        this.proxy.createStreamUrl(input.source, input.remotePath, input.stableKey, input.expiresInSeconds),
+      );
+    }
     this.backgroundQueue = new RemoteBackgroundJobQueue(
       this.store,
       (provider) => this.getAdapter(provider),
@@ -203,6 +213,21 @@ export class RemoteSourceService {
   private getAdapter(provider: string): RemoteSourceAdapter {
     if (provider === 'webdav') {
       return this.webdavAdapter;
+    }
+    if (provider === 'jellyfin') {
+      return this.jellyfinAdapter;
+    }
+    if (provider === 'emby') {
+      return this.embyAdapter;
+    }
+    if (provider === 'subsonic') {
+      return this.subsonicAdapter;
+    }
+    if (provider === 'smb') {
+      return this.smbAdapter;
+    }
+    if (provider === 'sshfs') {
+      return this.sshfsAdapter;
     }
 
     throw new Error(`Remote source provider ${provider} is not supported yet`);

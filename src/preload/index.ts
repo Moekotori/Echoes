@@ -36,6 +36,7 @@ const echoApi: EchoApi = {
     resetSettings: () => ipcRenderer.invoke(IpcChannels.AppResetSettings),
     chooseFontFile: () => ipcRenderer.invoke(IpcChannels.AppChooseFontFile),
     chooseLyricsWallpaper: () => ipcRenderer.invoke(IpcChannels.AppChooseLyricsWallpaper),
+    chooseAppWallpaper: () => ipcRenderer.invoke(IpcChannels.AppChooseAppWallpaper),
     loadFontFile: (path) => ipcRenderer.invoke(IpcChannels.AppLoadFontFile, path),
     chooseCacheDirectory: () => ipcRenderer.invoke(IpcChannels.AppChooseCacheDirectory),
     getDefaultCacheDirectory: () => ipcRenderer.invoke(IpcChannels.AppGetDefaultCacheDirectory),
@@ -171,6 +172,14 @@ const echoApi: EchoApi = {
     setBackgroundPaused: (paused) => ipcRenderer.invoke(IpcChannels.RemoteSourcesSetBackgroundPaused, paused),
     getBackgroundGlobalStatus: () => ipcRenderer.invoke(IpcChannels.RemoteSourcesGetBackgroundGlobalStatus),
     updateRuntimeLimits: (sourceId, limits) => ipcRenderer.invoke(IpcChannels.RemoteSourcesUpdateRuntimeLimits, sourceId, limits),
+  },
+  streaming: {
+    search: (request) => ipcRenderer.invoke(IpcChannels.StreamingSearch, request),
+    getTrack: (request) => ipcRenderer.invoke(IpcChannels.StreamingGetTrack, request),
+    resolvePlayback: (request) => ipcRenderer.invoke(IpcChannels.StreamingResolvePlayback, request),
+    getLyrics: (request) => ipcRenderer.invoke(IpcChannels.StreamingGetLyrics, request),
+    getMv: (request) => ipcRenderer.invoke(IpcChannels.StreamingGetMv, request),
+    getProviders: () => ipcRenderer.invoke(IpcChannels.StreamingGetProviders),
   },
   lyrics: {
     getForTrack: (trackId) => ipcRenderer.invoke(IpcChannels.LyricsGetForTrack, trackId),

@@ -1,3 +1,5 @@
+import type { StreamingAudioQuality, StreamingProviderName } from './streaming';
+
 export type RemoteSourceProvider = 'webdav' | 'jellyfin' | 'emby' | 'smb' | 'sshfs' | 'subsonic';
 
 export type RemoteSourceStatus = 'enabled' | 'disabled' | 'error';
@@ -94,21 +96,50 @@ export type RemoteTrackIdentity = {
   duration: number | null;
 };
 
-export type MediaItem = {
-  mediaType: 'local' | 'remote';
+export type LocalMediaItem = {
+  mediaType: 'local';
+  trackId: string;
+  path: string;
+  title: string;
+  artist: string;
+  album: string;
+  albumArtist?: string | null;
+  duration: number | null;
+  coverThumb?: string | null;
+};
+
+export type RemoteMediaItem = {
+  mediaType: 'remote';
   trackId: string;
   sourceId?: string | null;
   stableKey?: string | null;
-  path?: string | null;
   remotePath?: string | null;
   title: string;
   artist: string;
   album: string;
-  albumArtist: string;
+  albumArtist?: string | null;
   duration: number | null;
   coverThumb?: string | null;
-  streamUrl?: string | null;
 };
+
+export type StreamingMediaItem = {
+  mediaType: 'streaming';
+  trackId: string;
+  provider: StreamingProviderName;
+  providerTrackId: string;
+  quality?: StreamingAudioQuality;
+  stableKey: string;
+  title: string;
+  artist: string;
+  album: string;
+  albumArtist?: string | null;
+  duration: number | null;
+  coverThumb?: string | null;
+  playable: boolean;
+  unavailableReason?: string | null;
+};
+
+export type MediaItem = LocalMediaItem | RemoteMediaItem | StreamingMediaItem;
 
 export type PlayableTrack = MediaItem & {
   streamUrl?: string | null;
@@ -130,6 +161,7 @@ export type RemoteDirectoryItem = {
 export type RemoteScanItem = RemoteDirectoryItem & {
   remoteUrlHash: string;
   stableKey: string;
+  metadata?: RemoteMetadataResult;
 };
 
 export type RemoteMetadataResult = {

@@ -2558,6 +2558,15 @@
     transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.lyrics-settings-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.lyrics-settings-drawer .lyrics-settings-panel {
+  display: contents;
+}
+
 .audio-drawer-header,
 .audio-engine-meter,
 .audio-drawer-section,
@@ -3678,6 +3687,55 @@
   transform: translateX(14px);
 }
 
+.mv-source-toggle.mv-master-toggle {
+  min-height: 56px;
+  padding: 2px 0 6px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.mv-source-toggle.mv-master-toggle:hover,
+.mv-source-toggle.mv-master-toggle[aria-pressed="true"],
+.mv-source-toggle.mv-master-toggle[aria-pressed="true"]:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.mv-source-toggle.mv-master-toggle .mv-switch-track {
+  width: 46px;
+  height: 26px;
+  background: rgba(220, 231, 255, 0.3);
+}
+
+.mv-source-toggle.mv-master-toggle .mv-switch-track span {
+  width: 20px;
+  height: 20px;
+  background: rgba(244, 248, 255, 0.9);
+}
+
+.mv-source-toggle.mv-master-toggle[aria-pressed="true"] .mv-switch-track {
+  background: rgba(143, 207, 189, 0.62);
+}
+
+.mv-source-toggle.mv-master-toggle[aria-pressed="true"] .mv-switch-track span {
+  transform: translateX(20px);
+}
+
+.mv-source-toggle.mv-master-toggle .mv-toggle-copy {
+  gap: 4px;
+}
+
+.mv-source-toggle.mv-master-toggle .mv-toggle-copy strong {
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.mv-source-toggle.mv-master-toggle .mv-toggle-copy em {
+  color: rgba(220, 231, 255, 0.72);
+  font-size: 12px;
+  font-weight: 820;
+}
+
 .mv-auto-apply-toggle {
   min-height: 54px;
   align-items: center;
@@ -3778,6 +3836,29 @@
   display: grid;
   gap: 8px;
   padding: 2px 0 4px;
+}
+
+.mv-immersive-reset {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 12px 2px;
+  padding: 0 10px;
+  color: rgba(244, 248, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.mv-immersive-reset:hover {
+  border-color: rgba(143, 207, 189, 0.28);
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .mv-quality-controls {
@@ -4529,9 +4610,300 @@
   gap: 12px;
 }
 
+.settings-cache-panel--app-wallpaper {
+  max-width: none;
+  gap: 14px;
+}
+
+.settings-wallpaper-path {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  padding: 10px 12px;
+  color: var(--color-muted);
+  border: 1px solid rgba(40, 62, 88, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-wallpaper-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.settings-wallpaper-control {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(40, 62, 88, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.settings-wallpaper-control--toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.settings-wallpaper-control > span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.settings-wallpaper-control .settings-range-field {
+  grid-template-columns: minmax(0, 1fr) 54px;
+}
+
+.app-shell--wallpaper .page-surface:has(.settings-page) {
+  background:
+    linear-gradient(
+      180deg,
+      rgb(253 254 255 / var(--app-wallpaper-ui-page-top-alpha)),
+      rgb(244 247 251 / var(--app-wallpaper-ui-page-base-alpha))
+    ),
+    transparent;
+}
+
+.app-shell--wallpaper .settings-page {
+  backdrop-filter: blur(var(--app-wallpaper-ui-surface-blur)) saturate(1.08);
+}
+
+.app-shell--wallpaper .settings-search,
+.app-shell--wallpaper .settings-nav-item:hover,
+.app-shell--wallpaper .settings-wallpaper-path,
+.app-shell--wallpaper .settings-wallpaper-control,
+.app-shell--wallpaper .settings-page .audio-command-button,
+.app-shell--wallpaper .settings-page .audio-icon-command,
+.app-shell--wallpaper .settings-page .audio-field input,
+.app-shell--wallpaper .settings-page .audio-field select {
+  border-color: rgb(40 62 88 / var(--app-wallpaper-ui-border-alpha));
+  background: rgb(255 255 255 / var(--app-wallpaper-ui-sidebar-top-alpha));
+  box-shadow: none;
+}
+
+.app-shell--wallpaper .settings-nav-item.active {
+  border-color: rgb(88 118 150 / var(--app-wallpaper-ui-border-alpha));
+  background: rgb(234 240 246 / var(--app-wallpaper-ui-sidebar-mid-alpha));
+  box-shadow: inset 3px 0 0 rgb(88 125 165 / var(--app-wallpaper-ui-titlebar-alpha));
+}
+
+.app-shell--wallpaper .settings-nav-item.is-danger.active {
+  box-shadow: inset 3px 0 0 rgb(255 92 101 / var(--app-wallpaper-ui-titlebar-alpha));
+}
+
+.app-shell--wallpaper .section-title,
+.app-shell--wallpaper .setting-row,
+.app-shell--wallpaper .settings-page .audio-toggle-row,
+.app-shell--wallpaper .settings-page .audio-drawer-options > p + .audio-toggle-row {
+  border-color: rgb(32 48 71 / var(--app-wallpaper-ui-border-alpha));
+}
+
+.app-shell--wallpaper .setting-row:hover {
+  background: linear-gradient(90deg, rgb(236 242 248 / var(--app-wallpaper-ui-page-top-alpha)), transparent 82%);
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .page-surface:has(.settings-page) {
+  background: transparent;
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page {
+  backdrop-filter: none;
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-search,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-nav-item:hover,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-nav-item.active,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-wallpaper-path,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-wallpaper-control,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-command-button,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-icon-command,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-field input,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-field select {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .section-title,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .setting-row,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-toggle-row,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .settings-page .audio-drawer-options > p + .audio-toggle-row {
+  border-color: transparent;
+}
+
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .setting-row:hover {
+  background: transparent;
+}
+
 .setting-row--compact-panel .settings-cache-panel {
   max-width: none;
   align-self: start;
+}
+
+.settings-lyrics-panel {
+  width: min(860px, 100%);
+  align-content: start;
+  gap: 0;
+  color: var(--echo-heading-text);
+}
+
+.settings-lyrics-panel .audio-engine-meter,
+.settings-lyrics-panel .audio-drawer-section,
+.settings-lyrics-panel .audio-drawer-error {
+  opacity: 1;
+  transform: none;
+}
+
+.settings-lyrics-panel .audio-engine-meter {
+  width: 100%;
+  margin-bottom: 10px;
+  color: var(--echo-heading-text);
+  border-color: rgba(32, 48, 71, 0.08);
+  border-radius: 10px;
+  background: rgba(236, 242, 248, 0.56);
+  box-shadow: none;
+}
+
+.settings-lyrics-panel .audio-drawer-section {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-lyrics-panel .audio-drawer-section-title {
+  display: none;
+}
+
+.settings-lyrics-panel .audio-toggle-row {
+  min-height: 30px;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(32, 48, 71, 0.075);
+}
+
+.settings-lyrics-panel .audio-toggle-row strong {
+  font-size: 13px;
+}
+
+.settings-lyrics-panel .audio-drawer-options > p {
+  display: block;
+  max-width: 640px;
+  margin: 2px 0 8px 28px;
+  color: #6c7b8f;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.settings-lyrics-panel .audio-drawer-options > p + .audio-toggle-row {
+  border-top: 1px solid rgba(32, 48, 71, 0.06);
+}
+
+.settings-lyrics-panel .audio-toggle-row input {
+  width: 48px;
+  height: 24px;
+}
+
+.settings-lyrics-panel .audio-toggle-row input::before {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-lyrics-panel .audio-toggle-row input:checked::before {
+  transform: translateX(24px);
+}
+
+.settings-lyrics-panel .audio-engine-meter:hover {
+  border-color: rgba(32, 48, 71, 0.12);
+  background: rgba(236, 242, 248, 0.72);
+}
+
+.settings-lyrics-panel .audio-engine-meter__icon,
+.settings-lyrics-panel .audio-engine-meter__grid span,
+.settings-lyrics-panel .lyrics-drawer-range,
+.settings-lyrics-panel .lyrics-color-panel,
+.settings-lyrics-panel .lyrics-source-panel {
+  border-color: rgba(32, 48, 71, 0.08);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.settings-lyrics-panel .audio-engine-meter__top span:not(.audio-engine-meter__icon),
+.settings-lyrics-panel .audio-engine-meter__grid strong,
+.settings-lyrics-panel .audio-toggle-row,
+.settings-lyrics-panel .audio-toggle-row strong,
+.settings-lyrics-panel .lyrics-drawer-range,
+.settings-lyrics-panel .lyrics-source-panel,
+.settings-lyrics-panel .lyrics-color-panel__header strong {
+  color: #1f3046;
+}
+
+.settings-lyrics-panel .audio-engine-meter__top strong,
+.settings-lyrics-panel .audio-engine-meter__grid em,
+.settings-lyrics-panel .audio-drawer-options > p,
+.settings-lyrics-panel .audio-device-pill span > small,
+.settings-lyrics-panel .lyrics-drawer-range em,
+.settings-lyrics-panel .lyrics-source-option small,
+.settings-lyrics-panel .lyrics-source-panel p,
+.settings-lyrics-panel .lyrics-color-input em {
+  color: #6c7b8f;
+}
+
+.settings-lyrics-panel .audio-device-pill {
+  color: #1f3046;
+  border-color: rgba(32, 48, 71, 0.08);
+  border-radius: 10px;
+  background: rgba(236, 242, 248, 0.54);
+  box-shadow: none;
+}
+
+.settings-lyrics-panel .audio-device-pill:hover {
+  border-color: rgba(32, 48, 71, 0.12);
+  background: rgba(236, 242, 248, 0.72);
+}
+
+.settings-lyrics-panel .audio-device-pill span > strong,
+.settings-lyrics-panel .audio-device-pill em {
+  color: #1f3046;
+}
+
+.settings-lyrics-panel .audio-device-pill svg:first-child,
+.settings-lyrics-panel .audio-toggle-row svg,
+.settings-lyrics-panel .audio-drawer-section-title svg {
+  color: #6c7b8f;
+}
+
+.settings-lyrics-panel .audio-toggle-row input {
+  background: rgba(95, 111, 130, 0.2);
+}
+
+.settings-lyrics-panel .audio-toggle-row input:checked {
+  background: #4f83b7;
+}
+
+.settings-lyrics-panel .lyrics-background-segmented button,
+.settings-lyrics-panel .lyrics-source-option,
+.settings-lyrics-panel .lyrics-color-reset,
+.settings-lyrics-panel .lyrics-source-filters button,
+.settings-lyrics-panel .lyrics-candidate {
+  color: #1f3046;
+  border-color: rgba(32, 48, 71, 0.08);
+  background: rgba(236, 242, 248, 0.54);
+}
+
+.settings-lyrics-panel .lyrics-background-segmented button[aria-pressed="true"],
+.settings-lyrics-panel .lyrics-source-option[data-enabled="true"],
+.settings-lyrics-panel .lyrics-source-filters button[data-active="true"] {
+  color: #1f3046;
+  border-color: rgba(79, 131, 183, 0.28);
+  background: rgba(79, 131, 183, 0.12);
 }
 
 .settings-cache-panel--album,
@@ -5779,6 +6151,10 @@
 }
 
 @media (max-width: 1180px) {
+  .settings-wallpaper-controls {
+    grid-template-columns: 1fr;
+  }
+
   .downloads-grid {
     grid-template-columns: 1fr;
     grid-template-areas:

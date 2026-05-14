@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Captions,
@@ -33,6 +33,7 @@ import { EqPanel } from '../components/audio/EqPanel';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
 import { NetworkMetadataPanel } from '../components/library/NetworkMetadataPanel';
+import { LyricsSettingsPanel } from '../components/lyrics/LyricsSettingsDrawer';
 import { PlaybackStabilityDiagnosticsPanel } from '../components/player/PlaybackStabilityDiagnosticsPanel';
 import { RemoteSourcesPanel } from '../components/settings/RemoteSourcesPanel';
 import { useI18n } from '../i18n/I18nProvider';
@@ -489,6 +490,7 @@ export const SettingsPage = (): JSX.Element => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [appearancePreferences, setAppearancePreferences] = useState<AppearancePreferences>(() => readAppearancePreferences());
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const wallpaperPersistTimerRef = useRef<number | null>(null);
   const [discordPresenceStatus, setDiscordPresenceStatus] = useState<DiscordPresenceStatus | null>(null);
   const [lastFmStatus, setLastFmStatus] = useState<LastFmStatus | null>(null);
   const [accountStatuses, setAccountStatuses] = useState<AccountStatus[]>([]);
@@ -668,6 +670,29 @@ export const SettingsPage = (): JSX.Element => {
   }, [refreshAccountStatuses, refreshDevices, refreshDiscordPresenceStatus, refreshDuplicateSummary, refreshLastFmStatus, refreshStatus]);
 
   useEffect(() => {
+    const handleSettingsChanged = (event: Event): void => {
+      const patch = (event as CustomEvent<Partial<AppSettings>>).detail;
+      if (!patch || typeof patch !== 'object') {
+        return;
+      }
+
+      setAppSettings((current) => (current ? { ...current, ...patch } : current));
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => window.removeEventListener('settings:changed', handleSettingsChanged);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (wallpaperPersistTimerRef.current !== null) {
+        window.clearTimeout(wallpaperPersistTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
     setOutputMode(status?.outputMode ?? 'shared');
   }, [status?.outputMode]);
 
@@ -773,7 +798,11 @@ export const SettingsPage = (): JSX.Element => {
     handleAppearanceChange(defaultAppearancePreferences);
   };
 
-  const patchAppSettings = (patch: Partial<AppSettings>): void => {
+  const dispatchSettingsChanged = (patch: Partial<AppSettings>): void => {
+    window.dispatchEvent(new CustomEvent('settings:changed', { detail: patch }));
+  };
+
+  const patchAppSettings = (patch: Partial<AppSettings>, options: { announce?: boolean } = {}): void => {
     const app = getAppBridge();
 
     if (!app) {
@@ -785,11 +814,52 @@ export const SettingsPage = (): JSX.Element => {
       .setSettings(patch)
       .then((settings) => {
         setAppSettings(settings);
-        window.dispatchEvent(new Event('settings:changed'));
+        if (options.announce !== false) {
+          dispatchSettingsChanged(settings);
+        }
       })
       .catch((settingsError) => {
         setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
       });
+  };
+
+  const previewAndPersistAppWallpaperSettings = (patch: Partial<AppSettings>): void => {
+    setAppSettings((current) => (current ? { ...current, ...patch } : current));
+    dispatchSettingsChanged(patch);
+
+    if (wallpaperPersistTimerRef.current !== null) {
+      window.clearTimeout(wallpaperPersistTimerRef.current);
+    }
+
+    wallpaperPersistTimerRef.current = window.setTimeout(() => {
+      wallpaperPersistTimerRef.current = null;
+      patchAppSettings(patch, { announce: false });
+    }, 220);
+  };
+
+  const handleAppWallpaperChoose = async (): Promise<void> => {
+    const app = getAppBridge();
+
+    if (!app?.chooseAppWallpaper) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to choose app wallpaper.');
+      return;
+    }
+
+    try {
+      const wallpaperPath = await app.chooseAppWallpaper();
+      if (!wallpaperPath) {
+        return;
+      }
+
+      patchAppSettings({ appCustomWallpaperPath: wallpaperPath });
+      setError(null);
+    } catch (wallpaperError) {
+      setError(wallpaperError instanceof Error ? wallpaperError.message : String(wallpaperError));
+    }
+  };
+
+  const handleAppWallpaperClear = (): void => {
+    patchAppSettings({ appCustomWallpaperPath: null });
   };
 
   const handleDiscordPresenceToggle = async (): Promise<void> => {
@@ -1686,13 +1756,7 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Captions} id="lyrics" title={t('route.lyricsSettings.label')}>
-              <SettingRow title="底栏抽屉" description="歌词页隐藏底部播放栏，鼠标靠近窗口底部时自动拉出，离开后收回。">
-                <ToggleButton
-                  active={appSettings?.lyricsPlayerBarDrawerEnabled ?? false}
-                  disabled={!appSettings}
-                  onClick={() => patchAppSettings({ lyricsPlayerBarDrawerEnabled: !(appSettings?.lyricsPlayerBarDrawerEnabled ?? false) })}
-                />
-              </SettingRow>
+              <LyricsSettingsPanel className="settings-lyrics-panel" variant="settings" />
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Link2} id="integrations" title={t('settings.nav.integrations.label')}>
@@ -1833,6 +1897,90 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow title="艺术家墙封面" description="用艺术家的一张专辑封面替代字母占位。">
                 <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title="自定义壁纸"
+                description="保存原图文件，不压缩、不转码；默认完整显示不裁切。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--app-wallpaper">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
+                      <FolderOpen size={15} />
+                      选择壁纸
+                    </button>
+                    {appSettings?.appCustomWallpaperPath ? (
+                      <button className="settings-danger-button" type="button" onClick={handleAppWallpaperClear}>
+                        <Trash2 size={15} />
+                        清除壁纸
+                      </button>
+                    ) : null}
+                  </div>
+                  {appSettings?.appCustomWallpaperPath ? (
+                    <>
+                      <p className="settings-wallpaper-path" title={appSettings.appCustomWallpaperPath}>
+                        {appSettings.appCustomWallpaperPath}
+                      </p>
+                      <div className="settings-wallpaper-controls">
+                        <div className="settings-wallpaper-control">
+                          <span>壁纸缩放</span>
+                          <NumberRangeField
+                            min={100}
+                            max={220}
+                            step={1}
+                            suffix="%"
+                            value={appSettings.appWallpaperScalePercent ?? 100}
+                            onChange={(appWallpaperScalePercent) => previewAndPersistAppWallpaperSettings({ appWallpaperScalePercent })}
+                          />
+                        </div>
+                        <div className="settings-wallpaper-control">
+                          <span>壁纸模糊度</span>
+                          <NumberRangeField
+                            min={0}
+                            max={40}
+                            step={1}
+                            suffix="px"
+                            value={appSettings.appWallpaperBlurPx ?? 0}
+                            onChange={(appWallpaperBlurPx) => previewAndPersistAppWallpaperSettings({ appWallpaperBlurPx })}
+                          />
+                        </div>
+                        <div className="settings-wallpaper-control">
+                          <span>壁纸亮度</span>
+                          <NumberRangeField
+                            min={40}
+                            max={140}
+                            step={1}
+                            suffix="%"
+                            value={appSettings.appWallpaperBrightnessPercent ?? 100}
+                            onChange={(appWallpaperBrightnessPercent) => previewAndPersistAppWallpaperSettings({ appWallpaperBrightnessPercent })}
+                          />
+                        </div>
+                        <div className="settings-wallpaper-control">
+                          <span>UI 透明度</span>
+                          <NumberRangeField
+                            min={0}
+                            max={100}
+                            step={1}
+                            suffix="%"
+                            value={appSettings.appWallpaperUiOpacityPercent ?? 100}
+                            onChange={(appWallpaperUiOpacityPercent) => previewAndPersistAppWallpaperSettings({ appWallpaperUiOpacityPercent })}
+                          />
+                        </div>
+                        <div className="settings-wallpaper-control settings-wallpaper-control--toggle">
+                          <span>统一透明度</span>
+                          <ToggleButton
+                            active={appSettings.appWallpaperUnifiedOpacityEnabled ?? false}
+                            onClick={() =>
+                              previewAndPersistAppWallpaperSettings({
+                                appWallpaperUnifiedOpacityEnabled: !(appSettings.appWallpaperUnifiedOpacityEnabled ?? false),
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
               </SettingRow>
               <SettingRow title={t('settings.appearance.font.main.title')} description={t('settings.appearance.font.main.description')}>
                 <button className="settings-font-picker-button" type="button" onClick={() => handleFontPickerOpen('main')}>

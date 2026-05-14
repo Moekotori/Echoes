@@ -157,6 +157,15 @@ CREATE TABLE IF NOT EXISTS playback_history (
   id TEXT PRIMARY KEY,
   track_id TEXT,
   track_path TEXT NOT NULL,
+  media_type TEXT NOT NULL DEFAULT 'local',
+  provider TEXT,
+  provider_track_id TEXT,
+  stable_key TEXT,
+  title_snapshot TEXT,
+  artist_snapshot TEXT,
+  album_snapshot TEXT,
+  duration_snapshot REAL,
+  cover_snapshot TEXT,
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
   album TEXT,
@@ -177,6 +186,15 @@ CREATE TABLE IF NOT EXISTS playback_history_stats (
   history_key TEXT PRIMARY KEY,
   track_id TEXT,
   track_path TEXT NOT NULL,
+  media_type TEXT NOT NULL DEFAULT 'local',
+  provider TEXT,
+  provider_track_id TEXT,
+  stable_key TEXT,
+  title_snapshot TEXT,
+  artist_snapshot TEXT,
+  album_snapshot TEXT,
+  duration_snapshot REAL,
+  cover_snapshot TEXT,
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
   album TEXT,
@@ -459,6 +477,41 @@ CREATE TABLE IF NOT EXISTS remote_tracks (
   UNIQUE(source_id, stable_key)
 );
 
+CREATE TABLE IF NOT EXISTS streaming_tracks (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  provider_track_id TEXT NOT NULL,
+  stable_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL,
+  album_id TEXT,
+  album_artist TEXT,
+  duration REAL,
+  cover_url TEXT,
+  cover_id TEXT,
+  qualities_json TEXT NOT NULL DEFAULT '[]',
+  playable INTEGER NOT NULL DEFAULT 1,
+  unavailable_reason TEXT,
+  lyrics_status TEXT NOT NULL DEFAULT 'unknown',
+  mv_status TEXT NOT NULL DEFAULT 'unknown',
+  raw_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(provider, provider_track_id),
+  UNIQUE(stable_key)
+);
+
+CREATE TABLE IF NOT EXISTS streaming_api_cache (
+  cache_key TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_path ON tracks(path);
 CREATE INDEX IF NOT EXISTS idx_tracks_folder_id ON tracks(folder_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
@@ -495,8 +548,12 @@ CREATE INDEX IF NOT EXISTS idx_playback_history_track_id ON playback_history(tra
 CREATE INDEX IF NOT EXISTS idx_playback_history_completed ON playback_history(completed);
 CREATE INDEX IF NOT EXISTS idx_playback_history_track_started ON playback_history(track_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_playback_history_path_started ON playback_history(track_path, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_playback_history_media_type ON playback_history(media_type);
+CREATE INDEX IF NOT EXISTS idx_playback_history_stable_key ON playback_history(stable_key);
 CREATE INDEX IF NOT EXISTS idx_playback_history_stats_play_count ON playback_history_stats(play_count DESC, last_started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_playback_history_stats_last_started_at ON playback_history_stats(last_started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_playback_history_stats_media_type ON playback_history_stats(media_type);
+CREATE INDEX IF NOT EXISTS idx_playback_history_stats_stable_key ON playback_history_stats(stable_key);
 CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_position ON playlist_items(playlist_id, position);
 CREATE INDEX IF NOT EXISTS idx_playlist_items_media ON playlist_items(media_type, media_id);
 CREATE INDEX IF NOT EXISTS idx_playlist_items_source ON playlist_items(source_provider, source_item_id);
@@ -508,4 +565,8 @@ CREATE INDEX IF NOT EXISTS idx_remote_tracks_artist ON remote_tracks(artist);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_album ON remote_tracks(album);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_stable_key ON remote_tracks(stable_key);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_remote_url_hash ON remote_tracks(remote_url_hash);
+CREATE INDEX IF NOT EXISTS idx_streaming_tracks_provider ON streaming_tracks(provider);
+CREATE INDEX IF NOT EXISTS idx_streaming_tracks_title ON streaming_tracks(title);
+CREATE INDEX IF NOT EXISTS idx_streaming_tracks_artist ON streaming_tracks(artist);
+CREATE INDEX IF NOT EXISTS idx_streaming_tracks_album ON streaming_tracks(album);
 `;

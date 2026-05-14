@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent } from 'react';
 import { Film, Music2 } from 'lucide-react';
 import type { AudioPlaybackState } from '../../../shared/types/audio';
 import type { MvSettings, TrackVideo } from '../../../shared/types/mv';
+import type { StreamingMvResult, StreamingProviderName } from '../../../shared/types/streaming';
 
 export type MvAudioClock = {
   positionSeconds: number;
@@ -14,6 +15,10 @@ export type MvAudioClock = {
 
 type MvPanelProps = {
   trackId: string | null;
+  streamingTarget?: {
+    provider: StreamingProviderName;
+    providerTrackId: string;
+  } | null;
   title: string;
   artist: string;
   coverUrl: string | null;
@@ -34,6 +39,7 @@ type ShakaPlayerInstance = {
 };
 
 const fallbackMvSettings: MvSettings = {
+  enabled: true,
   autoSearch: true,
   autoPreload: true,
   autoApplyThreshold: 0.7,
@@ -41,6 +47,10 @@ const fallbackMvSettings: MvSettings = {
   immersiveBackgroundScalePercent: 115,
   immersiveBackgroundOffsetXPercent: 50,
   immersiveBackgroundOffsetYPercent: 50,
+  immersiveBackgroundBlurPx: 0,
+  immersiveBackgroundBrightnessPercent: 100,
+  immersiveBackgroundOverlayOpacityPercent: 0,
+  lyricsReadabilityEnhanced: false,
   restartAudioOnLoad: false,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
@@ -169,15 +179,19 @@ export const MvPanel = ({
   audioClock,
   coverUrl,
   isAudioPlaying,
+  streamingTarget = null,
   title,
   trackId,
 }: MvPanelProps): JSX.Element => {
   const [selectedVideo, setSelectedVideo] = useState<TrackVideo | null>(null);
+  const [streamingMv, setStreamingMv] = useState<StreamingMvResult | null>(null);
+  const [isStreamingMvLoading, setIsStreamingMvLoading] = useState(false);
   const [settings, setSettings] = useState<MvSettings>(fallbackMvSettings);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
   const requestRef = useRef(0);
+  const streamingMvRequestRef = useRef(0);
   const preloadAttemptRef = useRef<string | null>(null);
   const lastVideoSyncAtRef = useRef(0);
   const videoSeekingRef = useRef(false);
@@ -274,6 +288,11 @@ export const MvPanel = ({
     setError(null);
     setVideoError(false);
 
+    if (streamingTarget) {
+      setIsLoading(false);
+      return;
+    }
+
     if (!trackId || !window.echo?.mv) {
       setIsLoading(false);
       return;
@@ -281,6 +300,14 @@ export const MvPanel = ({
 
     try {
       const nextSettings = await loadSettings();
+      if (nextSettings.enabled === false) {
+        if (requestRef.current !== requestId) {
+          return;
+        }
+        setSelectedVideo(null);
+        setIsLoading(false);
+        return;
+      }
       let video = await window.echo.mv.getSelected(trackId);
       if (!video && nextSettings.autoPreload && isAudioPlayingRef.current && preloadAttemptRef.current !== trackId) {
         preloadAttemptRef.current = trackId;
@@ -302,7 +329,43 @@ export const MvPanel = ({
         setIsLoading(false);
       }
     }
-  }, [loadSettings, resolveNetworkVideo, trackId]);
+  }, [loadSettings, resolveNetworkVideo, streamingTarget, trackId]);
+
+  useEffect(() => {
+    const requestId = streamingMvRequestRef.current + 1;
+    streamingMvRequestRef.current = requestId;
+    setStreamingMv(null);
+    setIsStreamingMvLoading(Boolean(streamingTarget));
+
+    if (!streamingTarget) {
+      setIsStreamingMvLoading(false);
+      return;
+    }
+
+    const streamingApi = window.echo?.streaming;
+    if (!streamingApi?.getMv) {
+      setIsStreamingMvLoading(false);
+      return;
+    }
+
+    void streamingApi
+      .getMv(streamingTarget)
+      .then((result) => {
+        if (streamingMvRequestRef.current === requestId) {
+          setStreamingMv(result);
+        }
+      })
+      .catch(() => {
+        if (streamingMvRequestRef.current === requestId) {
+          setStreamingMv(null);
+        }
+      })
+      .finally(() => {
+        if (streamingMvRequestRef.current === requestId) {
+          setIsStreamingMvLoading(false);
+        }
+      });
+  }, [streamingTarget]);
 
   useEffect(() => {
     void loadSelected();
@@ -333,14 +396,24 @@ export const MvPanel = ({
 
   useEffect(() => {
     const handleSettingsChanged = (): void => {
-      void loadSettings();
+      void loadSettings().then((nextSettings) => {
+        if (nextSettings.enabled === false) {
+          setSelectedVideo(null);
+          setVideoError(false);
+          return;
+        }
+
+        void loadSelected();
+      });
     };
 
     window.addEventListener('settings:changed', handleSettingsChanged);
     return () => window.removeEventListener('settings:changed', handleSettingsChanged);
-  }, [loadSettings]);
+  }, [loadSelected, loadSettings]);
 
-  const videoMediaUrl = selectedVideo?.playableInApp && selectedVideo.mediaUrl && !videoError ? selectedVideo.mediaUrl : null;
+  const isMvEnabled = settings.enabled !== false;
+  const streamingMvItem = streamingMv?.items[0] ?? null;
+  const videoMediaUrl = isMvEnabled && selectedVideo?.playableInApp && selectedVideo.mediaUrl && !videoError ? selectedVideo.mediaUrl : null;
   const showVideo = Boolean(videoMediaUrl);
   const adaptiveStream = isAdaptiveStream(selectedVideo);
   const showImmersiveBackground = Boolean(settings.immersiveBackground !== false && showVideo);
@@ -350,10 +423,16 @@ export const MvPanel = ({
         '--mv-immersive-scale': ((settings.immersiveBackgroundScalePercent ?? 115) / 100).toFixed(2),
         '--mv-immersive-position-x': `${settings.immersiveBackgroundOffsetXPercent ?? 50}%`,
         '--mv-immersive-position-y': `${settings.immersiveBackgroundOffsetYPercent ?? 50}%`,
+        '--mv-immersive-blur': `${settings.immersiveBackgroundBlurPx ?? 0}px`,
+        '--mv-immersive-brightness': `${settings.immersiveBackgroundBrightnessPercent ?? 100}%`,
+        '--mv-immersive-overlay-opacity': ((settings.immersiveBackgroundOverlayOpacityPercent ?? 0) / 100).toFixed(2),
       }) as CSSProperties,
     [
+      settings.immersiveBackgroundBlurPx,
+      settings.immersiveBackgroundBrightnessPercent,
       settings.immersiveBackgroundOffsetXPercent,
       settings.immersiveBackgroundOffsetYPercent,
+      settings.immersiveBackgroundOverlayOpacityPercent,
       settings.immersiveBackgroundScalePercent,
     ],
   );
@@ -601,6 +680,7 @@ export const MvPanel = ({
         <div
           className="lyrics-mv-background"
           aria-hidden="true"
+          data-lyrics-readability={settings.lyricsReadabilityEnhanced === true ? 'true' : undefined}
           style={immersiveBackgroundStyle}
           onPointerDown={(event) => {
             if (event.button !== 0) {
@@ -684,9 +764,21 @@ export const MvPanel = ({
       ) : (
         <CoverFallback
           artist={artist}
-          coverUrl={coverUrl}
-          status={selectedVideo ? (videoError ? 'Playback failed' : 'External player required') : isLoading ? 'Loading MV' : 'MV unavailable'}
-          title={selectedVideo?.title ?? title}
+          coverUrl={streamingMvItem?.thumbnailUrl ?? coverUrl}
+          status={
+            isMvEnabled
+              ? selectedVideo
+                ? videoError
+                  ? 'Playback failed'
+                  : 'External player required'
+                : isLoading || isStreamingMvLoading
+                  ? 'Loading MV'
+                  : streamingMvItem
+                    ? 'MV available'
+                    : 'MV unavailable'
+              : 'MV disabled'
+          }
+          title={streamingMvItem?.title ?? selectedVideo?.title ?? title}
         />
       )}
 

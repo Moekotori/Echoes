@@ -37,6 +37,12 @@ export type RemoteStreamInput = RemoteAdapterInput & {
   expiresInSeconds?: number;
 };
 
+export type RemoteProxyRequest = {
+  url?: string;
+  filePath?: string;
+  headers?: Record<string, string>;
+};
+
 export type RemoteScanInput = RemoteAdapterInput & {
   rootPath?: string | null;
   onProgress?: (item: RemoteDirectoryItem) => void;
@@ -56,5 +62,6 @@ export interface RemoteSourceAdapter {
   scan(input: RemoteScanInput): AsyncGenerator<RemoteScanItem>;
   readMetadata(input: RemoteReadMetadataInput): Promise<RemoteMetadataResult>;
   readCover?(input: RemoteReadCoverInput): Promise<RemoteCoverResult>;
+  createProxyRequest?(input: RemoteStreamInput): Promise<RemoteProxyRequest> | RemoteProxyRequest;
   createStreamUrl(input: RemoteStreamInput): Promise<RemoteStreamUrlResult>;
 }

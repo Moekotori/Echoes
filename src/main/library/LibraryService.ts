@@ -452,12 +452,18 @@ export class LibraryService {
         const entry = this.store.createPlaybackHistoryEntry({
           trackId: request.trackId ?? null,
           trackPath: request.trackPath,
+          mediaType: request.mediaType ?? 'local',
+          provider: request.provider,
+          providerTrackId: request.providerTrackId,
+          stableKey: request.stableKey,
           title: request.title,
           artist: request.artist,
           album: request.album ?? '',
           albumArtist: request.albumArtist ?? request.artist,
           coverId: request.coverId ?? null,
+          coverSnapshot: request.mediaType === 'streaming' ? request.coverSnapshot ?? null : null,
           durationSeconds: request.durationSeconds ?? 0,
+          durationSnapshot: request.durationSeconds ?? null,
           sourceType: request.sourceType ?? request.mediaType ?? null,
           sourceLabel: request.sourceLabel,
           queueId: request.queueId,
@@ -469,6 +475,9 @@ export class LibraryService {
       const entry = this.store.createPlaybackHistoryEntry({
         trackId: remoteTrack.id,
         trackPath: remoteTrack.path,
+        mediaType: 'remote',
+        provider: remoteTrack.provider,
+        stableKey: remoteTrack.stableKey,
         title: remoteTrack.title,
         artist: remoteTrack.artist,
         album: remoteTrack.album,
@@ -490,6 +499,10 @@ export class LibraryService {
     const entry = this.store.createPlaybackHistoryEntry({
       trackId: track.id,
       trackPath: track.path,
+      mediaType: track.mediaType ?? 'local',
+      provider: track.provider,
+      providerTrackId: track.providerTrackId,
+      stableKey: track.stableKey,
       title: track.title,
       artist: track.artist,
       album: track.album,
@@ -507,6 +520,7 @@ export class LibraryService {
   finishPlaybackHistory(request: FinishPlaybackHistoryRequest): PlaybackHistoryEntry | null {
     return this.store.finishPlaybackHistoryEntry(request.historyId, {
       playedSeconds: request.playedSeconds,
+      durationSeconds: request.durationSeconds,
       completed: request.completed,
       endedAt: request.endedAt,
     });

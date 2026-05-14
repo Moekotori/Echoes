@@ -27,6 +27,11 @@ type LyricsSettingsDrawerProps = {
   onClose: () => void;
 };
 
+type LyricsSettingsPanelProps = {
+  className?: string;
+  variant?: 'drawer' | 'settings';
+};
+
 const drawerExitAnimationMs = 320;
 
 type LyricsDrawerSettings = Pick<
@@ -48,6 +53,7 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsTranslationEnabled'
   | 'lyricsFontSizePx'
   | 'lyricsSecondaryFontSizePx'
+  | 'lyricsContextOpacityPercent'
   | 'lyricsColor'
   | 'lyricsBackgroundMode'
   | 'lyricsCustomWallpaperPath'
@@ -75,6 +81,7 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsTranslationEnabled: true,
   lyricsFontSizePx: 36,
   lyricsSecondaryFontSizePx: 18,
+  lyricsContextOpacityPercent: 38,
   lyricsColor: '#314054',
   lyricsBackgroundMode: 'theme',
   lyricsCustomWallpaperPath: null,
@@ -169,6 +176,7 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsTranslationEnabled: settings.lyricsTranslationEnabled,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsSecondaryFontSizePx: settings.lyricsSecondaryFontSizePx ?? fallbackSettings.lyricsSecondaryFontSizePx,
+  lyricsContextOpacityPercent: settings.lyricsContextOpacityPercent ?? fallbackSettings.lyricsContextOpacityPercent,
   lyricsColor: settings.lyricsColor,
   lyricsBackgroundMode: settings.lyricsBackgroundMode,
   lyricsCustomWallpaperPath: settings.lyricsCustomWallpaperPath,
@@ -178,10 +186,8 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsBackgroundScalePercent: settings.lyricsBackgroundScalePercent,
 });
 
-export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerProps): JSX.Element | null => {
+export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSettingsPanelProps): JSX.Element => {
   const [settings, setSettings] = useState<LyricsDrawerSettings | null>(null);
-  const [shouldRender, setShouldRender] = useState(isOpen);
-  const [isMotionOpen, setIsMotionOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [currentLyricsProviderLabel, setCurrentLyricsProviderLabel] = useState(providerLabelFor(null));
@@ -199,6 +205,9 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
   const pendingDebouncedSettingsRef = useRef<Partial<AppSettings>>({});
 
   const effectiveSettings = settings ?? fallbackSettings;
+  // Settings embeds only persistent toggles; drawer-only tools such as search, rematch, and visual tuning stay in the drawer.
+  const showFullControls = variant === 'drawer';
+  const lyricsContextOpacityPercent = effectiveSettings.lyricsContextOpacityPercent ?? fallbackSettings.lyricsContextOpacityPercent;
   const enabledProviderSet = new Set(effectiveSettings.lyricsEnabledProviders ?? defaultLyricsEnabledProviders);
   const orderedLyricsSourceOptions = useMemo(() => {
     const orderedIds = [
@@ -593,38 +602,10 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
   );
 
   useEffect(() => {
-    if (isOpen) {
-      setShouldRender(true);
-      let secondFrame = 0;
-      const firstFrame = window.requestAnimationFrame(() => {
-        secondFrame = window.requestAnimationFrame(() => setIsMotionOpen(true));
-      });
-      return () => {
-        window.cancelAnimationFrame(firstFrame);
-        window.cancelAnimationFrame(secondFrame);
-      };
-    }
-
-    setIsMotionOpen(false);
-    if (!shouldRender) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => setShouldRender(false), drawerExitAnimationMs);
-    return () => window.clearTimeout(timer);
-  }, [isOpen, shouldRender]);
+    void refreshDrawerSummary();
+  }, [refreshDrawerSummary]);
 
   useEffect(() => {
-    if (isOpen) {
-      void refreshDrawerSummary();
-    }
-  }, [isOpen, refreshDrawerSummary]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
     const handleCurrentLyricsProviderChanged = (event: Event): void => {
       const provider = (event as CustomEvent<{ provider?: LyricsSource | null }>).detail?.provider;
       setCurrentLyricsProviderLabel(providerLabelFor(provider));
@@ -632,42 +613,11 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
 
     window.addEventListener('lyrics:current-provider-changed', handleCurrentLyricsProviderChanged);
     return () => window.removeEventListener('lyrics:current-provider-changed', handleCurrentLyricsProviderChanged);
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.stopImmediatePropagation();
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!shouldRender) {
-    return null;
-  }
+  }, []);
 
   return (
-    <div className="audio-drawer-root lyrics-settings-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
-      <button className="audio-drawer-scrim" type="button" aria-label="关闭歌词设置" onClick={onClose} />
-      <aside className="audio-drawer lyrics-settings-drawer" aria-label="歌词设置">
-        <header className="audio-drawer-header">
-          <div>
-            <SlidersHorizontal size={18} />
-            <h2>歌词设置</h2>
-          </div>
-          <button className="audio-drawer-close" type="button" aria-label="关闭歌词设置" title="关闭歌词设置" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </header>
-
+    <div className={`lyrics-settings-panel ${className ?? ''}`.trim()}>
+      {showFullControls ? (
         <button className="audio-engine-meter lyrics-engine-meter" type="button" disabled={isBusy} onClick={() => void refreshDrawerSummary()}>
           <div className="audio-engine-meter__top">
             <span className="audio-engine-meter__icon">
@@ -694,7 +644,9 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             </span>
           </div>
         </button>
+      ) : null}
 
+      {showFullControls ? (
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
             <Search size={17} />
@@ -805,6 +757,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             <em>Match</em>
           </button>
         </section>
+      ) : null}
 
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
@@ -826,6 +779,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           </label>
           <p>关闭后歌词页不会加载、搜索或匹配歌词。</p>
 
+          {showFullControls ? (
           <label className="mv-threshold-control lyrics-match-threshold-control">
             <span className="mv-threshold-copy">
               <strong>歌词匹配度设置</strong>
@@ -845,6 +799,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
               <strong>{thresholdPercent}%</strong>
             </span>
           </label>
+          ) : null}
 
           <label className="audio-toggle-row">
             <span>
@@ -915,7 +870,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           </label>
           <p>优先显示歌词源提供的中文翻译；没有翻译时不显示额外文本。</p>
 
-          {isSecondaryLyricsSizeOpen ? (
+          {showFullControls && isSecondaryLyricsSizeOpen ? (
             <label className="lyrics-drawer-range lyrics-secondary-size-range">
               <span>
                 <strong>
@@ -935,6 +890,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             </label>
           ) : null}
 
+          {showFullControls ? (
           <label className="lyrics-drawer-range">
             <span>
               <strong>
@@ -952,7 +908,29 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
               onChange={(event) => void patchSettings({ lyricsFontSizePx: Number(event.currentTarget.value) })}
             />
           </label>
+          ) : null}
 
+          {showFullControls ? (
+          <label className="lyrics-drawer-range">
+            <span>
+              <strong>
+                <EyeOff size={15} />
+                上下文透明度
+              </strong>
+              <em>{lyricsContextOpacityPercent}%</em>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={lyricsContextOpacityPercent}
+              onChange={(event) => patchSettingsDebounced({ lyricsContextOpacityPercent: Number(event.currentTarget.value) })}
+            />
+          </label>
+          ) : null}
+
+          {showFullControls ? (
           <div className="lyrics-color-panel">
             <div className="lyrics-color-panel__header">
               <span>
@@ -995,8 +973,10 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
               </button>
             </div>
           </div>
+          ) : null}
         </section>
 
+        {showFullControls ? (
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
             <ImageIcon size={17} />
@@ -1130,6 +1110,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           ) : null}
           </div>
         </section>
+        ) : null}
 
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
@@ -1165,6 +1146,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           </label>
           <p>开启后多个在线平台会并发搜索，并按下方优先级与匹配分数返回最快的最优解。</p>
 
+          {showFullControls ? (
           <div className="lyrics-source-panel">
             <span>
               <Globe2 size={15} />
@@ -1228,6 +1210,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             </div>
             <p>本地歌词会一直优先；未勾选的在线源不会参与自动匹配或重新匹配。</p>
           </div>
+          ) : null}
 
           <label className="audio-toggle-row">
             <span>
@@ -1244,6 +1227,7 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           <p>本地歌词始终优先；在线结果达到阈值才会自动应用。</p>
         </section>
 
+        {showFullControls ? (
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
             <TimerReset size={17} />
@@ -1295,8 +1279,73 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
             <em>Reset</em>
           </button>
         </section>
+        ) : null}
 
         {error ? <p className="audio-drawer-error">{error}</p> : null}
+    </div>
+  );
+};
+
+export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerProps): JSX.Element | null => {
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isMotionOpen, setIsMotionOpen] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      let secondFrame = 0;
+      const firstFrame = window.requestAnimationFrame(() => {
+        secondFrame = window.requestAnimationFrame(() => setIsMotionOpen(true));
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrame);
+        window.cancelAnimationFrame(secondFrame);
+      };
+    }
+
+    setIsMotionOpen(false);
+    if (!shouldRender) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setShouldRender(false), drawerExitAnimationMs);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, shouldRender]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopImmediatePropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!shouldRender) {
+    return null;
+  }
+
+  return (
+    <div className="audio-drawer-root lyrics-settings-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
+      <button className="audio-drawer-scrim" type="button" aria-label="关闭歌词设置" onClick={onClose} />
+      <aside className="audio-drawer lyrics-settings-drawer" aria-label="歌词设置">
+        <header className="audio-drawer-header">
+          <div>
+            <SlidersHorizontal size={18} />
+            <h2>歌词设置</h2>
+          </div>
+          <button className="audio-drawer-close" type="button" aria-label="关闭歌词设置" title="关闭歌词设置" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </header>
+        <LyricsSettingsPanel />
       </aside>
     </div>
   );

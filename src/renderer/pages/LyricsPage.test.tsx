@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -98,6 +99,12 @@ const makeAppSettings = (
   artistWallAlbumArtwork: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
+  appCustomWallpaperPath: null,
+  appWallpaperScalePercent: 100,
+  appWallpaperBlurPx: 0,
+  appWallpaperBrightnessPercent: 100,
+  appWallpaperUiOpacityPercent: 100,
+  appWallpaperUnifiedOpacityEnabled: false,
   networkMetadataEnabled: false,
   networkMetadataProviders: ["netease-cloud-music", "qq-music"],
   lyricsNetworkEnabled: true,
@@ -359,6 +366,15 @@ afterEach(() => {
 });
 
 describe("LyricsPage", () => {
+  it("keeps MV immersive lyrics color driven by the lyrics color variable", () => {
+    const css = readFileSync("src/renderer/styles/lyrics.css", "utf8");
+
+    expect(css).toContain(".lyrics-page:has(.lyrics-mv-background) .lyrics-line {\n  color: var(--lyrics-color);");
+    expect(css).toContain('.lyrics-page:has(.lyrics-mv-background) .lyrics-line[data-active="true"] {\n  color: var(--lyrics-color);');
+    expect(css).toContain('.lyrics-page:has(.lyrics-mv-background[data-lyrics-readability="true"]) .lyrics-line span');
+    expect(css).not.toMatch(/\.lyrics-page:has\(\.lyrics-mv-background\) \.lyrics-line(?:\[data-active="true"\])? \{\s*color: #fff;/);
+  });
+
   it("shows current song information when a track is playing", async () => {
     const track = makeTrack();
     mockEcho(track);
@@ -1103,6 +1119,7 @@ describe("LyricsPage", () => {
       lyricsCoverBrightnessPercent: 120,
       lyricsBackgroundScalePercent: 132,
       lyricsSecondaryFontSizePx: 24,
+      lyricsContextOpacityPercent: 64,
     });
 
     const { container } = render(
@@ -1134,6 +1151,9 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-secondary-font-size")).toBe(
       "24px",
     );
+    expect(page.style.getPropertyValue("--lyrics-context-opacity")).toBe(
+      "0.64",
+    );
   });
 
   it("applies lyrics display settings from settings change events immediately", async () => {
@@ -1162,6 +1182,7 @@ describe("LyricsPage", () => {
           lyricsCoverBrightnessPercent: 72,
           lyricsBackgroundScalePercent: 86,
           lyricsSecondaryFontSizePx: 22,
+          lyricsContextOpacityPercent: 24,
         },
       }),
     );
@@ -1181,6 +1202,9 @@ describe("LyricsPage", () => {
     );
     expect(page.style.getPropertyValue("--lyrics-secondary-font-size")).toBe(
       "22px",
+    );
+    expect(page.style.getPropertyValue("--lyrics-context-opacity")).toBe(
+      "0.24",
     );
   });
 

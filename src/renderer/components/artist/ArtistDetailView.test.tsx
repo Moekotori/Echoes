@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ArtistDetailView } from './ArtistDetailView';
-import type { LibraryArtist, LibraryTrack } from '../../../shared/types/library';
+import type { LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 
 const queueMock = {
   appendToQueue: vi.fn(),
@@ -20,8 +20,40 @@ vi.mock('../../stores/PlaybackQueueProvider', () => ({
   usePlaybackQueue: () => queueMock,
 }));
 
+vi.mock('../album/AlbumDetailView', () => ({
+  AlbumDetailView: ({ album, onBack }: { album: LibraryAlbum; onBack: () => void }) => (
+    <section>
+      <h1>Album detail: {album.title}</h1>
+      <button type="button" onClick={onBack}>
+        Back to artist
+      </button>
+    </section>
+  ),
+}));
+
 vi.mock('./ArtistAlbumGrid', () => ({
-  ArtistAlbumGrid: () => <section aria-label="mock albums">Mock albums</section>,
+  ArtistAlbumGrid: ({ onAlbumSelect }: { onAlbumSelect: (album: LibraryAlbum) => void }) => (
+    <section aria-label="mock albums">
+      <button
+        type="button"
+        onClick={() =>
+          onAlbumSelect({
+            id: 'album-1',
+            albumKey: 'echo/unit',
+            title: 'Mock Album',
+            albumArtist: 'Echo Unit',
+            year: 2026,
+            trackCount: 2,
+            duration: 360,
+            coverId: null,
+            coverThumb: null,
+          })
+        }
+      >
+        Open mock album
+      </button>
+    </section>
+  ),
 }));
 
 vi.mock('./ArtistTrackList', async () => {
@@ -134,5 +166,25 @@ describe('ArtistDetailView', () => {
     expect(queueMock.playTrack).toHaveBeenCalledWith(first, {
       source: { type: 'artist', label: 'Echo Unit', artistId: 'artist-1' },
     });
+  });
+
+  it('restores the page surface scroll position after returning from an artist album', async () => {
+    installLibrary();
+
+    const { container } = render(
+      <main className="page-surface">
+        <ArtistDetailView artist={artist()} onBack={vi.fn()} />
+      </main>,
+    );
+    const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    pageSurface.scrollTop = 480;
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open mock album' }));
+    expect(screen.getByText('Album detail: Mock Album')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to artist' }));
+
+    expect(pageSurface.scrollTop).toBe(480);
+    expect(screen.getByRole('button', { name: 'Open mock album' })).toBeTruthy();
   });
 });

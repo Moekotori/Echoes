@@ -105,6 +105,12 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppChooseLyricsWallpaper);
   });
 
+  it('exposes app wallpaper picker through IPC', async () => {
+    await exposedApi!.app.chooseAppWallpaper();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppChooseAppWallpaper);
+  });
+
   it('exposes duplicate track APIs through IPC', async () => {
     await exposedApi!.library.refreshDuplicateTracks('strict');
     await exposedApi!.library.getDuplicateTrackVersions('track-1');

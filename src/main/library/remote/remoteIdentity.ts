@@ -42,6 +42,23 @@ export const stableKeyForWebDav = (input: {
     ].join('|'),
   );
 
+export const stableKeyForFileSystem = (input: {
+  provider: 'smb' | 'sshfs';
+  sourceId: string;
+  remotePath: string;
+  sizeBytes?: number | null;
+  modifiedAt?: string | null;
+}): string =>
+  sha1Hex(
+    [
+      input.provider,
+      input.sourceId,
+      normalizeRemotePath(input.remotePath).toLocaleLowerCase(),
+      String(input.sizeBytes ?? ''),
+      input.modifiedAt ?? '',
+    ].join('|'),
+  );
+
 const safeDecodeURIComponent = (value: string): string => {
   try {
     return decodeURIComponent(value);

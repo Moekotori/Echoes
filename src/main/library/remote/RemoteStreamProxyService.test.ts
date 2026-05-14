@@ -82,7 +82,8 @@ describe('RemoteStreamProxyService', () => {
       writeAudio(request, response);
     });
     backendPort = await listen(backend);
-    proxy = new RemoteStreamProxyService(new WebDavRemoteSourceAdapter());
+    const adapter = new WebDavRemoteSourceAdapter();
+    proxy = new RemoteStreamProxyService(() => adapter);
   });
 
   afterEach(async () => {

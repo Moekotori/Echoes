@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Disc3 } from 'lucide-react';
 import type { LibraryAlbum, LibraryPage } from '../../../shared/types/library';
+import { InfiniteScrollSentinel } from '../ui/InfiniteScrollSentinel';
+import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../ui/MediaWallScrollSpacer';
 
 type ArtistAlbumGridProps = {
   artistId: string;
@@ -21,6 +23,14 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
   const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const { wallRef: albumWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLDivElement>({
+    itemCount: albums.length,
+    totalCount: total,
+    minColumnWidth: 144,
+    columnGap: 14,
+    rowGap: 14,
+    estimatedItemHeight: 214,
+  });
 
   const loadAlbums = useCallback(
     async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
@@ -140,7 +150,7 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
         <small>{albums.length === total ? `${total} albums` : `${albums.length} of ${total} albums`}</small>
       </header>
 
-      <div className="artist-album-strip">
+      <div className="artist-album-strip" ref={albumWallRef}>
         {albums.map((album) => {
           const shouldShowCover = Boolean(album.coverThumb && failedCoverUrls[album.id] !== album.coverThumb);
 
@@ -178,11 +188,8 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
         })}
       </div>
 
-      {hasMore ? (
-        <button className="artist-load-more" type="button" disabled={isLoading} onClick={handleLoadMore}>
-          {isLoading ? 'Loading...' : 'Load more albums'}
-        </button>
-      ) : null}
+      <InfiniteScrollSentinel canLoadMore={hasMore} isLoading={isLoading} onLoadMore={handleLoadMore} />
+      <MediaWallScrollSpacer height={spacerHeight} />
       {error ? <p className="artist-detail-error">{error}</p> : null}
     </section>
   );

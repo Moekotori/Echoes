@@ -128,7 +128,7 @@ export class RemoteLibrarySyncService {
           continue;
         }
 
-        const metadata = this.createLayeredIndexMetadata(item.name);
+        const metadata = item.metadata ?? this.createLayeredIndexMetadata(item.name);
         this.patchStatus(sourceId, { parsedCount: this.getSyncStatus(sourceId).parsedCount + 1 });
         batch.push({
           id: remoteTrackIdFor(sourceId, item.stableKey),

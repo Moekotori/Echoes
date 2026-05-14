@@ -97,4 +97,28 @@ describe('ArtistTrackList', () => {
     fireEvent.click(secondMenuItems[2]);
     expect(onAppendToQueue).toHaveBeenCalledWith(expect.objectContaining({ id: 'track-1' }));
   });
+
+  it('uses the artist track total for virtual height before every row is loaded', async () => {
+    installLibrary(vi.fn().mockResolvedValue(page([track()], { total: 80, hasMore: false })));
+
+    const { container } = render(
+      <main className="page-surface">
+        <ArtistTrackList
+          artistId="artist-1"
+          artistName="Archouchou"
+          currentTrackId={null}
+          onAppendToQueue={vi.fn()}
+          onOpenAlbum={vi.fn()}
+          onPlayNext={vi.fn()}
+          onPlayTrack={vi.fn()}
+        />
+      </main>,
+    );
+
+    await screen.findByRole('listitem');
+    const list = screen.getByRole('list');
+    expect(list.getAttribute('data-total-count')).toBe('80');
+    expect(list.getAttribute('data-loaded-count')).toBe('1');
+    expect((container.querySelector('.artist-track-virtual-spacer') as HTMLElement).style.height).toBe('6400px');
+  });
 });

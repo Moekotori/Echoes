@@ -17,6 +17,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../app/appSettings', () => ({
   getAppSettings: getAppSettingsMock,
+  getAppWallpaperDirectory: () => wallpaperDirectory,
   getLyricsWallpaperDirectory: () => wallpaperDirectory,
 }));
 
@@ -73,6 +74,18 @@ describe('echo-wallpaper protocol', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toBe('image/png');
     expect(await response.text()).toBe('wallpaper');
+  });
+
+  it('serves the configured app wallpaper from the app wallpaper directory', async () => {
+    const wallpaperPath = join(wallpaperDirectory, 'app-wallpaper.webp');
+    writeFileSync(wallpaperPath, 'app-wallpaper');
+    getAppSettingsMock.mockReturnValue({ appCustomWallpaperPath: wallpaperPath });
+
+    const response = await getWallpaperHandler()(new Request('echo-wallpaper://app/custom'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/webp');
+    expect(await response.text()).toBe('app-wallpaper');
   });
 
   it('does not serve wallpaper paths outside the app wallpaper directory', async () => {
