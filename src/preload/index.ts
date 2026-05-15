@@ -158,6 +158,7 @@ const echoApi: EchoApi = {
     playLocalFile: (request) => ipcRenderer.invoke(IpcChannels.PlaybackPlayLocalFile, request),
     playMediaItem: (request) => ipcRenderer.invoke(IpcChannels.PlaybackPlayMediaItem, request),
     prepareMediaItem: (request) => ipcRenderer.invoke(IpcChannels.PlaybackPrepareMediaItem, request),
+    prepareLocalFile: (request) => ipcRenderer.invoke(IpcChannels.PlaybackPrepareLocalFile, request),
     play: () => ipcRenderer.invoke(IpcChannels.PlaybackPlay),
     pause: () => ipcRenderer.invoke(IpcChannels.PlaybackPause),
     stop: () => ipcRenderer.invoke(IpcChannels.PlaybackStop),

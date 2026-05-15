@@ -29,5 +29,8 @@ rates separate:
 - `sampleRateMismatch`
 
 Exclusive and ASIO playback default `requestedOutputSampleRate` to the source
-file rate. Shared mode may use the shared device rate or an explicit request,
-but the status must still expose any difference from the source file rate.
+file rate. Shared mode uses a fixed mix-rate policy for transition stability:
+explicit request, selected shared mix rate, current ready device rate, then
+48 kHz fallback. Shared mode must not fall back to the source file rate, and
+`decoderOutputSampleRate` should match the requested shared mix rate so track
+sample-rate changes do not recreate the resident host.

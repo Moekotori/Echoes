@@ -415,6 +415,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const playRequestTokenRef = useRef(0);
   const playbackStatusTokensRef = useRef<WeakMap<PlaybackStatus, number>>(new WeakMap());
   const playbackStatusPreviousItemRef = useRef<WeakMap<PlaybackStatus, QueueItem | null>>(new WeakMap());
+  const cancelLocalPrepareRef = useRef<(() => void) | null>(null);
 
   const setItems = useCallback((nextItems: QueueItem[] | ((current: QueueItem[]) => QueueItem[])): void => {
     const resolved = typeof nextItems === 'function' ? nextItems(itemsRef.current) : nextItems;
@@ -648,6 +649,11 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     };
   }, [finishPlaybackHistorySession]);
 
+  useEffect(() => () => {
+    cancelLocalPrepareRef.current?.();
+    cancelLocalPrepareRef.current = null;
+  }, []);
+
   const playLocalTrack = useCallback(async (item: QueueItem): Promise<PlaybackStatus> => {
     const playback = window.echo?.playback;
     const track = item.track;
@@ -711,18 +717,49 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
   const prepareNextMediaItem = useCallback((item: QueueItem): void => {
     const playback = window.echo?.playback;
-    if (!playback?.prepareMediaItem) {
+    cancelLocalPrepareRef.current?.();
+    cancelLocalPrepareRef.current = null;
+
+    if (!playback?.prepareMediaItem && !playback?.prepareLocalFile) {
       return;
     }
 
     const current = itemsRef.current;
     const index = current.findIndex((candidate) => candidate.queueId === item.queueId);
     const next = index >= 0 && index < current.length - 1 ? current[index + 1] : null;
-    if (!next || (next.track.mediaType !== 'remote' && next.track.mediaType !== 'streaming')) {
+    if (!next) {
       return;
     }
 
-    void playback.prepareMediaItem({ item: toPlayableTrack(next.track) }).catch(() => undefined);
+    if (next.track.mediaType === 'remote' || next.track.mediaType === 'streaming') {
+      if (playback.prepareMediaItem) {
+        void playback.prepareMediaItem({ item: toPlayableTrack(next.track) }).catch(() => undefined);
+      }
+      return;
+    }
+
+    if (!playback.prepareLocalFile) {
+      return;
+    }
+
+    const expectedCurrentQueueId = item.queueId;
+    const expectedNextQueueId = next.queueId;
+    cancelLocalPrepareRef.current = deferQueueBackgroundTask(() => {
+      const latestItems = itemsRef.current;
+      const latestIndex = latestItems.findIndex((candidate) => candidate.queueId === expectedCurrentQueueId);
+      const stillCurrent = currentQueueIdRef.current === expectedCurrentQueueId;
+      const stillNext = latestIndex >= 0 && latestItems[latestIndex + 1]?.queueId === expectedNextQueueId;
+
+      if (!stillCurrent || !stillNext) {
+        return;
+      }
+
+      void playback.prepareLocalFile({
+        filePath: next.track.path,
+        trackId: next.track.id,
+        probe: createProbeFromTrack(next.track),
+      }).catch(() => undefined);
+    });
   }, []);
 
   const commitPlayedItem = useCallback(

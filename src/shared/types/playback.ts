@@ -27,6 +27,12 @@ export type PlaybackStartRequest = {
   probe?: PlaybackProbeHint;
 };
 
+export type PlaybackPrepareLocalFileRequest = {
+  filePath: string;
+  trackId?: string;
+  probe?: PlaybackProbeHint;
+};
+
 export type PlaybackMediaStartRequest = {
   item: PlayableTrack;
   startSeconds?: number;

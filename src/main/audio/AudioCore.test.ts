@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ChildProcessWithoutNullStreams, execFileSync as nodeExecFileSync } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams, execFile as nodeExecFile, execFileSync as nodeExecFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
@@ -184,11 +184,27 @@ class FakeBridge extends EventEmitter {
   }
 
   canReuseFor(options: NativeOutputStartOptions): boolean {
+    const normalizeSampleRate = (value: unknown): number | null => {
+      const numeric = Number(value);
+
+      return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+    };
+    const outputMode = options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
+    const startOutputMode = this.startOptions?.asio ? 'asio' : this.startOptions?.exclusive ? 'exclusive' : 'shared';
+    const sampleRate =
+      outputMode === 'shared'
+        ? normalizeSampleRate(options.sharedMixSampleRate) ?? normalizeSampleRate(options.requestedOutputSampleRate)
+        : normalizeSampleRate(options.requestedOutputSampleRate);
+    const startSampleRate =
+      startOutputMode === 'shared'
+        ? normalizeSampleRate(this.startOptions?.sharedMixSampleRate) ?? normalizeSampleRate(this.startOptions?.requestedOutputSampleRate)
+        : normalizeSampleRate(this.startOptions?.requestedOutputSampleRate);
+
     return JSON.stringify({
-      outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
+      outputMode,
       deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
       deviceName: options.deviceName ?? null,
-      requestedOutputSampleRate: options.asio || options.exclusive ? null : options.requestedOutputSampleRate,
+      sampleRate,
       channels: options.channels,
       asio: options.asio === true,
       exclusive: options.exclusive === true,
@@ -196,10 +212,10 @@ class FakeBridge extends EventEmitter {
       latencyProfile: options.latencyProfile ?? null,
       playbackSpeedMode: options.playbackSpeedMode ?? null,
     }) === JSON.stringify({
-      outputMode: this.startOptions?.asio ? 'asio' : this.startOptions?.exclusive ? 'exclusive' : 'shared',
+      outputMode: startOutputMode,
       deviceIndex: Number.isInteger(Number(this.startOptions?.deviceIndex)) ? Number(this.startOptions?.deviceIndex) : null,
       deviceName: this.startOptions?.deviceName ?? null,
-      requestedOutputSampleRate: this.startOptions?.asio || this.startOptions?.exclusive ? null : this.startOptions?.requestedOutputSampleRate,
+      sampleRate: startSampleRate,
       channels: this.startOptions?.channels,
       asio: this.startOptions?.asio === true,
       exclusive: this.startOptions?.exclusive === true,
@@ -491,41 +507,38 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].startOptions?.requestedOutputSampleRate).toBe(96000);
   });
 
-  it('switching 48k to 44.1k exclusive keeps the resident bridge and resamples to the open device rate', async () => {
+  it('switching 48k to 44.1k exclusive reopens at the source rate', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
 
     await session.playLocalFile({ filePath: '48.flac', output: { outputMode: 'exclusive' } });
     const status = await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges).toHaveLength(1);
-    expect(bridges[0].stop).not.toHaveBeenCalled();
-    expect(bridges[0].sessionBegins).toBe(2);
-    expect(status.requestedOutputSampleRate).toBe(48000);
-    expect(status.actualDeviceSampleRate).toBe(48000);
-    expect(status.decoderOutputSampleRate).toBe(48000);
-    expect(status.resampling).toBe(true);
-    expect(status.bitPerfectCandidate).toBe(false);
-    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(status.requestedOutputSampleRate).toBe(44100);
+    expect(status.actualDeviceSampleRate).toBe(44100);
+    expect(status.decoderOutputSampleRate).toBe(44100);
+    expect(status.resampling).toBe(false);
+    expect(status.bitPerfectCandidate).toBe(true);
     expect(decoder.decodeRequests.at(-1)).toMatchObject({
       filePath: '441.flac',
-      decoderOutputSampleRate: 48000,
+      decoderOutputSampleRate: 44100,
     });
   });
 
-  it('switching 44.1k to 96k exclusive keeps the resident bridge and resamples to 44100', async () => {
+  it('switching 44.1k to 96k exclusive reopens at 96000', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100), probe('96.flac', 96000)]);
 
     await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
     const status = await session.playLocalFile({ filePath: '96.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges).toHaveLength(1);
-    expect(bridges[0].stop).not.toHaveBeenCalled();
-    expect(status.requestedOutputSampleRate).toBe(44100);
-    expect(status.decoderOutputSampleRate).toBe(44100);
-    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(status.requestedOutputSampleRate).toBe(96000);
+    expect(status.decoderOutputSampleRate).toBe(96000);
     expect(decoder.decodeRequests.at(-1)).toMatchObject({
       filePath: '96.flac',
-      decoderOutputSampleRate: 44100,
+      decoderOutputSampleRate: 96000,
     });
   });
 
@@ -541,14 +554,192 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.decodeRequests.map((request) => request.filePath)).toEqual(['first.flac', 'second.flac']);
   });
 
-  it('reuses exclusive output across sample-rate changes', async () => {
+  it('reuses shared output across source sample-rate changes at the fixed mix rate', async () => {
+    const { bridges, decoder, session } = createSessionHarness([
+      probe('441.flac', 44100),
+      probe('48.flac', 48000),
+      probe('96.flac', 96000),
+    ], [48000]);
+
+    await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'shared' } });
+    await session.playLocalFile({ filePath: '48.flac', output: { outputMode: 'shared' } });
+    const status = await session.playLocalFile({ filePath: '96.flac', output: { outputMode: 'shared' } });
+
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].sessionBegins).toBe(3);
+    expect(status.requestedOutputSampleRate).toBe(48000);
+    expect(status.decoderOutputSampleRate).toBe(48000);
+    expect(decoder.decodeRequests.map((request) => request.decoderOutputSampleRate)).toEqual([48000, 48000, 48000]);
+  });
+
+  it('logs shared transition diagnostics with host reuse state', async () => {
+    const logs: string[] = [];
+    const { bridges, session } = createSessionHarness(
+      [probe('441.flac', 44100), probe('96.flac', 96000)],
+      [48000],
+      [],
+      { logger: (message) => logs.push(message) },
+    );
+
+    await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'shared' } });
+    await session.playLocalFile({ filePath: '96.flac', output: { outputMode: 'shared' } });
+
+    const transitions = logs
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry) => entry?.event === 'audio_transition');
+
+    expect(bridges).toHaveLength(1);
+    expect(transitions).toHaveLength(2);
+    expect(transitions[0]).toMatchObject({
+      outputMode: 'shared',
+      sourceSampleRate: 44100,
+      sharedMixRate: 48000,
+      decoderOutputRate: 48000,
+      hostReused: false,
+      hostRestartReason: 'initial_start',
+    });
+    expect(transitions[1]).toMatchObject({
+      outputMode: 'shared',
+      sourceSampleRate: 96000,
+      sharedMixRate: 48000,
+      decoderOutputRate: 48000,
+      hostReused: true,
+      hostRestartReason: null,
+    });
+  });
+
+  it('prepareLocalFile caches a complete provided probe without probing the file', async () => {
+    const completeProbe = {
+      durationSeconds: 120,
+      fileSampleRate: 44100,
+      channels: 2,
+      codec: 'flac',
+      bitDepth: 16,
+      bitrate: 900000,
+    };
+    const { decoder, session } = createSessionHarness([probe('prepared.flac', 44100)]);
+
+    await session.prepareLocalFile({ filePath: 'prepared.flac', trackId: 'prepared', probe: completeProbe });
+
+    expect(decoder.probeRequests).toEqual([]);
+  });
+
+  it('prepareLocalFile probes and caches when the provided probe is incomplete', async () => {
+    const { decoder, session } = createSessionHarness([probe('incomplete.flac', 96000)]);
+
+    await session.prepareLocalFile({
+      filePath: 'incomplete.flac',
+      trackId: 'incomplete',
+      probe: { durationSeconds: 120 },
+    });
+    await session.playLocalFile({ filePath: 'incomplete.flac', trackId: 'incomplete' });
+
+    expect(decoder.probeRequests).toEqual(['incomplete.flac']);
+    expect(decoder.decodeRequests[0]).toMatchObject({
+      filePath: 'incomplete.flac',
+      decoderOutputSampleRate: 48000,
+    });
+  });
+
+  it('playLocalFile uses a fresh prepared local probe and reports it in transition diagnostics', async () => {
+    let now = 1_000;
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const logs: string[] = [];
+    const completeProbe = {
+      durationSeconds: 120,
+      fileSampleRate: 44100,
+      channels: 2,
+      codec: 'flac',
+      bitDepth: 16,
+      bitrate: 900000,
+    };
+    const { decoder, session } = createSessionHarness([probe('prepared-play.flac', 44100)], [48000], [], {
+      logger: (message) => logs.push(message),
+    });
+
+    await session.prepareLocalFile({ filePath: 'prepared-play.flac', trackId: 'prepared-play', probe: completeProbe });
+    now += 750;
+    await session.playLocalFile({ filePath: 'prepared-play.flac', trackId: 'prepared-play' });
+    dateNow.mockRestore();
+
+    const transitions = logs
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry) => entry?.event === 'audio_transition');
+
+    expect(decoder.probeRequests).toEqual([]);
+    expect(transitions.at(-1)).toMatchObject({
+      preparedLocalProbeUsed: true,
+      preparedLocalProbeAgeMs: 750,
+    });
+  });
+
+  it('playLocalFile falls back to probing when the local prepare cache is missing', async () => {
+    const { decoder, session } = createSessionHarness([probe('miss.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'miss.flac', trackId: 'miss' });
+
+    expect(decoder.probeRequests).toEqual(['miss.flac']);
+  });
+
+  it('expires prepared local probes after the short TTL', async () => {
+    let now = 1_000;
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const completeProbe = {
+      durationSeconds: 120,
+      fileSampleRate: 44100,
+      channels: 2,
+      codec: 'flac',
+      bitDepth: 16,
+      bitrate: 900000,
+    };
+    const { decoder, session } = createSessionHarness([probe('expired.flac', 44100)]);
+
+    await session.prepareLocalFile({ filePath: 'expired.flac', trackId: 'expired', probe: completeProbe });
+    now += 121_000;
+    await session.playLocalFile({ filePath: 'expired.flac', trackId: 'expired' });
+    dateNow.mockRestore();
+
+    expect(decoder.probeRequests).toEqual(['expired.flac']);
+  });
+
+  it('separates prepared local probes by output context', async () => {
+    const completeProbe = {
+      durationSeconds: 120,
+      fileSampleRate: 44100,
+      channels: 2,
+      codec: 'flac',
+      bitDepth: 16,
+      bitrate: 900000,
+    };
+    const { decoder, session } = createSessionHarness([probe('context.flac', 44100)]);
+
+    await session.prepareLocalFile({ filePath: 'context.flac', trackId: 'context', probe: completeProbe });
+    await session.playLocalFile({ filePath: 'context.flac', trackId: 'context', output: { outputMode: 'exclusive' } });
+
+    expect(decoder.probeRequests).toEqual(['context.flac']);
+  });
+
+  it('does not reuse exclusive output across sample-rate changes', async () => {
     const { bridges, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
 
     await session.playLocalFile({ filePath: '48.flac', output: { outputMode: 'exclusive' } });
     await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges).toHaveLength(1);
-    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
   });
 
   it('shared mode keeps file and actual device rates separate and reports resampling', async () => {
@@ -818,7 +1009,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges).toHaveLength(2);
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(bridges[0].startOptions).toMatchObject({ exclusive: true, requestedOutputSampleRate: 44100 });
-    expect(bridges[1].startOptions).toMatchObject({ exclusive: false, requestedOutputSampleRate: 44100 });
+    expect(bridges[1].startOptions).toMatchObject({ exclusive: false, requestedOutputSampleRate: 48000 });
     expect(status.outputMode).toBe('shared');
     expect(status.outputBackend).toBe('wasapi-shared');
     expect(status.actualDeviceSampleRate).toBe(48000);
@@ -960,7 +1151,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].sessionBegins).toBe(2);
   });
 
-  it('reuses ASIO output across sample-rate changes and decodes to the resident device rate', async () => {
+  it('reopens ASIO output across sample-rate changes and decodes to the requested rate', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('first-asio.flac', 48000), probe('second-asio.flac', 44100)]);
 
     await session.playLocalFile({
@@ -972,16 +1163,14 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'asio', bufferSizeFrames: 128 },
     });
 
-    expect(bridges).toHaveLength(1);
-    expect(bridges[0].stop).not.toHaveBeenCalled();
-    expect(bridges[0].sessionBegins).toBe(2);
-    expect(status.requestedOutputSampleRate).toBe(48000);
-    expect(status.decoderOutputSampleRate).toBe(48000);
-    expect(status.resampling).toBe(true);
-    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(status.requestedOutputSampleRate).toBe(44100);
+    expect(status.decoderOutputSampleRate).toBe(44100);
+    expect(status.resampling).toBe(false);
     expect(decoder.decodeRequests.at(-1)).toMatchObject({
       filePath: 'second-asio.flac',
-      decoderOutputSampleRate: 48000,
+      decoderOutputSampleRate: 44100,
     });
   });
 
@@ -1943,6 +2132,52 @@ describe('NativeOutputBridge host arguments', () => {
     bridge.stop();
   });
 
+  it('ignores stale framed ended events that arrive before PCM for a new session', async () => {
+    const stdoutRef = new PassThrough();
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout: stdoutRef,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdoutRef.write('{"ready":true,"sampleRate":48000}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+    const ended = vi.fn();
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+    bridge.on('ended', ended);
+
+    bridge.beginSession({ startSeconds: 0 });
+    stdoutRef.write('{"event":"ended"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ended).not.toHaveBeenCalled();
+
+    const sessionId = bridge.beginSession({ startSeconds: 0 });
+    bridge.writePcmFrame(sessionId, pcmBuffer([0.1, -0.1]), () => undefined);
+    stdoutRef.write('{"event":"ended"}\n');
+    stdoutRef.write('{"event":"ended"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ended).toHaveBeenCalledTimes(1);
+    bridge.stop();
+  });
+
   it('adds seek start time to per-session framed native pos', async () => {
     const stdoutRef = new PassThrough();
     const fakeSpawn = (): ChildProcessWithoutNullStreams => {
@@ -2149,6 +2384,35 @@ describe('DeviceService diagnostics', () => {
 
     expect(service.listAsioDevices()).toEqual([]);
     expect(logs[0]).toContain('ASIO device enumeration returned no devices');
+  });
+
+  it('uses async native host enumeration for UI device lists', async () => {
+    const execFileSyncMock = vi.fn(() => {
+      throw new Error('sync enumeration should not run');
+    });
+    const execFileMock = vi.fn((_bin, args, _options, callback) => {
+      const output = Array.isArray(args) && args.includes('-asio')
+        ? ''
+        : '0\tSpeakers\t48000\t1\t48000\n';
+      queueMicrotask(() => callback(null, output, ''));
+      return {} as ReturnType<typeof nodeExecFile>;
+    });
+    const service = new DeviceService({
+      hostBinary: 'echo-audio-host.exe',
+      execFileSync: execFileSyncMock as unknown as typeof nodeExecFileSync,
+      execFile: execFileMock as unknown as typeof nodeExecFile,
+      logger: noopLogger,
+    });
+
+    await expect(service.listDevicesAsync()).resolves.toMatchObject([
+      {
+        id: 'shared:0',
+        name: 'Speakers',
+        outputMode: 'shared',
+        sharedDeviceSampleRate: 48000,
+      },
+    ]);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 });
 

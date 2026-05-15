@@ -175,7 +175,7 @@ const restoreCachedBinary = (info) => {
 
 const rebuild = (info) => {
   if (info.runtime === 'electron') {
-    run(join(projectRoot, 'node_modules', '.bin', executable('electron-rebuild')), ['-f', '-w', 'better-sqlite3'], {
+    run(join(projectRoot, 'node_modules', '.bin', executable('electron-rebuild')), ['-f', '-o', 'better-sqlite3'], {
       stdio: 'inherit',
       encoding: undefined,
     });

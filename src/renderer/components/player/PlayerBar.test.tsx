@@ -1359,13 +1359,14 @@ describe('PlayerBar', () => {
   it('auto-plays the next queued track when audio status pushes ended', async () => {
     const firstTrack = makeTrack(1);
     const secondTrack = makeTrack(2);
+    const thirdTrack = makeTrack(3);
     const statusHandlers: Array<(status: AudioStatus) => void> = [];
     const playLocalFile = vi.fn().mockImplementation(({ filePath, trackId }: { filePath: string; trackId?: string }) =>
       Promise.resolve({
         state: 'playing',
         currentTrackId: trackId ?? null,
         positionMs: 0,
-        durationMs: (trackId === secondTrack.id ? secondTrack.duration : firstTrack.duration) * 1000,
+        durationMs: (trackId === thirdTrack.id ? thirdTrack.duration : trackId === secondTrack.id ? secondTrack.duration : firstTrack.duration) * 1000,
         filePath,
       }),
     );
@@ -1432,7 +1433,7 @@ describe('PlayerBar', () => {
 
     render(
       <PlaybackQueueProvider>
-        <QueueSeed tracks={[firstTrack, secondTrack]} />
+        <QueueSeed tracks={[firstTrack, secondTrack, thirdTrack]} />
       </PlaybackQueueProvider>,
     );
 
@@ -1447,7 +1448,15 @@ describe('PlayerBar', () => {
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
     await screen.findByText('Song 2');
 
-    statusHandlers[0]?.(audioStatus(firstTrack));
+    statusHandlers[0]?.({
+      ...audioStatus(firstTrack),
+      state: 'ended',
+      positionSeconds: firstTrack.duration,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(playLocalFile).not.toHaveBeenCalledWith(expect.objectContaining({ trackId: thirdTrack.id }));
+
+    statusHandlers[0]?.(audioStatus(secondTrack));
     expect(screen.getByText('Song 2')).toBeTruthy();
   });
 });

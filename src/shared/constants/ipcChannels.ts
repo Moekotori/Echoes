@@ -188,6 +188,7 @@ export const IpcChannels = {
   PlaybackPlayLocalFile: 'playback:play-local-file',
   PlaybackPlayMediaItem: 'playback:play-media-item',
   PlaybackPrepareMediaItem: 'playback:prepare-media-item',
+  PlaybackPrepareLocalFile: 'playback:prepare-local-file',
   PlaybackPlay: 'playback:play',
   PlaybackPause: 'playback:pause',
   PlaybackStop: 'playback:stop',

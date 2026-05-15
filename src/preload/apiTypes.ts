@@ -54,7 +54,13 @@ import type {
   ExportPlaylistRequest,
   UpdatePlaylistRequest,
 } from '../shared/types/library';
-import type { LocalFileResolveResult, PlaybackMediaStartRequest, PlaybackStartRequest, PlaybackStatus } from '../shared/types/playback';
+import type {
+  LocalFileResolveResult,
+  PlaybackMediaStartRequest,
+  PlaybackPrepareLocalFileRequest,
+  PlaybackStartRequest,
+  PlaybackStatus,
+} from '../shared/types/playback';
 import type { LastCrashSummary, RendererErrorPayload } from '../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../shared/types/discordPresence';
 import type {
@@ -227,6 +233,7 @@ export type EchoApi = {
   playback: {
     getStatus: () => Promise<PlaybackStatus>;
     playLocalFile: (request: PlaybackStartRequest) => Promise<PlaybackStatus>;
+    prepareLocalFile: (request: PlaybackPrepareLocalFileRequest) => Promise<void>;
     playMediaItem: (request: PlaybackMediaStartRequest) => Promise<PlaybackStatus>;
     prepareMediaItem: (request: PlaybackMediaStartRequest) => Promise<void>;
     play: () => Promise<PlaybackStatus>;

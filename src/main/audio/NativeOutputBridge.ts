@@ -193,12 +193,27 @@ const createFrameHeader = (type: number, sessionId: number, payloadBytes: number
   return header;
 };
 
-const createReuseKey = (options: NativeOutputStartOptions): string =>
-  JSON.stringify({
+const normalizeOutputMode = (options: NativeOutputStartOptions): 'shared' | 'exclusive' | 'asio' =>
+  options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
+
+const normalizePositiveInteger = (value: unknown): number | null => {
+  const numeric = Number(value);
+
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+};
+
+const createReuseKey = (options: NativeOutputStartOptions): string => {
+  const outputMode = normalizeOutputMode(options);
+  const sampleRate =
+    outputMode === 'shared'
+      ? normalizePositiveInteger(options.sharedMixSampleRate) ?? normalizePositiveInteger(options.requestedOutputSampleRate)
+      : normalizePositiveInteger(options.requestedOutputSampleRate);
+
+  return JSON.stringify({
     outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
     deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
     deviceName: options.deviceName ?? null,
-    requestedOutputSampleRate: options.asio || options.exclusive ? null : options.requestedOutputSampleRate,
+    sampleRate,
     channels: options.channels,
     asio: options.asio === true,
     exclusive: options.exclusive === true,
@@ -206,6 +221,7 @@ const createReuseKey = (options: NativeOutputStartOptions): string =>
     latencyProfile: options.latencyProfile ?? null,
     playbackSpeedMode: options.playbackSpeedMode ?? null,
   });
+};
 
 class FramedSessionWritable extends Writable {
   private sessionClosed = false;
@@ -252,6 +268,7 @@ export class NativeOutputBridge extends EventEmitter {
   private sessionWritable: FramedSessionWritable | null = null;
   private sessionIdCounter = 0;
   private currentSessionId = 0;
+  private currentSessionHasPcm = false;
   private reuseKey: string | null = null;
   private framesConsumed = 0;
   private frameOffset = 0;
@@ -340,6 +357,7 @@ export class NativeOutputBridge extends EventEmitter {
       this.frameOffset = 0;
       this.sessionIdCounter = 0;
       this.currentSessionId = 0;
+      this.currentSessionHasPcm = false;
       this.reuseKey = createReuseKey(options);
       this.ready = false;
       this.ended = false;
@@ -486,6 +504,7 @@ export class NativeOutputBridge extends EventEmitter {
     const sessionId = (this.sessionIdCounter + 1) >>> 0;
     this.sessionIdCounter = sessionId;
     this.currentSessionId = sessionId;
+    this.currentSessionHasPcm = false;
     this.sessionWritable?.destroy();
     this.sessionWritable = null;
     this.durationSeconds =
@@ -528,6 +547,10 @@ export class NativeOutputBridge extends EventEmitter {
     if (!chunk.length) {
       callback();
       return;
+    }
+
+    if (sessionId === this.currentSessionId) {
+      this.currentSessionHasPcm = true;
     }
 
     this.writeFrame(frameTypePcmF32Le, sessionId, chunk, callback);
@@ -727,7 +750,11 @@ export class NativeOutputBridge extends EventEmitter {
     }
 
     if (message.event === 'ended') {
-      if (this.stopRequested) {
+      if (this.stopRequested || this.ended) {
+        return;
+      }
+
+      if (this.currentSessionId && !this.currentSessionHasPcm) {
         return;
       }
 

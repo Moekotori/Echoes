@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { Transform } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import type { Writable } from 'node:stream';
 import { DeviceService } from './DeviceService';
 import { DecoderPipeline } from './DecoderPipeline';
@@ -15,6 +16,7 @@ import type {
   AudioOutputSettings,
   AudioPlaybackState,
   AudioProbeResult,
+  AudioSessionPrepareLocalFileRequest,
   AudioSessionPlayRequest,
   AudioStatus,
   DecoderRun,
@@ -28,7 +30,7 @@ import type { PlaybackMemory } from './PlaybackMemoryStore';
 import type { AudioCrashReportPayload } from '../diagnostics/CrashReportService';
 
 type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'>;
-type DeviceServiceLike = Pick<DeviceService, 'listDevices'>;
+type DeviceServiceLike = Pick<DeviceService, 'listDevices'> & Partial<Pick<DeviceService, 'listDevicesAsync'>>;
 type OutputBridgeLike = {
   writable: Writable | null;
   start: (options: NativeOutputStartOptions) => Promise<NativeBridgeReadyResult>;
@@ -47,6 +49,31 @@ type BridgeStartResult = {
   bridge: OutputBridgeLike;
   plan: SampleRatePlan;
   ready: NativeBridgeReadyResult;
+  hostReused: boolean;
+  hostRestartReason: string | null;
+};
+
+type PreparedLocalPlaybackItem = {
+  filePath: string;
+  trackId?: string;
+  probe?: AudioSessionPrepareLocalFileRequest['probe'];
+  preparedAt: number;
+  expiresAt: number;
+  outputMode?: AudioOutputMode;
+  requestedOutputSampleRate?: number | null;
+  decoderOutputSampleRate?: number | null;
+  warnings?: string[];
+};
+
+type LocalPrepareContext = {
+  key: string;
+  outputSettings: AudioOutputSettings;
+  device: AudioDeviceInfo | null;
+};
+
+type PreparedLocalProbeUse = {
+  probe: AudioSessionPrepareLocalFileRequest['probe'];
+  ageMs: number;
 };
 
 export type AudioSessionDependencies = {
@@ -64,6 +91,9 @@ export type AudioSessionDependencies = {
 };
 
 const fallbackSampleRate = 44100;
+const fallbackSharedMixSampleRate = 48000;
+const preparedLocalPlaybackTtlMs = 2 * 60 * 1000;
+const preparedLocalPlaybackMaxItems = 50;
 const defaultWatchdogIntervalMs = 2000;
 const defaultWatchdogStallChecks = 3;
 const defaultWatchdogMaxRecoveriesPerTrack = 3;
@@ -258,6 +288,29 @@ const createProbeHint = (probe: AudioProbeResult): AudioSessionPlayRequest['prob
   bitDepth: probe.bitDepth,
   bitrate: probe.bitrate,
 });
+
+const isProbeHintCompleteEnough = (probe: AudioSessionPrepareLocalFileRequest['probe'] | undefined): boolean =>
+  Boolean(
+    probe &&
+      typeof probe.durationSeconds === 'number' &&
+      Number.isFinite(probe.durationSeconds) &&
+      probe.durationSeconds > 0 &&
+      Object.prototype.hasOwnProperty.call(probe, 'fileSampleRate') &&
+      (probe.fileSampleRate === null ||
+        (typeof probe.fileSampleRate === 'number' && Number.isFinite(probe.fileSampleRate) && probe.fileSampleRate > 0)) &&
+      typeof probe.channels === 'number' &&
+      Number.isFinite(probe.channels) &&
+      probe.channels > 0,
+  );
+
+const mergeProbeHints = (
+  primary: AudioSessionPrepareLocalFileRequest['probe'] | undefined,
+  fallback: AudioSessionPrepareLocalFileRequest['probe'] | undefined,
+): AudioSessionPrepareLocalFileRequest['probe'] | undefined => {
+  const merged = { ...(fallback ?? {}), ...(primary ?? {}) };
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+};
 
 const redactUrlSecrets = (value: string): string => {
   try {
@@ -531,6 +584,7 @@ export class AudioSession extends EventEmitter {
         frames: number;
       }
     | null = null;
+  private readonly preparedLocalPlaybackCache = new Map<string, PreparedLocalPlaybackItem>();
 
   constructor(dependencies: AudioSessionDependencies = {}) {
     super();
@@ -562,6 +616,73 @@ export class AudioSession extends EventEmitter {
 
   listDevices(): AudioDeviceInfo[] {
     return this.deviceService.listDevices();
+  }
+
+  async listDevicesAsync(): Promise<AudioDeviceInfo[]> {
+    return this.deviceService.listDevicesAsync?.() ?? this.deviceService.listDevices();
+  }
+
+  async prepareLocalFile(request: AudioSessionPrepareLocalFileRequest): Promise<void> {
+    const startedAt = performance.now();
+    const context = this.createLocalPrepareContext(request.filePath, request.trackId, request.probe);
+    const redactedFilePath = redactUrlSecrets(request.filePath);
+    const providedProbeComplete = isProbeHintCompleteEnough(request.probe);
+
+    this.logger(JSON.stringify({
+      event: 'local_prepare_started',
+      filePath: redactedFilePath,
+      trackId: request.trackId ?? null,
+      usedProvidedProbe: providedProbeComplete,
+    }));
+
+    try {
+      let probeHint = request.probe;
+      let probeMs = 0;
+
+      if (!providedProbeComplete) {
+        const probeStartedAt = performance.now();
+        const probed = await this.decoder.probeLocalFile(request.filePath);
+        probeMs = Math.max(0, Math.round(performance.now() - probeStartedAt));
+        probeHint = mergeProbeHints(createProbeHint(probed), request.probe);
+      }
+
+      const probe = createProbeFromHint(request.filePath, probeHint);
+      const plan = probe
+        ? this.createSampleRatePlan(probe, context.outputSettings, context.device)
+        : null;
+      const now = Date.now();
+
+      this.storePreparedLocalPlayback(context.key, {
+        filePath: request.filePath,
+        trackId: request.trackId,
+        probe: probeHint,
+        preparedAt: now,
+        expiresAt: now + preparedLocalPlaybackTtlMs,
+        outputMode: plan?.outputMode,
+        requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
+        decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
+        warnings: plan?.warnings,
+      });
+
+      this.logger(JSON.stringify({
+        event: 'local_prepare_completed',
+        filePath: redactedFilePath,
+        trackId: request.trackId ?? null,
+        prepareMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        probeMs,
+        usedProvidedProbe: providedProbeComplete,
+        requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
+        decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
+      }));
+    } catch (error) {
+      this.logger(JSON.stringify({
+        event: 'local_prepare_failed',
+        filePath: redactedFilePath,
+        trackId: request.trackId ?? null,
+        prepareMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
   }
 
   async setOutput(settings: AudioOutputSettings): Promise<AudioStatus> {
@@ -668,24 +789,7 @@ export class AudioSession extends EventEmitter {
     this.currentOutputBackend = null;
     this.currentOutputDeviceType = null;
     this.currentOutputDeviceName = null;
-    const nextOutputMode = normalizeOutputMode(request.output?.outputMode ?? this.outputSettings.outputMode);
-    const nextLatencyProfile = resolveLatencyProfile(
-      nextOutputMode,
-      request.output?.latencyProfile,
-      this.outputSettings.outputMode,
-      this.outputSettings.latencyProfile,
-      request.output?.outputMode !== undefined,
-    );
-    this.currentOutputSettings = {
-      ...this.outputSettings,
-      ...request.output,
-      outputMode: nextOutputMode,
-      latencyProfile: nextLatencyProfile,
-      bufferSizeFrames: resolveBufferSizeFrames(request.output, this.outputSettings.bufferSizeFrames),
-      volume: Math.max(0, Math.min(1, Number(request.output?.volume ?? this.outputSettings.volume) || 0)),
-      playbackRate: normalizePlaybackRate(request.output?.playbackRate ?? this.outputSettings.playbackRate),
-      playbackSpeedMode: normalizePlaybackSpeedMode(request.output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
-    };
+    this.currentOutputSettings = this.createOutputSettingsForRequest(request.output);
     this.resetSharedStabilityForFreshPlayback(this.currentOutputSettings.outputMode ?? 'shared');
     this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings);
     this.logger(
@@ -696,10 +800,24 @@ export class AudioSession extends EventEmitter {
     this.emitStatus();
 
     try {
-      const probe = createProbeFromHint(request.filePath, request.probe) ?? await this.decoder.probeLocalFile(request.filePath);
+      const preparedProbe = this.takePreparedLocalProbe(request, this.currentOutputSettings);
+      if (preparedProbe) {
+        this.logger(JSON.stringify({
+          event: 'local_prepare_used_for_playback',
+          filePath: redactUrlSecrets(request.filePath),
+          trackId: request.trackId ?? null,
+          cacheAgeMs: preparedProbe.ageMs,
+        }));
+      }
+      const playbackProbeHint = preparedProbe?.probe ?? request.probe;
+      const probe = createProbeFromHint(request.filePath, playbackProbeHint) ?? await this.decoder.probeLocalFile(request.filePath);
       this.assertCurrentRun(token);
       this.currentProbe = probe;
-      let { bridge, plan, ready } = await this.startOutputBridgeForProbe(probe, token, request.startSeconds ?? 0);
+      let { bridge, plan, ready, hostReused, hostRestartReason } = await this.startOutputBridgeForProbe(
+        probe,
+        token,
+        request.startSeconds ?? 0,
+      );
       this.assertCurrentRun(token);
       this.applyReadyResult(ready);
       try {
@@ -719,6 +837,8 @@ export class AudioSession extends EventEmitter {
         bridge = fallback.bridge;
         plan = fallback.plan;
         ready = fallback.ready;
+        hostReused = fallback.hostReused;
+        hostRestartReason = fallback.hostRestartReason;
         this.assertCurrentRun(token);
         this.applyReadyResult(ready);
       }
@@ -728,6 +848,12 @@ export class AudioSession extends EventEmitter {
         }`,
       );
       const activePlan = this.currentPlan ?? plan;
+      this.logAudioTransition(activePlan, {
+        hostReused,
+        hostRestartReason,
+        preparedLocalProbeUsed: Boolean(preparedProbe),
+        preparedLocalProbeAgeMs: preparedProbe?.ageMs ?? null,
+      });
       const run = this.decoder.decodeLocalFile({
         filePath: request.filePath,
         startSeconds: request.startSeconds ?? 0,
@@ -1179,6 +1305,133 @@ export class AudioSession extends EventEmitter {
     this.stopResources();
   }
 
+  private createOutputSettingsForRequest(output: AudioOutputSettings | undefined): AudioOutputSettings {
+    const nextOutputMode = normalizeOutputMode(output?.outputMode ?? this.outputSettings.outputMode);
+    const nextLatencyProfile = resolveLatencyProfile(
+      nextOutputMode,
+      output?.latencyProfile,
+      this.outputSettings.outputMode,
+      this.outputSettings.latencyProfile,
+      output?.outputMode !== undefined,
+    );
+
+    return {
+      ...this.outputSettings,
+      ...output,
+      outputMode: nextOutputMode,
+      latencyProfile: nextLatencyProfile,
+      bufferSizeFrames: resolveBufferSizeFrames(output, this.outputSettings.bufferSizeFrames),
+      volume: Math.max(0, Math.min(1, Number(output?.volume ?? this.outputSettings.volume) || 0)),
+      playbackRate: normalizePlaybackRate(output?.playbackRate ?? this.outputSettings.playbackRate),
+      playbackSpeedMode: normalizePlaybackSpeedMode(output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
+    };
+  }
+
+  private resolvePlanDeviceForSettings(outputSettings: AudioOutputSettings): AudioDeviceInfo | null {
+    const outputMode = normalizeOutputMode(outputSettings.outputMode);
+    const explicitDevice = createDeviceFromOutputSettings(outputSettings);
+
+    if (explicitDevice) {
+      return explicitDevice;
+    }
+
+    return outputMode === 'shared' ? this.resolveDefaultSharedDevice() : null;
+  }
+
+  private createLocalPrepareContext(
+    filePath: string,
+    trackId: string | undefined,
+    probe: AudioSessionPrepareLocalFileRequest['probe'] | undefined,
+    output: AudioOutputSettings | undefined = undefined,
+  ): LocalPrepareContext {
+    const outputSettings = this.createOutputSettingsForRequest(output);
+    const outputMode = normalizeOutputMode(outputSettings.outputMode);
+    const device = this.resolvePlanDeviceForSettings(outputSettings);
+    const sampleRateProbe = createProbeFromHint(filePath, probe) ?? {
+      filePath,
+      durationSeconds: probe?.durationSeconds ?? 1,
+      fileSampleRate: probe?.fileSampleRate ?? null,
+      channels: probe?.channels ?? 2,
+      codec: probe?.codec ?? null,
+      bitDepth: probe?.bitDepth ?? null,
+      bitrate: probe?.bitrate ?? null,
+    };
+    const plan = this.createSampleRatePlan(sampleRateProbe, outputSettings, device);
+    const deviceIdentity = device
+      ? `${device.outputMode}:${device.index}:${device.name}`
+      : `${outputMode}:default:${outputSettings.deviceIndex ?? ''}:${outputSettings.deviceName ?? ''}`;
+
+    return {
+      outputSettings,
+      device,
+      key: JSON.stringify({
+        filePath,
+        trackId: trackId ?? null,
+        outputMode,
+        deviceIdentity,
+        requestedOutputSampleRate: plan.requestedOutputSampleRate,
+        playbackSpeedMode: outputSettings.playbackSpeedMode ?? null,
+      }),
+    };
+  }
+
+  private prunePreparedLocalPlaybackCache(now = Date.now()): void {
+    for (const [key, item] of this.preparedLocalPlaybackCache.entries()) {
+      if (item.expiresAt <= now) {
+        this.preparedLocalPlaybackCache.delete(key);
+      }
+    }
+  }
+
+  private storePreparedLocalPlayback(key: string, item: PreparedLocalPlaybackItem): void {
+    this.prunePreparedLocalPlaybackCache(item.preparedAt);
+    this.preparedLocalPlaybackCache.delete(key);
+    this.preparedLocalPlaybackCache.set(key, item);
+
+    while (this.preparedLocalPlaybackCache.size > preparedLocalPlaybackMaxItems) {
+      const oldestKey = this.preparedLocalPlaybackCache.keys().next().value as string | undefined;
+      if (!oldestKey) {
+        break;
+      }
+
+      this.preparedLocalPlaybackCache.delete(oldestKey);
+    }
+  }
+
+  private takePreparedLocalProbe(
+    request: AudioSessionPlayRequest,
+    outputSettings: AudioOutputSettings,
+  ): PreparedLocalProbeUse | null {
+    const context = this.createLocalPrepareContext(request.filePath, request.trackId, request.probe, outputSettings);
+    const now = Date.now();
+    this.prunePreparedLocalPlaybackCache(now);
+    const cached = this.preparedLocalPlaybackCache.get(context.key);
+
+    if (!cached) {
+      this.logger(JSON.stringify({
+        event: 'local_prepare_cache_miss',
+        filePath: redactUrlSecrets(request.filePath),
+        trackId: request.trackId ?? null,
+      }));
+      return null;
+    }
+
+    this.preparedLocalPlaybackCache.delete(context.key);
+    this.preparedLocalPlaybackCache.set(context.key, cached);
+    const ageMs = Math.max(0, now - cached.preparedAt);
+    this.logger(JSON.stringify({
+      event: 'local_prepare_cache_hit',
+      filePath: redactUrlSecrets(request.filePath),
+      trackId: request.trackId ?? null,
+      cacheAgeMs: ageMs,
+    }));
+
+    return {
+      probe: mergeProbeHints(request.probe, cached.probe),
+      ageMs,
+    };
+  }
+
   private createSampleRatePlan(
     probe: AudioProbeResult,
     outputSettings: AudioOutputSettings,
@@ -1195,15 +1448,19 @@ export class AudioSession extends EventEmitter {
     const sharedDeviceSampleRate =
       normalizePositiveInteger(selectedDevice?.sharedDeviceSampleRate) ??
       (outputMode === 'shared' ? normalizePositiveInteger(selectedDevice?.sampleRate) : null);
+    const currentReadySampleRate =
+      outputMode === 'shared' ? normalizePositiveInteger(this.currentReadyResult?.actualDeviceSampleRate) : null;
     const requestedOutputSampleRate =
       residentOutputSampleRate ??
       (outputMode === 'shared'
-        ? explicitRequestedSampleRate ?? sharedDeviceSampleRate ?? sourceSampleRate
+        ? explicitRequestedSampleRate ?? sharedDeviceSampleRate ?? currentReadySampleRate ?? fallbackSharedMixSampleRate
         : explicitRequestedSampleRate ?? sourceSampleRate);
     const decoderOutputSampleRate =
-      outputMode === 'shared' || outputMode === 'asio'
-        ? actualDeviceSampleRate ?? requestedOutputSampleRate
-        : requestedOutputSampleRate;
+      outputMode === 'shared'
+        ? requestedOutputSampleRate
+        : outputMode === 'asio'
+          ? actualDeviceSampleRate ?? requestedOutputSampleRate
+          : requestedOutputSampleRate;
     const warnings: string[] = [];
 
     if (!fileSampleRate) {
@@ -1365,6 +1622,35 @@ export class AudioSession extends EventEmitter {
     }
   }
 
+  private logAudioTransition(
+    plan: SampleRatePlan,
+    transition: {
+      hostReused: boolean;
+      hostRestartReason: string | null;
+      preparedLocalProbeUsed?: boolean;
+      preparedLocalProbeAgeMs?: number | null;
+    },
+  ): void {
+    const sharedMixRate =
+      plan.outputMode === 'shared'
+        ? plan.sharedDeviceSampleRate ?? plan.actualDeviceSampleRate ?? plan.requestedOutputSampleRate
+        : null;
+
+    this.logger(
+      JSON.stringify({
+        event: 'audio_transition',
+        outputMode: plan.outputMode,
+        sourceSampleRate: plan.fileSampleRate,
+        sharedMixRate,
+        decoderOutputRate: plan.decoderOutputSampleRate,
+        hostReused: transition.hostReused,
+        hostRestartReason: transition.hostRestartReason,
+        preparedLocalProbeUsed: transition.preparedLocalProbeUsed === true,
+        preparedLocalProbeAgeMs: transition.preparedLocalProbeAgeMs ?? null,
+      }),
+    );
+  }
+
   private resolveSelectedDevice(outputSettings: AudioOutputSettings): AudioDeviceInfo | null {
     const deviceIndex = Number(outputSettings.deviceIndex);
     const deviceName = outputSettings.deviceName;
@@ -1488,6 +1774,7 @@ export class AudioSession extends EventEmitter {
 
       const startOptions = this.createNativeOutputStartOptions({
         requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+        sharedMixSampleRate: outputMode === 'shared' ? this.currentPlan.requestedOutputSampleRate : null,
         channels: probe.channels,
         deviceIndex: candidate?.index ?? (usingDefaultSharedFallback ? undefined : this.currentOutputSettings.deviceIndex),
         deviceName: candidate?.name ?? (usingDefaultSharedFallback ? undefined : this.currentOutputSettings.deviceName),
@@ -1517,8 +1804,20 @@ export class AudioSession extends EventEmitter {
           this.clock.reset(startSeconds, residentSampleRate);
         }
         this.attachBridgeEvents(reusableBridge, token);
-        return { bridge: reusableBridge, plan: this.currentPlan, ready: this.currentReadyResult };
+        return {
+          bridge: reusableBridge,
+          plan: this.currentPlan,
+          ready: this.currentReadyResult,
+          hostReused: true,
+          hostRestartReason: null,
+        };
       }
+
+      const hostRestartReason = this.bridge
+        ? this.currentReadyResult
+          ? 'reuse_key_changed'
+          : 'resident_host_not_ready'
+        : 'initial_start';
 
       if (this.bridge && !previousBridgeStopped) {
         this.bridge.stop();
@@ -1540,7 +1839,7 @@ export class AudioSession extends EventEmitter {
           this.addOutputWarning('shared_output_recovered_to_default_device');
         }
 
-        return { bridge, plan: this.currentPlan, ready };
+        return { bridge, plan: this.currentPlan, ready, hostReused: false, hostRestartReason };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         this.logger(`[AudioSession] output start failed: ${lastError.message}`);
@@ -1580,6 +1879,7 @@ export class AudioSession extends EventEmitter {
       try {
         const ready = await bridge.start(this.createNativeOutputStartOptions({
           requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+          sharedMixSampleRate: this.currentPlan.requestedOutputSampleRate,
           channels: probe.channels,
           deviceIndex: fallbackDevice?.index ?? fallbackSettings.deviceIndex,
           deviceName: fallbackDevice?.name ?? fallbackSettings.deviceName,
@@ -1594,7 +1894,13 @@ export class AudioSession extends EventEmitter {
           durationSeconds: probe.durationSeconds,
         }));
 
-        return { bridge, plan: this.currentPlan, ready };
+        return {
+          bridge,
+          plan: this.currentPlan,
+          ready,
+          hostReused: false,
+          hostRestartReason: 'exclusive_fallback_to_shared',
+        };
       } catch (error) {
         const fallbackError = error instanceof Error ? error : new Error(String(error));
         this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
@@ -1651,6 +1957,7 @@ export class AudioSession extends EventEmitter {
     try {
       const ready = await bridge.start(this.createNativeOutputStartOptions({
         requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+        sharedMixSampleRate: this.currentPlan.requestedOutputSampleRate,
         channels: probe.channels,
         asio: false,
         exclusive: false,
@@ -1668,7 +1975,13 @@ export class AudioSession extends EventEmitter {
         requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
         channels: probe.channels,
       });
-      return { bridge, plan: this.currentPlan, ready };
+      return {
+        bridge,
+        plan: this.currentPlan,
+        ready,
+        hostReused: false,
+        hostRestartReason: 'safe_shared_fallback',
+      };
     } catch (error) {
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] safe shared fallback failed: ${fallbackError.message}`);
@@ -1712,6 +2025,7 @@ export class AudioSession extends EventEmitter {
     try {
       const ready = await bridge.start(this.createNativeOutputStartOptions({
         requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+        sharedMixSampleRate: this.currentPlan.requestedOutputSampleRate,
         channels: probe.channels,
         deviceIndex: fallbackDevice?.index ?? fallbackSettings.deviceIndex,
         deviceName: fallbackDevice?.name ?? fallbackSettings.deviceName,
@@ -1726,7 +2040,13 @@ export class AudioSession extends EventEmitter {
         durationSeconds: probe.durationSeconds,
       }));
 
-      return { bridge, plan: this.currentPlan, ready };
+      return {
+        bridge,
+        plan: this.currentPlan,
+        ready,
+        hostReused: false,
+        hostRestartReason: 'exclusive_fallback_to_shared',
+      };
     } catch (error) {
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);

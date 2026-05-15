@@ -272,6 +272,7 @@ export const MvPanel = ({
 }: MvPanelProps): JSX.Element => {
   const [selectedVideo, setSelectedVideo] = useState<TrackVideo | null>(null);
   const [settings, setSettings] = useState<MvSettings>(fallbackMvSettings);
+  const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
@@ -323,15 +324,18 @@ export const MvPanel = ({
   const loadSettings = useCallback(async (): Promise<MvSettings> => {
     if (!window.echo?.mv?.getSettings) {
       setSettings(fallbackMvSettings);
+      setHasLoadedSettings(true);
       return fallbackMvSettings;
     }
 
     try {
       const nextSettings = await window.echo.mv.getSettings();
       setSettings(nextSettings);
+      setHasLoadedSettings(true);
       return nextSettings;
     } catch {
       setSettings(fallbackMvSettings);
+      setHasLoadedSettings(true);
       return fallbackMvSettings;
     }
   }, []);
@@ -808,7 +812,7 @@ export const MvPanel = ({
     };
   }, [adaptiveStream, applyVideoPlaybackRate, showImmersiveBackground, syncVideoToAudio, videoMediaUrl]);
 
-  if (!isMvEnabled) {
+  if (!hasLoadedSettings || !isMvEnabled) {
     return <section className="lyrics-mv-panel" aria-label="MV" data-mv-enabled="false" />;
   }
 

@@ -143,6 +143,59 @@ describe('MvPanel', () => {
     expect(window.echo.mv.searchNetworkCandidates).not.toHaveBeenCalled();
   });
 
+  it('keeps the MV surface empty while disabled settings are still loading', async () => {
+    let resolveSettings: (settings: MvSettings) => void = () => undefined;
+    window.echo = {
+      playback: {
+        seek: vi.fn(),
+      },
+      mv: {
+        getSelected: vi.fn().mockResolvedValue(makeVideo()),
+        getSettings: vi.fn().mockReturnValue(
+          new Promise<MvSettings>((resolve) => {
+            resolveSettings = resolve;
+          }),
+        ),
+        setSettings: vi.fn(),
+        findLocalCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidates: vi.fn().mockResolvedValue([]),
+        getCandidates: vi.fn().mockResolvedValue([]),
+        resolveStreams: vi.fn().mockResolvedValue({ video: makeVideo(), variants: [] }),
+        setQuality: vi.fn(),
+        chooseLocalVideo: vi.fn().mockResolvedValue(null),
+        bindLocalVideo: vi.fn(),
+        selectVideo: vi.fn(),
+        clearSelected: vi.fn(),
+        openExternal: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <MvPanel
+        trackId="track-1"
+        title="Test Song"
+        artist="Test Artist"
+        coverUrl="echo-cover://thumb/test"
+        isAudioPlaying
+        audioClock={makeAudioClock(0)}
+      />,
+    );
+
+    expect(container.querySelector('.lyrics-mv-panel')?.getAttribute('data-mv-enabled')).toBe('false');
+    expect(container.querySelector('.lyrics-mv-card')).toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+    expect(window.echo.mv.getSelected).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSettings({ ...defaultMvSettings, enabled: false });
+    });
+
+    await waitFor(() => expect(window.echo.mv.getSettings).toHaveBeenCalled());
+    expect(container.querySelector('.lyrics-mv-card')).toBeNull();
+    expect(container.querySelector('video')).toBeNull();
+    expect(window.echo.mv.getSelected).not.toHaveBeenCalled();
+  });
+
   it('preloads MV candidates while audio is playing', async () => {
     const selectedAfterSearch = makeVideo({ provider: 'bilibili' });
     const getSelected = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(selectedAfterSearch);

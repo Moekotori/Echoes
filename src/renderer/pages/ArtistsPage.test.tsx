@@ -80,6 +80,31 @@ const setScrollablePageSurface = (element: HTMLElement): void => {
   Object.defineProperty(element, 'clientHeight', { configurable: true, value: 900 });
 };
 
+const setSentinelReach = (pageSurface: HTMLElement, sentinel: Element): void => {
+  vi.spyOn(pageSurface, 'getBoundingClientRect').mockReturnValue({
+    bottom: 900,
+    height: 900,
+    left: 0,
+    right: 1200,
+    top: 0,
+    width: 1200,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+  vi.spyOn(sentinel, 'getBoundingClientRect').mockReturnValue({
+    bottom: 1200,
+    height: 1,
+    left: 0,
+    right: 1200,
+    top: 1200,
+    width: 1200,
+    x: 0,
+    y: 1200,
+    toJSON: () => ({}),
+  });
+};
+
 beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', undefined);
   window.localStorage.setItem('echo-next.locale', 'en-US');
@@ -106,7 +131,7 @@ describe('ArtistsPage', () => {
     expect(screen.getByText('安田')).toBeTruthy();
   });
 
-  it('loads the next artist page when the page surface scrolls near the bottom', async () => {
+  it('loads the next artist page when the page surface scrolls to the spacer bottom', async () => {
     const getArtists = vi
       .fn()
       .mockResolvedValueOnce(page([artist('1')], { page: 1, total: 2, hasMore: true }))
@@ -119,8 +144,10 @@ describe('ArtistsPage', () => {
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
 
     const pageSurface = container.querySelector('.page-surface') as HTMLElement;
+    const sentinel = container.querySelector('.infinite-scroll-sentinel')!;
     setScrollablePageSurface(pageSurface);
-    pageSurface.scrollTop = 760;
+    setSentinelReach(pageSurface, sentinel);
+    pageSurface.scrollTop = 2000;
     fireEvent.scroll(pageSurface);
 
     await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(2));

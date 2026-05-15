@@ -230,6 +230,18 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const trackId = queue.currentTrackId ?? statusTrackId;
   const currentTrack = queue.currentTrack ?? queue.tracks.find((track) => track.id === trackId) ?? null;
   const filePath = currentTrack?.path ?? audioStatus?.currentFilePath ?? playbackStatus?.filePath ?? null;
+  const endedStatusTrackId =
+    audioStatus?.state === 'ended'
+      ? audioStatus.currentTrackId
+      : playbackStatus?.state === 'ended'
+        ? playbackStatus.currentTrackId
+        : null;
+  const endedStatusFilePath =
+    audioStatus?.state === 'ended'
+      ? audioStatus.currentFilePath
+      : playbackStatus?.state === 'ended'
+        ? playbackStatus.filePath
+        : null;
   const sourcePositionSeconds = audioStatus?.positionSeconds ?? (playbackStatus?.positionMs ?? 0) / 1000;
   const durationSeconds = audioStatus?.durationSeconds ?? (playbackStatus?.durationMs ?? 0) / 1000;
   const [realtimePositionSeconds, setRealtimePositionSeconds] = useState(sourcePositionSeconds);
@@ -794,15 +806,31 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   }, [handlePlayPause]);
 
   useEffect(() => {
-    const endedPlaybackKey = trackId ?? filePath ?? queue.currentQueueId ?? null;
+    const currentQueueTrackId = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
+    const currentQueueFilePath = queue.currentTrack?.path ?? null;
+    const endedMatchesCurrent =
+      Boolean(endedStatusTrackId && currentQueueTrackId && endedStatusTrackId === currentQueueTrackId) ||
+      Boolean(endedStatusFilePath && currentQueueFilePath && endedStatusFilePath === currentQueueFilePath) ||
+      (!currentQueueTrackId && !currentQueueFilePath);
+    const endedPlaybackKey = endedStatusTrackId ?? endedStatusFilePath ?? queue.currentQueueId ?? null;
 
-    if (state !== 'ended' || !endedPlaybackKey || handledEndedTrackRef.current === endedPlaybackKey) {
+    if (state !== 'ended' || !endedPlaybackKey || !endedMatchesCurrent || handledEndedTrackRef.current === endedPlaybackKey) {
       return;
     }
 
     handledEndedTrackRef.current = endedPlaybackKey;
     void runPlaybackAction(queue.playNext);
-  }, [filePath, queue.currentQueueId, queue.playNext, runPlaybackAction, state, trackId]);
+  }, [
+    endedStatusFilePath,
+    endedStatusTrackId,
+    queue.currentQueueId,
+    queue.currentTrack?.id,
+    queue.currentTrack?.path,
+    queue.currentTrackId,
+    queue.playNext,
+    runPlaybackAction,
+    state,
+  ]);
 
   useEffect(() => {
     if (state === 'playing') {

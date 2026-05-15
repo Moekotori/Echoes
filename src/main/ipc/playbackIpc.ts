@@ -2,7 +2,14 @@ import { dialog, ipcMain } from 'electron';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
-import type { LocalFileResolveResult, PlaybackMediaStartRequest, PlaybackProbeHint, PlaybackStartRequest, PlaybackStatus } from '../../shared/types/playback';
+import type {
+  LocalFileResolveResult,
+  PlaybackMediaStartRequest,
+  PlaybackPrepareLocalFileRequest,
+  PlaybackProbeHint,
+  PlaybackStartRequest,
+  PlaybackStatus,
+} from '../../shared/types/playback';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import { getAudioSession } from '../audio/AudioSession';
@@ -199,6 +206,20 @@ const normalizePlayRequest = (value: unknown): PlaybackStartRequest => {
     trackId: typeof input.trackId === 'string' && input.trackId.trim() ? input.trackId : undefined,
     startSeconds: optionalNonNegativeNumber(input.startSeconds),
     output: normalizeOutputSettings(input.output),
+    probe: normalizeProbeHint(input.probe),
+  };
+};
+
+const normalizePrepareLocalFileRequest = (value: unknown): PlaybackPrepareLocalFileRequest => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('prepare local file request must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+
+  return {
+    filePath: normalizePlaybackFilePath(requireText(input.filePath, 'filePath')),
+    trackId: typeof input.trackId === 'string' && input.trackId.trim() ? input.trackId : undefined,
     probe: normalizeProbeHint(input.probe),
   };
 };
@@ -430,6 +451,13 @@ export const registerPlaybackIpc = (): void => {
       await prepareMediaItem(normalizeMediaPlayRequest(rawRequest));
     } catch (error) {
       console.warn(`[playback] prepareMediaItem failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+  ipcMain.handle(IpcChannels.PlaybackPrepareLocalFile, async (_event, rawRequest: unknown): Promise<void> => {
+    try {
+      await getAudioSession().prepareLocalFile(normalizePrepareLocalFileRequest(rawRequest));
+    } catch (error) {
+      console.warn(`[playback] prepareLocalFile failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
   ipcMain.handle(IpcChannels.PlaybackPlayMediaItem, async (_event, rawRequest: unknown): Promise<PlaybackStatus> => {

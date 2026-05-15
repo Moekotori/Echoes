@@ -63,6 +63,7 @@ export type DecoderRun = {
 
 export type NativeOutputStartOptions = {
   requestedOutputSampleRate: number;
+  sharedMixSampleRate?: number | null;
   channels: number;
   deviceIndex?: number;
   deviceName?: string;
@@ -121,6 +122,10 @@ export type NativeBridgeReadyResult = {
 export type AudioSessionPlayRequest = LocalAudioSource & {
   startSeconds?: number;
   output?: AudioOutputSettings;
+  probe?: PlaybackProbeHint;
+};
+
+export type AudioSessionPrepareLocalFileRequest = LocalAudioSource & {
   probe?: PlaybackProbeHint;
 };
 

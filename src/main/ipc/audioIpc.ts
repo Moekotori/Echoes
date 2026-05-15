@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type {
   AudioDiagnostics,
+  AudioDeviceInfo,
   AudioLatencyProfile,
   AudioOutputMode,
   AudioOutputSettings,
@@ -77,7 +78,7 @@ export const registerAudioIpc = (): void => {
 
   ipcMain.handle(IpcChannels.AudioGetStatus, (): AudioStatus => getAudioSession().getStatus());
   ipcMain.handle(IpcChannels.AudioGetDiagnostics, (): AudioDiagnostics => getAudioSession().getDiagnostics());
-  ipcMain.handle(IpcChannels.AudioListDevices, () => getAudioSession().listDevices());
+  ipcMain.handle(IpcChannels.AudioListDevices, async (): Promise<AudioDeviceInfo[]> => getAudioSession().listDevicesAsync());
   ipcMain.handle(IpcChannels.AudioSetOutput, async (_event, settings: unknown): Promise<AudioStatus> =>
     getAudioSession().setOutput(normalizeOutputSettings(settings)),
   );

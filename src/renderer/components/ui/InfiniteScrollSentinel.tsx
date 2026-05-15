@@ -47,46 +47,79 @@ export const InfiniteScrollSentinel = ({
   useEffect(() => {
     const sentinel = sentinelRef.current;
 
+    if (!sentinel || !canLoadMore || isLoading || typeof window.IntersectionObserver !== 'function') {
+      return undefined;
+    }
+
+    const root = getPageScrollContainer(sentinel);
+    const observer = new window.IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          requestLoadMore();
+        }
+      },
+      { root, rootMargin },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canLoadMore, isLoading, requestLoadMore, rootMargin]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+
     if (!sentinel || !canLoadMore || isLoading) {
       return undefined;
     }
 
     const root = getPageScrollContainer(sentinel);
 
-    if (typeof window.IntersectionObserver === 'function') {
-      const observer = new window.IntersectionObserver(
-        (entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) {
-            requestLoadMore();
-          }
-        },
-        { root, rootMargin },
-      );
-
-      observer.observe(sentinel);
-      return () => observer.disconnect();
-    }
-
     if (!root) {
       return undefined;
     }
 
-    const handleScroll = (): void => {
-      const distanceToBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+    let frameId: number | null = null;
 
-      if (distanceToBottom <= fallbackDistance) {
+    const checkReach = (): void => {
+      frameId = null;
+      const sentinelRect = sentinel.getBoundingClientRect();
+      const rootRect = root.getBoundingClientRect();
+      const rootBottom = rootRect.height > 0 ? rootRect.bottom : root.clientHeight;
+
+      if (rootBottom <= 0) {
+        return;
+      }
+
+      if (sentinelRect.top === 0 && sentinelRect.bottom === 0 && sentinelRect.height === 0) {
+        return;
+      }
+
+      if (sentinelRect.top <= rootBottom + fallbackDistance) {
         requestLoadMore();
       }
     };
 
-    root.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', handleScroll);
+    const scheduleReachCheck = (): void => {
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(checkReach);
+    };
+
+    scheduleReachCheck();
+    root.addEventListener('scroll', scheduleReachCheck, { passive: true });
+    window.addEventListener('resize', scheduleReachCheck);
 
     return () => {
-      root.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', handleScroll);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      root.removeEventListener('scroll', scheduleReachCheck);
+      window.removeEventListener('resize', scheduleReachCheck);
     };
-  }, [canLoadMore, fallbackDistance, isLoading, requestLoadMore, rootMargin]);
+  }, [canLoadMore, fallbackDistance, isLoading, requestLoadMore]);
 
   return <div className="infinite-scroll-sentinel" ref={sentinelRef} aria-hidden="true" />;
 };

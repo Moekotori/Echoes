@@ -576,10 +576,12 @@ export const AudioSettingsDrawer = ({
     }
 
     try {
-      const [nextDevices, nextStatus] = await Promise.all([audio.listDevices(), audio.getStatus()]);
-      setDevices(nextDevices);
+      const nextStatus = await audio.getStatus();
       setOutputMode(nextStatus.outputMode);
       onStatusChange(nextStatus);
+
+      const nextDevices = await audio.listDevices();
+      setDevices(nextDevices);
       setError(null);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));

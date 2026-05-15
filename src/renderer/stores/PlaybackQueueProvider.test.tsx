@@ -157,6 +157,128 @@ describe('PlaybackQueueProvider playback history session', () => {
     }));
   });
 
+  it('prepares only the next local queue item after playback starts', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const third = makeTrack(3);
+    const prepareLocalFile = vi.fn().mockResolvedValue(undefined);
+    const prepareMediaItem = vi.fn().mockResolvedValue(undefined);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: first.duration * 1000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+        prepareLocalFile,
+        prepareMediaItem,
+      },
+    } as unknown as Window['echo'];
+
+    const AutoPlayFirst = (): null => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.replaceQueue([first, second, third]);
+        void queue.playTrack(first);
+      }, [queue]);
+
+      return null;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <AutoPlayFirst />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: first.id })));
+    await waitFor(() => expect(prepareLocalFile).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    expect(prepareLocalFile).toHaveBeenCalledWith({
+      filePath: second.path,
+      trackId: second.id,
+      probe: {
+        durationSeconds: second.duration,
+        fileSampleRate: second.sampleRate,
+        channels: 2,
+        codec: second.codec,
+        bitDepth: second.bitDepth,
+        bitrate: second.bitrate,
+      },
+    });
+    expect(prepareMediaItem).not.toHaveBeenCalled();
+  });
+
+  it('keeps remote prewarm on prepareMediaItem and skips local prepare for remote next items', async () => {
+    const first = makeTrack(1);
+    const second: LibraryTrack = {
+      ...makeTrack(2),
+      id: 'remote:source-1:stable-key',
+      mediaType: 'remote',
+      sourceId: 'source-1',
+      remotePath: '/music/remote.flac',
+      stableKey: 'stable-key',
+    };
+    const prepareLocalFile = vi.fn().mockResolvedValue(undefined);
+    const prepareMediaItem = vi.fn().mockResolvedValue(undefined);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: first.duration * 1000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+        prepareLocalFile,
+        prepareMediaItem,
+      },
+    } as unknown as Window['echo'];
+
+    const AutoPlayFirst = (): null => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.replaceQueue([first, second]);
+        void queue.playTrack(first);
+      }, [queue]);
+
+      return null;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <AutoPlayFirst />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: first.id })));
+    await waitFor(() => expect(prepareMediaItem).toHaveBeenCalledTimes(1));
+    expect(prepareLocalFile).not.toHaveBeenCalled();
+  });
+
   it('defers automatic network MV search when playback starts', async () => {
     const track = makeTrack(1);
     const getSettings = vi.fn().mockResolvedValue({ autoSearch: true });

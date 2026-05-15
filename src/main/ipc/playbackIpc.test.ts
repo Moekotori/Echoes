@@ -141,4 +141,73 @@ describe('playback media prepare IPC', () => {
       }),
     }));
   });
+
+  it('forwards local file preparation failures without breaking the IPC call', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const prepareLocalFile = vi.fn().mockRejectedValue(new Error('probe failed'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    vi.doMock('electron', () => ({
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => ({
+        getStatus: () => ({
+          state: 'idle',
+          currentTrackId: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          currentFilePath: null,
+        }),
+        on: vi.fn(),
+        restorePlaybackMemory: vi.fn(),
+        prepareLocalFile,
+      }),
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback: vi.fn(),
+        invalidatePlayback: vi.fn(),
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    await expect(handlers.get(IpcChannels.PlaybackPrepareLocalFile)?.({}, {
+      filePath: 'D:\\Music\\next.flac',
+      trackId: 'next',
+      probe: { durationSeconds: 120, fileSampleRate: 44100, channels: 2 },
+    })).resolves.toBeUndefined();
+
+    expect(prepareLocalFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: 'D:\\Music\\next.flac',
+      trackId: 'next',
+    }));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('prepareLocalFile failed'));
+    warn.mockRestore();
+  });
 });
