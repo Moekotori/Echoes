@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, resolve } from 'node:path';
 import { app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { isScannableAudioExtension } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
@@ -28,6 +28,7 @@ import type {
   PlaybackHistoryQuery,
   StartPlaybackHistoryRequest,
   BpmAnalysisStartOptions,
+  LibraryScanMode,
 } from '../../shared/types/library';
 import { getAppSettings } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
@@ -540,6 +541,109 @@ const normalizeBpmAnalysisStartOptions = (value: unknown): BpmAnalysisStartOptio
   };
 };
 
+type DroppedFilePayload = {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+};
+
+const sanitizeFileName = (value: string): string => {
+  const safeName = basename(value || 'dropped-audio')
+    .replace(/[<>:"/\\|?*]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/[. ]+$/u, '');
+
+  return safeName || 'dropped-audio';
+};
+
+const uniqueOutputPath = (directory: string, fileName: string): string => {
+  const extension = extname(fileName);
+  const baseName = fileName.slice(0, fileName.length - extension.length) || 'dropped-audio';
+  let candidate = join(directory, fileName);
+  let suffix = 2;
+
+  while (existsSync(candidate)) {
+    candidate = join(directory, `${baseName} (${suffix})${extension}`);
+    suffix += 1;
+  }
+
+  return candidate;
+};
+
+const normalizeDroppedFiles = (value: unknown): DroppedFilePayload[] => {
+  if (!Array.isArray(value)) {
+    throw new Error('files must be an array');
+  }
+
+  return value.flatMap((item): DroppedFilePayload[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return [];
+    }
+
+    const input = item as Record<string, unknown>;
+    const bytes = input.bytes;
+    if (typeof input.name !== 'string' || !(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+      return [];
+    }
+
+    return [{
+      name: input.name,
+      type: typeof input.type === 'string' ? input.type : '',
+      bytes,
+    }];
+  });
+};
+
+const importDroppedFiles = async (value: unknown): Promise<{
+  importedCount: number;
+  ignoredCount: number;
+  failedCount: number;
+  importedTrackIds: string[];
+  outputDirectory: string;
+}> => {
+  const outputDirectory = app.getPath('downloads');
+  const files = normalizeDroppedFiles(value);
+  const importedTrackIds: string[] = [];
+  let ignoredCount = 0;
+  let failedCount = 0;
+
+  mkdirSync(outputDirectory, { recursive: true });
+
+  for (const file of files) {
+    const fileName = sanitizeFileName(file.name);
+    if (!isScannableAudioExtension(fileName)) {
+      ignoredCount += 1;
+      continue;
+    }
+
+    const outputPath = uniqueOutputPath(outputDirectory, fileName);
+    try {
+      writeFileSync(outputPath, Buffer.from(file.bytes));
+      const track = await getLibraryService().importAudioFile(outputPath, { folderPath: outputDirectory });
+      importedTrackIds.push(track.id);
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  return {
+    importedCount: importedTrackIds.length,
+    ignoredCount,
+    failedCount,
+    importedTrackIds,
+    outputDirectory,
+  };
+};
+
+const normalizeEmbeddedTagRescanMode = (value: unknown): Exclude<LibraryScanMode, 'normal'> => {
+  if (value === 'embedded-tags-all' || value === 'embedded-tags-missing-cover') {
+    return value;
+  }
+
+  throw new Error('embedded tag rescan mode must be embedded-tags-all or embedded-tags-missing-cover');
+};
+
 const coverMimeType = (filePath: string): string => {
   const extension = filePath.split('.').pop()?.toLocaleLowerCase();
 
@@ -770,7 +874,7 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryClassifyImportPaths, (_event, paths: unknown) =>
     classifyImportPaths(normalizePathList(paths)),
   );
-  ipcMain.handle(IpcChannels.LibraryGetDefaultImportDirectory, () => app.getPath('downloads'));
+  ipcMain.handle(IpcChannels.LibraryImportDroppedFiles, (_event, files: unknown) => importDroppedFiles(files));
   ipcMain.handle(IpcChannels.LibraryGetFolders, () => getLibraryService().getFolders());
   ipcMain.handle(IpcChannels.LibraryGetFolderOverviews, () => getLibraryService().getFolderOverviews());
   ipcMain.handle(IpcChannels.LibraryGetFolderChildren, (_event, query: unknown) =>
@@ -791,6 +895,9 @@ export const registerLibraryIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.LibraryScanFolder, (_event, folderId: unknown) =>
     getLibraryService().scanFolder(requireText(folderId, 'folderId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryRescanEmbeddedTags, (_event, mode: unknown) =>
+    getLibraryService().rescanEmbeddedTags(normalizeEmbeddedTagRescanMode(mode)),
   );
   ipcMain.handle(IpcChannels.LibraryGetScanStatus, (_event, jobId: unknown) =>
     getLibraryService().getScanStatus(requireText(jobId, 'jobId')),
@@ -1065,6 +1172,7 @@ export const registerLibraryIpc = (): void => {
     getLibraryService().deleteAlbumTracks(id);
   });
   ipcMain.handle(IpcChannels.LibraryPruneMissingTracks, () => getLibraryService().pruneMissingTracks());
+  ipcMain.handle(IpcChannels.LibraryPruneInvalidTracks, () => getLibraryService().pruneInvalidTracks());
   ipcMain.handle(IpcChannels.LibraryClearTracks, () => getLibraryService().clearTracks());
   ipcMain.handle(IpcChannels.LibraryClearCache, () => getLibraryService().clearCache());
   ipcMain.handle(IpcChannels.LibraryNetworkRepairMissingMetadata, (_event, trackId: unknown) =>

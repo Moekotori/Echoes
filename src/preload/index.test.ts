@@ -23,9 +23,6 @@ vi.mock('electron', () => ({
       }
     }),
   },
-  webUtils: {
-    getPathForFile: vi.fn((file: { testPath?: string }) => file.testPath ?? ''),
-  },
 }));
 
 describe('preload SMTC API', () => {
@@ -83,16 +80,18 @@ describe('preload SMTC API', () => {
 
   it('exposes the dropped import path classifier', async () => {
     await exposedApi!.library.classifyImportPaths(['D:\\Music']);
-    await exposedApi!.library.getDefaultImportDirectory();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryClassifyImportPaths, ['D:\\Music']);
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetDefaultImportDirectory);
   });
 
-  it('resolves dropped file paths in preload', async () => {
-    const paths = await exposedApi!.library.getDroppedFilePaths([{ testPath: 'D:\\Downloads\\song.flac' } as unknown as File]);
+  it('serializes dropped files for library import', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'song.flac', { type: 'audio/flac' });
+    await exposedApi!.library.importDroppedFiles([file]);
 
-    expect(paths).toEqual(['D:\\Downloads\\song.flac']);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.LibraryImportDroppedFiles,
+      [{ name: 'song.flac', type: 'audio/flac', bytes: new Uint8Array([1, 2, 3]) }],
+    );
   });
 
   it('exposes local audio file opening helpers through IPC', async () => {

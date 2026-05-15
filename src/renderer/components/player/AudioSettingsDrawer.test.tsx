@@ -29,7 +29,9 @@ const baseStatus: AudioStatus = {
   outputDeviceName: null,
   outputDeviceType: null,
   outputBackend: null,
+  activeOutputBackendImpl: null,
   outputMode: 'shared',
+  useJuceOutputRequested: false,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',
@@ -98,8 +100,20 @@ const renderDrawer = (status: AudioStatus, setOutput = vi.fn().mockResolvedValue
   );
 };
 
+const setNavigatorUserAgent = (userAgent: string): void => {
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: userAgent,
+  });
+  Object.defineProperty(window.navigator, 'platform', {
+    configurable: true,
+    value: userAgent.includes('Linux') ? 'Linux x86_64' : 'Win32',
+  });
+};
+
 beforeEach(() => {
   window.localStorage.clear();
+  setNavigatorUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
   Object.defineProperty(window, 'requestAnimationFrame', {
     configurable: true,
     value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0),
@@ -130,6 +144,16 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('button', { name: /Stable/ })).toBeTruthy();
   });
 
+  it('shows Windows-only output controls on Windows', async () => {
+    renderDrawer(baseStatus);
+
+    await waitFor(() => expect(screen.getAllByText('TEAC ASIO').length).toBeGreaterThan(0));
+
+    expect(screen.getByRole('heading', { name: 'asioDevices' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: /wasapiExclusive/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /TEAC ASIO/ })).toBeTruthy();
+  });
+
   it('does not force low latency when switching WASAPI exclusive on', async () => {
     const setOutput = vi.fn().mockResolvedValue({
       ...baseStatus,
@@ -157,6 +181,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
 
     expect(screen.getByRole('heading', { name: 'ASIO buffer' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /128/ }).length).toBeGreaterThan(0);
+    expect(document.querySelector('.audio-current-output-card--asio')).toBeTruthy();
     expect(screen.getByText('recommended')).toBeTruthy();
     expect(screen.getByText('5 ms')).toBeTruthy();
 
@@ -262,5 +287,16 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       deviceName: 'TEAC ASIO',
       bufferSizeFrames: 256,
     });
+  });
+
+  it('hides Windows-only output controls on Linux', async () => {
+    setNavigatorUserAgent('Mozilla/5.0 (X11; Linux x86_64)');
+    renderDrawer(baseStatus);
+
+    await waitFor(() => expect(window.echo?.audio?.listDevices).toHaveBeenCalled());
+
+    expect(screen.queryByRole('heading', { name: 'asioDevices' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /wasapiExclusive/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /TEAC ASIO/ })).toBeNull();
   });
 });

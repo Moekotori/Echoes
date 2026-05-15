@@ -71,12 +71,13 @@ const normalizeInput = (value: unknown): RemoteSourceInput => {
   const input = value as Record<string, unknown>;
   const provider = providers.has(input.provider as RemoteSourceProvider) ? (input.provider as RemoteSourceProvider) : 'webdav';
   const syncMode = syncModes.has(input.syncMode as RemoteSourceSyncMode) ? (input.syncMode as RemoteSourceSyncMode) : 'index';
-  const authType = input.authType === 'none' || input.authType === 'token' || input.authType === 'apiKey' ? input.authType : 'basic';
+  const requestedAuthType = input.authType === 'none' || input.authType === 'token' || input.authType === 'apiKey' ? input.authType : 'basic';
   const username = optionalText(input.username);
-  const secret = typeof input.secret === 'string' && input.secret.length > 0 ? input.secret : null;
+  const secret = typeof input.secret === 'string' ? input.secret : null;
+  const authType = provider === 'webdav' && requestedAuthType === 'basic' && !username && !secret ? 'none' : requestedAuthType;
 
-  if (provider === 'webdav' && authType === 'basic' && (!username || !secret)) {
-    throw new Error('WebDAV password authentication requires both username and password.');
+  if (provider === 'webdav' && authType === 'basic' && !username) {
+    throw new Error('WebDAV password authentication requires a username.');
   }
   if (provider === 'webdav' && (authType === 'token' || authType === 'apiKey') && !secret) {
     throw new Error('WebDAV token authentication requires a token or API key.');

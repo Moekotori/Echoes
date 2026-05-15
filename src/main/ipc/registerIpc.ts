@@ -131,6 +131,11 @@ export const registerIpc = (): void => {
       return;
     }
 
+    if (window.isFullScreen()) {
+      window.setFullScreen(false);
+      return;
+    }
+
     if (window.isMaximized()) {
       window.unmaximize();
       return;

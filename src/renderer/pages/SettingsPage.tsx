@@ -226,6 +226,8 @@ const statusRows = (
   { label: 'state', value: status?.state ?? 'loading' },
   { label: 'outputMode', value: status?.outputMode ?? 'shared' },
   { label: 'outputBackend', value: status?.outputBackend ?? 'n/a' },
+  { label: 'activeOutputBackendImpl', value: status?.activeOutputBackendImpl ?? 'n/a' },
+  { label: 'useJuceOutputRequested', value: formatBool(status?.useJuceOutputRequested ?? false) },
   { label: 'fileSampleRate', value: formatRate(status?.fileSampleRate ?? null) },
   { label: 'decoderOutputSampleRate', value: formatRate(status?.decoderOutputSampleRate ?? null) },
   { label: 'requestedOutputSampleRate', value: formatRate(status?.requestedOutputSampleRate ?? null) },
@@ -618,6 +620,8 @@ export const SettingsPage = (): JSX.Element => {
   const [albumGroupingMessage, setAlbumGroupingMessage] = useState<string | null>(null);
   const [libraryScanBusy, setLibraryScanBusy] = useState(false);
   const [libraryScanMessage, setLibraryScanMessage] = useState<string | null>(null);
+  const [embeddedTagRescanBusy, setEmbeddedTagRescanBusy] = useState<'all' | 'missing-cover' | null>(null);
+  const [embeddedTagRescanMessage, setEmbeddedTagRescanMessage] = useState<string | null>(null);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateTrackIndexSummary | null>(null);
   const [duplicateBusyAction, setDuplicateBusyAction] = useState<'toggle' | 'analyze' | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
@@ -926,6 +930,7 @@ export const SettingsPage = (): JSX.Element => {
       const output: AudioOutputSettings = {
         outputMode: nextOutputMode,
         latencyProfile: 'lowLatency',
+        useJuceOutput: appSettings?.audioUseJuceOutput === true,
       };
 
       if (nextDevice) {
@@ -942,7 +947,7 @@ export const SettingsPage = (): JSX.Element => {
 
       setStatus(await audio.setOutput(output));
     },
-    [devices, outputMode, selectedDeviceId],
+    [appSettings?.audioUseJuceOutput, devices, outputMode, selectedDeviceId],
   );
 
   const handleNavClick = (key: SettingsNavKey): void => {
@@ -961,6 +966,23 @@ export const SettingsPage = (): JSX.Element => {
   const handleDeviceChange = (nextDeviceId: string): void => {
     setSelectedDeviceId(nextDeviceId);
     void applyOutputSettings(outputMode, nextDeviceId);
+  };
+
+  const handleJuceOutputToggle = async (): Promise<void> => {
+    const nextUseJuceOutput = !(appSettings?.audioUseJuceOutput ?? false);
+    patchAppSettings({ audioUseJuceOutput: nextUseJuceOutput });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ useJuceOutput: nextUseJuceOutput }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
   };
 
   const handleAppearanceChange = (nextPreferences: AppearancePreferences): void => {
@@ -1637,6 +1659,41 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const handleRescanEmbeddedTags = async (scope: 'all' | 'missing-cover'): Promise<void> => {
+    const library = getLibraryBridge();
+
+    if (!library) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to rescan embedded tags.');
+      return;
+    }
+
+    try {
+      setEmbeddedTagRescanBusy(scope);
+      setEmbeddedTagRescanMessage(null);
+      setError(null);
+      const scans = await library.rescanEmbeddedTags(
+        scope === 'all' ? 'embedded-tags-all' : 'embedded-tags-missing-cover',
+      );
+      scans.forEach(rememberLibraryScanStatus);
+      if (scans.length === 0) {
+        setEmbeddedTagRescanMessage('还没有导入曲库文件夹。');
+        return;
+      }
+
+      setEmbeddedTagRescanMessage(
+        scope === 'all'
+          ? `已开始重扫 ${scans.length} 个曲库文件夹的全部嵌入标签，扫到后会自动应用。`
+          : `已开始重扫 ${scans.length} 个曲库文件夹中缺失封面的歌曲，扫到嵌入标签/封面后会自动应用。`,
+      );
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (scanError) {
+      setEmbeddedTagRescanMessage(null);
+      setError(scanError instanceof Error ? scanError.message : String(scanError));
+    } finally {
+      setEmbeddedTagRescanBusy(null);
+    }
+  };
+
   const handleDuplicateVisibilityToggle = async (): Promise<void> => {
     const app = getAppBridge();
     const library = getLibraryBridge();
@@ -2057,6 +2114,13 @@ export const SettingsPage = (): JSX.Element => {
                     )}
                   </select>
                 </label>
+              </SettingRow>
+              <SettingRow title="使用JUCE输出" description="默认关闭。开启后才尝试 JUCE 接管输出；失败时会自动回退正常输出。">
+                <ToggleButton
+                  active={appSettings?.audioUseJuceOutput ?? false}
+                  disabled={!appSettings}
+                  onClick={() => void handleJuceOutputToggle()}
+                />
               </SettingRow>
               <SettingRow title={t('settings.playback.speedMode.title')} description={t('settings.playback.speedMode.description')}>
                 <div className="settings-chip-row">
@@ -2524,6 +2588,45 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                   {albumGroupingMessage ? <p className="settings-inline-note">{albumGroupingMessage}</p> : null}
                   {libraryScanMessage ? <p className="settings-inline-note">{libraryScanMessage}</p> : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title="嵌入标签重扫"
+                description="重新读取音频文件里的内嵌标题、艺人、专辑、音轨号和封面；读取到后直接应用到曲库。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--embedded-tags">
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>全部重扫</em>
+                      <strong>无视旧缓存，逐首重新读取嵌入标签</strong>
+                    </span>
+                    <span>
+                      <em>缺失封面</em>
+                      <strong>只重扫没有封面或只有默认封面的歌曲</strong>
+                    </span>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={embeddedTagRescanBusy !== null}
+                      onClick={() => void handleRescanEmbeddedTags('all')}
+                    >
+                      <RotateCw className={embeddedTagRescanBusy === 'all' ? 'spinning-icon' : undefined} size={15} />
+                      {embeddedTagRescanBusy === 'all' ? '启动中...' : '重扫所有嵌入标签'}
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={embeddedTagRescanBusy !== null}
+                      onClick={() => void handleRescanEmbeddedTags('missing-cover')}
+                    >
+                      <RotateCw className={embeddedTagRescanBusy === 'missing-cover' ? 'spinning-icon' : undefined} size={15} />
+                      {embeddedTagRescanBusy === 'missing-cover' ? '启动中...' : '重扫缺失封面的歌曲'}
+                    </button>
+                  </div>
+                  {embeddedTagRescanMessage ? <p className="settings-inline-note">{embeddedTagRescanMessage}</p> : null}
                 </div>
               </SettingRow>
               <SettingRow

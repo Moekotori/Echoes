@@ -25,6 +25,7 @@ import { isSupportedAudioExtension } from '../../shared/constants/audioExtension
 import { getAccountService } from '../accounts/AccountService';
 import { getLibraryService } from '../library/LibraryService';
 import { getNcmConverter } from '../library/NcmConverter';
+import { writeEmbeddedTrackTags } from '../library/TagWriter';
 import { getMvService } from '../mv/MvService';
 import { getAudioSession } from '../audio/AudioSession';
 
@@ -132,6 +133,7 @@ type DownloadServiceDependencies = {
   getAccountCredentials?: (provider: AccountProvider) => AccountCredentials;
   getPlaybackState?: () => string | null | undefined;
   postDownloadImportRetryMs?: number;
+  writeEmbeddedTrackTags?: typeof writeEmbeddedTrackTags;
 };
 
 type YtDlpSearchEntry = {
@@ -288,6 +290,27 @@ const extensionFromUrl = (url: string): string | null => {
   } catch {
     return null;
   }
+};
+
+const supportedCoverMimeType = (value: string | null | undefined): string | null => {
+  const normalized = value?.split(';')[0]?.trim().toLocaleLowerCase();
+  return normalized === 'image/jpeg' || normalized === 'image/png' || normalized === 'image/webp' ? normalized : null;
+};
+
+const mimeTypeForCoverUrl = (url: string): string => {
+  try {
+    const extension = new URL(url).pathname.split('/').pop()?.split('.').pop()?.toLocaleLowerCase();
+    if (extension === 'png') {
+      return 'image/png';
+    }
+    if (extension === 'webp') {
+      return 'image/webp';
+    }
+  } catch {
+    return 'image/jpeg';
+  }
+
+  return 'image/jpeg';
 };
 
 const hasHeader = (headers: Record<string, string>, name: string): boolean =>
@@ -1006,6 +1029,7 @@ export class DownloadService extends EventEmitter {
         await this.probe(jobId);
       }
       await this.download(jobId);
+      await this.writeDownloadedEmbeddedTags(jobId);
       if (this.shouldImportAfterDownload(jobId) && this.isPlaybackBusyForPostDownloadImport()) {
         this.queuePostDownloadImport(jobId);
       } else {
@@ -1189,6 +1213,81 @@ export class DownloadService extends EventEmitter {
       progress: 96,
       downloadedBytes: this.safeFileSize(decodedOutputPath),
     });
+  }
+
+  private async writeDownloadedEmbeddedTags(jobId: string): Promise<void> {
+    const job = this.requireJob(jobId);
+    const options = this.jobOptions.get(jobId);
+
+    if (!job.outputPath || !options?.directAudio) {
+      return;
+    }
+
+    const hasMetadata =
+      Boolean(options.suggestedTitle) ||
+      Boolean(options.suggestedArtist) ||
+      Boolean(options.suggestedAlbum) ||
+      Boolean(options.suggestedAlbumArtist);
+    if (!hasMetadata && !options.suggestedCoverUrl) {
+      return;
+    }
+
+    const coverData = options.suggestedCoverUrl ? await this.readDownloadCoverImage(options.suggestedCoverUrl).catch(() => null) : null;
+
+    try {
+      const writeTags = this.dependencies.writeEmbeddedTrackTags ?? writeEmbeddedTrackTags;
+      await writeTags({
+        filePath: job.outputPath,
+        coverData,
+        tags: {
+          title: options.suggestedTitle ?? job.title ?? 'Streaming audio',
+          artist: options.suggestedArtist ?? 'Unknown Artist',
+          album: options.suggestedAlbum ?? 'Unknown Album',
+          albumArtist: options.suggestedAlbumArtist ?? options.suggestedArtist ?? 'Unknown Artist',
+          trackNo: null,
+          discNo: null,
+          year: null,
+          genre: null,
+        },
+      });
+    } catch (error) {
+      this.updateJob(jobId, {
+        error: `Embedded tag write failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  private async readDownloadCoverImage(url: string): Promise<{ data: Uint8Array; mimeType: string }> {
+    const fetchRunner = this.dependencies.fetch ?? globalThis.fetch;
+    if (!fetchRunner) {
+      throw new Error('fetch is not available for cover downloads');
+    }
+
+    let coverUrl = url;
+    let referer = 'https://www.bilibili.com/';
+    if (url.startsWith('echo-image://remote/')) {
+      const proxied = new URL(url);
+      coverUrl = decodeURIComponent(proxied.pathname.replace(/^\/+/u, ''));
+      referer = proxied.searchParams.get('referer') ?? referer;
+    }
+
+    const response = await fetchRunner(coverUrl, {
+      headers: {
+        Accept: 'image/avif,image/webp,image/png,image/jpeg,*/*',
+        Referer: referer,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Cover download failed: HTTP ${response.status}`);
+    }
+
+    const mimeType = supportedCoverMimeType(response.headers.get('content-type')) ?? mimeTypeForCoverUrl(coverUrl);
+    return {
+      data: new Uint8Array(await response.arrayBuffer()),
+      mimeType,
+    };
   }
 
   private async writeResponseBodyToFile(jobId: string, response: Response, outputPath: string): Promise<void> {

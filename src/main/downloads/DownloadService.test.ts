@@ -374,6 +374,7 @@ describe('DownloadService', () => {
     const service = new DownloadService(commandRunner, () => ytDlpPath, {
       fetch: fetchRunner,
       getAccountCredentials: (provider) => ({ provider }),
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
     });
 
     const response = await service.search({ query: '籽岷', limitPerProvider: 1, provider: 'bilibili' });
@@ -598,6 +599,7 @@ describe('DownloadService', () => {
       {
         fetch: fetchRunner,
         getAccountCredentials: (provider) => (provider === 'netease' ? { provider, cookie: 'MUSIC_U=secret' } : { provider }),
+        writeEmbeddedTrackTags: vi.fn(async () => undefined),
       },
     );
     service.setSettings({ outputDirectory, importToLibrary: false });
@@ -633,6 +635,8 @@ describe('DownloadService', () => {
       throw new Error('Unsupported MV link. Paste a YouTube or Bilibili video URL.');
     });
     const importAudioFile = vi.fn(async () => ({ id: 'track-1' }));
+    const writeEmbeddedTrackTags = vi.fn(async () => undefined);
+    const coverBytes = new Uint8Array([137, 80, 78, 71]);
     const service = new DownloadService(
       vi.fn(() => ({
         promise: Promise.resolve({ stdout: '', stderr: 'should not run', exitCode: 1 }),
@@ -641,9 +645,16 @@ describe('DownloadService', () => {
       () => ytDlpPath,
       {
         bindMvUrl,
-        fetch: vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { 'content-type': 'audio/mpeg' } })),
+        fetch: vi.fn(async (url: string | URL | Request) => {
+          const rawUrl = String(url);
+          return new Response(rawUrl.includes('cover.jpg') ? coverBytes : new Uint8Array([1, 2, 3, 4]), {
+            status: 200,
+            headers: { 'content-type': rawUrl.includes('cover.jpg') ? 'image/png' : 'audio/mpeg' },
+          });
+        }) as unknown as typeof fetch,
         importAudioFile,
         getAccountCredentials: (provider) => ({ provider }),
+        writeEmbeddedTrackTags,
       },
     );
     service.setSettings({ outputDirectory, importToLibrary: true, bindMvAfterImport: true });
@@ -668,6 +679,20 @@ describe('DownloadService', () => {
     expect(service.getJobs()[0].thumbnailUrl).toBe('echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg?referer=https%3A%2F%2Fmusic.163.com%2F');
     expect(service.getJobs()[0].title).toBe('Streaming Song');
     expect(service.getJobs()[0].outputPath).not.toContain(completedJob.id);
+    expect(writeEmbeddedTrackTags).toHaveBeenCalledWith({
+      filePath: completedJob.outputPath,
+      coverData: { data: coverBytes, mimeType: 'image/png' },
+      tags: {
+        title: 'Streaming Song',
+        artist: 'Artist',
+        album: 'Streaming Album',
+        albumArtist: 'Artist',
+        trackNo: null,
+        discNo: null,
+        year: null,
+        genre: null,
+      },
+    });
     expect(importAudioFile).toHaveBeenCalledWith(
       completedJob.outputPath,
       expect.objectContaining({

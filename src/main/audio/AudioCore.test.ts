@@ -844,6 +844,54 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.probeRequests).toEqual(['miss.flac']);
   });
 
+  it('playLocalFile does not probe HTTP remote streams as local files when metadata is missing', async () => {
+    const streamUrl = 'http://127.0.0.1:51483/remote-stream/webdav-token';
+    const { bridges, decoder, session } = createSessionHarness([]);
+
+    const status = await session.playLocalFile({
+      filePath: streamUrl,
+      trackId: 'remote:source-1:track-1',
+      output: {
+        outputMode: 'shared',
+        playbackRate: 1.25,
+        playbackSpeedMode: 'nightcore',
+      },
+    });
+
+    expect(decoder.probeRequests).toEqual([]);
+    expect(decoder.decodeRequests[0]).toMatchObject({
+      filePath: streamUrl,
+      channels: 2,
+      decoderOutputSampleRate: 48000,
+    });
+    expect(bridges[0].startOptions).toMatchObject({
+      playbackSpeedMode: 'nightcore',
+      requestedOutputSampleRate: 48000,
+      sharedMixSampleRate: 48000,
+    });
+    expect(status.currentFilePath).toBe(streamUrl);
+    expect(status.currentTrackId).toBe('remote:source-1:track-1');
+    expect(status.fileSampleRate).toBeNull();
+    expect(status.warnings).toContain('file_sample_rate_unknown_using_44100_fallback');
+  });
+
+  it('playLocalFile uses partial HTTP stream probe hints without local metadata probing', async () => {
+    const streamUrl = 'http://127.0.0.1:51483/remote-stream/webdav-token-with-duration';
+    const { decoder, session } = createSessionHarness([]);
+
+    const status = await session.playLocalFile({
+      filePath: streamUrl,
+      trackId: 'remote:source-1:track-2',
+      probe: { durationSeconds: 188.5 },
+      output: { outputMode: 'shared' },
+    });
+
+    expect(decoder.probeRequests).toEqual([]);
+    expect(decoder.decodeRequests[0]?.filePath).toBe(streamUrl);
+    expect(status.durationSeconds).toBe(188.5);
+    expect(status.fileSampleRate).toBeNull();
+  });
+
   it('expires prepared local probes after the short TTL', async () => {
     let now = 1_000;
     const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now);
@@ -1062,6 +1110,38 @@ describe('Audio Core sample-rate regression guard', () => {
     }));
   });
 
+  it('skips same-device native retry after selected JUCE shared device refuses to open', async () => {
+    const failingJuceBridge = new ConfigurableStartupFailingBridge(
+      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 48000 -ch 2 -device USB DAC -juce-output"; mode="shared"; elapsedMs=15000; stderrTail="Couldn\'t open the output device!"',
+    );
+    const defaultJuceBridge = new FakeBridge(48000);
+    const bridges = [failingJuceBridge, defaultJuceBridge];
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared', deviceIndex: 11, deviceName: 'USB DAC', useJuceOutput: true },
+    });
+
+    expect(failingJuceBridge.startOptions).toMatchObject({
+      deviceIndex: 11,
+      deviceName: 'USB DAC',
+      useJuceOutput: true,
+    });
+    expect(defaultJuceBridge.startOptions?.deviceIndex).toBeUndefined();
+    expect(defaultJuceBridge.startOptions?.deviceName).toBeUndefined();
+    expect(defaultJuceBridge.startOptions?.useJuceOutput).toBe(true);
+    expect(status.state).toBe('playing');
+    expect(status.warnings).toContain('juce_shared_output_skipped_same_device_native_retry');
+    expect(status.warnings).toContain('shared_output_recovered_to_default_device');
+    expect(bridges).toHaveLength(0);
+  });
+
   it('uses safe shared output when the default shared device also fails', async () => {
     const defaultBridge = new ConfigurableStartupFailingBridge(
       'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
@@ -1277,6 +1357,32 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].startOptions).toMatchObject({
       asio: true,
       exclusive: false,
+      deviceName: 'TEAC ASIO USB DRIVER',
+    });
+  });
+
+  it('does not enumerate ASIO fallback devices before a selected ASIO driver opens', async () => {
+    const listDevices = vi.fn(() => {
+      throw new Error('ASIO fallback enumeration should be lazy');
+    });
+    const bridge = new FakeBridge(96000);
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 96000)]])),
+      deviceService: { listDevices },
+      createBridge: () => bridge,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'asio.flac',
+      output: { outputMode: 'asio', deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' },
+    });
+
+    expect(status.outputMode).toBe('asio');
+    expect(listDevices).not.toHaveBeenCalled();
+    expect(bridge.startOptions).toMatchObject({
+      asio: true,
+      deviceIndex: 2,
       deviceName: 'TEAC ASIO USB DRIVER',
     });
   });
@@ -1891,6 +1997,101 @@ describe('Audio Core sample-rate regression guard', () => {
       deviceIndex: 0,
       deviceName: 'FlexASIO',
     });
+  });
+
+  it('falls back to safe shared output when ASIO drivers refuse to start', async () => {
+    const decoder = new FakeDecoder(new Map([['dsd.dsf', dsdProbe('dsd.dsf', 11_289_600)]]));
+    const failingBridge = new ConfigurableStartupFailingBridge(
+      'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -device MOONDROP USB AUDIO ASIO4 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
+    );
+    const failingDefaultAsioBridge = new ConfigurableStartupFailingBridge(
+      'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
+    );
+    const safeBridge = new FakeBridge(48000);
+    const bridges = [failingBridge, failingDefaultAsioBridge, safeBridge];
+    const reportAudioError = vi.fn();
+    const session = new AudioSession({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      reportAudioError,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'dsd.dsf',
+      output: { outputMode: 'asio', deviceIndex: 2, deviceName: 'MOONDROP USB AUDIO ASIO4' },
+    });
+
+    expect(failingBridge.startOptions).toMatchObject({
+      asio: true,
+      deviceIndex: 2,
+      deviceName: 'MOONDROP USB AUDIO ASIO4',
+      requestedOutputSampleRate: 352800,
+    });
+    expect(failingDefaultAsioBridge.startOptions).toMatchObject({
+      asio: true,
+      requestedOutputSampleRate: 352800,
+    });
+    expect(failingDefaultAsioBridge.startOptions?.deviceIndex).toBeUndefined();
+    expect(failingDefaultAsioBridge.startOptions?.deviceName).toBeUndefined();
+    expect(safeBridge.startOptions).toMatchObject({
+      asio: false,
+      exclusive: false,
+      requestedOutputSampleRate: 48000,
+      bufferSizeFrames: 8192,
+      fifoCapacityMs: 1500,
+    });
+    expect(safeBridge.startOptions?.deviceIndex).toBeUndefined();
+    expect(safeBridge.startOptions?.deviceName).toBeUndefined();
+    expect(status.state).toBe('playing');
+    expect(status.outputMode).toBe('shared');
+    expect(status.latencyProfile).toBe('stable');
+    expect(status.warnings).toContain('asio_output_fell_back_to_safe_shared');
+    expect(status.warnings).toContain('shared_output_recovered_safe_mode');
+    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('Device didn'),
+      phase: 'safe-shared-fallback',
+      severity: 'recoverable',
+    }));
+  });
+
+  it.each([
+    ['shared', { outputMode: 'shared' as const }, { exclusive: false, asio: false }, 'legacy-wasapi-shared'],
+    ['exclusive', { outputMode: 'exclusive' as const }, { exclusive: true, asio: false }, 'legacy-wasapi-exclusive'],
+    ['asio', { outputMode: 'asio' as const, deviceIndex: 1, deviceName: 'TEAC ASIO' }, { exclusive: false, asio: true }, 'legacy-asio-sdk'],
+  ])('falls back from JUCE %s output to native output without clearing the user request', async (_label, output, expectedStart, backendImpl) => {
+    const failingBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
+    const nativeBridge = new FakeBridge(44100, { backendImpl });
+    const bridges = [failingBridge, nativeBridge];
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['juce.flac', probe('juce.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'juce.flac',
+      output: {
+        ...output,
+        useJuceOutput: true,
+      },
+    });
+
+    expect(failingBridge.startOptions).toMatchObject({
+      ...expectedStart,
+      useJuceOutput: true,
+    });
+    expect(nativeBridge.startOptions).toMatchObject({
+      ...expectedStart,
+      useJuceOutput: false,
+    });
+    expect(status.useJuceOutputRequested).toBe(true);
+    expect(status.activeOutputBackendImpl).toBe(backendImpl);
+    expect(status.warnings).toContain('juce_output_fell_back_to_native');
+    await expect(session.disposeGracefully()).resolves.toBeUndefined();
   });
 
   it('pause stops the active native host and prewarms resume output at the current position', async () => {
@@ -2519,6 +2720,51 @@ describe('NativeOutputBridge host arguments', () => {
     expect(spawned[0].args).toEqual(
       expect.arrayContaining(['-device', 'TEAC USB AUDIO DEVICE', '-device-index', '6']),
     );
+  });
+
+  it('passes -juce-output only when explicitly requested', async () => {
+    const spawned: string[][] = [];
+    const fakeSpawn = (_file: string, args: string[]): ChildProcessWithoutNullStreams => {
+      spawned.push(args);
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write('{"ready":true,"sampleRate":48000}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+    expect(spawned[0]).not.toContain('-juce-output');
+    expect(bridge.canReuseFor({ requestedOutputSampleRate: 48000, channels: 2, useJuceOutput: true })).toBe(false);
+    bridge.stop();
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      useJuceOutput: true,
+    });
+    expect(spawned[1]).toContain('-juce-output');
+    expect(bridge.canReuseFor({ requestedOutputSampleRate: 48000, channels: 2, useJuceOutput: true })).toBe(true);
+    expect(bridge.canReuseFor({ requestedOutputSampleRate: 48000, channels: 2 })).toBe(false);
+    bridge.stop();
   });
 
   it('passes shared FIFO and startup prebuffer host arguments', async () => {
@@ -3384,6 +3630,36 @@ describe('AudioSession graceful output cleanup', () => {
 
     await expect(session.disposeGracefully()).resolves.toBeUndefined();
   });
+
+  it('keeps UI device enumeration on the stable native list while JUCE output is enabled', async () => {
+    const nativeDevices: AudioDeviceInfo[] = [
+      {
+        id: 'shared:0',
+        index: 0,
+        name: 'USB DAC',
+        outputMode: 'shared',
+        sampleRate: 48000,
+        sharedDeviceSampleRate: 48000,
+        isDefault: true,
+      },
+    ];
+    const listDevices = vi.fn(() => nativeDevices);
+    const listDevicesAsync = vi.fn(async () => nativeDevices);
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map()),
+      deviceService: { listDevices, listDevicesAsync },
+      createBridge: () => new FakeBridge(),
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.setOutput({ useJuceOutput: true });
+
+    expect(session.listDevices()).toEqual(nativeDevices);
+    await expect(session.listDevicesAsync()).resolves.toEqual(nativeDevices);
+    expect(listDevices).toHaveBeenCalledWith();
+    expect(listDevicesAsync).toHaveBeenCalledWith();
+  });
 });
 
 describe('DeviceService diagnostics', () => {
@@ -3448,6 +3724,85 @@ describe('DeviceService diagnostics', () => {
       },
     ]);
     expect(execFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps native and JUCE device-list calls in separate cache buckets', async () => {
+    const execFileMock = vi.fn((_bin, args, _options, callback) => {
+      const isJuce = Array.isArray(args) && args.includes('-juce-output');
+      const isAsio = Array.isArray(args) && args.includes('-asio');
+      const output = isAsio
+        ? ''
+        : `0\t${isJuce ? 'JUCE Speakers' : 'Speakers'}\t48000\t1\t48000\n`;
+      queueMicrotask(() => callback(null, output, ''));
+      return {} as ReturnType<typeof nodeExecFile>;
+    });
+    const service = new DeviceService({
+      hostBinary: 'echo-audio-host.exe',
+      execFile: execFileMock as unknown as typeof nodeExecFile,
+      logger: noopLogger,
+    });
+
+    await expect(service.listDevicesAsync({ useJuceOutput: false })).resolves.toMatchObject([
+      { name: 'Speakers' },
+    ]);
+    await expect(service.listDevicesAsync({ useJuceOutput: true })).resolves.toMatchObject([
+      { name: 'JUCE Speakers' },
+    ]);
+    await expect(service.listDevicesAsync({ useJuceOutput: true })).resolves.toMatchObject([
+      { name: 'JUCE Speakers' },
+    ]);
+
+    const calls = execFileMock.mock.calls.map((call) => call[1]);
+    expect(calls).toContainEqual(['-list']);
+    expect(calls).toContainEqual(['-list', '-juce-output']);
+    expect(calls).toContainEqual(['-list', '-asio']);
+    expect(calls).toContainEqual(['-list', '-asio', '-juce-output']);
+    expect(calls.filter((args) => Array.isArray(args) && args.includes('-juce-output')).length).toBe(2);
+  });
+
+  it('returns an empty Linux device list when no native host is bundled', async () => {
+    const execFileSyncMock = vi.fn(() => {
+      throw new Error('sync enumeration should not run');
+    });
+    const execFileMock = vi.fn();
+    const logs: string[] = [];
+    const service = new DeviceService({
+      hostBinary: null,
+      platform: 'linux',
+      execFileSync: execFileSyncMock as unknown as typeof nodeExecFileSync,
+      execFile: execFileMock as unknown as typeof nodeExecFile,
+      logger: (message) => logs.push(message),
+    });
+
+    expect(service.listDevices()).toEqual([]);
+    await expect(service.listDevicesAsync()).resolves.toEqual([]);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(logs.some((message) => message.includes('echo-audio-host binary not found for shared device enumeration'))).toBe(true);
+  });
+
+  it('lists only shared devices on Linux', async () => {
+    const execFileMock = vi.fn((_bin, args, _options, callback) => {
+      queueMicrotask(() => callback(null, '0\tPipeWire Output\t48000\t1\t48000\n', ''));
+      return {} as ReturnType<typeof nodeExecFile>;
+    });
+    const service = new DeviceService({
+      hostBinary: 'echo-audio-host',
+      platform: 'linux',
+      execFile: execFileMock as unknown as typeof nodeExecFile,
+      logger: noopLogger,
+    });
+
+    await expect(service.listDevicesAsync()).resolves.toMatchObject([
+      {
+        id: 'shared:0',
+        name: 'PipeWire Output',
+        outputMode: 'shared',
+        sharedDeviceSampleRate: 48000,
+      },
+    ]);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual(['-list']);
   });
 });
 

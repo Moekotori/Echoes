@@ -6,6 +6,8 @@ import type { LibraryStore } from './LibraryStore';
 import type {
   CoverResult,
   LibraryFolder,
+  LibraryScanMode,
+  LibraryScanOptions,
   LibraryScanStatus,
   MetadataResult,
   ScannedAudioFile,
@@ -87,9 +89,9 @@ export class ScanJobQueue {
     this.coverCacheDir = coverCacheDir;
   }
 
-  scanFolder(folder: LibraryFolder): LibraryScanStatus {
+  scanFolder(folder: LibraryFolder, options: LibraryScanOptions = {}): LibraryScanStatus {
     const job = this.store.createScanJob(folder.id);
-    const run = this.runJob(job.id, folder).finally(() => {
+    const run = this.runJob(job.id, folder, options.mode ?? 'normal').finally(() => {
       this.runningJobs.delete(job.id);
     });
 
@@ -127,7 +129,7 @@ export class ScanJobQueue {
     await this.runningJobs.get(jobId);
   }
 
-  private async runJob(jobId: string, folder: LibraryFolder): Promise<void> {
+  private async runJob(jobId: string, folder: LibraryFolder, mode: LibraryScanMode): Promise<void> {
     const startedAt = new Date().toISOString();
     let processedFiles = 0;
     let skippedFiles = 0;
@@ -161,7 +163,10 @@ export class ScanJobQueue {
 
         const existing = cacheStatesByPath.get(resolve(file.path)) ?? null;
 
-        if (existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs) {
+        const unchanged = existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs;
+        const forceReadEmbeddedTags = this.shouldForceReadEmbeddedTags(mode, existing);
+
+        if (unchanged && !forceReadEmbeddedTags) {
           if (this.hasCompleteCoverCache(existing)) {
             processedFiles += 1;
             skippedFiles += 1;
@@ -565,6 +570,22 @@ export class ScanJobQueue {
         existsSync(state.albumPath) &&
         existsSync(state.largePath),
     );
+  }
+
+  private shouldForceReadEmbeddedTags(mode: LibraryScanMode, state: StoredTrackCoverState | null): boolean {
+    if (mode === 'normal') {
+      return false;
+    }
+
+    if (mode === 'embedded-tags-all') {
+      return true;
+    }
+
+    return !state || this.isMissingOrDefaultCover(state);
+  }
+
+  private isMissingOrDefaultCover(state: StoredTrackCoverState): boolean {
+    return !state.coverId || state.coverSource === 'default' || !this.hasCompleteCoverCache(state);
   }
 
   private canRepairCoverCache(state: StoredTrackCoverState): boolean {

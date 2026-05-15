@@ -70,6 +70,7 @@ export type NativeOutputStartOptions = {
   sharedBackend?: 'auto' | 'windows' | 'directsound'; // directsound is legacy-disabled; callers should not request it.
   asio?: boolean;
   exclusive?: boolean;
+  useJuceOutput?: boolean;
   latencyProfile?: AudioOutputSettings['latencyProfile'];
   bufferSizeFrames?: number;
   fifoCapacityMs?: number;

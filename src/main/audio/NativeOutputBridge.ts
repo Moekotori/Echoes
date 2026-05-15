@@ -258,6 +258,7 @@ const createReuseKey = (options: NativeOutputStartOptions): string => {
     channels: options.channels,
     asio: options.asio === true,
     exclusive: options.exclusive === true,
+    useJuceOutput: options.useJuceOutput === true,
     bufferSizeFrames: Number.isFinite(Number(options.bufferSizeFrames)) ? Math.round(Number(options.bufferSizeFrames)) : null,
     latencyProfile: options.latencyProfile ?? null,
     playbackSpeedMode: options.playbackSpeedMode ?? null,
@@ -782,6 +783,10 @@ export class NativeOutputBridge extends EventEmitter {
 
     if (options.exclusive && !options.asio) {
       args.push('-exclusive');
+    }
+
+    if (options.useJuceOutput === true) {
+      args.push('-juce-output');
     }
 
     const sharedBackend = normalizeSharedBackendForHost(options.sharedBackend);

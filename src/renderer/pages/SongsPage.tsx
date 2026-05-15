@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Download, FolderPlus, ListFilter, Play, RotateCw, Search, Trash2, X } from 'lucide-react';
 import type { AppSettings } from '../../shared/types/appSettings';
-import type { DuplicateTrackIndexSummary, DuplicateTrackMember, EditableTrackTags, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import type { DuplicateTrackIndexSummary, DuplicateTrackMember, EditableTrackTags, LibraryScanStatus, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { TrackList } from '../components/library/TrackList';
@@ -42,6 +42,20 @@ const sortOptions: Array<{ value: LibrarySort; label: string }> = [
 const songsSortStorageKey = 'echo-next.songs.sort';
 const songsHideDuplicatesStorageKey = 'echo-next.songs.hide-duplicates';
 const validSortValues = new Set<LibrarySort>(sortOptions.map((option) => option.value));
+const scanPollIntervalMs = 500;
+const finishedScanStatuses = new Set<LibraryScanStatus['status']>(['completed', 'cancelled', 'failed']);
+const scanPhaseLabels: Record<LibraryScanStatus['phase'], string> = {
+  queued: '排队中',
+  discovering: '发现音乐文件',
+  checking_cache: '检查增量缓存',
+  reading_metadata: '读取新增/变更歌曲',
+  extracting_covers: '修复封面缓存',
+  grouping_albums: '整理专辑',
+  writing_database: '写入曲库',
+  finished: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
 
 const readStoredSort = (): LibrarySort => {
   try {
@@ -79,6 +93,21 @@ const writeStoredHideDuplicates = (hideDuplicates: boolean): void => {
 };
 
 const uniqueIds = (ids: string[]): string[] => Array.from(new Set(ids.filter(Boolean)));
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const summarizeScanJobs = (statuses: LibraryScanStatus[]): string => {
+  const active = statuses.find((status) => !finishedScanStatuses.has(status.status)) ?? statuses[statuses.length - 1];
+  const processedFiles = statuses.reduce((sum, status) => sum + status.processedFiles, 0);
+  const totalFiles = statuses.reduce((sum, status) => sum + status.totalFiles, 0);
+  const addedTracks = statuses.reduce((sum, status) => sum + status.addedTracks, 0);
+  const updatedTracks = statuses.reduce((sum, status) => sum + status.updatedTracks, 0);
+  const skippedFiles = statuses.reduce((sum, status) => sum + status.skippedFiles, 0);
+  const phase = active ? scanPhaseLabels[active.phase] : '增量扫描';
+  const progress = totalFiles > 0 ? `${processedFiles}/${totalFiles}` : `${processedFiles}`;
+
+  return `正在${phase}... ${progress} 个文件，新增 ${addedTracks}，更新 ${updatedTracks}，跳过 ${skippedFiles}`;
+};
 
 type InitialSongsState = {
   hideDuplicates: boolean;
@@ -126,7 +155,7 @@ export const SongsPage = (): JSX.Element => {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>(() => initialSongsState.sort);
   const [isLoading, setIsLoading] = useState(false);
-  const [isScanningMissing, setIsScanningMissing] = useState(false);
+  const [isMaintainingLibrary, setIsMaintainingLibrary] = useState(false);
   const [hideDuplicates, setHideDuplicates] = useState(() => initialSongsState.hideDuplicates);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateTrackIndexSummary | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
@@ -404,31 +433,55 @@ export const SongsPage = (): JSX.Element => {
     window.dispatchEvent(new Event('app:navigate:import-folder'));
   };
 
-  const handleScanMissingTracks = async (): Promise<void> => {
+  const handleMaintainLibrary = async (): Promise<void> => {
     const library = window.echo?.library;
 
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to scan the library.');
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.');
       return;
     }
 
-    setIsScanningMissing(true);
+    setIsMaintainingLibrary(true);
     setError(null);
-    setStatusMessage(null);
+    setStatusMessage('正在扫描失效歌曲和 5 秒及以下短音频...');
 
     try {
-      const result = await library.pruneMissingTracks();
+      const cleanup = library.pruneInvalidTracks
+        ? await library.pruneInvalidTracks()
+        : {
+            ...(await library.pruneMissingTracks()),
+            missingRemovedCount: 0,
+            shortRemovedCount: 0,
+            shortDurationThresholdSeconds: 5,
+          };
+      const folders = await library.getFolders();
+      const activeFolders = folders.filter((folder) => folder.status === 'active');
+      const scanJobs = await Promise.all(activeFolders.map((folder) => library.scanFolder(folder.id)));
+
+      if (scanJobs.length > 0) {
+        let statuses = scanJobs;
+        setStatusMessage(summarizeScanJobs(statuses));
+
+        while (statuses.some((status) => !finishedScanStatuses.has(status.status))) {
+          await sleep(scanPollIntervalMs);
+          statuses = await Promise.all(statuses.map((status) => library.getScanStatus(status.id)));
+          setStatusMessage(summarizeScanJobs(statuses));
+        }
+
+        const failedJob = statuses.find((status) => status.status === 'failed');
+        if (failedJob) {
+          throw new Error(`增量扫描失败：${failedJob.errors[0] ?? 'unknown error'}`);
+        }
+      }
       await loadTracks(1, 'replace');
       window.dispatchEvent(new Event('library:changed'));
       setStatusMessage(
-        result.removedCount > 0
-          ? `已扫描 ${result.scannedCount} 首，移除 ${result.removedCount} 首失效歌曲。`
-          : `已扫描 ${result.scannedCount} 首，没有发现失效歌曲。`,
+        `维护完成：检查 ${cleanup.scannedCount} 首，移除失效 ${cleanup.missingRemovedCount} 首，移除 ${cleanup.shortDurationThresholdSeconds} 秒及以下短音频 ${cleanup.shortRemovedCount} 首，增量扫描 ${scanJobs.length} 个文件夹。`,
       );
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : String(scanError));
     } finally {
-      setIsScanningMissing(false);
+      setIsMaintainingLibrary(false);
     }
   };
 
@@ -797,12 +850,12 @@ export const SongsPage = (): JSX.Element => {
           <button
             className="tool-button"
             type="button"
-            aria-label="扫描失效歌曲"
-            title="扫描失效歌曲"
-            onClick={() => void handleScanMissingTracks()}
-            disabled={isScanningMissing}
+            aria-label="扫描失效歌曲、短音频并增量扫描"
+            title="扫描失效歌曲、移除 5 秒及以下短音频，并增量扫描新增歌曲"
+            onClick={() => void handleMaintainLibrary()}
+            disabled={isMaintainingLibrary}
           >
-            <RotateCw className={isScanningMissing ? 'spinning-icon' : undefined} size={17} />
+            <RotateCw className={isMaintainingLibrary ? 'spinning-icon' : undefined} size={17} />
           </button>
           <button className="tool-button" type="button" aria-label="下载" title="下载">
             <Download size={17} />
@@ -893,9 +946,9 @@ export const SongsPage = (): JSX.Element => {
         followCurrentTrack={followCurrentTrack}
       />
 
-      {error || statusMessage || duplicateMessage || showIndexLoading || isScanningMissing || isClearing ? (
-        <div className="list-footer">
-          <span>{error ?? statusMessage ?? duplicateMessage ?? (isScanningMissing ? '正在扫描失效歌曲...' : isClearing ? '正在清空列表...' : '正在读取本地索引...')}</span>
+      {error || statusMessage || duplicateMessage || showIndexLoading || isMaintainingLibrary || isClearing ? (
+        <div className={`list-footer${isMaintainingLibrary ? ' list-footer--active' : ''}`}>
+          <span>{error ?? statusMessage ?? duplicateMessage ?? (isMaintainingLibrary ? '正在维护曲库...' : isClearing ? '正在清空列表...' : '正在读取本地索引...')}</span>
         </div>
       ) : null}
 

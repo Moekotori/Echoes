@@ -135,7 +135,7 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
       getSummary: vi.fn(),
       chooseFolder: vi.fn(),
       addFolder: vi.fn(),
-      getFolders: vi.fn(),
+      getFolders: vi.fn().mockResolvedValue([]),
       removeFolder: vi.fn(),
       scanFolder: vi.fn(),
       getScanStatus: vi.fn(),
@@ -162,6 +162,13 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
         updatedAt: '',
       }),
       getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      pruneInvalidTracks: vi.fn().mockResolvedValue({
+        scannedCount: tracks.length,
+        removedCount: 0,
+        missingRemovedCount: 0,
+        shortRemovedCount: 0,
+        shortDurationThresholdSeconds: 5,
+      }),
       pruneMissingTracks: vi.fn().mockResolvedValue({ scannedCount: tracks.length, removedCount: 0 }),
       clearTracks: vi.fn().mockResolvedValue({ scannedCount: tracks.length, removedCount: tracks.length }),
       clearCache: vi.fn(),
@@ -284,7 +291,7 @@ describe('SongsPage', () => {
 
     await renderSongsPage();
     fireEvent.click(screen.getByRole('button', { name: /默认排序/ }));
-    fireEvent.click(screen.getAllByRole('option')[11]);
+    fireEvent.click(screen.getByRole('option', { name: '按艺术家' }));
 
     await waitFor(() => expect(window.localStorage.getItem('echo-next.songs.sort')).toBe('artist'));
     await waitFor(() =>
@@ -332,15 +339,50 @@ describe('SongsPage', () => {
     await waitFor(() => expect(screen.getByTestId('current-track-id').textContent).toBe('track-1'));
   });
 
-  it('scans missing tracks from the toolbar', async () => {
+  it('maintains the library from the toolbar without blocking on the renderer', async () => {
     const track = makeTrack();
     installEcho([track]);
+    vi.mocked(window.echo.library.pruneInvalidTracks).mockResolvedValue({
+      scannedCount: 1,
+      removedCount: 1,
+      missingRemovedCount: 0,
+      shortRemovedCount: 1,
+      shortDurationThresholdSeconds: 5,
+    });
+    vi.mocked(window.echo.library.getFolders).mockResolvedValue([
+      {
+        id: 'folder-1',
+        path: 'D:/Music',
+        name: 'Music',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    vi.mocked(window.echo.library.scanFolder).mockResolvedValue({
+      id: 'scan-1',
+      folderId: 'folder-1',
+      status: 'completed',
+      phase: 'finished',
+      totalFiles: 1,
+      processedFiles: 1,
+      skippedFiles: 1,
+      addedTracks: 0,
+      updatedTracks: 0,
+      removedTracks: 0,
+      coverCount: 0,
+      errorCount: 0,
+      errors: [],
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:00:01.000Z',
+    });
 
     await renderSongsPage();
-    fireEvent.click(screen.getByRole('button', { name: '扫描失效歌曲' }));
+    fireEvent.click(screen.getByRole('button', { name: '扫描失效歌曲、短音频并增量扫描' }));
 
-    await waitFor(() => expect(window.echo.library.pruneMissingTracks).toHaveBeenCalledTimes(1));
-    await screen.findByText('已扫描 1 首，没有发现失效歌曲。');
+    await waitFor(() => expect(window.echo.library.pruneInvalidTracks).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(window.echo.library.scanFolder).toHaveBeenCalledWith('folder-1'));
+    await screen.findByText('维护完成：检查 1 首，移除失效 0 首，移除 5 秒及以下短音频 1 首，增量扫描 1 个文件夹。');
   });
 
   it('confirms before clearing the song list', async () => {

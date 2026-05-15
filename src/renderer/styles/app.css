@@ -43,14 +43,16 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  color: #6e6e73;
-  border: 0;
+  color: #425065;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
   transition:
     color 150ms ease,
+    border-color 150ms ease,
     background-color 150ms ease,
+    box-shadow 150ms ease,
     transform 150ms ease;
 }
 
@@ -76,22 +78,34 @@
 .titlebar-action {
   width: 30px;
   height: 30px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.titlebar-action svg {
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.52));
 }
 
 .titlebar-action:hover {
-  color: #1d1d1f;
-  background: rgba(29, 29, 31, 0.055);
+  color: #172235;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
 }
 
 .titlebar-action[data-active="true"] {
   color: var(--color-accent-strong);
-  background: var(--color-accent-soft);
+  border-color: transparent;
+  background: rgba(10, 132, 255, 0.1);
+  box-shadow: none;
 }
 
 .titlebar-action[data-drawer-open="true"] {
   color: #0b73d9;
-  background: var(--color-accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.1);
+  border-color: transparent;
+  background: rgba(10, 132, 255, 0.12);
+  box-shadow: none;
 }
 
 .titlebar-action[data-drawer-open="true"]::after {
@@ -155,6 +169,35 @@
 .chrome-notice--diagnostics {
   display: grid;
   gap: 10px;
+}
+
+.chrome-notice--audio-error {
+  top: 52px;
+  right: auto;
+  bottom: auto;
+  left: 18px;
+  display: grid;
+  gap: 7px;
+  max-width: min(460px, calc(100vw - 36px));
+  border-color: rgba(190, 58, 58, 0.24);
+  background: rgba(255, 250, 250, 0.98);
+  box-shadow: 0 18px 46px rgba(126, 35, 35, 0.16);
+}
+
+.chrome-notice--audio-error strong {
+  color: #8f2424;
+  font-size: 12px;
+  font-weight: 860;
+}
+
+.chrome-notice--audio-error span {
+  color: #2f3034;
+}
+
+.chrome-notice--audio-error small {
+  color: #6c5960;
+  font-size: 11px;
+  font-weight: 680;
 }
 
 .drag-import-overlay {
@@ -3210,6 +3253,14 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.audio-engine-meter__hint {
+  display: block;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.45;
+}
+
 .audio-current-output-section {
   padding: 10px 0 2px;
 }
@@ -3230,6 +3281,16 @@
   box-shadow:
     0 0 0 1px rgba(141, 171, 255, 0.14),
     0 14px 42px rgba(86, 112, 209, 0.22);
+}
+
+.audio-current-output-card--asio {
+  border-color: rgba(255, 198, 93, 0.7);
+  background:
+    linear-gradient(135deg, rgba(218, 152, 47, 0.38), rgba(139, 97, 202, 0.22)),
+    rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 222, 151, 0.18),
+    0 16px 42px rgba(210, 145, 42, 0.24);
 }
 
 .audio-current-output-card__icon {
@@ -3277,12 +3338,31 @@
   font-weight: 860;
 }
 
+.audio-current-output-card--asio > em {
+  color: #ffe4a8;
+  border-color: rgba(255, 211, 113, 0.38);
+  background: rgba(183, 119, 30, 0.32);
+}
+
+.audio-current-output-note {
+  margin: -2px 2px 0;
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .audio-section-note {
   margin: -4px 0 2px;
   color: rgba(255, 236, 198, 0.68);
   font-size: 12px;
   font-weight: 720;
   line-height: 1.45;
+}
+
+.audio-section-note--warning {
+  margin-top: -2px;
+  color: rgba(255, 225, 169, 0.86);
 }
 
 .audio-drawer-options {
@@ -5704,12 +5784,28 @@ html[data-theme="dark"] .songs-title-group span {
   color: var(--color-muted);
 }
 
+html[data-theme="dark"] .titlebar-action {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .titlebar-action svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.42));
+}
+
 html[data-theme="dark"] .titlebar-action:hover,
 html[data-theme="dark"] .window-control:hover,
 html[data-theme="dark"] .nav-item:hover,
 html[data-theme="dark"] .settings-nav-item:hover {
   color: var(--echo-heading-text);
   background: rgba(255, 255, 255, 0.065);
+}
+
+html[data-theme="dark"] .titlebar-action:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
 html[data-theme="dark"] .nav-item:hover svg {
@@ -5720,7 +5816,9 @@ html[data-theme="dark"] .nav-item:hover svg {
 html[data-theme="dark"] .titlebar-action[data-active="true"],
 html[data-theme="dark"] .titlebar-action[data-drawer-open="true"] {
   color: var(--color-accent-strong);
-  background: var(--color-accent-soft);
+  border-color: transparent;
+  background: rgba(100, 181, 255, 0.12);
+  box-shadow: none;
 }
 
 html[data-theme="dark"] .nav-item[data-active="true"],
@@ -5814,6 +5912,20 @@ html[data-theme="dark"] .chrome-notice-actions button {
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .chrome-notice--audio-error {
+  border-color: rgba(233, 104, 104, 0.32);
+  background: rgba(44, 27, 31, 0.88);
+}
+
+html[data-theme="dark"] .chrome-notice--audio-error strong {
+  color: #ffb3b3;
+}
+
+html[data-theme="dark"] .chrome-notice--audio-error span,
+html[data-theme="dark"] .chrome-notice--audio-error small {
+  color: var(--color-text);
 }
 
 html[data-theme="dark"] .audio-field input,

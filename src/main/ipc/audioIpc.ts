@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
+import { normalizeAudioOutputModeForPlatform } from '../../shared/utils/audioPlatformCapabilities';
 import type {
   AudioDiagnostics,
   AudioDeviceInfo,
@@ -13,6 +14,7 @@ import type {
 import type { EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBandGainRequest, EqState } from '../../shared/types/eq';
 import { getAudioSession } from '../audio/AudioSession';
 import { getEqBridge } from '../audio/EqBridge';
+import { getCrashReportService } from '../diagnostics/CrashReportService';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
 const latencyProfiles = new Set<AudioLatencyProfile>(['stable', 'balanced', 'lowLatency']);
@@ -27,7 +29,7 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
   const output: AudioOutputSettings = {};
 
   if (typeof input.outputMode === 'string' && outputModes.has(input.outputMode as AudioOutputMode)) {
-    output.outputMode = input.outputMode as AudioOutputMode;
+    output.outputMode = normalizeAudioOutputModeForPlatform(input.outputMode as AudioOutputMode, process.platform);
   }
 
   if (typeof input.deviceIndex === 'number' && Number.isInteger(input.deviceIndex)) {
@@ -57,6 +59,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
         : null;
   }
 
+  if (typeof input.useJuceOutput === 'boolean') {
+    output.useJuceOutput = input.useJuceOutput;
+  }
+
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
     output.volume = Math.max(0, Math.min(1, input.volume));
   }
@@ -72,6 +78,24 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
   return output;
 };
 
+const reportAudioIpcError = (error: unknown, phase: string, details?: unknown): void => {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  const status = getAudioSession().getStatus();
+
+  if (status.error === normalized.message) {
+    return;
+  }
+
+  getCrashReportService().reportAudioError({
+    message: normalized.message,
+    stack: normalized.stack,
+    phase,
+    severity: 'fatal',
+    details,
+    audioStatus: status,
+  });
+};
+
 export const registerAudioIpc = (): void => {
   getAudioSession().on('status', (status: AudioStatus) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -82,9 +106,15 @@ export const registerAudioIpc = (): void => {
   ipcMain.handle(IpcChannels.AudioGetStatus, (): AudioStatus => getAudioSession().getStatus());
   ipcMain.handle(IpcChannels.AudioGetDiagnostics, (): AudioDiagnostics => getAudioSession().getDiagnostics());
   ipcMain.handle(IpcChannels.AudioListDevices, async (): Promise<AudioDeviceInfo[]> => getAudioSession().listDevicesAsync());
-  ipcMain.handle(IpcChannels.AudioSetOutput, async (_event, settings: unknown): Promise<AudioStatus> =>
-    getAudioSession().setOutput(normalizeOutputSettings(settings)),
-  );
+  ipcMain.handle(IpcChannels.AudioSetOutput, async (_event, settings: unknown): Promise<AudioStatus> => {
+    try {
+      const normalized = normalizeOutputSettings(settings);
+      return await getAudioSession().setOutput(normalized);
+    } catch (error) {
+      reportAudioIpcError(error, 'set-output-ipc', { settings });
+      throw error;
+    }
+  });
   ipcMain.handle(IpcChannels.EqGetState, (): EqState => getEqBridge().getState());
   ipcMain.handle(IpcChannels.EqSetEnabled, async (_event, enabled: unknown): Promise<EqState> =>
     getEqBridge().setEnabled(Boolean(enabled)),

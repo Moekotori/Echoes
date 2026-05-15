@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -9,15 +9,17 @@ const sourceDir = join(projectRoot, 'native', 'audio-host');
 const buildDir = join(projectRoot, 'out', 'native', 'audio-host');
 const targetDir = join(projectRoot, 'electron-app', 'build');
 const targetExe = join(targetDir, process.platform === 'win32' ? 'echo-audio-host.exe' : 'echo-audio-host');
+const packagedAppDir = process.platform === 'win32' ? 'win-unpacked' : 'linux-unpacked';
 const packagedResourceExe = join(
   projectRoot,
   'dist',
-  'win-unpacked',
+  packagedAppDir,
   'resources',
   process.platform === 'win32' ? 'echo-audio-host.exe' : 'echo-audio-host',
 );
 const config = process.env.ECHO_AUDIO_HOST_CONFIG || 'Release';
 const enableAsio = process.env.ECHO_ENABLE_ASIO ?? (process.platform === 'win32' ? 'ON' : 'OFF');
+const isWindows = process.platform === 'win32';
 const pngSignature = '89504e470d0a1a0a';
 
 const walkFiles = (directory, predicate, files = []) => {
@@ -172,20 +174,24 @@ const findBuiltHost = () => {
 };
 
 try {
-  run('cmake', [
+  const configureArgs = [
     '-S',
     sourceDir,
     '-B',
     buildDir,
-    '-G',
-    'Visual Studio 17 2022',
-    '-A',
-    'x64',
     `-DECHO_ENABLE_ASIO=${enableAsio}`,
-  ]);
+  ];
+
+  if (isWindows) {
+    configureArgs.push('-G', 'Visual Studio 17 2022', '-A', 'x64');
+  } else {
+    configureArgs.push(`-DCMAKE_BUILD_TYPE=${config}`);
+  }
+
+  run('cmake', configureArgs);
   patchJuceWasapiExclusiveProbe();
   stripJuceExamplePngProfiles();
-  run('cmake', ['--build', buildDir, '--config', config, '--parallel']);
+  run('cmake', isWindows ? ['--build', buildDir, '--config', config, '--parallel'] : ['--build', buildDir, '--parallel']);
 
   const builtHost = findBuiltHost();
 
@@ -195,6 +201,9 @@ try {
 
   mkdirSync(targetDir, { recursive: true });
   copyFileSync(builtHost, targetExe);
+  if (!isWindows) {
+    chmodSync(targetExe, 0o755);
+  }
   console.log(`[build:audio-host] Copied ${builtHost}`);
   console.log(`[build:audio-host]      -> ${targetExe}`);
 
@@ -204,7 +213,11 @@ try {
   }
 } catch (error) {
   console.error('[build:audio-host] Failed to build JUCE audio host.');
-  console.error('[build:audio-host] Requirements: CMake, Visual Studio 2022 Build Tools, Windows SDK, and network access for JUCE 8.0.12.');
+  console.error(
+    isWindows
+      ? '[build:audio-host] Requirements: CMake, Visual Studio 2022 Build Tools, Windows SDK, and network access for JUCE 8.0.12.'
+      : '[build:audio-host] Requirements: CMake, a C++17 compiler, Linux audio development libraries required by JUCE, and network access for JUCE 8.0.12.',
+  );
   console.error(`[build:audio-host] ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }

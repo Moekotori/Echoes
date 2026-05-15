@@ -151,6 +151,7 @@ struct Options
     bool startupPrebufferMsSpecified = false;
     bool startupPrebufferTimeoutMsSpecified = false;
     bool framedStdin = false;
+    bool useJuceOutput = false;
     int eqControlPort = 0;
     double volume = 1.0;
     juce::String deviceName;
@@ -310,6 +311,10 @@ Options parseOptions(const std::vector<juce::String>& args)
         {
             options.framedStdin = true;
         }
+        else if (arg == "-juce-output")
+        {
+            options.useJuceOutput = true;
+        }
         else if (arg == "-sr" && i + 1 < args.size())
         {
             options.sampleRate = std::max(1, parseInt(args[++i], options.sampleRate));
@@ -451,7 +456,26 @@ std::string getBackendName(const Options& options, const juce::String& typeName)
     if (options.exclusive || isExclusiveType(typeName))
         return "wasapi-exclusive";
 
+#if ! JUCE_WINDOWS
+    return "linux-shared";
+#else
     return "wasapi-shared";
+#endif
+}
+
+std::string getBackendImplName(const Options& options, const juce::String& typeName)
+{
+    if (options.asio || isAsioType(typeName))
+        return "juce-asio";
+
+    if (options.exclusive || isExclusiveType(typeName))
+        return "juce-wasapi-exclusive";
+
+#if ! JUCE_WINDOWS
+    return "juce-linux-shared";
+#else
+    return "juce-wasapi-shared";
+#endif
 }
 
 std::string getOpenFailurePrefix(const Options& options)
@@ -895,20 +919,24 @@ void applyCoreAudioSharedSampleRates(std::vector<DeviceDescriptor>& devices)
 std::vector<DeviceDescriptor> enumerateDevices(
     DeviceListMode mode,
     bool dedupe = true,
-    const juce::String& sharedBackend = "auto")
+    const juce::String& sharedBackend = "auto",
+    bool useJuceOutput = false)
 {
 #if JUCE_WINDOWS
-    if (mode == DeviceListMode::Shared && sharedBackend == "directsound")
-        return {};
+    if (! useJuceOutput)
+    {
+        if (mode == DeviceListMode::Shared && sharedBackend == "directsound")
+            return {};
 
-    if (mode == DeviceListMode::Asio)
-        return enumerateLegacyAsioDevices();
+        if (mode == DeviceListMode::Asio)
+            return enumerateLegacyAsioDevices();
 
-    if (mode == DeviceListMode::Exclusive)
-        return enumerateLegacyWasapiExclusiveDevices();
+        if (mode == DeviceListMode::Exclusive)
+            return enumerateLegacyWasapiExclusiveDevices();
 
-    if (mode == DeviceListMode::Shared && sharedBackend != "directsound")
-        return enumerateLegacyWasapiSharedDevices();
+        if (mode == DeviceListMode::Shared && sharedBackend != "directsound")
+            return enumerateLegacyWasapiSharedDevices();
+    }
 #endif
 
     juce::OwnedArray<juce::AudioIODeviceType> types;
@@ -1006,7 +1034,7 @@ int listDevices(const Options& options)
         return 2;
     }
 
-    const auto devices = enumerateDevices(mode, true, options.sharedBackend);
+    const auto devices = enumerateDevices(mode, true, options.sharedBackend, options.useJuceOutput);
 
     if (mode == DeviceListMode::Asio && devices.empty())
         logLine("ASIO device enumeration returned no devices");
@@ -1047,7 +1075,8 @@ DeviceDescriptor selectDevice(const Options& options)
     const auto devices = enumerateDevices(
         options.asio ? DeviceListMode::Asio : DeviceListMode::Shared,
         true,
-        options.sharedBackend);
+        options.sharedBackend,
+        options.useJuceOutput);
 
     if (devices.empty())
         throw std::runtime_error("no output devices available");
@@ -1106,7 +1135,7 @@ std::vector<DeviceDescriptor> buildOpenCandidates(const Options& options, const 
     if (shouldIncludeType(selected.typeName, outputMode))
         addCandidate(selected);
 
-    const auto allDevices = enumerateDevices(outputMode, false, options.sharedBackend);
+    const auto allDevices = enumerateDevices(outputMode, false, options.sharedBackend, options.useJuceOutput);
 
     for (const auto& device : allDevices)
     {
@@ -2766,7 +2795,7 @@ int runHost(const Options& options)
     if (isDisabledSharedBackend(options))
         throw std::runtime_error("DirectSound shared backend is disabled; JUCE device backend is not available");
 
-    if (options.exclusive && ! options.asio)
+    if (! options.useJuceOutput && options.exclusive && ! options.asio)
     {
 #if JUCE_WINDOWS
         return runLegacyWasapiExclusiveHost(options);
@@ -2775,7 +2804,7 @@ int runHost(const Options& options)
 #endif
     }
 
-    if (options.asio)
+    if (! options.useJuceOutput && options.asio)
     {
 #if JUCE_WINDOWS
         return runLegacyAsioHost(options);
@@ -2784,12 +2813,10 @@ int runHost(const Options& options)
 #endif
     }
 
-    if (! options.exclusive && ! options.asio && options.sharedBackend != "directsound")
+    if (! options.useJuceOutput && ! options.exclusive && ! options.asio && options.sharedBackend != "directsound")
     {
 #if JUCE_WINDOWS
         return runLegacyWasapiSharedHost(options);
-#else
-        throw std::runtime_error("WASAPI shared open failed: legacy WASAPI shared backend is only available on Windows");
 #endif
     }
 
@@ -2865,6 +2892,7 @@ int runHost(const Options& options)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
         + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
         + ",\"backend\":\"" + getBackendName(options, openedDescriptor.typeName)
+        + "\",\"backendImpl\":\"" + getBackendImplName(options, openedDescriptor.typeName)
         + "\",\"deviceType\":\""
         + jsonEscape(openedDescriptor.typeName) + "\",\"deviceName\":\""
         + jsonEscape(openedDescriptor.name) + "\"}");

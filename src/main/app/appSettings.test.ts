@@ -263,6 +263,15 @@ describe('app settings normalization', () => {
     });
   });
 
+  it('normalizes JUCE output as an opt-in audio setting', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ audioUseJuceOutput: true }).audioUseJuceOutput).toBe(true);
+    expect(normalizeSettings({ audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(false);
+  });
+
   it('keeps audio analysis enabled by default', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

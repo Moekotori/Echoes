@@ -241,11 +241,68 @@ describe('MvPanel', () => {
     const { container } = renderPanel(makeVideo());
 
     await waitFor(() => expect(container.querySelector('video')?.getAttribute('src')).toBe('echo-video://mv/video-1'));
-    const video = container.querySelector('video') as HTMLVideoElement | null;
+    const video = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
     expect(video?.muted).toBe(true);
     expect(video?.autoplay).toBe(true);
     expect(video?.controls).toBe(false);
+    expect(video?.loop).toBe(false);
     expect(container.querySelector('.lyrics-mv-toolbar')).toBeNull();
+  });
+
+  it('notifies playback when the foreground MV ends before the audio', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    const { container } = renderPanel(makeVideo(), true);
+
+    const video = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    video.dispatchEvent(new Event('ended'));
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'mv:ended-before-audio',
+        detail: { trackId: 'track-1' },
+      }),
+    );
+  });
+
+  it('does not notify playback when the foreground MV ends while audio is paused', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    const { container } = renderPanel(makeVideo(), false);
+
+    const video = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    video.dispatchEvent(new Event('ended'));
+
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'mv:ended-before-audio',
+      }),
+    );
+  });
+
+  it('keeps the immersive background MV looping while foreground MV can end', async () => {
+    const { container } = renderPanel(makeVideo(), true, {
+      ...defaultMvSettings,
+      immersiveBackground: true,
+    });
+
+    const foregroundVideo = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+    const backgroundVideo = container.querySelector('.lyrics-mv-background-video') as HTMLVideoElement | null;
+
+    expect(foregroundVideo.loop).toBe(false);
+    expect(backgroundVideo?.loop).toBe(true);
   });
 
   it('uses streaming provider MV metadata to search when no library track id is available', async () => {

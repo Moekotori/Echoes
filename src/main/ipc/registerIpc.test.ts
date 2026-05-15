@@ -9,6 +9,7 @@ const showOpenDialogMock = vi.fn();
 const setAppSettingsMock = vi.fn((patch) => ({ coverCacheDir: patch.coverCacheDir ?? null, hideToTrayOnClose: false }));
 const getLibraryServiceMock = vi.fn();
 const ensureCoverCacheDirectoryMock = vi.fn();
+const fromWebContentsMock = vi.fn();
 
 vi.mock('electron', () => ({
   app: {
@@ -16,7 +17,7 @@ vi.mock('electron', () => ({
     getPath: () => 'D:\\Echo',
   },
   BrowserWindow: {
-    fromWebContents: vi.fn(),
+    fromWebContents: fromWebContentsMock,
   },
   dialog: {
     showOpenDialog: showOpenDialogMock,
@@ -77,6 +78,24 @@ vi.mock('../app/appSettings', () => ({
 vi.mock('../app/tray', () => ({
   destroyTray: vi.fn(),
   ensureTray: vi.fn(),
+}));
+
+vi.mock('../app/autoUpdater', () => ({
+  checkForUpdates: vi.fn(),
+  getUpdateStatus: vi.fn(() => ({
+    state: 'idle',
+    currentVersion: 'v0.0.0-test',
+    latestVersion: null,
+    releaseName: null,
+    releaseNotes: null,
+    downloadPercent: null,
+    transferredBytes: null,
+    totalBytes: null,
+    bytesPerSecond: null,
+    error: null,
+    checkedAt: null,
+  })),
+  setAutoUpdateEnabled: vi.fn(),
 }));
 
 vi.mock('../library/CoverCacheManager', () => ({
@@ -147,6 +166,7 @@ describe('app IPC cover cache directory', () => {
     setAppSettingsMock.mockClear();
     getLibraryServiceMock.mockReset();
     ensureCoverCacheDirectoryMock.mockReset();
+    fromWebContentsMock.mockReset();
     const module = await import('./registerIpc');
     module.registerIpc();
   });
@@ -221,5 +241,23 @@ describe('app IPC cover cache directory', () => {
         properties: ['openFile'],
       }),
     );
+  });
+
+  it('exits fullscreen when toggling maximize from F11 fullscreen mode', () => {
+    const window = {
+      isFullScreen: vi.fn(() => true),
+      setFullScreen: vi.fn(),
+      isMaximized: vi.fn(() => false),
+      maximize: vi.fn(),
+      unmaximize: vi.fn(),
+    };
+    fromWebContentsMock.mockReturnValue(window);
+
+    handlers[IpcChannels.AppWindowToggleMaximize]!({ sender: {} });
+
+    expect(window.setFullScreen).toHaveBeenCalledWith(false);
+    expect(window.isMaximized).not.toHaveBeenCalled();
+    expect(window.maximize).not.toHaveBeenCalled();
+    expect(window.unmaximize).not.toHaveBeenCalled();
   });
 });

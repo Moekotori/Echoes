@@ -13,6 +13,7 @@ import type {
   LibraryArtist,
   LibraryCacheClearResult,
   LibraryCleanupResult,
+  LibraryMaintenanceCleanupResult,
   LibraryDiagnostics,
   LibraryTrackTagUpdateRequest,
   LibraryFolder,
@@ -26,6 +27,7 @@ import type {
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
+  LibraryScanMode,
   LibrarySummary,
   LibraryTrack,
   MissingMetadataScanOptions,
@@ -107,6 +109,14 @@ export type FontFileAsset = {
   dataUrl: string;
 };
 
+export type DroppedFileImportResult = {
+  importedCount: number;
+  ignoredCount: number;
+  failedCount: number;
+  importedTrackIds: string[];
+  outputDirectory: string;
+};
+
 export type EchoApi = {
   app: {
     getVersion: () => Promise<string>;
@@ -132,8 +142,7 @@ export type EchoApi = {
     chooseFolder: () => Promise<string | null>;
     addFolder: (path: string) => Promise<LibraryFolder>;
     classifyImportPaths: (paths: string[]) => Promise<ImportPathClassification>;
-    getDroppedFilePaths: (files: File[]) => Promise<string[]>;
-    getDefaultImportDirectory: () => Promise<string>;
+    importDroppedFiles: (files: File[]) => Promise<DroppedFileImportResult>;
     getFolders: () => Promise<LibraryFolder[]>;
     getFolderOverviews: () => Promise<LibraryFolderOverview[]>;
     getFolderChildren: (query: LibraryFolderChildrenQuery) => Promise<LibraryFolderNode[]>;
@@ -141,6 +150,7 @@ export type EchoApi = {
     openLibraryFolderPath: (request: LibraryFolderPathRequest) => Promise<void>;
     removeFolder: (folderId: string) => Promise<void>;
     scanFolder: (folderId: string) => Promise<LibraryScanStatus>;
+    rescanEmbeddedTags: (mode: Exclude<LibraryScanMode, 'normal'>) => Promise<LibraryScanStatus[]>;
     getScanStatus: (jobId: string) => Promise<LibraryScanStatus>;
     cancelScan: (jobId: string) => Promise<LibraryScanStatus>;
     getTrack: (trackId: string) => Promise<LibraryTrack | null>;
@@ -215,6 +225,7 @@ export type EchoApi = {
     saveAlbumCover: (albumId: string) => Promise<string | null>;
     deleteAlbumFiles: (albumId: string) => Promise<void>;
     pruneMissingTracks: () => Promise<LibraryCleanupResult>;
+    pruneInvalidTracks: () => Promise<LibraryMaintenanceCleanupResult>;
     clearTracks: () => Promise<LibraryCleanupResult>;
     clearCache: () => Promise<LibraryCacheClearResult>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;

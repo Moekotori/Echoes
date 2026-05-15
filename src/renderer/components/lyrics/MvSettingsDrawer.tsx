@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
   Check,
@@ -183,6 +183,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [draggedProvider, setDraggedProvider] = useState<NetworkMvProviderId | null>(null);
   const [dragOverProvider, setDragOverProvider] = useState<NetworkMvProviderId | null>(null);
   const [isNetworkSectionOpen, setIsNetworkSectionOpen] = useState(true);
+  const mvRequestRef = useRef(0);
 
   const activeTrackId = queue.currentTrackId ?? fallbackTrackId;
   const activeTrack =
@@ -329,6 +330,8 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         throw new Error(t('mvSettings.error.noActiveTrackNetworkSearch'));
       }
 
+      const requestId = mvRequestRef.current + 1;
+      mvRequestRef.current = requestId;
       const effectiveTrackId = isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : trackId;
       const nextCandidates =
         isStreamingTrack(activeTrack) && mvApi.searchNetworkCandidatesForSnapshot
@@ -349,9 +352,17 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         throw new Error(t('mvSettings.error.noActiveTrackNetworkSearch'));
       }
 
+      if (mvRequestRef.current !== requestId) {
+        return;
+      }
+
+      const selected = await resolveSelectedStreams(await mvApi.getSelected(effectiveTrackId));
+      if (mvRequestRef.current !== requestId) {
+        return;
+      }
+
       setCandidates(nextCandidates);
       setNetworkSearchError(null);
-      const selected = await resolveSelectedStreams(await mvApi.getSelected(effectiveTrackId));
       setSelectedVideo(selected);
       if (selected) {
         notifyMvChanged(effectiveTrackId);
@@ -578,11 +589,18 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       }
 
       const targetTrackId = isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : trackId;
+      const requestId = mvRequestRef.current + 1;
+      mvRequestRef.current = requestId;
       setBusyCandidateId(candidateId);
       setError(null);
       try {
         const video = await window.echo.mv.selectVideo(targetTrackId, candidateId);
-        setSelectedVideo(await resolveSelectedStreams(video));
+        const resolvedVideo = await resolveSelectedStreams(video);
+        if (mvRequestRef.current !== requestId) {
+          return;
+        }
+
+        setSelectedVideo(resolvedVideo);
         setCandidates([]);
         notifyMvChanged(targetTrackId);
         await replayCurrentTrackAfterMvChange();
@@ -900,7 +918,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
           {candidates.length > 0 ? (
             <div className="mv-settings-candidates" aria-label={t('mvSettings.aria.candidates')}>
               {candidates.map((candidate) => (
-                <button type="button" key={candidate.id} className="mv-settings-candidate" disabled={busyCandidateId !== null} title={candidate.title} onClick={() => void selectCandidate(candidate.id)}>
+                <button type="button" key={candidate.id} className="mv-settings-candidate" disabled={isBusy || busyCandidateId !== null} title={candidate.title} onClick={() => void selectCandidate(candidate.id)}>
                   <span className="mv-candidate-thumb">
                     {candidate.thumbnailUrl && !failedThumbnailIds.has(candidate.id) ? (
                       <img

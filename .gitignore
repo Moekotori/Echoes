@@ -4,3 +4,24 @@ dist/
 .electron-cache/
 *.log
 .DS_Store
+
+# Local Codex workspace state
+.codex/
+
+# Native/Electron build outputs
+native/**/build/
+native/**/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Electron Builder artifacts
+*.blockmap
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+
+# Local media/lyrics scratch files
+*.lrc

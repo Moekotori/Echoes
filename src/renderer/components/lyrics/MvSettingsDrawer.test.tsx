@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { MvMatchCandidate, MvSettings, TrackVideo } from '../../../shared/types/mv';
 import { I18nProvider } from '../../i18n/I18nProvider';
@@ -437,6 +437,33 @@ describe('MvSettingsDrawer', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Search network MV/ })[1]);
 
     await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Roselia HEROIC ADVENT'));
+  });
+
+  it('waits for the selected MV refresh before enabling searched candidates', async () => {
+    let resolveSelectedAfterSearch: (video: TrackVideo | null) => void = () => undefined;
+    const firstCandidate = { ...makeCandidate(), id: 'candidate-auto', title: 'Auto Selected MV' };
+    const secondCandidate = { ...makeCandidate(), id: 'candidate-manual', title: 'Manual Choice MV', score: 0.83 };
+
+    renderDrawer();
+    vi.mocked(window.echo.mv.searchNetworkCandidates).mockResolvedValue([firstCandidate, secondCandidate]);
+
+    await screen.findByRole('textbox', { name: /MV search keywords/ });
+    await waitFor(() => expect(window.echo.mv.getSelected).toHaveBeenCalledWith('track-1'));
+    vi.mocked(window.echo.mv.getSelected).mockReturnValueOnce(
+      new Promise<TrackVideo | null>((resolve) => {
+        resolveSelectedAfterSearch = resolve;
+      }),
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: /Search network MV/ })[1]);
+
+    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Test Song Test Artist'));
+    expect(screen.queryByRole('button', { name: /Manual Choice MV/ })).toBeNull();
+
+    await act(async () => {
+      resolveSelectedAfterSearch(makeVideo());
+    });
+
+    expect((await screen.findByRole('button', { name: /Manual Choice MV/ })).hasAttribute('disabled')).toBe(false);
   });
 
   it('searches streaming tracks through the snapshot MV API', async () => {

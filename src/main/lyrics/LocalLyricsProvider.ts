@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseFile, type ILyricsTag } from 'music-metadata';
 import type { LyricsQuery, LyricsSearchCandidate, TrackLyrics } from '../../shared/types/lyrics';
+import { decodeTextFileBytes } from '../../shared/utils/decodeTextFile';
 import type { LyricsProvider, LyricsProviderCapability, LyricsProviderResult, LyricsProviderSearchRequest } from './LyricsProvider';
 import { detectLyricsKind, parsePlainLyrics, parseSyncedLyrics } from './lyricsParser';
 
@@ -18,7 +19,7 @@ const embeddedHashId = (filePath: string, text: string): string => `local:embedd
 
 const readTextFile = (filePath: string): string | null => {
   try {
-    return readFileSync(filePath, 'utf8');
+    return decodeTextFileBytes(readFileSync(filePath));
   } catch {
     return null;
   }

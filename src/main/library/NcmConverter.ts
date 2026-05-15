@@ -3,7 +3,10 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, extname, parse, resolve } from 'node:path';
 
 const ncmExtension = '.ncm';
-const ncmConverterFileName = 'NCMConverter.exe';
+const ncmConverterFileNames: Record<string, string> = {
+  win32: 'NCMConverter.exe',
+  linux: 'NCMConverter',
+};
 const decodedAudioExtensions = new Set(['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus']);
 
 type CommandResult = {
@@ -17,7 +20,10 @@ const getProcessResourcesPath = (): string | null => {
   return typeof resourcesPath === 'string' && resourcesPath.trim() ? resourcesPath : null;
 };
 
-const resolveBundledNcmConverterPath = (): string | null => {
+const getNcmConverterFileName = (platform = process.platform): string => ncmConverterFileNames[platform] ?? ncmConverterFileNames.win32;
+
+const resolveBundledNcmConverterPath = (platform = process.platform): string | null => {
+  const ncmConverterFileName = getNcmConverterFileName(platform);
   const resourcesPath = getProcessResourcesPath();
   const candidates = [
     resourcesPath ? resolve(resourcesPath, 'tools', ncmConverterFileName) : null,
@@ -56,7 +62,10 @@ const isDecodedAudioPath = (filePath: string): boolean => decodedAudioExtensions
 export const isNcmFile = (filePath: string): boolean => extname(filePath).toLocaleLowerCase() === ncmExtension;
 
 export class NcmConverter {
-  constructor(private readonly converterPathResolver: () => string | null = resolveBundledNcmConverterPath) {}
+  constructor(
+    private readonly converterPathResolver: () => string | null = () => resolveBundledNcmConverterPath(),
+    private readonly platform = process.platform,
+  ) {}
 
   async convertIfNeeded(filePath: string): Promise<string> {
     const inputPath = resolve(filePath);
@@ -64,7 +73,12 @@ export class NcmConverter {
       return inputPath;
     }
 
+    if (this.platform !== 'win32') {
+      throw new Error(`NCM 解密暂不支持当前平台: ${this.platform}`);
+    }
+
     const converterPath = this.converterPathResolver();
+    const ncmConverterFileName = getNcmConverterFileName(this.platform);
     if (!converterPath || !existsSync(converterPath)) {
       throw new Error(`NCM 解密工具不可用: ${ncmConverterFileName}`);
     }

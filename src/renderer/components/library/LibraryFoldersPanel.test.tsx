@@ -147,6 +147,8 @@ const audioStatus = (overrides: Partial<AudioStatus> = {}): AudioStatus => ({
   warnings: [],
   error: null,
   ...overrides,
+  activeOutputBackendImpl: overrides.activeOutputBackendImpl ?? null,
+  useJuceOutputRequested: overrides.useJuceOutputRequested ?? false,
 });
 
 const eqState = (): EqState => ({

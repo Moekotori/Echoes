@@ -60,7 +60,9 @@ const makeAudioStatus = (
   outputDeviceName: null,
   outputDeviceType: null,
   outputBackend: "wasapi-shared",
+  activeOutputBackendImpl: null,
   outputMode: "shared",
+  useJuceOutputRequested: false,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: "nightcore",
@@ -1095,6 +1097,49 @@ describe("LyricsPage", () => {
     expect(container.querySelector(".lyrics-risk-badge--medium")).toBeTruthy();
   });
 
+  it("allows manually applying candidates below the auto-apply threshold", async () => {
+    const track = makeTrack();
+    mockEcho(track);
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(null),
+      searchCandidates: vi.fn().mockResolvedValue([
+        makeLyricsCandidate({ id: "candidate-low-score", score: 0.42 }),
+      ]),
+      applyCandidate: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          lines: [{ timeMs: 0, text: "Manually selected line" }],
+          syncedText: "[00:00.00]Manually selected line",
+          plainText: "Manually selected line",
+        }),
+      ),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(container.querySelector(".lyrics-candidate")).toBeTruthy());
+    expect(window.echo.lyrics.applyCandidate).not.toHaveBeenCalled();
+
+    fireEvent.click(container.querySelector<HTMLButtonElement>(".lyrics-candidate")!);
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.applyCandidate).toHaveBeenCalledWith(
+        "track-1",
+        "candidate-low-score",
+      ),
+    );
+    expect(await screen.findByText("Manually selected line")).toBeTruthy();
+  });
+
   it("auto-applies a high scoring candidate after rematching lyrics", async () => {
     const track = makeTrack();
     mockEcho(track);
@@ -1734,7 +1779,16 @@ describe("LyricsPage", () => {
 
     expect(await screen.findByText("Current lyrics")).toBeTruthy();
     const page = container.querySelector(".lyrics-page") as HTMLElement;
-    const file = new File(["[00:01.00]Dropped custom line"], "custom.lrc", { type: "text/plain" });
+    const file = new File(
+      [
+        new Uint8Array([
+          0x5b, 0x30, 0x30, 0x3a, 0x30, 0x31, 0x2e, 0x30, 0x30, 0x5d,
+          0xd0, 0xd2, 0xb4, 0xe6, 0xd5, 0xdf,
+        ]),
+      ],
+      "custom.lrc",
+      { type: "text/plain" },
+    );
 
     fireEvent.drop(page, {
       dataTransfer: {
@@ -1746,7 +1800,7 @@ describe("LyricsPage", () => {
     await waitFor(() =>
       expect(window.echo.lyrics.applyCustomLrc).toHaveBeenCalledWith(
         "track-1",
-        "[00:01.00]Dropped custom line",
+        "[00:01.00]幸存者",
         "custom.lrc",
       ),
     );

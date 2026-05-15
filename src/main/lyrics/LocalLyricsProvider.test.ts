@@ -137,4 +137,21 @@ describe('LocalLyricsProvider', () => {
     expect(candidate.sourceLabel).toBe('Local LRC');
     expect(candidate.syncedLyrics).toBe('[00:01.00]Sidecar');
   });
+
+  it('decodes GBK sidecar LRC files without rewriting the source file', async () => {
+    const root = makeTempRoot();
+    const filePath = join(root, 'Echo Song.flac');
+    const lrcPath = join(root, 'Echo Song.lrc');
+    writeFileSync(filePath, 'audio');
+    writeFileSync(lrcPath, Buffer.from([
+      0x5b, 0x30, 0x30, 0x3a, 0x30, 0x31, 0x2e, 0x30, 0x30, 0x5d,
+      0xd0, 0xd2, 0xb4, 0xe6, 0xd5, 0xdf,
+    ]));
+    parseFileMock.mockResolvedValue({ common: { lyrics: [] } } as unknown as Awaited<ReturnType<typeof parseFile>>);
+
+    const lyrics = new LocalLyricsProvider().getLyrics(query(filePath));
+
+    expect(lyrics?.syncedText).toBe('[00:01.00]幸存者');
+    expect(lyrics?.lines).toEqual([{ timeMs: 1000, text: '幸存者' }]);
+  });
 });

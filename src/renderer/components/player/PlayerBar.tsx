@@ -19,9 +19,14 @@ type PlayerBarProps = {
   onOpenAudioSettings?: () => void;
 };
 
+type MvEndedBeforeAudioDetail = {
+  trackId?: unknown;
+};
+
 const progressRenderIntervalMs = 250;
 const bpmAnalysisStatusPollMs = 1500;
 const playbackSeekedEvent = 'playback:seeked';
+const mvEndedBeforeAudioEvent = 'mv:ended-before-audio';
 const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
@@ -123,6 +128,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
   const [smtcEnabled, setSmtcEnabled] = useState(true);
   const handledEndedTrackRef = useRef<string | null>(null);
+  const mvAutoAdvanceBlockedKeysRef = useRef(new Set<string>());
   const hydratedTrackIdsRef = useRef(new Set<string>());
   const bpmAnalysisJobIdsRef = useRef(new Map<string, string | 'done'>());
   const streamingBpmAnalysisTrackIdsRef = useRef(new Set<string>());
@@ -812,6 +818,27 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   }, [handlePlayPause]);
 
   useEffect(() => {
+    const handleMvEndedBeforeAudio = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? (event.detail as MvEndedBeforeAudioDetail | null) : null;
+      const eventTrackId = typeof detail?.trackId === 'string' && detail.trackId.trim() ? detail.trackId : null;
+      const blockKeys = [
+        eventTrackId,
+        queue.currentTrack?.id,
+        queue.currentTrackId,
+        queue.currentTrack?.path,
+        queue.currentQueueId,
+      ].filter((key): key is string => Boolean(key));
+
+      for (const key of blockKeys) {
+        mvAutoAdvanceBlockedKeysRef.current.add(key);
+      }
+    };
+
+    window.addEventListener(mvEndedBeforeAudioEvent, handleMvEndedBeforeAudio);
+    return () => window.removeEventListener(mvEndedBeforeAudioEvent, handleMvEndedBeforeAudio);
+  }, [queue.currentQueueId, queue.currentTrack?.id, queue.currentTrack?.path, queue.currentTrackId]);
+
+  useEffect(() => {
     const currentQueueTrackId = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
     const currentQueueFilePath = queue.currentTrack?.path ?? null;
     const endedMatchesCurrent =
@@ -825,6 +852,11 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     }
 
     handledEndedTrackRef.current = endedPlaybackKey;
+    if (mvAutoAdvanceBlockedKeysRef.current.has(endedPlaybackKey)) {
+      mvAutoAdvanceBlockedKeysRef.current.delete(endedPlaybackKey);
+      return;
+    }
+
     void runPlaybackAction(queue.playNext);
   }, [
     endedStatusFilePath,

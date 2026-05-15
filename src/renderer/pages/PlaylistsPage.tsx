@@ -574,17 +574,22 @@ export const PlaylistsPage = (): JSX.Element => {
       setError(null);
       setStatusMessage(null);
       try {
-        const source = await streaming.resolvePlayback({
-          provider,
-          providerTrackId: track.providerTrackId,
-          quality: track.streamingQuality ?? streamingQuality,
-        });
+        const [source, detailTrack] = await Promise.all([
+          streaming.resolvePlayback({
+            provider,
+            providerTrackId: track.providerTrackId,
+            quality: track.streamingQuality ?? streamingQuality,
+          }),
+          streaming.getTrack
+            ? streaming.getTrack({ provider, providerTrackId: track.providerTrackId }).catch(() => null)
+            : Promise.resolve(null),
+        ]);
         const job = await downloads.createUrlJob(source.url, {
-          title: track.title,
-          artist: track.artist,
-          album: track.album,
-          albumArtist: track.albumArtist || track.artist,
-          coverUrl: track.coverThumb,
+          title: detailTrack?.title ?? track.title,
+          artist: detailTrack?.artist ?? track.artist,
+          album: detailTrack?.album ?? track.album,
+          albumArtist: (detailTrack?.albumArtist ?? track.albumArtist) || track.artist,
+          coverUrl: detailTrack?.coverUrl ?? detailTrack?.coverThumb ?? track.coverThumb,
           webpageUrl,
           bindMvAfterImport: false,
           requestHeaders: source.headers,

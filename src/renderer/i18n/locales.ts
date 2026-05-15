@@ -50,6 +50,10 @@ export type TranslationKey =
   | 'audioDrawer.mode.exclusiveCandidate'
   | 'audioDrawer.mode.shared'
   | 'audioDrawer.note.asio'
+  | 'audioDrawer.note.asioWarning'
+  | 'audioDrawer.note.currentOutput'
+  | 'audioDrawer.note.engine'
+  | 'audioDrawer.note.juceOutput'
   | 'audioDrawer.option.rememberOutput'
   | 'audioDrawer.option.rememberOutputDescription'
   | 'audioDrawer.option.wasapiExclusive'
@@ -735,6 +739,10 @@ const zhCN: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '独占候选',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延迟专业音频接口，需要驱动支持。',
+  'audioDrawer.note.asioWarning': '开启 ASIO 会占用您的音频通道；如果没有安装 ASIO 驱动，请不要使用。',
+  'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 会以金色标出。',
+  'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
+  'audioDrawer.note.juceOutput': '通常来说，JUCE 的输出最稳定；开启后会尝试接管当前输出，失败会自动回退。',
   'audioDrawer.option.rememberOutput': '保存输出设置',
   'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 独占模式',
@@ -1442,6 +1450,10 @@ const zhTW: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '獨佔候選',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延遲專業音訊介面，需要驅動支援。',
+  'audioDrawer.note.asioWarning': '開啟 ASIO 會占用您的音訊通道；如果沒有安裝 ASIO 驅動，請不要使用。',
+  'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 會以金色標出。',
+  'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
+  'audioDrawer.note.juceOutput': '通常來說，JUCE 的輸出最穩定；開啟後會嘗試接管目前輸出，失敗會自動退回。',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
   'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 獨佔模式',
@@ -1894,6 +1906,10 @@ const jaJP: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '排他候補',
   'audioDrawer.mode.shared': '共有',
   'audioDrawer.note.asio': '低遅延のプロ向け音声インターフェイスです。ドライバー対応が必要です。',
+  'audioDrawer.note.asioWarning': 'ASIO を有効にすると音声チャンネルを占有します。ASIO ドライバーがない場合は使わないでください。',
+  'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO は金色で表示されます。',
+  'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
+  'audioDrawer.note.juceOutput': '通常、JUCE 出力が最も安定します。有効にすると現在の出力を引き継ぎ、失敗時は自動で戻します。',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
   'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 排他モード',
@@ -2427,6 +2443,10 @@ const enUS: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': 'Exclusive candidate',
   'audioDrawer.mode.shared': 'Shared',
   'audioDrawer.note.asio': 'Low-latency professional audio interface support requires a driver.',
+  'audioDrawer.note.asioWarning': 'ASIO takes over your audio channels. Do not use it unless an ASIO driver is installed.',
+  'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO is highlighted in gold.',
+  'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
+  'audioDrawer.note.juceOutput': 'JUCE output is usually the most stable. When enabled, it takes over the current output and falls back automatically if it fails.',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
   'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
   'audioDrawer.option.wasapiExclusive': 'WASAPI Exclusive Mode',

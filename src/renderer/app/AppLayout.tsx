@@ -8,12 +8,14 @@ import { DragDropImportOverlay } from '../components/import/DragDropImportOverla
 import { loadPersistedRememberedAudioOutput } from '../components/player/audioOutputMemory';
 import { Sidebar } from '../components/layout/Sidebar';
 import { AppTitleBar } from '../components/layout/AppTitleBar';
+import { formatAudioHostError } from '../components/player/audioErrorFormat';
 import type { AppRoute, AppRouteId } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { AppSettings } from '../../shared/types/appSettings';
 import { useI18n } from '../i18n/I18nProvider';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 
 type AppLayoutProps = {
   routes: AppRoute[];
@@ -52,8 +54,10 @@ const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const playbackQueue = usePlaybackQueue();
+  const playbackStatusSnapshot = useSharedPlaybackStatus();
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>('songs');
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
+  const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState(false);
@@ -65,6 +69,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [loadedAppWallpaperUrl, setLoadedAppWallpaperUrl] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastAudioErrorRef = useRef<string | null>(null);
   const previousRouteIdRef = useRef<AppRouteId>('songs');
   const activeRoute = useMemo(
     () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
@@ -209,6 +214,23 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [chromeNotice]);
 
   useEffect(() => {
+    const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
+
+    if (!rawError || rawError === 'Desktop bridge unavailable') {
+      return;
+    }
+
+    if (lastAudioErrorRef.current === rawError) {
+      return;
+    }
+
+    lastAudioErrorRef.current = rawError;
+    setAudioErrorNotice({
+      message: formatAudioHostError(rawError) ?? rawError,
+    });
+  }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const refreshLyricsPlayerDrawerSetting = (event?: Event): void => {
@@ -337,10 +359,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       return;
     }
 
-    void loadPersistedRememberedAudioOutput()
-      .then((remembered) => {
+    void Promise.all([
+      loadPersistedRememberedAudioOutput(),
+      window.echo?.app?.getSettings?.().catch(() => null) ?? Promise.resolve(null),
+    ])
+      .then(([remembered, settings]) => {
+        const useJuceOutput = settings?.audioUseJuceOutput === true;
         if (!remembered.enabled) {
-          return null;
+          return audio
+            .setOutput({ useJuceOutput })
+            .then(setAudioDrawerStatus);
         }
 
         return audio
@@ -349,6 +377,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             latencyProfile: remembered.latencyProfile,
             deviceIndex: remembered.deviceIndex,
             deviceName: remembered.deviceName,
+            useJuceOutput,
           })
           .then(setAudioDrawerStatus);
       })
@@ -466,6 +495,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const handleDismissDiagnosticsNotice = useCallback(async (): Promise<void> => {
     setDiagnosticsNotice(false);
     await window.echo?.diagnostics.clearLastCrashSummary().catch(() => undefined);
+  }, []);
+
+  const handleOpenAudioCrashReport = useCallback(async (): Promise<void> => {
+    try {
+      await window.echo?.diagnostics.openAudioCrashReport();
+    } catch (error) {
+      setChromeNotice(error instanceof Error ? error.message : String(error));
+    }
   }, []);
 
   const handleBrowserFolderPicked = (files: FileList | null): void => {
@@ -588,6 +625,22 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             </button>
             <button type="button" onClick={() => void handleDismissDiagnosticsNotice()}>
               Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {audioErrorNotice ? (
+        <div className="chrome-notice chrome-notice--audio-error" role="alert">
+          <strong>音频错误</strong>
+          <span>{audioErrorNotice.message}</span>
+          <small>已生成 Markdown 诊断报告，里面有详细原因和排查线索。</small>
+          <div className="chrome-notice-actions">
+            <button type="button" onClick={() => void handleOpenAudioCrashReport()}>
+              打开报告
+            </button>
+            <button type="button" onClick={() => setAudioErrorNotice(null)}>
+              关闭
             </button>
           </div>
         </div>

@@ -21,6 +21,7 @@
     "sync:audio-host": "node scripts/sync-audio-host.mjs",
     "build": "npm run typecheck && electron-vite build",
     "build:win": "npm run rebuild:native && npm run build:audio-host && npm run build:smtc-host && npm run build && electron-builder --win",
+    "build:linux": "node scripts/build-linux.mjs",
     "check:encoding": "node scripts/check-encoding.mjs",
     "check:theme-colors": "node scripts/check-theme-colors.mjs",
     "lint": "npm run check:encoding && npm run check:theme-colors && eslint .",
@@ -86,24 +87,8 @@
     "files": [
       "out/**",
       "software.ico",
+      "software.png",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "electron-app/build/echo-audio-host.exe",
-        "to": "echo-audio-host.exe"
-      },
-      {
-        "from": "electron-app/build/echo-smtc-host.exe",
-        "to": "echo-smtc-host.exe"
-      },
-      {
-        "from": "electron-app/tools",
-        "to": "tools",
-        "filter": [
-          "**/*"
-        ]
-      }
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/build/Release/*.node",
@@ -112,6 +97,23 @@
     ],
     "win": {
       "icon": "software.ico",
+      "extraResources": [
+        {
+          "from": "electron-app/build/echo-audio-host.exe",
+          "to": "echo-audio-host.exe"
+        },
+        {
+          "from": "electron-app/build/echo-smtc-host.exe",
+          "to": "echo-smtc-host.exe"
+        },
+        {
+          "from": "electron-app/tools",
+          "to": "tools",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
       "publish": [
         {
           "provider": "github",
@@ -175,6 +177,30 @@
           "role": "Viewer"
         }
       ]
+    },
+    "linux": {
+      "icon": "software.png",
+      "extraResources": [
+        {
+          "from": "electron-app/build/echo-audio-host",
+          "to": "echo-audio-host"
+        }
+      ],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "AudioVideo"
     },
     "nsis": {
       "oneClick": false,

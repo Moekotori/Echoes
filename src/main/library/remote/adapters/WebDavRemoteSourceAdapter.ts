@@ -28,7 +28,9 @@ import { SCANNABLE_AUDIO_EXTENSIONS } from '../../../../shared/constants/audioEx
 
 const audioExtensions = SCANNABLE_AUDIO_EXTENSIONS;
 const metadataReadBytes = 256 * 1024;
+const coverReadBytes = 2 * 1024 * 1024;
 const maxRangeFallbackBytes = metadataReadBytes * 2;
+const maxCoverRangeFallbackBytes = coverReadBytes * 2;
 const propfindRetryCount = 2;
 
 const nowIso = (): string => new Date().toISOString();
@@ -293,7 +295,7 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
 
   async readCover(input: RemoteReadCoverInput): Promise<RemoteCoverResult> {
     try {
-      const chunks = await this.fetchMetadataChunks(input);
+      const chunks = await this.fetchMetadataChunks(input, coverReadBytes, maxCoverRangeFallbackBytes);
       if (!chunks) {
         return this.emptyCoverResult('metadata_range_unavailable');
       }
@@ -356,8 +358,8 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
   createAuthHeaders(input: Pick<RemoteAdapterInput, 'source'>): Record<string, string> {
     const headers: Record<string, string> = {};
 
-    if (input.source.authType === 'basic' && input.source.username && input.source.secret) {
-      headers.Authorization = `Basic ${Buffer.from(`${input.source.username}:${input.source.secret}`, 'utf8').toString('base64')}`;
+    if (input.source.authType === 'basic' && input.source.username) {
+      headers.Authorization = `Basic ${Buffer.from(`${input.source.username}:${input.source.secret ?? ''}`, 'utf8').toString('base64')}`;
     } else if ((input.source.authType === 'token' || input.source.authType === 'apiKey') && input.source.secret) {
       headers.Authorization = `Bearer ${input.source.secret}`;
     }
@@ -465,7 +467,11 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
     };
   }
 
-  private async fetchMetadataChunks(input: RemoteReadMetadataInput): Promise<RangeChunkSet | null> {
+  private async fetchMetadataChunks(
+    input: RemoteReadMetadataInput,
+    readBytes = metadataReadBytes,
+    maxFallbackBytes = maxRangeFallbackBytes,
+  ): Promise<RangeChunkSet | null> {
     const baseUrl = input.source.baseUrl;
     if (!baseUrl) {
       return null;
@@ -473,18 +479,18 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
 
     const size = input.item.sizeBytes ?? 0;
     const url = this.createBackendUrl(baseUrl, input.item.path);
-    const head = await this.fetchRange(url, input, `bytes=0-${metadataReadBytes - 1}`);
+    const head = await this.fetchRange(url, input, `bytes=0-${readBytes - 1}`, maxFallbackBytes);
     if (!head) {
       return null;
     }
 
-    const needsTail = size > metadataReadBytes * 2;
-    const tail = needsTail ? await this.fetchRange(url, input, `bytes=${Math.max(0, size - metadataReadBytes)}-${size - 1}`) : null;
+    const needsTail = size > readBytes * 2;
+    const tail = needsTail ? await this.fetchRange(url, input, `bytes=${Math.max(0, size - readBytes)}-${size - 1}`, maxFallbackBytes) : null;
 
     return { head, tail };
   }
 
-  private async fetchRange(url: string, input: RemoteAdapterInput, range: string): Promise<Uint8Array | null> {
+  private async fetchRange(url: string, input: RemoteAdapterInput, range: string, maxFallbackBytes = maxRangeFallbackBytes): Promise<Uint8Array | null> {
     const response = await fetch(url, {
       headers: {
         ...this.createAuthHeaders(input),
@@ -498,7 +504,7 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
     }
 
     const contentLength = Number(response.headers.get('content-length') ?? 0);
-    if (response.status === 200 && contentLength > maxRangeFallbackBytes) {
+    if (response.status === 200 && contentLength > maxFallbackBytes) {
       return null;
     }
 

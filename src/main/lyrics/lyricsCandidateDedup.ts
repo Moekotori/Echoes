@@ -81,15 +81,15 @@ export const dedupeLyricsCandidates = <T extends DedupableLyricsCandidate>(candi
 
 export const sortLyricsCandidates = <T extends DedupableLyricsCandidate>(queryDuration: number | null | undefined, candidates: T[]): T[] =>
   [...candidates].sort((left, right) => {
-    const leftAuto = left.reasons?.includes('auto_accept') ? 1 : 0;
-    const rightAuto = right.reasons?.includes('auto_accept') ? 1 : 0;
-    if (rightAuto !== leftAuto) return rightAuto - leftAuto;
-
     const riskDelta = riskRank(left.risk) - riskRank(right.risk);
     if (riskDelta !== 0) return riskDelta;
 
     if (right.score !== left.score) return right.score - left.score;
     if (right.hasSynced !== left.hasSynced) return right.hasSynced ? 1 : -1;
+
+    const leftAuto = left.reasons?.includes('auto_accept') ? 1 : 0;
+    const rightAuto = right.reasons?.includes('auto_accept') ? 1 : 0;
+    if (rightAuto !== leftAuto) return rightAuto - leftAuto;
 
     const priorityDelta = (right.providerPriority ?? 0) - (left.providerPriority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;

@@ -138,6 +138,27 @@ describe('WebDavRemoteSourceAdapter', () => {
     ]);
   });
 
+  it('supports Basic WebDAV accounts with an empty password', async () => {
+    const seenAuth: Array<string | undefined> = [];
+    const server = createServer((request, response) => {
+      seenAuth.push(request.headers.authorization);
+      response.writeHead(207, { 'Content-Type': 'application/xml' });
+      response.end(xml([item('/dav/', true)]));
+    });
+    servers.push(server);
+    const port = await listen(server);
+
+    const adapter = new WebDavRemoteSourceAdapter();
+    const result = await adapter.testConnection({
+      source: makeSource(port, {}, { authType: 'basic', username: 'empty-pass-user', secret: null }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(seenAuth).toEqual([
+      `Basic ${Buffer.from('empty-pass-user:', 'utf8').toString('base64')}`,
+    ]);
+  });
+
   it('retries 429/503 responses and reports missing roots with a friendly error', async () => {
     let retryAttempts = 0;
     const server = createServer((request, response) => {
@@ -248,5 +269,40 @@ describe('WebDavRemoteSourceAdapter', () => {
     expect(metadata.status).toBe('partial');
     expect(metadata.title).toBe('song');
     expect(metadata.warnings).toContain('metadata_fallback');
+  });
+
+  it('uses a larger range when reading embedded WebDAV covers', async () => {
+    const seenRanges: Array<string | undefined> = [];
+    const server = createServer((request, response) => {
+      seenRanges.push(request.headers.range);
+      response.writeHead(206, {
+        'Content-Type': 'audio/flac',
+        'Content-Length': '16',
+      });
+      response.end(Buffer.alloc(16));
+    });
+    servers.push(server);
+    const port = await listen(server);
+
+    const adapter = new WebDavRemoteSourceAdapter();
+    await adapter.readCover({
+      source: makeSource(port),
+      item: {
+        sourceId: 'source-1',
+        provider: 'webdav',
+        path: '/Album/large-cover.flac',
+        name: 'large-cover.flac',
+        kind: 'file',
+        sizeBytes: 8 * 1024 * 1024,
+        modifiedAt: null,
+        etag: null,
+        contentType: 'audio/flac',
+        audio: true,
+        remoteUrlHash: 'hash',
+        stableKey: 'stable',
+      },
+    });
+
+    expect(seenRanges[0]).toBe('bytes=0-2097151');
   });
 });

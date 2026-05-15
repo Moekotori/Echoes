@@ -19,7 +19,7 @@ import { asRecord, integer, jsonFetch, linesFromLyrics, number, splitLyricsByKin
 
 const provider = 'netease' as const;
 const neteaseReferer = 'https://music.163.com/';
-const require = createRequire(import.meta.url);
+const loadFromCjs = createRequire(import.meta.url);
 const neteaseSongDetailBatchSize = 100;
 
 const neteaseHeaders = (cookie?: string): Record<string, string> => ({
@@ -92,7 +92,7 @@ const getNcmApi = (): NeteaseApi | null => {
   }
 
   try {
-    return require('@neteasecloudmusicapienhanced/api') as NeteaseApi;
+    return loadFromCjs('@neteasecloudmusicapienhanced/api') as NeteaseApi;
   } catch {
     return null;
   }

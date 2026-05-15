@@ -157,6 +157,273 @@ const formatJsonBlock = (value: unknown): string => `\`\`\`json\n${JSON.stringif
 
 const formatTextBlock = (value: string): string => `\`\`\`text\n${value.trim() || 'n/a'}\n\`\`\``;
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const detailValue = (details: unknown, key: string): unknown => asRecord(details)[key];
+
+const compactText = (value: unknown, fallback = 'n/a'): string => {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  if (typeof value === 'string') {
+    return value.replace(/\s+/g, ' ').trim() || fallback;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return fallback;
+};
+
+const truncateText = (value: string, maxLength = 90): string =>
+  value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1))}...` : value;
+
+const compactDeviceName = (record: AudioCrashRecord): string => {
+  const status = asRecord(record.audioStatus);
+  const details = asRecord(record.details);
+  const candidate = asRecord(details.candidate);
+
+  return compactText(
+    status.outputDeviceName ??
+      candidate.name ??
+      details.deviceName ??
+      details.outputDeviceName,
+  );
+};
+
+const compactOutputMode = (record: AudioCrashRecord): string => {
+  const status = asRecord(record.audioStatus);
+  const details = asRecord(record.details);
+  const candidate = asRecord(details.candidate);
+
+  return compactText(
+    details.outputMode ??
+      candidate.outputMode ??
+      status.outputMode,
+  );
+};
+
+const compactSampleRate = (record: AudioCrashRecord): string => {
+  const status = asRecord(record.audioStatus);
+  const details = asRecord(record.details);
+  const requested = compactText(
+    status.requestedOutputSampleRate ??
+      details.requestedOutputSampleRate,
+  );
+  const actual = compactText(status.actualDeviceSampleRate);
+
+  return actual === 'n/a' ? requested : `${requested}->${actual}`;
+};
+
+const compactWarnings = (record: AudioCrashRecord): string[] => {
+  const status = asRecord(record.audioStatus);
+  return Array.isArray(status.warnings) ? status.warnings.map((warning) => compactText(warning)).filter(Boolean) : [];
+};
+
+const classifyAudioFailure = (message: string): string => {
+  if (message.includes('timeout_waiting_for_ready')) {
+    return 'host_ready_timeout';
+  }
+
+  if (message.includes('Device didn\'t start correctly')) {
+    return 'driver_start_refused';
+  }
+
+  if (message.includes('Couldn\'t open the output device')) {
+    return 'device_open_refused';
+  }
+
+  if (message.includes('exclusive_denied')) {
+    return 'exclusive_denied';
+  }
+
+  if (message.includes('audio_session_run_cancelled')) {
+    return 'superseded_playback_run';
+  }
+
+  if (message.includes('ffmpeg_missing')) {
+    return 'decoder_missing';
+  }
+
+  if (message.includes('ffmpeg_')) {
+    return 'decoder_failed';
+  }
+
+  if (/\becho-audio-host exit_code_/.test(message)) {
+    return 'host_exited_before_ready';
+  }
+
+  return 'audio_pipeline_error';
+};
+
+const collectDistinct = (values: string[]): string[] =>
+  [...new Set(values.filter((value) => value && value !== 'n/a'))];
+
+const createAudioTimelineMarkdown = (records: AudioCrashRecord[]): string[] => {
+  const lines = [
+    '## Related Audio Events In This Session',
+    '',
+  ];
+
+  if (records.length === 0) {
+    lines.push('- No related audio error files were found for this diagnostics session.');
+    return lines;
+  }
+
+  lines.push(
+    `- Events included: ${records.length}`,
+    `- Time window: ${records[0]?.timestamp ?? 'n/a'} -> ${records.at(-1)?.timestamp ?? 'n/a'}`,
+    '- Reading tip: different top-level errors can be one incident when the device/mode changes during fallback.',
+    '',
+    '| # | Time | Severity | Phase | Mode | Device | Rate | Failure class | Recovery signal |',
+    '| - | - | - | - | - | - | - | - | - |',
+  );
+
+  records.forEach((record, index) => {
+    const warnings = compactWarnings(record);
+    const recoverySignals = warnings.filter((warning) =>
+      /fell_back|fallback|recovered|safe_mode|default_device|skipped_same_device/iu.test(warning),
+    );
+    const time = record.timestamp.split('T')[1]?.replace('Z', '') ?? record.timestamp;
+    lines.push(
+      `| ${index + 1} | ${time} | ${compactText(record.severity)} | ${compactText(record.phase)} | ${compactOutputMode(record)} | ${truncateText(compactDeviceName(record), 42)} | ${compactSampleRate(record)} | ${classifyAudioFailure(record.message)} | ${truncateText(recoverySignals.join(', ') || compactText(record.recovered), 54)} |`,
+    );
+  });
+
+  return lines;
+};
+
+const createAudioCorrelationMarkdown = (records: AudioCrashRecord[]): string[] => {
+  const lines = [
+    '## Correlation Analysis',
+    '',
+  ];
+
+  if (records.length === 0) {
+    lines.push('- Not enough events to correlate.');
+    return lines;
+  }
+
+  const failureClasses = collectDistinct(records.map((record) => classifyAudioFailure(record.message)));
+  const modes = collectDistinct(records.map(compactOutputMode));
+  const devices = collectDistinct(records.map(compactDeviceName));
+  const rates = collectDistinct(records.map(compactSampleRate));
+  const warningSet = collectDistinct(records.flatMap(compactWarnings));
+  const hasAsioFailure = modes.includes('asio') || records.some((record) => /ASIO| -asio\b|mode="asio"/u.test(record.message));
+  const hasSharedFailure = modes.includes('shared') || records.some((record) => /mode="shared"|WASAPI|Windows Audio/u.test(record.message));
+  const hasFallbackSignals = warningSet.some((warning) => /fell_back|fallback|recovered|safe_mode|default_device/iu.test(warning));
+  const hasDsdPcm = warningSet.some((warning) => warning.startsWith('dsd_source_decoded_to_pcm'));
+  const likelySingleIncident = records.length > 1 && (hasFallbackSignals || (hasAsioFailure && hasSharedFailure));
+
+  lines.push(
+    `- Likely one chained incident: ${likelySingleIncident ? 'yes' : 'unknown'}`,
+    `- Failure classes observed: ${failureClasses.join(', ') || 'n/a'}`,
+    `- Output modes involved: ${modes.join(', ') || 'n/a'}`,
+    `- Devices involved: ${devices.map((device) => truncateText(device, 72)).join(' | ') || 'n/a'}`,
+    `- Requested/actual rate transitions: ${rates.join(', ') || 'n/a'}`,
+    `- Recovery/fallback signals: ${warningSet.filter((warning) => /fell_back|fallback|recovered|safe_mode|default_device|skipped_same_device/iu.test(warning)).join(', ') || 'n/a'}`,
+  );
+
+  if (hasDsdPcm) {
+    lines.push('- DSD source was decoded to high-rate PCM in at least one event; this can expose ASIO driver rate limits before the app falls back.');
+  }
+
+  if (hasAsioFailure && hasSharedFailure) {
+    lines.push('- ASIO failed first and Shared/WASAPI also failed later, which points more toward a device/driver state problem than a single bad track.');
+  }
+
+  if (records.some((record) => classifyAudioFailure(record.message) === 'superseded_playback_run')) {
+    lines.push('- audio_session_run_cancelled appears in the chain; treat it as a follow-on cancellation unless it is the only event.');
+  }
+
+  return lines;
+};
+
+const explainAudioError = (record: AudioCrashRecord | null): string[] => {
+  const message = record?.message ?? '';
+  const details = asRecord(record?.details);
+  const status = asRecord(record?.audioStatus);
+  const outputMode = String(status.outputMode ?? detailValue(details, 'outputMode') ?? 'unknown');
+  const deviceName = String(status.outputDeviceName ?? detailValue(details, 'deviceName') ?? 'unknown');
+  const warnings = Array.isArray(status.warnings) ? status.warnings.join(', ') : 'n/a';
+  const lines = [
+    '## Why This Error Happened',
+    '',
+    `- Operation phase: ${record?.phase ?? 'unknown'}`,
+    `- Output mode at the time: ${outputMode}`,
+    `- Output device at the time: ${deviceName}`,
+    `- Active warnings: ${warnings || 'n/a'}`,
+  ];
+
+  if (!record) {
+    lines.push('- No audio error record exists yet. This report was opened manually before an audio failure was captured.');
+    return lines;
+  }
+
+  if (message.includes('timeout_waiting_for_ready')) {
+    lines.push(
+      '- Direct cause: the native audio host was launched, but it did not send its ready event before the timeout.',
+      '- Most likely reasons: the ASIO/WASAPI driver was slow or stuck during initialization, the device was busy in another app, the requested sample rate or buffer size was rejected slowly, or the driver needed more time while closing a previous stream.',
+      '- What to try: close other audio apps, try a larger ASIO buffer, switch to Shared once and back to ASIO, unplug/replug the interface, or choose another sample rate supported by the driver.',
+    );
+  } else if (message.includes('spawn_error:')) {
+    lines.push(
+      '- Direct cause: ECHO could not start echo-audio-host.',
+      '- Most likely reasons: the native host executable is missing, blocked by security software, damaged, or packaged in the wrong location.',
+      '- What to try: rebuild or reinstall the native audio host, then verify electron-app/build/echo-audio-host.exe exists.',
+    );
+  } else if (/\becho-audio-host (exit_code_|exit_signal_|exclusive_denied)/.test(message)) {
+    lines.push(
+      '- Direct cause: echo-audio-host started but exited before audio output became ready.',
+      '- Most likely reasons: the selected output device refused the requested mode, crashed during driver setup, or rejected the requested format.',
+      '- What to inspect: stderrTail, exitCodeHex, nativeCrash, requestedOutputSampleRate, outputMode, and the selected device name in the JSON sections below.',
+    );
+  } else if (message.includes('ffmpeg_missing')) {
+    lines.push(
+      '- Direct cause: the decoder backend is missing, so playback could not decode the selected file.',
+      '- What to try: repair the app installation or make sure the bundled ffmpeg binary is present.',
+    );
+  } else if (message.includes('ffmpeg_error:')) {
+    lines.push(
+      '- Direct cause: ffmpeg failed while decoding this track.',
+      '- Most likely reasons: the file is corrupted, the codec is unsupported by the bundled decoder, or the stream URL expired while opening.',
+    );
+  } else if (message.includes('asio_output_sample_rate_unusable')) {
+    lines.push(
+      '- Direct cause: the ASIO driver opened at an unusable low sample rate even though ECHO requested a normal music rate.',
+      '- Most likely reasons: driver fallback, stale ASIO state, or a control-panel setting forcing an unexpected clock rate.',
+    );
+  } else if (message.includes('sample_rate_mismatch')) {
+    lines.push(
+      '- Direct cause: the device opened at a different sample rate than ECHO requested.',
+      '- Most likely reasons: the hardware clock is locked externally, another app owns the device, or the requested rate is unsupported in this mode.',
+    );
+  } else {
+    lines.push(
+      '- Direct cause: ECHO received an audio pipeline error that does not match a specialized diagnosis rule yet.',
+      '- Next clue: read the exact message, details JSON, audio status snapshot, and recent audio logs below. They include the phase, selected device, output mode, requested rate, opened rate, buffer sizes, and native stderr tail when available.',
+    );
+  }
+
+  lines.push(
+    '',
+    '## Error Cause Details',
+    '',
+    `- Raw message: ${message}`,
+    `- Severity: ${record.severity ?? 'fatal'}`,
+    `- Recovered automatically: ${record.recovered ?? false}`,
+    `- Requested sample rate: ${status.requestedOutputSampleRate ?? detailValue(details, 'requestedOutputSampleRate') ?? 'n/a'}`,
+    `- Actual device sample rate: ${status.actualDeviceSampleRate ?? 'n/a'}`,
+    `- Requested buffer frames: ${status.nativeRequestedBufferFrames ?? 'n/a'}`,
+    `- Actual buffer frames: ${status.nativeActualBufferFrames ?? 'n/a'}`,
+  );
+
+  return lines;
+};
+
 const readFileText = (filePath: string): string | null => {
   try {
     return existsSync(filePath) && statSync(filePath).isFile() ? readFileSync(filePath, 'utf8') : null;
@@ -415,6 +682,7 @@ export class CrashReportService {
 
   private createAudioCrashReportMarkdown(record: AudioCrashRecord | null): string {
     const session = this.getCurrentSessionSnapshot();
+    const relatedAudioRecords = this.getRecentAudioCrashRecords(record);
     const lines = [
       '# ECHO Next Audio Crash Report',
       '',
@@ -428,6 +696,12 @@ export class CrashReportService {
       `- Recovered: ${record?.recovered ?? 'n/a'}`,
       `- Message: ${record?.message ?? 'No audio crash has been recorded in this session.'}`,
       `- Crash timestamp: ${record?.timestamp ?? 'n/a'}`,
+      '',
+      ...createAudioTimelineMarkdown(relatedAudioRecords),
+      '',
+      ...createAudioCorrelationMarkdown(relatedAudioRecords),
+      '',
+      ...explainAudioError(record),
       '',
       '## Session',
       '',
@@ -466,6 +740,36 @@ export class CrashReportService {
     ];
 
     return `${lines.join('\n')}\n`;
+  }
+
+  private getRecentAudioCrashRecords(currentRecord: AudioCrashRecord | null, maxRecords = 12): AudioCrashRecord[] {
+    if (!this.sessionDir) {
+      return currentRecord ? [currentRecord] : [];
+    }
+
+    const audioCrashDir = join(this.sessionDir, 'audio-crashes');
+    const records: AudioCrashRecord[] = [];
+
+    try {
+      if (existsSync(audioCrashDir) && statSync(audioCrashDir).isDirectory()) {
+        for (const fileName of readdirSync(audioCrashDir).filter((name) => name.endsWith('.json')).sort().slice(-maxRecords)) {
+          const record = readJson<AudioCrashRecord>(join(audioCrashDir, fileName));
+          if (record?.type === 'audio' && record.timestamp) {
+            records.push(record);
+          }
+        }
+      }
+    } catch {
+      // The latest record below is still enough to produce a useful report.
+    }
+
+    if (currentRecord && !records.some((record) => record.timestamp === currentRecord.timestamp && record.message === currentRecord.message)) {
+      records.push(currentRecord);
+    }
+
+    return records
+      .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+      .slice(-maxRecords);
   }
 
   private getCurrentSessionSnapshot(): unknown {

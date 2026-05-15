@@ -19,6 +19,7 @@ import type {
   LibrarySummary,
   LibraryTrack,
   LibraryCleanupResult,
+  LibraryMaintenanceCleanupResult,
   LibraryTrackTagUpdateRequest,
   LibraryAlbumTagUpdateRequest,
   DuplicateTrackGroup,
@@ -61,6 +62,7 @@ export type {
   LibrarySummary,
   LibraryTrack,
   LibraryCleanupResult,
+  LibraryMaintenanceCleanupResult,
   LibraryTrackTagUpdateRequest,
   LibraryAlbumTagUpdateRequest,
   DuplicateTrackGroup,
@@ -238,6 +240,12 @@ export type ScanJobUpdate = Partial<
   >
 > & {
   cancelRequested?: boolean;
+};
+
+export type LibraryScanMode = 'normal' | 'embedded-tags-all' | 'embedded-tags-missing-cover';
+
+export type LibraryScanOptions = {
+  mode?: LibraryScanMode;
 };
 
 export type ScanResultCounts = {

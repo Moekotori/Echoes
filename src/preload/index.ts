@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
 import type { SmtcCommand } from '../shared/types/smtc';
@@ -57,24 +57,16 @@ const echoApi: EchoApi = {
     chooseFolder: () => ipcRenderer.invoke(IpcChannels.LibraryChooseFolder),
     addFolder: (path) => ipcRenderer.invoke(IpcChannels.LibraryAddFolder, path),
     classifyImportPaths: (paths) => ipcRenderer.invoke(IpcChannels.LibraryClassifyImportPaths, paths),
-    getDroppedFilePaths: (files) =>
-      Promise.resolve(
-        Array.from(files ?? [])
-          .map((file) => {
-            const legacyPath = (file as unknown as { path?: string }).path;
-            if (typeof legacyPath === 'string' && legacyPath.trim()) {
-              return legacyPath;
-            }
-
-            try {
-              return webUtils.getPathForFile(file);
-            } catch {
-              return '';
-            }
-          })
-          .filter((path): path is string => typeof path === 'string' && path.trim().length > 0),
-      ),
-    getDefaultImportDirectory: () => ipcRenderer.invoke(IpcChannels.LibraryGetDefaultImportDirectory),
+    importDroppedFiles: async (files) => {
+      const payload = await Promise.all(
+        Array.from(files ?? []).map(async (file) => ({
+          name: file.name,
+          type: file.type,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })),
+      );
+      return ipcRenderer.invoke(IpcChannels.LibraryImportDroppedFiles, payload);
+    },
     getFolders: () => ipcRenderer.invoke(IpcChannels.LibraryGetFolders),
     getFolderOverviews: () => ipcRenderer.invoke(IpcChannels.LibraryGetFolderOverviews),
     getFolderChildren: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetFolderChildren, query),
@@ -82,6 +74,7 @@ const echoApi: EchoApi = {
     openLibraryFolderPath: (request) => ipcRenderer.invoke(IpcChannels.LibraryOpenLibraryFolderPath, request),
     removeFolder: (folderId) => ipcRenderer.invoke(IpcChannels.LibraryRemoveFolder, folderId),
     scanFolder: (folderId) => ipcRenderer.invoke(IpcChannels.LibraryScanFolder, folderId),
+    rescanEmbeddedTags: (mode) => ipcRenderer.invoke(IpcChannels.LibraryRescanEmbeddedTags, mode),
     getScanStatus: (jobId) => ipcRenderer.invoke(IpcChannels.LibraryGetScanStatus, jobId),
     cancelScan: (jobId) => ipcRenderer.invoke(IpcChannels.LibraryCancelScan, jobId),
     getTrack: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryGetTrack, trackId),
@@ -154,6 +147,7 @@ const echoApi: EchoApi = {
     saveAlbumCover: (albumId) => ipcRenderer.invoke(IpcChannels.LibrarySaveAlbumCover, albumId),
     deleteAlbumFiles: (albumId) => ipcRenderer.invoke(IpcChannels.LibraryDeleteAlbumFiles, albumId),
     pruneMissingTracks: () => ipcRenderer.invoke(IpcChannels.LibraryPruneMissingTracks),
+    pruneInvalidTracks: () => ipcRenderer.invoke(IpcChannels.LibraryPruneInvalidTracks),
     clearTracks: () => ipcRenderer.invoke(IpcChannels.LibraryClearTracks),
     clearCache: () => ipcRenderer.invoke(IpcChannels.LibraryClearCache),
     repairMissingMetadata: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryNetworkRepairMissingMetadata, trackId),

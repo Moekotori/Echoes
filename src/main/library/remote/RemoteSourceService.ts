@@ -64,7 +64,7 @@ export class RemoteSourceService {
       for (const indexed of tracks) {
         const track = this.store.getTrack(indexed.id);
         if (track) {
-          this.backgroundQueue.enqueueTrack(track, ['metadata']);
+          this.backgroundQueue.enqueueTrack(track, ['metadata', 'duration-backfill', 'cover', 'lyrics', 'mv']);
         }
       }
     });

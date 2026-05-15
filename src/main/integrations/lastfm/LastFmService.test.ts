@@ -159,6 +159,8 @@ const makeStatus = (patch: Partial<AudioStatus> = {}): AudioStatus => ({
   warnings: [],
   error: null,
   ...patch,
+  activeOutputBackendImpl: patch.activeOutputBackendImpl ?? null,
+  useJuceOutputRequested: patch.useJuceOutputRequested ?? false,
 });
 
 const flushPromises = async (): Promise<void> => {

@@ -203,24 +203,31 @@ html[data-theme="dark"] .app-shell--lyrics {
 }
 
 .app-shell--lyrics .titlebar-action {
-  color: rgba(72, 84, 99, 0.82);
+  color: rgba(35, 49, 66, 0.92);
+  border-color: transparent;
   background: transparent;
+  box-shadow: none;
 }
 
 html[data-theme="dark"] .app-shell--lyrics .titlebar-action {
-  color: rgba(214, 224, 238, 0.72);
+  color: rgba(240, 246, 255, 0.9);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .app-shell--lyrics .titlebar-action:hover,
 .app-shell--lyrics .titlebar-action[data-active="true"] {
   color: #243142;
-  background: rgba(28, 38, 52, 0.06);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 html[data-theme="dark"] .app-shell--lyrics .titlebar-action:hover,
 html[data-theme="dark"] .app-shell--lyrics .titlebar-action[data-active="true"] {
   color: #f7fbff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .app-shell--lyrics .window-controls {
@@ -325,24 +332,31 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) {
 }
 
 .app-shell:has(.lyrics-page) .titlebar-action {
-  color: rgba(72, 84, 99, 0.82);
+  color: rgba(35, 49, 66, 0.92);
+  border-color: transparent;
   background: transparent;
+  box-shadow: none;
 }
 
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action {
-  color: rgba(214, 224, 238, 0.72);
+  color: rgba(240, 246, 255, 0.9);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .app-shell:has(.lyrics-page) .titlebar-action:hover,
 .app-shell:has(.lyrics-page) .titlebar-action[data-active="true"] {
   color: #243142;
-  background: rgba(28, 38, 52, 0.06);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action:hover,
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action[data-active="true"] {
   color: #f7fbff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .app-shell:has(.lyrics-page) .window-controls {

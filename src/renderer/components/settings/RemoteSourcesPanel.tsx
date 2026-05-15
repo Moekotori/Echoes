@@ -187,13 +187,18 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         config.authMode = form.authMode;
       }
 
+      const webDavAuthType =
+        provider === 'webdav' && form.authType === 'basic' && !form.username.trim() && !form.secret
+          ? 'none'
+          : form.authType;
+
       return {
         provider,
         displayName: form.displayName.trim() || defaultNameFor(provider),
         baseUrl: form.baseUrl.trim(),
-        username: form.authType === 'basic' ? form.username.trim() || null : null,
-        secret: form.authType === 'none' ? null : form.secret,
-        authType: form.authType,
+        username: webDavAuthType === 'basic' ? form.username.trim() || null : null,
+        secret: webDavAuthType === 'none' ? null : form.secret,
+        authType: webDavAuthType,
         config,
         syncMode: form.syncMode,
       };

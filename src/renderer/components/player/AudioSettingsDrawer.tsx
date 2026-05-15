@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioDiagnostics, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioStatus } from '../../../shared/types/audio';
+import { detectRendererPlatform, isAdvancedNativeOutputPlatform } from '../../../shared/utils/audioPlatformCapabilities';
 import { useI18n } from '../../i18n/I18nProvider';
 import { createOutputSettings, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
 
@@ -83,6 +84,9 @@ const asioBufferOptions: Array<{ value: number | null; label: string; detail: st
   { value: 512, label: '512', detail: 'Default' },
   { value: 1024, label: '1024', detail: 'Stable' },
 ];
+
+const supportsAdvancedNativeOutput = (): boolean =>
+  typeof window !== 'undefined' && isAdvancedNativeOutputPlatform(detectRendererPlatform(window.navigator));
 
 const getDeviceStorageKey = (device: AudioDeviceInfo): string => `${device.outputMode}:${device.id || device.index}:${device.name}`;
 
@@ -169,6 +173,9 @@ const isLosslessCodec = (status: AudioStatus | null): boolean => {
 
   return Boolean(codec && ['flac', 'wav', 'wave', 'alac', 'aiff', 'ape'].some((losslessCodec) => codec.includes(losslessCodec)));
 };
+
+const isActiveJuceBackend = (status: AudioStatus | null): boolean =>
+  typeof status?.activeOutputBackendImpl === 'string' && status.activeOutputBackendImpl.startsWith('juce-');
 
 const formatSourceQuality = (status: AudioStatus | null, copy: AudioDrawerCopy): string => {
   const parts = [
@@ -412,6 +419,8 @@ const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string => {
     ['outputMode', diagnostics.outputMode],
     ['latencyProfile', diagnostics.latencyProfile],
     ['outputBackend', diagnostics.outputBackend],
+    ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
+    ['useJuceOutputRequested', diagnostics.useJuceOutputRequested],
     ['outputDeviceName', diagnostics.outputDeviceName],
     ['currentFilePath', diagnostics.currentFilePath],
     ['currentTrackId', diagnostics.currentTrackId],
@@ -494,6 +503,7 @@ export const AudioSettingsDrawer = ({
   const [isMotionOpen, setIsMotionOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [useJuceOutput, setUseJuceOutput] = useState(status?.useJuceOutputRequested === true);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
   const [hiddenDeviceMenu, setHiddenDeviceMenu] = useState<HiddenDeviceMenu>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
@@ -511,8 +521,9 @@ export const AudioSettingsDrawer = ({
   const defaultSharedDevice = useMemo(() => allSharedDevices.find((device) => device.isDefault) ?? null, [allSharedDevices]);
   const sharedDevices = useMemo(() => visibleDevices.filter((device) => device.outputMode === 'shared'), [visibleDevices]);
   const asioDevices = useMemo(() => visibleDevices.filter((device) => device.outputMode === 'asio'), [visibleDevices]);
+  const advancedNativeOutputAvailable = useMemo(() => supportsAdvancedNativeOutput(), []);
   const wasapiExclusive = outputMode === 'exclusive';
-  const lockWasapiExclusive = outputMode === 'asio';
+  const lockWasapiExclusive = !advancedNativeOutputAvailable || outputMode === 'asio';
   const statusDevice = useMemo(() => {
     if (!status) {
       return null;
@@ -549,6 +560,10 @@ export const AudioSettingsDrawer = ({
 
     if (status?.resampling || status?.sampleRateMismatch) {
       badges.push({ label: copy.resampling, tone: 'warning' });
+    }
+
+    if (isActiveJuceBackend(status)) {
+      badges.push({ label: 'JUCE输出', tone: 'ready' });
     }
 
     if (hasInferredRateMismatch(status, effectiveSharedSampleRate) && !badges.some((badge) => badge.label === copy.resampling)) {
@@ -656,7 +671,10 @@ export const AudioSettingsDrawer = ({
     setRememberOutput(readRememberedAudioOutput().enabled);
     void window.echo?.app
       .getSettings()
-      .then((settings) => setRememberOutput(settings.rememberedAudioOutput?.enabled === true))
+      .then((settings) => {
+        setRememberOutput(settings.rememberedAudioOutput?.enabled === true);
+        setUseJuceOutput(settings.audioUseJuceOutput === true);
+      })
       .catch(() => undefined);
     void loadPersistedHiddenDeviceKeys().then(setHiddenDeviceKeys).catch(() => setHiddenDeviceKeys(readHiddenDeviceKeys()));
     void refresh();
@@ -666,7 +684,8 @@ export const AudioSettingsDrawer = ({
     if (status?.outputMode) {
       setOutputMode(status.outputMode);
     }
-  }, [status?.outputMode]);
+    setUseJuceOutput(status?.useJuceOutputRequested === true);
+  }, [status?.outputMode, status?.useJuceOutputRequested]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -756,16 +775,17 @@ export const AudioSettingsDrawer = ({
   );
 
   const applyDevice = (mode: AudioOutputMode, device: AudioDeviceInfo | null): void => {
+    const nextMode = advancedNativeOutputAvailable ? mode : 'shared';
     const remembered = readRememberedAudioOutput();
     const settings = createOutputSettings(
-      mode,
+      nextMode,
       device,
       status?.latencyProfile ?? remembered.latencyProfile ?? 'balanced',
     );
-    if (mode === 'asio' && remembered.bufferSizeFrames) {
+    if (nextMode === 'asio' && remembered.bufferSizeFrames) {
       settings.bufferSizeFrames = remembered.bufferSizeFrames;
     }
-    setOutputMode(mode);
+    setOutputMode(nextMode);
     void applyOutput(settings);
   };
 
@@ -791,6 +811,15 @@ export const AudioSettingsDrawer = ({
       },
       enabled,
     );
+  };
+
+  const toggleJuceOutput = (enabled: boolean): void => {
+    const previous = useJuceOutput;
+    setUseJuceOutput(enabled);
+    void window.echo?.app.setSettings({ audioUseJuceOutput: enabled }).catch(() => undefined);
+    void applyOutput({ useJuceOutput: enabled }).catch(() => {
+      setUseJuceOutput(previous);
+    });
   };
 
   const hideDevice = (device: AudioDeviceInfo): void => {
@@ -909,6 +938,7 @@ export const AudioSettingsDrawer = ({
               ))}
             </div>
           ) : null}
+          <span className="audio-engine-meter__hint">{t('audioDrawer.note.engine')}</span>
         </button>
 
         <section className="audio-drawer-section audio-current-output-section">
@@ -916,7 +946,7 @@ export const AudioSettingsDrawer = ({
             <Headphones size={17} />
             <h3>{t('audioDrawer.section.currentOutput')}</h3>
           </div>
-          <div className="audio-current-output-card">
+          <div className={`audio-current-output-card ${currentOutput.mode === 'asio' ? 'audio-current-output-card--asio' : ''}`}>
             <span className="audio-current-output-card__icon">
               <currentOutput.Icon size={22} />
             </span>
@@ -931,6 +961,7 @@ export const AudioSettingsDrawer = ({
             </div>
             <em>{t('audioDrawer.device.selected')}</em>
           </div>
+          <p className="audio-current-output-note">{t('audioDrawer.note.currentOutput')}</p>
         </section>
 
         <section className="audio-drawer-section">
@@ -982,14 +1013,16 @@ export const AudioSettingsDrawer = ({
           })}
         </section>
 
-        <section className="audio-drawer-section">
-          <div className="audio-drawer-section-title">
-            <Zap size={17} />
-            <h3>{t('audioDrawer.section.asioDevices')}</h3>
-          </div>
-          <p className="audio-section-note">{t('audioDrawer.note.asio')}</p>
-          {asioDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.asioDevices')}</p> : null}
-          {asioDevices.map((device) => {
+        {advancedNativeOutputAvailable ? (
+          <section className="audio-drawer-section">
+            <div className="audio-drawer-section-title">
+              <Zap size={17} />
+              <h3>{t('audioDrawer.section.asioDevices')}</h3>
+            </div>
+            <p className="audio-section-note">{t('audioDrawer.note.asio')}</p>
+            <p className="audio-section-note audio-section-note--warning">{t('audioDrawer.note.asioWarning')}</p>
+            {asioDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.asioDevices')}</p> : null}
+            {asioDevices.map((device) => {
             const isActive = deviceMatchesStatus(device, status, 'asio');
             const DeviceIcon = getDeviceIcon(device.name, 'asio');
 
@@ -1013,8 +1046,9 @@ export const AudioSettingsDrawer = ({
                 {isActive ? <Check size={15} /> : null}
               </button>
             );
-          })}
-        </section>
+            })}
+          </section>
+        ) : null}
 
         <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
           <div className="audio-drawer-section-title">
@@ -1022,19 +1056,37 @@ export const AudioSettingsDrawer = ({
             <h3>{t('audioDrawer.section.advancedOutput')}</h3>
           </div>
 
-          <label className="audio-toggle-row">
-            <span>
-              <Lock size={17} />
-              <strong>{t('audioDrawer.option.wasapiExclusive')}</strong>
-            </span>
-            <input
-              type="checkbox"
-              checked={wasapiExclusive}
-              disabled={lockWasapiExclusive || isBusy}
-              onChange={(event) => toggleExclusive(event.currentTarget.checked)}
-            />
-          </label>
-          <p>{t('audioDrawer.option.wasapiExclusiveDescription')}</p>
+          {advancedNativeOutputAvailable ? (
+            <>
+              <label className="audio-toggle-row">
+                <span>
+                  <AudioLines size={17} />
+                  <strong>使用JUCE输出</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={useJuceOutput}
+                  disabled={isBusy}
+                  onChange={(event) => toggleJuceOutput(event.currentTarget.checked)}
+                />
+              </label>
+              <p>{t('audioDrawer.note.juceOutput')}</p>
+
+              <label className="audio-toggle-row">
+                <span>
+                  <Lock size={17} />
+                  <strong>{t('audioDrawer.option.wasapiExclusive')}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={wasapiExclusive}
+                  disabled={lockWasapiExclusive || isBusy}
+                  onChange={(event) => toggleExclusive(event.currentTarget.checked)}
+                />
+              </label>
+              <p>{t('audioDrawer.option.wasapiExclusiveDescription')}</p>
+            </>
+          ) : null}
 
           <div className="audio-drawer-mini-grid" aria-label="Latency profile">
             {latencyProfileOptions.map((option) => (
@@ -1055,7 +1107,7 @@ export const AudioSettingsDrawer = ({
             ))}
           </div>
 
-          {outputMode === 'asio' ? (
+          {advancedNativeOutputAvailable && outputMode === 'asio' ? (
             <>
               <div className="audio-drawer-section-title audio-drawer-section-title--compact">
                 <Zap size={17} />

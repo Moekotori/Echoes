@@ -12,6 +12,12 @@ export type LibraryCleanupResult = {
   removedCount: number;
 };
 
+export type LibraryMaintenanceCleanupResult = LibraryCleanupResult & {
+  missingRemovedCount: number;
+  shortRemovedCount: number;
+  shortDurationThresholdSeconds: number;
+};
+
 export type LibraryCacheClearResult = LibraryCleanupResult & {
   deletedCoverCacheFiles: number;
   freedCoverCacheBytes: number;
@@ -142,6 +148,12 @@ export type LibraryScanStatus = {
   errors: string[];
   startedAt: string | null;
   finishedAt: string | null;
+};
+
+export type LibraryScanMode = 'normal' | 'embedded-tags-all' | 'embedded-tags-missing-cover';
+
+export type LibraryScanOptions = {
+  mode?: LibraryScanMode;
 };
 
 export type LibrarySort =

@@ -36,6 +36,7 @@ export type AppSettings = {
   songsSort?: LibrarySort;
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];
+  audioUseJuceOutput?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;

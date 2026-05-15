@@ -1,6 +1,7 @@
 import { dialog, ipcMain } from 'electron';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
+import { normalizeAudioOutputModeForPlatform } from '../../shared/utils/audioPlatformCapabilities';
 import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
 import type {
   LocalFileResolveResult,
@@ -14,6 +15,7 @@ import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import { getAudioSession } from '../audio/AudioSession';
 import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
+import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
 import { resolveLocalAudioFiles } from '../app/localFileOpen';
@@ -67,7 +69,7 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
   const output: AudioOutputSettings = {};
 
   if (typeof input.outputMode === 'string' && outputModes.has(input.outputMode as AudioOutputMode)) {
-    output.outputMode = input.outputMode as AudioOutputMode;
+    output.outputMode = normalizeAudioOutputModeForPlatform(input.outputMode as AudioOutputMode, process.platform);
   }
 
   if (typeof input.deviceIndex === 'number' && Number.isInteger(input.deviceIndex)) {
@@ -90,6 +92,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
   if (Object.prototype.hasOwnProperty.call(input, 'bufferSizeFrames')) {
     const bufferSizeFrames = optionalPositiveNumber(input.bufferSizeFrames);
     output.bufferSizeFrames = bufferSizeFrames ? Math.round(bufferSizeFrames) : null;
+  }
+
+  if (typeof input.useJuceOutput === 'boolean') {
+    output.useJuceOutput = input.useJuceOutput;
   }
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
@@ -407,6 +413,24 @@ const toPlaybackStatus = (): PlaybackStatus => {
   };
 };
 
+const reportPlaybackAudioError = (error: unknown, phase: string, details?: unknown): void => {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  const status = getAudioSession().getStatus();
+
+  if (status.error === normalized.message) {
+    return;
+  }
+
+  getCrashReportService().reportAudioError({
+    message: normalized.message,
+    stack: normalized.stack,
+    phase,
+    severity: 'fatal',
+    details,
+    audioStatus: status,
+  });
+};
+
 let playbackMemoryRegistered = false;
 let lastPlaybackMemorySaveAt = 0;
 const playbackMemorySaveIntervalMs = 5000;
@@ -441,10 +465,15 @@ export const registerPlaybackIpc = (): void => {
   registerPlaybackMemoryPersistence();
   ipcMain.handle(IpcChannels.PlaybackGetStatus, (): PlaybackStatus => toPlaybackStatus());
   ipcMain.handle(IpcChannels.PlaybackPlayLocalFile, async (_event, request: unknown): Promise<PlaybackStatus> => {
-    await getAudioSession().playLocalFile(normalizePlayRequest(request));
-    savePlaybackMemoryNow();
-    void syncSmtcStatus();
-    return toPlaybackStatus();
+    try {
+      await getAudioSession().playLocalFile(normalizePlayRequest(request));
+      savePlaybackMemoryNow();
+      void syncSmtcStatus();
+      return toPlaybackStatus();
+    } catch (error) {
+      reportPlaybackAudioError(error, 'play-local-file-ipc', { request });
+      throw error;
+    }
   });
   ipcMain.handle(IpcChannels.PlaybackPrepareMediaItem, async (_event, rawRequest: unknown): Promise<void> => {
     try {
@@ -461,11 +490,18 @@ export const registerPlaybackIpc = (): void => {
     }
   });
   ipcMain.handle(IpcChannels.PlaybackPlayMediaItem, async (_event, rawRequest: unknown): Promise<PlaybackStatus> => {
-    const request = normalizeMediaPlayRequest(rawRequest);
-    const item = request.item;
-    let prepared = await resolveMediaItemForPlayback(request);
-
+    let request: PlaybackMediaStartRequest;
     try {
+      request = normalizeMediaPlayRequest(rawRequest);
+    } catch (error) {
+      reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
+      throw error;
+    }
+
+    const item = request.item;
+    try {
+      let prepared = await resolveMediaItemForPlayback(request);
+
       await getAudioSession().playLocalFile({
         filePath: prepared.filePath,
         trackId: item.trackId,
@@ -473,37 +509,58 @@ export const registerPlaybackIpc = (): void => {
         output: request.output,
         probe: prepared.probe,
       });
+      savePlaybackMemoryNow();
+      const status = toPlaybackStatus();
+      if (item.mediaType === 'remote' && status.durationMs > 0) {
+        getRemoteSourceService().backfillDuration(item.trackId, status.durationMs / 1000);
+      }
+      if (item.mediaType === 'remote') {
+        getRemoteSourceService().setPlaybackActive(true);
+      }
+      void syncSmtcStatus();
+      return status;
     } catch (error) {
       if ((item.mediaType !== 'streaming' && item.mediaType !== 'remote') || !isLikelyExpiredUrlError(error)) {
+        reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
         throw error;
       }
 
       preparedMediaCache.delete(createPreparedMediaKey(request));
-      prepared = await resolveMediaItemForPlayback(request, { forceRefresh: true });
-      await getAudioSession().playLocalFile({
-        filePath: prepared.filePath,
-        trackId: item.trackId,
-        startSeconds: request.startSeconds,
-        output: request.output,
-        probe: prepared.probe,
-      });
+      try {
+        const prepared = await resolveMediaItemForPlayback(request, { forceRefresh: true });
+        await getAudioSession().playLocalFile({
+          filePath: prepared.filePath,
+          trackId: item.trackId,
+          startSeconds: request.startSeconds,
+          output: request.output,
+          probe: prepared.probe,
+        });
+        savePlaybackMemoryNow();
+        const status = toPlaybackStatus();
+        if (item.mediaType === 'remote' && status.durationMs > 0) {
+          getRemoteSourceService().backfillDuration(item.trackId, status.durationMs / 1000);
+        }
+        if (item.mediaType === 'remote') {
+          getRemoteSourceService().setPlaybackActive(true);
+        }
+        void syncSmtcStatus();
+        return status;
+      } catch (retryError) {
+        reportPlaybackAudioError(retryError, 'play-media-item-retry-ipc', { request: rawRequest });
+        throw retryError;
+      }
     }
-    savePlaybackMemoryNow();
-    const status = toPlaybackStatus();
-    if (item.mediaType === 'remote' && status.durationMs > 0) {
-      getRemoteSourceService().backfillDuration(item.trackId, status.durationMs / 1000);
-    }
-    if (item.mediaType === 'remote') {
-      getRemoteSourceService().setPlaybackActive(true);
-    }
-    void syncSmtcStatus();
-    return status;
   });
   ipcMain.handle(IpcChannels.PlaybackPlay, async (): Promise<PlaybackStatus> => {
-    await getAudioSession().play();
-    savePlaybackMemoryNow();
-    void syncSmtcStatus();
-    return toPlaybackStatus();
+    try {
+      await getAudioSession().play();
+      savePlaybackMemoryNow();
+      void syncSmtcStatus();
+      return toPlaybackStatus();
+    } catch (error) {
+      reportPlaybackAudioError(error, 'playback-resume-ipc');
+      throw error;
+    }
   });
   ipcMain.handle(IpcChannels.PlaybackPause, (): PlaybackStatus => {
     getAudioSession().pause();
@@ -519,10 +576,15 @@ export const registerPlaybackIpc = (): void => {
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackSeek, async (_event, positionSeconds: unknown): Promise<PlaybackStatus> => {
-    await getAudioSession().seek(optionalNonNegativeNumber(positionSeconds) ?? 0);
-    savePlaybackMemoryNow();
-    void syncSmtcStatus();
-    return toPlaybackStatus();
+    try {
+      await getAudioSession().seek(optionalNonNegativeNumber(positionSeconds) ?? 0);
+      savePlaybackMemoryNow();
+      void syncSmtcStatus();
+      return toPlaybackStatus();
+    } catch (error) {
+      reportPlaybackAudioError(error, 'playback-seek-ipc', { positionSeconds });
+      throw error;
+    }
   });
   ipcMain.handle(IpcChannels.PlaybackOpenLocalAudioFile, async (): Promise<string | null> => {
     const filePaths = await showOpenLocalAudioFiles(['openFile']);

@@ -151,6 +151,7 @@ const installLibraryService = () => {
     getFolderChildren: vi.fn(() => []),
     getFolderTracks: vi.fn(() => ({ items: [], page: 1, pageSize: 100, total: 0, hasMore: false })),
     resolveLibraryFolderPath: vi.fn(() => 'D:\\Music'),
+    importAudioFile: vi.fn(async (path: string) => ({ id: `track-${path}`, path })),
     removeFolder: vi.fn(),
     scanFolder: vi.fn(),
     getScanStatus: vi.fn(),
@@ -210,10 +211,24 @@ describe('library IPC', () => {
     expect(result).toBe('D:\\Music');
   });
 
-  it('returns the downloads folder as the default import directory', async () => {
-    const result = await handlers[IpcChannels.LibraryGetDefaultImportDirectory]!();
+  it('saves dropped audio files to downloads and imports them', async () => {
+    const root = makeTempRoot();
+    const { app } = await import('electron');
+    vi.mocked(app.getPath).mockReturnValue(root);
 
-    expect(result).toBe('D:\\Downloads');
+    const result = await handlers[IpcChannels.LibraryImportDroppedFiles]!(null, [
+      { name: 'song.flac', type: 'audio/flac', bytes: new Uint8Array([1, 2, 3]) },
+      { name: 'cover.jpg', type: 'image/jpeg', bytes: new Uint8Array([4, 5, 6]) },
+    ]);
+
+    expect(result).toMatchObject({
+      importedCount: 1,
+      ignoredCount: 1,
+      failedCount: 0,
+      outputDirectory: root,
+    });
+    expect(existsSync(join(root, 'song.flac'))).toBe(true);
+    expect(getLibraryServiceMock().importAudioFile).toHaveBeenCalledWith(join(root, 'song.flac'), { folderPath: root });
   });
 
   it('classifies dropped import paths as folders, audio files, unsupported files, or missing paths', async () => {

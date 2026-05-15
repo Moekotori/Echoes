@@ -11,6 +11,7 @@ import type {
   CoverCacheRepairOptions,
   CoverExtractOptions,
   CoverResult,
+  LibraryScanOptions,
   MetadataResult,
   ParsedTrackMetadata,
   ScannedAudioFile,
@@ -348,9 +349,9 @@ const createHarness = (
     coverCacheDir,
     metadataService,
     service,
-    async scanFolder() {
+    async scanFolder(options: LibraryScanOptions = {}) {
       const [libraryFolder] = service.getFolders();
-      const job = service.scanFolder(libraryFolder.id);
+      const job = service.scanFolder(libraryFolder.id, options);
       await service.waitForScan(job.id);
       return service.getScanStatus(job.id);
     },
@@ -840,6 +841,46 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('embedded tag rescan all forces unchanged tracks to reread and apply embedded metadata', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Artist - Rescan All.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    harness.metadataService.overrides.set(filePath, { title: 'Updated Embedded Title' });
+    const secondScan = await harness.scanFolder({ mode: 'embedded-tags-all' });
+    const track = harness.service.getTracks({ pageSize: 1 }).items[0];
+
+    expect(harness.metadataService.calls).toHaveLength(2);
+    expect(secondScan.updatedTracks).toBe(1);
+    expect(secondScan.skippedFiles).toBe(0);
+    expect(track.title).toBe('Updated Embedded Title');
+    harness.cleanup();
+  });
+
+  it('embedded tag rescan missing cover only rereads tracks without complete cover cache', async () => {
+    const coverExtractor = new FakeCoverExtractor({ source: 'embedded' });
+    const harness = createHarness({ coverExtractor });
+    writeAudioFile(harness.folder, 'Artist - Covered.flac');
+    writeAudioFile(harness.folder, 'Artist - Missing Cover.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const tracks = harness.service.getTracks({ pageSize: 10 }).items;
+    const missingCoverTrack = tracks.find((track) => track.title.includes('Missing Cover')) ?? tracks[0];
+    const albumAsset = missingCoverTrack.coverId ? harness.service.resolveCoverAsset(missingCoverTrack.coverId, 'album') : null;
+    expect(albumAsset?.filePath).toBeTruthy();
+    unlinkSync(albumAsset!.filePath);
+
+    const secondScan = await harness.scanFolder({ mode: 'embedded-tags-missing-cover' });
+
+    expect(harness.metadataService.calls).toHaveLength(3);
+    expect(coverExtractor.calls).toHaveLength(3);
+    expect(secondScan.updatedTracks).toBe(1);
+    expect(secondScan.skippedFiles).toBe(1);
+    harness.cleanup();
+  });
+
   it('path + size + mtime unchanged with complete cover cache skips cover work', async () => {
     const coverExtractor = new FakeCoverExtractor();
     const harness = createHarness({ coverExtractor });
@@ -959,6 +1000,29 @@ describe('Library Core', () => {
 
     expect(result).toEqual({ scannedCount: 1, removedCount: 1 });
     expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(0);
+    harness.cleanup();
+  });
+
+  it('prunes missing and five-second-or-shorter tracks without deleting local files', async () => {
+    const harness = createHarness();
+    const shortFile = writeAudioFile(harness.folder, 'Artist - Blip.flac');
+    const keepFile = writeAudioFile(harness.folder, 'Artist - Full Song.flac');
+    harness.metadataService.overrides.set(shortFile, baseMetadata({ title: 'Blip', duration: 5 }));
+    harness.metadataService.overrides.set(keepFile, baseMetadata({ title: 'Full Song', duration: 6 }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const result = await harness.service.pruneInvalidTracks();
+
+    expect(result).toEqual({
+      scannedCount: 2,
+      removedCount: 1,
+      missingRemovedCount: 0,
+      shortRemovedCount: 1,
+      shortDurationThresholdSeconds: 5,
+    });
+    expect(existsSync(shortFile)).toBe(true);
+    expect(harness.service.getTracks({ pageSize: 10 }).items.map((track) => track.title)).toEqual(['Full Song']);
     harness.cleanup();
   });
 

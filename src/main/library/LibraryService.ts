@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import electron from 'electron';
-import { applyCoverArt, applyTags } from 'taglib-wasm';
 import { defaultSettings, getAppSettings } from '../app/appSettings';
 import { createDatabase, type EchoDatabase } from '../database/createDatabase';
 import { AlbumService } from './AlbumService';
@@ -34,9 +34,11 @@ import type {
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
+  LibraryScanOptions,
   LibrarySummary,
   LibraryTrack,
   LibraryCleanupResult,
+  LibraryMaintenanceCleanupResult,
   LibraryAlbumTagUpdateRequest,
   LibraryTrackTagUpdateRequest,
   CoverVariant,
@@ -77,6 +79,7 @@ import { TsCoverExtractor } from './workers/TsCoverExtractor';
 import { TsFileScanner } from './workers/TsFileScanner';
 import { TsMetadataReader } from './workers/TsMetadataReader';
 import { getRemoteSourceService } from './remote/RemoteSourceService';
+import { writeEmbeddedTrackTags } from './TagWriter';
 import { backupPlaylistIfEnabled, type PlaylistBackupReason } from './PlaylistBackup';
 
 type LibraryServiceDependencies = {
@@ -142,14 +145,14 @@ export class LibraryService {
     this.store.removeFolder(folderId);
   }
 
-  scanFolder(folderId: string): LibraryScanStatus {
+  scanFolder(folderId: string, options: LibraryScanOptions = {}): LibraryScanStatus {
     const folder = this.store.getFolder(folderId);
 
     if (!folder) {
       throw new Error(`Unknown library folder ${folderId}`);
     }
 
-    const job = this.scanJobQueue.scanFolder(folder);
+    const job = this.scanJobQueue.scanFolder(folder, options);
     if (this.readAppSettings().audioAnalysisEnabled) {
       void this.scanJobQueue.waitForIdle(job.id).then(() => {
         if (this.readAppSettings().audioAnalysisEnabled) {
@@ -159,6 +162,11 @@ export class LibraryService {
     }
 
     return job;
+  }
+
+  rescanEmbeddedTags(mode: Exclude<NonNullable<LibraryScanOptions['mode']>, 'normal'>): LibraryScanStatus[] {
+    const folders = this.getFolders();
+    return folders.map((folder) => this.scanFolder(folder.id, { mode }));
   }
 
   getScanStatus(jobId: string): LibraryScanStatus {
@@ -440,8 +448,8 @@ export class LibraryService {
       throw new Error(`Track file is missing: ${normalizedPath}`);
     }
 
-    const fileStat = statSync(normalizedPath);
-    if (!fileStat.isFile()) {
+    const initialFileStat = statSync(normalizedPath);
+    if (!initialFileStat.isFile()) {
       throw new Error(`Track path is not a file: ${normalizedPath}`);
     }
 
@@ -463,10 +471,13 @@ export class LibraryService {
     };
     let coverId: string | null = null;
     let coverErrors: string[] = [];
+    const coverUrl = cleanNullableText(options.coverUrl ?? null);
+    const coverData = coverUrl ? await readCoverImageFromUrl(coverUrl, null).catch(() => null) : null;
+    const hasMetadataOverrides = hasImportMetadataOverrides(metadataOverrides);
+    const embeddedWriteErrors = await writeImportedEmbeddedTags(normalizedPath, metadataFields, coverData, hasMetadataOverrides || Boolean(coverData));
+    const fileStat = statSync(normalizedPath);
 
     try {
-      const coverUrl = cleanNullableText(options.coverUrl ?? null);
-      const coverData = coverUrl ? await readCoverImageFromUrl(coverUrl, null).catch(() => null) : null;
       const cover = await this.coverExtractor.extract(normalizedPath, {
         cacheRoot: this.coverCacheDir,
         metadata: coverData ? metadataWithEmbeddedCover(coverData.data, coverData.mimeType) : metadata,
@@ -490,11 +501,11 @@ export class LibraryService {
         id: trackId,
         coverId,
         fieldSources,
-        embeddedMetadataStatus: metadata.embeddedMetadataStatus,
-        embeddedCoverStatus: metadata.embeddedCoverStatus,
+        embeddedMetadataStatus: hasMetadataOverrides ? 'present' : metadata.embeddedMetadataStatus,
+        embeddedCoverStatus: coverData ? 'present' : metadata.embeddedCoverStatus,
         metadataStatus: metadata.status,
         warnings: metadata.warnings,
-        errors: [...metadata.errors, ...coverErrors],
+        errors: [...metadata.errors, ...embeddedWriteErrors, ...coverErrors],
         updatedAt: timestamp,
       });
       this.store.refreshAlbums(this.albumService, timestamp, this.albumRefreshOptions());
@@ -698,23 +709,7 @@ export class LibraryService {
     }
 
     try {
-      const sourceAudio = readFileSync(currentTrack.path);
-      let updatedAudio = await applyTags(sourceAudio, {
-        title: tags.title,
-        artist: tags.artist,
-        album: tags.album,
-        albumArtist: tags.albumArtist,
-        track: tags.trackNo ?? 0,
-        discNumber: tags.discNo ?? 0,
-        year: tags.year ?? 0,
-        genre: tags.genre ?? '',
-      });
-
-      if (coverData) {
-        updatedAudio = await applyCoverArt(updatedAudio, coverData.data, coverData.mimeType);
-      }
-
-      writeFileSync(currentTrack.path, Buffer.from(updatedAudio));
+      await writeEmbeddedTrackTags({ filePath: currentTrack.path, tags, coverData });
     } catch (error) {
       throw new Error(`Failed to write embedded tags for ${currentTrack.path}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -795,23 +790,20 @@ export class LibraryService {
 
     for (const track of tracks) {
       try {
-        const sourceAudio = readFileSync(track.path);
-        let updatedAudio = await applyTags(sourceAudio, {
-          title: track.title,
-          artist: track.artist,
-          album: tags.album,
-          albumArtist: tags.albumArtist,
-          track: track.trackNo ?? 0,
-          discNumber: track.discNo ?? 0,
-          year: tags.year ?? 0,
-          genre: tags.genre ?? '',
+        await writeEmbeddedTrackTags({
+          filePath: track.path,
+          coverData,
+          tags: {
+            title: track.title,
+            artist: track.artist,
+            album: tags.album,
+            albumArtist: tags.albumArtist,
+            trackNo: track.trackNo,
+            discNo: track.discNo,
+            year: tags.year,
+            genre: tags.genre,
+          },
         });
-
-        if (coverData) {
-          updatedAudio = await applyCoverArt(updatedAudio, coverData.data, coverData.mimeType);
-        }
-
-        writeFileSync(track.path, Buffer.from(updatedAudio));
       } catch (error) {
         throw new Error(`Failed to write album tags for ${track.path}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -1031,6 +1023,45 @@ export class LibraryService {
     };
   }
 
+  async pruneInvalidTracks(shortDurationThresholdSeconds = 5): Promise<LibraryMaintenanceCleanupResult> {
+    const tracks = this.store.getActiveTracks();
+    const missingTrackIds: string[] = [];
+    const shortTrackIds: string[] = [];
+    const normalizedShortDurationThresholdSeconds = Math.max(0, shortDurationThresholdSeconds);
+
+    for (let index = 0; index < tracks.length; index += 1) {
+      const track = tracks[index];
+
+      if (!existsSync(track.path)) {
+        missingTrackIds.push(track.id);
+      } else if (track.duration > 0 && track.duration <= normalizedShortDurationThresholdSeconds) {
+        shortTrackIds.push(track.id);
+      }
+
+      if (index % 100 === 99) {
+        await yieldToMainLoop();
+      }
+    }
+
+    const trackIds = Array.from(new Set([...missingTrackIds, ...shortTrackIds]));
+    const removedCount = this.store.transaction(() => {
+      const changed = this.store.deleteTracks(trackIds);
+      if (changed > 0) {
+        this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
+        this.store.refreshArtists();
+      }
+      return changed;
+    });
+
+    return {
+      scannedCount: tracks.length,
+      removedCount,
+      missingRemovedCount: missingTrackIds.length,
+      shortRemovedCount: shortTrackIds.length,
+      shortDurationThresholdSeconds: normalizedShortDurationThresholdSeconds,
+    };
+  }
+
   clearTracks(): LibraryCleanupResult {
     const scannedCount = this.store.getTracks({ pageSize: 1 }).total;
     const removedCount = this.store.transaction(() => this.store.deleteAllTracks());
@@ -1246,6 +1277,44 @@ const readCoverImage = (filePath: string): { data: Uint8Array; mimeType: string 
     data: readFileSync(normalizedPath),
     mimeType: mimeTypeForImagePath(normalizedPath),
   };
+};
+
+const hasImportMetadataOverrides = (metadata: {
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+}): boolean => Object.values(metadata).some((value) => typeof value === 'string' && value.trim().length > 0);
+
+const writeImportedEmbeddedTags = async (
+  filePath: string,
+  fields: MetadataResult['fields'],
+  coverData: { data: Uint8Array; mimeType: string } | null,
+  shouldWrite: boolean,
+): Promise<string[]> => {
+  if (!shouldWrite) {
+    return [];
+  }
+
+  try {
+    await writeEmbeddedTrackTags({
+      filePath,
+      coverData,
+      tags: {
+        title: fields.title,
+        artist: fields.artist,
+        album: fields.album,
+        albumArtist: fields.albumArtist,
+        trackNo: fields.trackNo,
+        discNo: fields.discNo,
+        year: fields.year,
+        genre: fields.genre,
+      },
+    });
+    return [];
+  } catch (error) {
+    return [`Failed to write imported embedded tags for ${filePath}: ${error instanceof Error ? error.message : String(error)}`];
+  }
 };
 
 const supportedImageMimeType = (value: string | null | undefined): string | null => {

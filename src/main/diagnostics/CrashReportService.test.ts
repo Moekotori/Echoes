@@ -116,6 +116,71 @@ const unzipEntries = (zipPath: string): Record<string, string> => {
   return entries;
 };
 
+const createAudioStatus = (overrides: Record<string, unknown> = {}) => ({
+  host: 'starting',
+  state: 'loading',
+  outputDeviceId: 'shared:0',
+  outputDeviceName: 'Speakers',
+  outputDeviceType: null,
+  outputBackend: null,
+  activeOutputBackendImpl: null,
+  outputMode: 'shared',
+  useJuceOutputRequested: false,
+  latencyProfile: 'balanced',
+  volume: 1,
+  playbackRate: 1,
+  playbackSpeedMode: 'nightcore',
+  currentFilePath: 'D:\\Music\\private-song.flac',
+  currentTrackId: 'track-1',
+  durationSeconds: 120,
+  positionSeconds: 0,
+  channels: 2,
+  codec: 'flac',
+  bitDepth: 16,
+  bitrate: null,
+  fileSampleRate: 44100,
+  decoderOutputSampleRate: 44100,
+  requestedOutputSampleRate: 44100,
+  actualDeviceSampleRate: null,
+  sharedDeviceSampleRate: null,
+  resampling: false,
+  bitPerfectCandidate: false,
+  sampleRateMismatch: false,
+  eqEnabled: false,
+  channelBalanceEnabled: false,
+  dspActive: false,
+  preampDb: 0,
+  eqPresetName: null,
+  clippingRisk: false,
+  audioLevels: {
+    inputPeakDb: null,
+    inputRmsDb: null,
+    estimatedOutputPeakDb: null,
+    estimatedOutputRmsDb: null,
+    headroomDb: null,
+    clipCount: 0,
+    lastClipAt: null,
+    meterSource: 'pre_native_estimated_post_dsp',
+  },
+  bitPerfectDisabledReason: null,
+  sharedStabilityTier: null,
+  nativeDeviceBufferFrames: null,
+  nativeRequestedBufferFrames: null,
+  nativeActualBufferFrames: null,
+  nativeOutputLatencyMs: null,
+  nativePositionStalenessMs: null,
+  nativeFifoCapacityFrames: null,
+  nativeStartupPrebufferFrames: null,
+  nativeBufferedFrames: null,
+  nativeBufferedMs: null,
+  nativeUnderrunCallbacks: 0,
+  nativeUnderrunFrames: 0,
+  lastSharedStabilityRecoveryAt: null,
+  warnings: [],
+  error: null,
+  ...overrides,
+});
+
 describe('CrashReportService', () => {
   let tempDir: string;
 
@@ -212,7 +277,9 @@ describe('CrashReportService', () => {
         outputDeviceName: 'Speakers',
         outputDeviceType: null,
         outputBackend: 'native',
+        activeOutputBackendImpl: null,
         outputMode: 'shared',
+        useJuceOutputRequested: false,
         volume: 1,
         playbackRate: 1,
         playbackSpeedMode: 'nightcore',
@@ -257,6 +324,8 @@ describe('CrashReportService', () => {
       pathHash: expect.any(String),
     });
     expect(readableReport).toContain('# ECHO Next Audio Crash Report');
+    expect(readableReport).toContain('## Why This Error Happened');
+    expect(readableReport).toContain('the native audio host was launched, but it did not send its ready event');
     expect(readableReport).toContain('shared_output_recovered_to_default_device');
 
     const entries = unzipEntries(outputPath);
@@ -264,6 +333,91 @@ describe('CrashReportService', () => {
     expect(Object.keys(entries)).toContain('audio-crash-report.md');
     expect(Object.keys(entries).some((name) => name.startsWith('audio-crashes/audio-crash-'))).toBe(true);
     expect(Object.values(entries).join('\n')).not.toContain('D:\\Music\\private-song.flac');
+  });
+
+  it('summarizes related audio crash records as one incident timeline', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-05-15T15:45:47.418Z'));
+      const service = new CrashReportService(tempDir);
+      service.initialize();
+
+      service.reportAudioError({
+        message: 'echo-audio-host exit_code_1; mode="asio"; stderrTail="Device didn\'t start correctly"',
+        phase: 'output-start',
+        severity: 'recoverable',
+        details: {
+          outputMode: 'asio',
+          candidate: { index: 2, name: 'MOONDROP USB AUDIO ASIO4', outputMode: 'asio' },
+          requestedOutputSampleRate: 352800,
+        },
+        audioStatus: createAudioStatus({
+          outputMode: 'asio',
+          outputDeviceId: 'asio:2',
+          outputDeviceName: 'MOONDROP USB AUDIO ASIO4',
+          codec: 'DSF',
+          fileSampleRate: 11289600,
+          decoderOutputSampleRate: 352800,
+          requestedOutputSampleRate: 352800,
+          warnings: ['dsd_source_decoded_to_pcm:11289600->352800'],
+        }) as never,
+      });
+
+      vi.setSystemTime(new Date('2026-05-15T15:47:14.621Z'));
+      service.reportAudioError({
+        message: 'audio_session_run_cancelled',
+        phase: 'play-local-file-ipc',
+        severity: 'fatal',
+        details: {
+          request: { trackId: 'track-2' },
+        },
+        audioStatus: createAudioStatus({
+          outputMode: 'shared',
+          outputDeviceId: 'shared:11',
+          outputDeviceName: 'MOONDROP Dawn Pro',
+          warnings: ['shared_output_resampling_or_mixer_rate_difference'],
+        }) as never,
+      });
+
+      vi.setSystemTime(new Date('2026-05-15T15:47:26.192Z'));
+      service.reportAudioError({
+        message: 'echo-audio-host timeout_waiting_for_ready; mode="shared"; stderrTail="Couldn\'t open the output device!"',
+        phase: 'output-start',
+        severity: 'recoverable',
+        details: {
+          outputMode: 'shared',
+          candidate: { index: 11, name: 'MOONDROP Dawn Pro', outputMode: 'shared' },
+          requestedOutputSampleRate: 48000,
+        },
+        audioStatus: createAudioStatus({
+          outputMode: 'shared',
+          outputDeviceId: 'shared:11',
+          outputDeviceName: 'MOONDROP Dawn Pro',
+          requestedOutputSampleRate: 48000,
+          warnings: [
+            'shared_output_resampling_or_mixer_rate_difference',
+            'juce_output_fell_back_to_native',
+            'juce_shared_output_fell_back_to_native',
+          ],
+        }) as never,
+      });
+
+      const report = readFileSync(join(service.getSessionDir()!, 'audio-crash-report.md'), 'utf8');
+
+      expect(report).toContain('## Related Audio Events In This Session');
+      expect(report).toContain('## Correlation Analysis');
+      expect(report).toContain('- Events included: 3');
+      expect(report).toContain('- Likely one chained incident: yes');
+      expect(report).toContain('driver_start_refused');
+      expect(report).toContain('superseded_playback_run');
+      expect(report).toContain('host_ready_timeout');
+      expect(report).toContain('MOONDROP USB AUDIO ASIO4');
+      expect(report).toContain('MOONDROP Dawn Pro');
+      expect(report).toContain('ASIO failed first and Shared/WASAPI also failed later');
+      expect(report).toContain('DSD source was decoded to high-rate PCM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('opens the dedicated audio crash report file', async () => {

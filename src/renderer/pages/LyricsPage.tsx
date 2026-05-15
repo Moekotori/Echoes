@@ -8,6 +8,7 @@ import {
   Rewind,
   RotateCcw,
   Upload,
+  X,
 } from "lucide-react";
 import type { AudioStatus } from "../../shared/types/audio";
 import type { AppSettings } from "../../shared/types/appSettings";
@@ -23,6 +24,7 @@ import type {
 } from "../../shared/types/streaming";
 import { streamingProviderNames } from "../../shared/types/streaming";
 import type { PlaybackStatus } from "../../shared/types/playback";
+import { decodeTextFileBytes } from "../../shared/utils/decodeTextFile";
 import { LyricsView } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import type { LyricLine, LyricsState } from "../components/lyrics/lyricsTypes";
@@ -69,6 +71,7 @@ type LyricsDisplaySettings = Pick<
 >;
 
 const playbackSeekedEvent = "playback:seeked";
+const lyricsCandidateSourceMemoryKey = "echo:lyrics:candidate-source";
 const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
@@ -218,24 +221,24 @@ const formatOffset = (offsetMs: number): string => {
 };
 
 const riskLabel = (risk: LyricsSearchCandidate["risk"]): string => {
-  if (risk === "low") return "精准匹配";
-  if (risk === "medium") return "可能匹配";
-  return "需确认";
+  if (risk === "low") return "绮惧噯鍖归厤";
+  if (risk === "medium") return "鍙兘鍖归厤";
+  return "闇€纭";
 };
 
 const reasonLabels: Record<string, string> = {
-  duration_exact: "时长精准",
-  duration_close: "时长接近",
-  duration_mismatch: "时长不同",
-  artist_mismatch: "艺人不同",
-  cover_intent: "可能翻唱",
-  candidate_only_cover: "翻唱需确认",
-  version_conflict: "版本不一致",
-  synced_duration_safe: "同步歌词",
-  embedded_tag_priority: "嵌入歌词",
-  local_sidecar_priority: "本地歌词",
-  netease_provider: "网易云",
-  qqmusic_provider: "QQ 音乐",
+  duration_exact: "鏃堕暱绮惧噯",
+  duration_close: "鏃堕暱鎺ヨ繎",
+  duration_mismatch: "鏃堕暱涓嶅悓",
+  artist_mismatch: "鑹轰汉涓嶅悓",
+  cover_intent: "鍙兘缈诲敱",
+  candidate_only_cover: "缈诲敱闇€纭",
+  version_conflict: "Version mismatch",
+  synced_duration_safe: "鍚屾姝岃瘝",
+  embedded_tag_priority: "宓屽叆姝岃瘝",
+  local_sidecar_priority: "鏈湴姝岃瘝",
+  netease_provider: "NetEase",
+  qqmusic_provider: "QQ 闊充箰",
 };
 
 const visibleReasons = (candidate: LyricsSearchCandidate): string[] =>
@@ -249,11 +252,13 @@ const sourceFilterKey = (candidate: LyricsSearchCandidate): LyricsProviderId =>
 
 const searchableLyricsProviderIds: LyricsProviderId[] = ["local", "lrclib", "netease", "qqmusic"];
 const searchableLyricsProviderSet = new Set<string>(searchableLyricsProviderIds);
+const isCandidateSourceFilter = (value: string | null): value is CandidateSourceFilter =>
+  value === "all" || searchableLyricsProviderSet.has(value ?? "");
 const lyricsProviderLabels: Partial<Record<LyricsProviderId, string>> = {
-  local: "本地",
+  local: "鏈湴",
   lrclib: "LRCLIB",
-  netease: "网易云音乐",
-  qqmusic: "QQ 音乐",
+  netease: "NetEase",
+  qqmusic: "QQ 闊充箰",
   musixmatch: "Musixmatch",
   genius: "Genius",
 };
@@ -336,6 +341,23 @@ const safeOriginalCoverUrl = (track: LibraryTrack | null): string | null => {
     : safeCoverUrl(track);
 
   return coverUrl && !coverUrl.startsWith("data:") ? coverUrl : null;
+};
+
+const readRememberedCandidateSource = (): CandidateSourceFilter => {
+  try {
+    const value = window.localStorage.getItem(lyricsCandidateSourceMemoryKey);
+    return isCandidateSourceFilter(value) ? value : "all";
+  } catch {
+    return "all";
+  }
+};
+
+const rememberCandidateSource = (source: CandidateSourceFilter): void => {
+  try {
+    window.localStorage.setItem(lyricsCandidateSourceMemoryKey, source);
+  } catch {
+    // Best-effort UI preference only.
+  }
 };
 
 const selectLyricsDisplaySettings = (
@@ -656,7 +678,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
   const [candidates, setCandidates] = useState<LyricsSearchCandidate[]>([]);
   const [activeCandidateSource, setActiveCandidateSource] =
-    useState<CandidateSourceFilter>("all");
+    useState<CandidateSourceFilter>(() => readRememberedCandidateSource());
+  const [isLyricsMatchPanelClosed, setIsLyricsMatchPanelClosed] = useState(false);
   const [isCandidateLoading, setIsCandidateLoading] = useState(false);
   const [applyingCandidateId, setApplyingCandidateId] = useState<string | null>(
     null,
@@ -818,7 +841,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     }
 
     return [
-      { key: "all", label: "全部来源", count: candidates.length, order: -1 },
+      { key: "all", label: "鍏ㄩ儴鏉ユ簮", count: candidates.length, order: -1 },
       ...Array.from(sourceMap.values()).sort(
         (left, right) =>
           left.order - right.order || left.label.localeCompare(right.label),
@@ -834,6 +857,20 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           ),
     [activeCandidateSource, candidates],
   );
+  const selectCandidateSource = useCallback((source: CandidateSourceFilter): void => {
+    setActiveCandidateSource(source);
+    rememberCandidateSource(source);
+  }, []);
+
+  useEffect(() => {
+    if (activeCandidateSource === "all") {
+      return;
+    }
+
+    if (!candidateSourceOptions.some((option) => option.key === activeCandidateSource)) {
+      selectCandidateSource("all");
+    }
+  }, [activeCandidateSource, candidateSourceOptions, selectCandidateSource]);
 
   const applySharedPlaybackStatus = useCallback(
     (snapshot: { playbackStatus: PlaybackStatus | null; audioStatus: AudioStatus | null; error: string | null }): void => {
@@ -949,6 +986,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     return () => window.removeEventListener("resize", updateWindowState);
   }, []);
 
+  useEffect(() => {
+    setIsLyricsMatchPanelClosed(false);
+  }, [trackId]);
+
   const tryAutoApplyCandidate = useCallback(
     async (
       nextCandidates: LyricsSearchCandidate[],
@@ -983,7 +1024,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         setCandidates([]);
-        setActiveCandidateSource("all");
+        setActiveCandidateSource(readRememberedCandidateSource());
         setLyricsStatus(null);
         setError(null);
         return true;
@@ -1015,7 +1056,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       dispatchCurrentLyricsProviderChanged(null);
       setLyricsStatus(null);
       setCandidates([]);
-      setActiveCandidateSource("all");
+      setActiveCandidateSource(readRememberedCandidateSource());
       setIsLyricsLoading(false);
       setIsCandidateLoading(false);
       return;
@@ -1031,7 +1072,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       dispatchCurrentLyricsProviderChanged(null);
       setLyricsStatus(null);
       setCandidates([]);
-      setActiveCandidateSource("all");
+      setActiveCandidateSource(readRememberedCandidateSource());
       return;
     }
 
@@ -1041,7 +1082,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         lyricsRequestRef.current += 1;
         setLyrics(emptyLyrics(0));
         dispatchCurrentLyricsProviderChanged(null);
-        setLyricsStatus("流媒体歌词服务不可用");
+        setLyricsStatus("娴佸獟浣撴瓕璇嶆湇鍔′笉鍙敤");
         return;
       }
 
@@ -1051,9 +1092,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setIsCandidateLoading(false);
       setLyrics(emptyLyrics(0));
       dispatchCurrentLyricsProviderChanged(null);
-      setLyricsStatus("正在加载流媒体歌词...");
+      setLyricsStatus("Loading streaming lyrics...");
       setCandidates([]);
-      setActiveCandidateSource("all");
+      setActiveCandidateSource(readRememberedCandidateSource());
 
       // Streaming lyrics are exact-provider lookups: provider + providerTrackId, no local candidate matching.
       void streamingApi
@@ -1066,7 +1107,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           const nextLyrics = streamingLyricsToState(streamingLyrics);
           setLyrics(nextLyrics);
           dispatchCurrentLyricsProviderChanged(null);
-          setLyricsStatus(nextLyrics.lines.length > 0 ? null : "未找到歌词");
+          setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
           setError(null);
         })
         .catch((lyricsError) => {
@@ -1076,7 +1117,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
           setLyrics(emptyLyrics(0));
           dispatchCurrentLyricsProviderChanged(null);
-          setLyricsStatus("未找到歌词");
+          setLyricsStatus("No lyrics found");
           setError(
             lyricsError instanceof Error
               ? lyricsError.message
@@ -1109,9 +1150,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setIsLyricsLoading(true);
     setLyrics(emptyLyrics(0));
     dispatchCurrentLyricsProviderChanged(null);
-    setLyricsStatus("正在匹配歌词...");
+    setLyricsStatus("姝ｅ湪鍖归厤姝岃瘝...");
     setCandidates([]);
-    setActiveCandidateSource("all");
+    setActiveCandidateSource(readRememberedCandidateSource());
 
     void lyricsApi
       .getForTrack(trackId)
@@ -1133,7 +1174,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
               nextCandidates = mergeLyricsCandidates(nextCandidates, providerCandidates);
               setCandidates(nextCandidates);
-              setActiveCandidateSource("all");
+              setActiveCandidateSource(readRememberedCandidateSource());
             }),
           );
           if (lyricsRequestRef.current !== requestId) {
@@ -1149,14 +1190,14 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           }
 
           setCandidates(nextCandidates);
-          setActiveCandidateSource("all");
-          setLyricsStatus(nextCandidates.length ? null : "未找到歌词");
+          setActiveCandidateSource(readRememberedCandidateSource());
+          setLyricsStatus(nextCandidates.length ? null : "No lyrics found");
           return;
         }
 
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
-        setLyricsStatus(trackLyrics ? null : "未找到歌词");
+        setLyricsStatus(trackLyrics ? null : "No lyrics found");
       })
       .catch((lyricsError) => {
         if (lyricsRequestRef.current !== requestId) {
@@ -1165,7 +1206,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
         setLyrics(emptyLyrics(0));
         dispatchCurrentLyricsProviderChanged(null);
-        setLyricsStatus("未找到歌词");
+        setLyricsStatus("No lyrics found");
         setError(
           lyricsError instanceof Error
             ? lyricsError.message
@@ -1195,27 +1236,29 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return;
     }
 
+    setIsLyricsMatchPanelClosed(false);
+
     if (streamingTarget) {
       const streamingApi = window.echo?.streaming;
       if (!streamingApi?.getLyrics) {
-        setError("流媒体歌词服务不可用");
+        setError("娴佸獟浣撴瓕璇嶆湇鍔′笉鍙敤");
         return;
       }
 
       setIsCandidateLoading(false);
       setIsLyricsLoading(true);
-      setLyricsStatus("正在加载流媒体歌词...");
+      setLyricsStatus("Loading streaming lyrics...");
       try {
         const streamingLyrics = await streamingApi.getLyrics(streamingTarget);
         const nextLyrics = streamingLyricsToState(streamingLyrics, lyrics.offsetMs);
         setLyrics(nextLyrics);
         dispatchCurrentLyricsProviderChanged(null);
         setCandidates([]);
-        setActiveCandidateSource("all");
-        setLyricsStatus(nextLyrics.lines.length > 0 ? null : "未找到歌词");
+        setActiveCandidateSource(readRememberedCandidateSource());
+        setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
         setError(null);
       } catch (lyricsError) {
-        setLyricsStatus("未找到歌词");
+        setLyricsStatus("No lyrics found");
         setError(
           lyricsError instanceof Error
             ? lyricsError.message
@@ -1239,8 +1282,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     const providers: LyricsProviderId[] = activeSearchProviders.length ? activeSearchProviders : ["local"];
     setIsCandidateLoading(true);
     setCandidates([]);
-    setActiveCandidateSource("all");
-    setLyricsStatus("正在搜索歌词候选...");
+    setActiveCandidateSource(readRememberedCandidateSource());
+    setLyricsStatus("Searching lyrics candidates...");
     try {
       await Promise.allSettled(
         providers.map(async (provider) => {
@@ -1253,7 +1296,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
           collectedCandidates = mergeLyricsCandidates(collectedCandidates, providerCandidates);
           setCandidates(collectedCandidates);
-          setActiveCandidateSource("all");
+          setActiveCandidateSource(readRememberedCandidateSource());
           if (collectedCandidates.length > 0) {
             setLyricsStatus(null);
           }
@@ -1275,11 +1318,11 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         }
       }
       setCandidates(collectedCandidates);
-      setActiveCandidateSource("all");
-      setLyricsStatus(collectedCandidates.length ? null : "未找到歌词");
+      setActiveCandidateSource(readRememberedCandidateSource());
+      setLyricsStatus(collectedCandidates.length ? null : "No lyrics found");
       setError(null);
     } catch (candidateError) {
-      setLyricsStatus("未找到歌词");
+      setLyricsStatus("No lyrics found");
       setError(
         candidateError instanceof Error
           ? candidateError.message
@@ -1307,6 +1350,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return;
     }
 
+    setIsLyricsMatchPanelClosed(false);
+
     if (streamingTarget) {
       await handleSearchLyrics();
       return;
@@ -1320,9 +1365,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     const lyricsApi = window.echo.lyrics;
     setLyrics(emptyLyrics(lyrics.offsetMs));
     setCandidates([]);
-    setActiveCandidateSource("all");
+    setActiveCandidateSource(readRememberedCandidateSource());
     setIsCandidateLoading(true);
-    setLyricsStatus("正在重新匹配歌词...");
+    setLyricsStatus("姝ｅ湪閲嶆柊鍖归厤姝岃瘝...");
     try {
       const requestId = lyricsRequestRef.current + 1;
       lyricsRequestRef.current = requestId;
@@ -1339,7 +1384,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
           collectedCandidates = mergeLyricsCandidates(collectedCandidates, providerCandidates);
           setCandidates(collectedCandidates);
-          setActiveCandidateSource("all");
+          setActiveCandidateSource(readRememberedCandidateSource());
           if (collectedCandidates.length > 0) {
             setLyricsStatus(null);
           }
@@ -1358,11 +1403,11 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         return;
       }
       setCandidates(collectedCandidates);
-      setActiveCandidateSource("all");
-      setLyricsStatus(collectedCandidates.length ? null : "未找到歌词");
+      setActiveCandidateSource(readRememberedCandidateSource());
+      setLyricsStatus(collectedCandidates.length ? null : "No lyrics found");
       setError(null);
     } catch (rematchError) {
-      setLyricsStatus("未找到歌词");
+      setLyricsStatus("No lyrics found");
       setError(
         rematchError instanceof Error
           ? rematchError.message
@@ -1390,7 +1435,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setLyrics(trackLyricsToState(detail.lyrics));
       dispatchCurrentLyricsProviderChanged(detail.lyrics);
       setCandidates([]);
-      setActiveCandidateSource("all");
+      setActiveCandidateSource(readRememberedCandidateSource());
       setLyricsStatus(null);
       setError(null);
     };
@@ -1426,7 +1471,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         setCandidates([]);
-        setActiveCandidateSource("all");
+        setActiveCandidateSource(readRememberedCandidateSource());
         setLyricsStatus(null);
         setError(null);
       } catch (applyError) {
@@ -1456,13 +1501,13 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setIsCustomLyricsApplying(true);
       setLyricsStatus("Applying custom LRC...");
       try {
-        const lrcText = await file.text();
+        const lrcText = decodeTextFileBytes(new Uint8Array(await file.arrayBuffer()));
         const trackLyrics = await lyricsApi.applyCustomLrc(trackId, lrcText, file.name);
         lyricsRequestRef.current += 1;
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         setCandidates([]);
-        setActiveCandidateSource("all");
+        setActiveCandidateSource(readRememberedCandidateSource());
         setLyricsStatus(null);
         setError(null);
       } catch (customLyricsError) {
@@ -1599,7 +1644,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
     return (
       <section className="lyrics-offset-controls" aria-label="Lyrics sync">
-        <span className="lyrics-offset-label">本歌曲延迟</span>
+        <span className="lyrics-offset-label">Lyrics offset</span>
         <span className="lyrics-offset-value">{formatOffset(currentOffsetMs)}</span>
         <div className="lyrics-offset-buttons">
           {offsetSteps.map((step) => {
@@ -1628,7 +1673,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             <span>0ms</span>
           </button>
         </div>
-        <p>只保存到当前这首歌；下次播放同一首歌会继续使用这个延迟。</p>
+        <p>This offset is saved for the current track and reused next time.</p>
       </section>
     );
   }, [
@@ -1655,9 +1700,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       !isLyricsLoading &&
       !isCandidateLoading;
     const statusText = isLyricsLoading
-      ? "正在匹配歌词..."
+      ? "姝ｅ湪鍖归厤姝岃瘝..."
       : isCandidateLoading
-        ? "正在搜索歌词候选..."
+        ? "Searching lyrics candidates..."
         : shouldFoldStatusIntoEmptyLyrics
           ? null
           : lyricsStatus;
@@ -1666,18 +1711,33 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return null;
     }
 
+    if (isLyricsMatchPanelClosed) {
+      return null;
+    }
+
     return (
       <section className="lyrics-match-panel" aria-label="Lyrics matching">
-        {statusText ? <p className="lyrics-match-status">{statusText}</p> : null}
+        <div className="lyrics-match-panel__bar">
+          {statusText ? <p className="lyrics-match-status">{statusText}</p> : <span />}
+          <button
+            className="lyrics-match-close"
+            type="button"
+            aria-label="Close lyrics candidates"
+            title="Close lyrics candidates"
+            onClick={() => setIsLyricsMatchPanelClosed(true)}
+          >
+            <X size={14} />
+          </button>
+        </div>
         {candidates.length ? (
           <>
-            <div className="lyrics-source-filters" aria-label="歌词来源筛选">
+            <div className="lyrics-source-filters" aria-label="Lyrics source filter">
               {candidateSourceOptions.map((option) => (
                 <button
                   type="button"
                   key={option.key}
                   data-active={activeCandidateSource === option.key}
-                  onClick={() => setActiveCandidateSource(option.key)}
+                  onClick={() => selectCandidateSource(option.key)}
                 >
                   {option.label}
                   <small>{option.count}</small>
@@ -1724,7 +1784,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
                       </small>
                     ))}
                     {applyingCandidateId === candidate.id ? (
-                      <small>应用中</small>
+                      <small>Applying</small>
                     ) : null}
                   </span>
                 </button>
@@ -1740,11 +1800,13 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     candidates,
     candidateSourceOptions,
     handleApplyCandidate,
+    isLyricsMatchPanelClosed,
     isCandidateLoading,
     isLyricsLoading,
     lyricsDisplaySettings.lyricsEnabled,
     lyrics.lines.length,
     lyricsStatus,
+    selectCandidateSource,
     trackId,
     visibleCandidates,
   ]);

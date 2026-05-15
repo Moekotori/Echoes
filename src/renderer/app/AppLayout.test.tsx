@@ -228,6 +228,72 @@ describe('AppLayout standalone routes', () => {
     expect(audioOnStatus).toHaveBeenCalledTimes(1);
   });
 
+  it('shows an upper-left audio error notice with a report action', async () => {
+    let audioStatusHandler: ((status: { error: string | null; state: string }) => void) | undefined;
+    const openAudioCrashReport = vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md');
+    const audioOnStatus = vi.fn((handler) => {
+      audioStatusHandler = handler as typeof audioStatusHandler;
+      return vi.fn();
+    });
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ lyricsPlayerBarDrawerEnabled: false, smtcEnabled: true }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          positionMs: 0,
+          durationMs: 0,
+          filePath: null,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          currentFilePath: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          error: null,
+        }),
+        onStatus: audioOnStatus,
+      },
+      diagnostics: {
+        getLastCrashSummary: vi.fn().mockResolvedValue(null),
+        openAudioCrashReport,
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(null),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(audioStatusHandler).toBeTruthy());
+    const emitAudioStatus = audioStatusHandler;
+    if (!emitAudioStatus) {
+      throw new Error('audio status handler was not registered');
+    }
+    emitAudioStatus({
+      state: 'error',
+      error: 'echo-audio-host timeout_waiting_for_ready; mode="asio"',
+    });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByText('音频错误')).toBeTruthy();
+    expect(screen.getByText(/Markdown 诊断报告/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '打开报告' }));
+    await waitFor(() => expect(openAudioCrashReport).toHaveBeenCalledTimes(1));
+  });
+
   it('does not apply the app wallpaper layer to the standalone lyrics and MV page', async () => {
     window.echo = {
       app: {

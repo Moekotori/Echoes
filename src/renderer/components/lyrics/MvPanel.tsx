@@ -71,6 +71,7 @@ const isAdaptiveStream = (video: TrackVideo | null): boolean =>
 const mvSyncDriftThresholdSeconds = 0.8;
 const mvSyncCorrectionCooldownMs = 1000;
 const playbackSeekedEvent = 'playback:seeked';
+const mvEndedBeforeAudioEvent = 'mv:ended-before-audio';
 const mvSettingsKeys = [
   'enabled',
   'autoSearch',
@@ -207,6 +208,10 @@ const streamingTrackKey = (target: { provider: StreamingProviderName; providerTr
 
 const uniqueCoverUrls = (...urls: Array<string | null | undefined>): string[] =>
   Array.from(new Set(urls.map((url) => url?.trim()).filter((url): url is string => Boolean(url))));
+
+const dispatchMvEndedBeforeAudio = (trackId: string | null): void => {
+  window.dispatchEvent(new CustomEvent(mvEndedBeforeAudioEvent, { detail: { trackId } }));
+};
 
 const CoverFallback = ({
   artist,
@@ -969,9 +974,13 @@ export const MvPanel = ({
             className="lyrics-mv-video"
             src={!adaptiveStream ? (videoMediaUrl ?? undefined) : undefined}
             autoPlay={isAudioPlaying}
-            loop
             muted
             onError={() => setVideoError(true)}
+            onEnded={() => {
+              if (isAudioPlayingRef.current) {
+                dispatchMvEndedBeforeAudio(trackId);
+              }
+            }}
             onLoadedMetadata={(event) => {
               applyVideoPlaybackRate(event.currentTarget);
               syncVideoToAudio({ force: true, bypassCooldown: true });

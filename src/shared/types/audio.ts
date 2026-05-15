@@ -53,6 +53,7 @@ export type AudioOutputSettings = {
   requestedOutputSampleRate?: number;
   latencyProfile?: AudioLatencyProfile;
   bufferSizeFrames?: number | null;
+  useJuceOutput?: boolean;
   volume?: number;
   playbackRate?: number;
   playbackSpeedMode?: PlaybackSpeedMode;
@@ -65,7 +66,9 @@ export type AudioStatus = {
   outputDeviceName: string | null;
   outputDeviceType: string | null;
   outputBackend: string | null;
+  activeOutputBackendImpl: string | null;
   outputMode: AudioOutputMode;
+  useJuceOutputRequested: boolean;
   volume: number;
   playbackRate: number;
   playbackSpeedMode: PlaybackSpeedMode;
@@ -117,6 +120,8 @@ export type AudioDiagnostics = Pick<
   | 'host'
   | 'outputMode'
   | 'outputBackend'
+  | 'activeOutputBackendImpl'
+  | 'useJuceOutputRequested'
   | 'outputDeviceName'
   | 'currentFilePath'
   | 'currentTrackId'

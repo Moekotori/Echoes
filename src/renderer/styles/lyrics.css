@@ -319,9 +319,7 @@ html[data-theme="dark"] .lyrics-custom-lrc-drop {
 
 .lyrics-page:has(.lyrics-mv-background) .lyrics-line[data-focus-distance="3"],
 .lyrics-page:has(.lyrics-mv-background) .lyrics-line[data-focus-distance="4"] {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.05;
 }
 
 .lyrics-page:has(.lyrics-mv-background) .lyrics-track-cover {
@@ -1469,11 +1467,39 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
   padding-left: 2px;
 }
 
+.lyrics-match-panel__bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .lyrics-match-status {
   margin: 0;
   color: rgba(49, 67, 90, 0.64);
   font-size: 12px;
   font-weight: 760;
+}
+
+.lyrics-match-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: rgba(57, 77, 101, 0.7);
+  border: 1px solid rgba(40, 62, 88, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+
+.lyrics-match-close:hover {
+  color: #203b58;
+  border-color: rgba(63, 96, 134, 0.2);
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .lyrics-match-actions,
