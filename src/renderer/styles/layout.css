@@ -538,9 +538,9 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .page-surface {
 
 html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
   border-color: rgb(232 238 247 / var(--app-wallpaper-ui-border-alpha));
-  background: rgb(18 22 29 / var(--app-wallpaper-ui-player-alpha));
+  background: var(--echo-polish-player-bg);
   box-shadow:
-    0 -8px 24px rgb(0 0 0 / var(--app-wallpaper-ui-player-shadow-alpha)),
+    0 -14px 36px rgb(0 0 0 / calc(var(--app-wallpaper-ui-player-shadow-alpha) * 0.82)),
     inset 0 1px 0 rgb(255 255 255 / calc(var(--app-wallpaper-ui-inset-alpha) * 0.08));
 }
 

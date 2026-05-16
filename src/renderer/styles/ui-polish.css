@@ -591,9 +591,15 @@
 
 .app-shell:has(.lyrics-page) .player-bar {
   border-top-color: var(--echo-polish-border);
-  background: var(--theme-panel-bg-strong);
+  background: var(--echo-polish-player-bg);
   box-shadow: var(--echo-polish-shadow-player);
   backdrop-filter: blur(18px) saturate(1.08);
+}
+
+html[data-theme="dark"] .app-shell:has(.lyrics-mv-panel[data-mv-enabled="false"]) .player-bar,
+html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
+  border-top-color: var(--echo-polish-border-strong);
+  background: var(--echo-polish-player-bg);
 }
 
 .player-now {
@@ -623,7 +629,16 @@
 .app-shell:has(.lyrics-page) .player-track-copy > span,
 .app-shell:has(.lyrics-page) .progress-row,
 .app-shell:has(.lyrics-page) .output-status > span {
-  color: var(--theme-page-text);
+  color: var(--theme-muted-text);
+}
+
+html[data-theme="light"] .app-shell:has(.lyrics-page) .player-track-copy > span,
+html:not([data-theme="dark"]) .app-shell:has(.lyrics-page) .player-track-copy > span,
+html[data-theme="light"] .app-shell:has(.lyrics-page) .progress-row,
+html:not([data-theme="dark"]) .app-shell:has(.lyrics-page) .progress-row,
+html[data-theme="light"] .app-shell:has(.lyrics-page) .output-status > span,
+html:not([data-theme="dark"]) .app-shell:has(.lyrics-page) .output-status > span {
+  color: color-mix(in srgb, var(--theme-muted-text) 74%, var(--theme-heading-text) 26%);
 }
 
 .app-shell:has(.lyrics-page) .player-tags .hifi-tag {
@@ -633,7 +648,7 @@
 .app-shell:has(.lyrics-page) .player-track-copy strong,
 .app-shell:has(.lyrics-page) .player-track-copy > span,
 .app-shell:has(.lyrics-page) .progress-row {
-  text-shadow: 0 1px 0 var(--theme-panel-bg-strong);
+  text-shadow: none;
 }
 
 .player-bar .icon-button {

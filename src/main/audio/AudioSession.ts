@@ -148,6 +148,11 @@ const isNativeHostNotificationEvent = (event: unknown): event is NativeHostNotif
   const name = (event as { event?: unknown }).event;
   return typeof name === 'string' && nativeHostNotificationEvents.has(name as NativeHostNotificationEvent['event']);
 };
+const isAudioSessionRunCancelledError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return message.includes('audio_session_run_cancelled');
+};
 const sharedReplacementGracefulStopTimeoutMs = 250;
 const minReliableAsioSampleRate = 44_100;
 type SharedOutputProfile = Pick<
@@ -3979,7 +3984,11 @@ export class AudioSession extends EventEmitter {
         inputHeaders: this.currentInputHeaders ?? undefined,
       });
     } catch (error) {
-      this.handleError(error instanceof Error ? error : new Error(String(error)));
+      if (isAudioSessionRunCancelledError(error)) {
+        this.logger('[AudioSession] exclusive instability fallback was superseded by a newer playback run');
+      } else {
+        this.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
     } finally {
       this.sharedStabilityRecovering = false;
       this.resetWatchdogProgress();
@@ -4048,7 +4057,11 @@ export class AudioSession extends EventEmitter {
         inputHeaders: this.currentInputHeaders ?? undefined,
       });
     } catch (error) {
-      this.handleError(error instanceof Error ? error : new Error(String(error)));
+      if (isAudioSessionRunCancelledError(error)) {
+        this.logger('[AudioSession] output stability recovery was superseded by a newer playback run');
+      } else {
+        this.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
     } finally {
       this.sharedStabilityRecovering = false;
       this.resetWatchdogProgress();

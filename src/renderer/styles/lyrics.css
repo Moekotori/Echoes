@@ -372,6 +372,14 @@ html[data-theme="dark"] .lyrics-custom-lrc-drop {
   opacity: var(--lyrics-cover-opacity);
 }
 
+html[data-theme="light"] .lyrics-page[data-background="customWallpaper"]:has(.lyrics-mv-panel[data-mv-enabled="true"][data-immersive-active="false"]) .lyrics-backdrop::before,
+html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:has(.lyrics-mv-panel[data-mv-enabled="true"][data-immersive-active="false"]) .lyrics-backdrop::before {
+  background:
+    radial-gradient(circle at 50% 42%, var(--theme-panel-bg-strong), transparent 42%),
+    linear-gradient(180deg, var(--theme-panel-bg-muted), var(--theme-panel-bg) 72%);
+  opacity: 0.58;
+}
+
 .lyrics-page:has(.lyrics-mv-background[data-lyrics-readability="true"]) .lyrics-line span {
   -webkit-text-stroke: 0.04em rgba(0, 0, 0, 0.76);
   paint-order: stroke fill;
@@ -1941,13 +1949,13 @@ html:not([data-theme="dark"]) .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled=
 }
 
 .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy p {
-  color: var(--theme-panel-bg);
+  color: var(--theme-muted-text);
   font-size: clamp(13px, 1.1vw, 16px);
   line-height: 1.28;
 }
 
 .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-album {
-  color: var(--theme-panel-bg);
+  color: var(--theme-muted-text);
   font-size: clamp(13px, 1.1vw, 16px);
   font-weight: 560;
   line-height: 1.28;
@@ -2053,7 +2061,8 @@ html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false
 }
 
 html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy h1 {
-  color: var(--theme-panel-bg-strong);
+  color: var(--theme-heading-text);
+  text-shadow: 0 2px 12px var(--theme-overlay-bg);
 }
 
 html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy p {
@@ -2065,7 +2074,7 @@ html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false
 }
 
 html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-album:hover {
-  color: var(--theme-panel-bg-strong);
+  color: var(--theme-heading-text);
 }
 
 html[data-theme="dark"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-artist {

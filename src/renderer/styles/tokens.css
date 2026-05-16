@@ -270,7 +270,7 @@ html[data-theme="dark"] {
   --echo-polish-page-bg:
     linear-gradient(180deg, rgba(18, 24, 32, 0.96), rgba(11, 15, 22, 0.98) 56%, rgba(8, 11, 16, 1));
   --echo-polish-player-bg:
-    linear-gradient(180deg, rgba(29, 37, 48, 0.94), rgba(22, 29, 39, 0.95));
+    linear-gradient(180deg, rgba(35, 44, 57, 0.95), rgba(27, 35, 47, 0.96));
   --echo-polish-surface: rgba(24, 31, 41, 0.66);
   --echo-polish-surface-strong: rgba(29, 37, 48, 0.88);
   --echo-polish-surface-muted: rgba(17, 23, 31, 0.84);

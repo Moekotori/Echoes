@@ -561,7 +561,9 @@ export const registerPlaybackIpc = (): void => {
       return status;
     } catch (error) {
       if ((item.mediaType !== 'streaming' && item.mediaType !== 'remote') || !isLikelyExpiredUrlError(error)) {
-        reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
+        if (!isSupersededPlaybackRun(error)) {
+          reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
+        }
         throw error;
       }
 
@@ -587,7 +589,9 @@ export const registerPlaybackIpc = (): void => {
         void syncSmtcStatus();
         return status;
       } catch (retryError) {
-        reportPlaybackAudioError(retryError, 'play-media-item-retry-ipc', { request: rawRequest });
+        if (!isSupersededPlaybackRun(retryError)) {
+          reportPlaybackAudioError(retryError, 'play-media-item-retry-ipc', { request: rawRequest });
+        }
         throw retryError;
       }
     }

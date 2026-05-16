@@ -3312,6 +3312,47 @@ describe('AudioSession playback watchdog', () => {
     expect(session.getDiagnostics().recentWatchdogRecoveryCount).toBe(1);
   });
 
+  it('does not turn a superseded stability recovery into a fatal audio error', async () => {
+    const decoder = new FakeDecoder(new Map([
+      ['first.flac', probe('first.flac', 44100)],
+      ['second.flac', probe('second.flac', 44100)],
+    ]));
+    const reportAudioError = vi.fn();
+    const firstBridge = new FakeBridge();
+    const recoveryBridge = new DelayedReadyBridge();
+    const secondBridge = new FakeBridge();
+    const bridges = [firstBridge, recoveryBridge, secondBridge];
+    let bridgeIndex = 0;
+    const session = new AudioSession({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges[bridgeIndex++] ?? new FakeBridge(),
+      logger: noopLogger,
+      reportAudioError,
+      disableWatchdogTimer: true,
+      watchdogStallChecks: 1,
+    });
+
+    await session.playLocalFile({ filePath: 'first.flac', trackId: 'first', output: { outputMode: 'asio' } });
+    firstBridge.positionSeconds = 8.75;
+    await session.checkPlaybackWatchdog();
+    const recovery = session.checkPlaybackWatchdog();
+    await recoveryBridge.started;
+
+    await session.playLocalFile({ filePath: 'second.flac', trackId: 'second', output: { outputMode: 'asio' } });
+    recoveryBridge.releaseReady();
+    await recovery;
+
+    const status = session.getStatus();
+    expect(status.state).toBe('playing');
+    expect(status.currentTrackId).toBe('second');
+    expect(status.error).toBeNull();
+    expect(reportAudioError).not.toHaveBeenCalledWith(expect.objectContaining({
+      message: 'audio_session_run_cancelled',
+      severity: 'fatal',
+    }));
+  });
+
   it('recovers immediately when the native host reports a session disconnect', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)], [], [], {
       disableWatchdogTimer: true,
