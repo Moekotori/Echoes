@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { setTimeout } from 'node:timers';
 import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import electron from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
@@ -105,6 +106,8 @@ type LibraryServiceDependencies = {
 
 export class LibraryService {
   private artistsDirty = false;
+  private groupingRefreshTimer: NodeJS.Timeout | null = null;
+  private groupingRefreshQueued = false;
 
   constructor(
     private readonly store: LibraryStore,
@@ -792,12 +795,6 @@ export class LibraryService {
       coverData = await readCoverImageFromUrl(coverUrl, request.coverMimeType ?? null).catch(() => null);
     }
 
-    try {
-      await writeEmbeddedTrackTags({ filePath: currentTrack.path, tags, coverData });
-    } catch (error) {
-      throw new Error(`Failed to write embedded tags for ${currentTrack.path}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
     const fileStat = statSync(currentTrack.path);
     const fieldSources = {
       ...currentTrack.fieldSources,
@@ -820,7 +817,7 @@ export class LibraryService {
       manualCoverId = this.store.upsertCover({ ...coverResult, source: coverUrl && !coverPath ? 'network' : 'manual' });
     }
 
-    return this.store.transaction(() => {
+    const updatedTrack = this.store.transaction(() => {
       const updated = this.store.updateTrackTags(request.trackId, {
         ...tags,
         sizeBytes: fileStat.size,
@@ -830,10 +827,19 @@ export class LibraryService {
       if (manualCoverId !== undefined) {
         this.store.updateTrackCover(request.trackId, manualCoverId);
       }
-      this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
-      this.store.refreshArtists();
       return manualCoverId !== undefined ? this.store.getTrack(request.trackId) ?? updated : updated;
     });
+
+    this.scheduleEmbeddedTagWrite({
+      trackId: request.trackId,
+      filePath: currentTrack.path,
+      tags,
+      coverData,
+      errorPrefix: 'Failed to write embedded tags',
+    });
+    this.scheduleGroupingRefresh();
+
+    return updatedTrack;
   }
 
   async updateAlbumTags(request: LibraryAlbumTagUpdateRequest): Promise<LibraryAlbum> {
@@ -873,25 +879,6 @@ export class LibraryService {
     }> = [];
 
     for (const track of tracks) {
-      try {
-        await writeEmbeddedTrackTags({
-          filePath: track.path,
-          coverData,
-          tags: {
-            title: track.title,
-            artist: track.artist,
-            album: tags.album,
-            albumArtist: tags.albumArtist,
-            trackNo: track.trackNo,
-            discNo: track.discNo,
-            year: tags.year,
-            genre: tags.genre,
-          },
-        });
-      } catch (error) {
-        throw new Error(`Failed to write album tags for ${track.path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
       const fileStat = statSync(track.path);
       const fieldSources = {
         ...track.fieldSources,
@@ -919,7 +906,7 @@ export class LibraryService {
       });
     }
 
-    return this.store.transaction(() => {
+    const nextAlbum = this.store.transaction(() => {
       for (const update of updates) {
         this.store.updateTrackTags(update.track.id, {
           title: update.track.title,
@@ -939,14 +926,34 @@ export class LibraryService {
         }
       }
 
-      this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
-      this.store.refreshArtists();
       const nextAlbum = this.store.getAlbumForTrack(tracks[0]!.id);
       if (!nextAlbum) {
         throw new Error(`Album update completed but refreshed album could not be found for ${album.title}`);
       }
       return nextAlbum;
     });
+
+    for (const update of updates) {
+      this.scheduleEmbeddedTagWrite({
+        trackId: update.track.id,
+        filePath: update.track.path,
+        coverData,
+        tags: {
+          title: update.track.title,
+          artist: update.track.artist,
+          album: tags.album,
+          albumArtist: tags.albumArtist,
+          trackNo: update.track.trackNo,
+          discNo: update.track.discNo,
+          year: tags.year,
+          genre: tags.genre,
+        },
+        errorPrefix: 'Failed to write album tags',
+      });
+    }
+    this.scheduleGroupingRefresh();
+
+    return nextAlbum;
   }
 
   async repairMissingMetadata(trackId: string, providerNames?: AppSettings['networkMetadataProviders']): Promise<NetworkRepairResult> {
@@ -1240,7 +1247,98 @@ export class LibraryService {
   private backupPlaylist(playlistId: string, reason: PlaylistBackupReason): void {
     backupPlaylistIfEnabled(this.database, playlistId, reason, this.readAppSettings);
   }
+
+  private scheduleGroupingRefresh(): void {
+    this.groupingRefreshQueued = true;
+    this.artistsDirty = true;
+
+    if (this.groupingRefreshTimer) {
+      return;
+    }
+
+    this.groupingRefreshTimer = setTimeout(() => {
+      this.groupingRefreshTimer = null;
+      if (!this.groupingRefreshQueued) {
+        return;
+      }
+
+      this.groupingRefreshQueued = false;
+      try {
+        this.store.transaction(() => {
+          this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
+          this.store.refreshArtists();
+        });
+        this.artistsDirty = false;
+      } catch {
+        this.artistsDirty = true;
+      }
+    }, 1000);
+  }
+
+  private scheduleEmbeddedTagWrite(request: {
+    trackId: string;
+    filePath: string;
+    tags: EditableTrackTags;
+    coverData: { data: Uint8Array; mimeType: string } | null;
+    errorPrefix: string;
+  }): void {
+    const attemptWrite = async (): Promise<void> => {
+      if (await isFileActiveInAudioSession(request.filePath)) {
+        setTimeout(() => {
+          void attemptWrite();
+        }, 5000);
+        return;
+      }
+
+      try {
+        await writeEmbeddedTrackTags({
+          filePath: request.filePath,
+          tags: request.tags,
+          coverData: request.coverData,
+        });
+        this.syncTrackFileStat(request.trackId);
+      } catch (error) {
+        console.warn(`${request.errorPrefix} for ${request.filePath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+
+    setTimeout(() => {
+      void attemptWrite();
+    }, 250);
+  }
+
+  private syncTrackFileStat(trackId: string): void {
+    const track = this.store.getTrack(trackId);
+    if (!track || !existsSync(track.path)) {
+      return;
+    }
+
+    const fileStat = statSync(track.path);
+    this.store.updateTrackTags(track.id, {
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      albumArtist: track.albumArtist,
+      trackNo: track.trackNo,
+      discNo: track.discNo,
+      year: track.year,
+      genre: track.genre,
+      sizeBytes: fileStat.size,
+      mtimeMs: fileStat.mtimeMs,
+      fieldSources: track.fieldSources,
+    });
+  }
 }
+
+const isFileActiveInAudioSession = async (filePath: string): Promise<boolean> => {
+  try {
+    const { getAudioSession } = await import('../audio/AudioSession');
+    const status = getAudioSession().getStatus();
+    return resolve(status.currentFilePath ?? '') === resolve(filePath) && status.state !== 'idle' && status.state !== 'stopped' && status.state !== 'error';
+  } catch {
+    return false;
+  }
+};
 
 export const createLibraryService = (
   databasePath: string,

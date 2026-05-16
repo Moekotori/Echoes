@@ -96,7 +96,9 @@ describe('DownloadService', () => {
   it('loads and saves download settings through the settings store', () => {
     const outputDirectory = makeTempRoot();
     const saveSettings = vi.fn();
+    const addLibraryFolder = vi.fn();
     const service = new DownloadService(undefined, undefined, {
+      addLibraryFolder,
       loadSettings: () => ({ outputDirectory, importToLibrary: false, bindMvAfterImport: false }),
       saveSettings,
     });
@@ -110,7 +112,22 @@ describe('DownloadService', () => {
     const next = service.setSettings({ importToLibrary: true });
 
     expect(next.importToLibrary).toBe(true);
+    expect(addLibraryFolder).toHaveBeenCalledWith(outputDirectory);
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ outputDirectory, importToLibrary: true }));
+  });
+
+  it('registers the selected download directory as a library folder', () => {
+    const outputDirectory = makeTempRoot();
+    const addLibraryFolder = vi.fn();
+    const service = new DownloadService(undefined, undefined, {
+      addLibraryFolder,
+      loadSettings: () => ({ outputDirectory: null }),
+      saveSettings: vi.fn(),
+    });
+
+    service.setSettings({ outputDirectory });
+
+    expect(addLibraryFolder).toHaveBeenCalledWith(outputDirectory);
   });
 
   it('searches YouTube and Bilibili with yt-dlp and maps results', async () => {
@@ -764,6 +781,7 @@ describe('DownloadService', () => {
     const outputPath = join(outputDirectory, 'Bound Song [bound].m4a');
     const importAudioFile = vi.fn(async () => ({ id: 'track-1' }));
     const bindMvUrl = vi.fn();
+    const addLibraryFolder = vi.fn();
     const service = new DownloadService(
       () => ({
         promise: Promise.resolve({
@@ -778,6 +796,7 @@ describe('DownloadService', () => {
       }),
       () => ytDlpPath,
       {
+        addLibraryFolder,
         importAudioFile,
         bindMvUrl,
         streamingCommandRunner: (_command, _args, listeners) => {
@@ -798,6 +817,7 @@ describe('DownloadService', () => {
     const completedJob = service.getJobs().find((item) => item.id === job.id)!;
     expect(completedJob.status).toBe('completed');
     expect(completedJob.importedTrackId).toBe('track-1');
+    expect(addLibraryFolder).toHaveBeenCalledWith(outputDirectory);
     expect(importAudioFile).toHaveBeenCalledWith(outputPath, { folderPath: outputDirectory });
     expect(bindMvUrl).toHaveBeenCalledWith('track-1', 'https://www.bilibili.com/video/BV1ECHO');
   });

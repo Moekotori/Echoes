@@ -375,6 +375,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ audioAsioUnavailableFallbackEnabled: 'yes' as never }).audioAsioUnavailableFallbackEnabled).toBe(false);
   });
 
+  it('keeps SOXR fallback enabled by default for stable playback', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).audioSoxrFallbackEnabled).toBe(true);
+    expect(normalizeSettings({ audioSoxrFallbackEnabled: true }).audioSoxrFallbackEnabled).toBe(true);
+    expect(normalizeSettings({ audioSoxrFallbackEnabled: false }).audioSoxrFallbackEnabled).toBe(false);
+    expect(normalizeSettings({ audioSoxrFallbackEnabled: 'yes' as never }).audioSoxrFallbackEnabled).toBe(true);
+  });
+
   it('keeps audio analysis enabled by default', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

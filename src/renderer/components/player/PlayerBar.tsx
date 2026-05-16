@@ -18,7 +18,7 @@ import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
 import { PlayerVolumeControl } from './PlayerVolumeControl';
-import { formatAudioHostError } from './audioErrorFormat';
+import { formatAudioHostError, shouldSuppressAudioHostError } from './audioErrorFormat';
 import { applyMediaSessionSnapshot, clearMediaSession } from './mediaSession';
 import { titleFromPath } from './playerFormat';
 
@@ -778,7 +778,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       } catch (actionError) {
         const message = actionError instanceof Error ? actionError.message : String(actionError);
         setError(formatAudioHostError(message));
-        setPlaybackStatusSnapshot({ error: message });
+        setPlaybackStatusSnapshot({ error: shouldSuppressAudioHostError(message) ? null : message });
       }
     },
     [refreshStatus, setQueueCurrentTrackId],
@@ -1010,7 +1010,9 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
         await refreshStatus();
       } catch (seekError) {
-        setError(seekError instanceof Error ? seekError.message : String(seekError));
+        const message = seekError instanceof Error ? seekError.message : String(seekError);
+        setError(formatAudioHostError(message));
+        setPlaybackStatusSnapshot({ error: shouldSuppressAudioHostError(message) ? null : message });
       } finally {
         setSeekPreviewSeconds(null);
       }

@@ -125,6 +125,7 @@ const echoApi: EchoApi = {
       ipcRenderer.invoke(IpcChannels.LibraryArtistImagesRefreshOne, { artistId, force }),
     refreshVisibleArtistImages: (artists) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesRefreshVisible, artists),
     getArtistImageStatus: (artistId) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesGetStatus, artistId),
+    getArtistImageCacheSummary: () => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesGetSummary),
     clearArtistImageCache: () => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesClearCache),
     onArtistImagesUpdated: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
@@ -306,6 +307,7 @@ const echoApi: EchoApi = {
     },
     listDevices: () => ipcRenderer.invoke(IpcChannels.AudioListDevices),
     setOutput: (settings) => ipcRenderer.invoke(IpcChannels.AudioSetOutput, settings),
+    openAsioControlPanel: (settings) => ipcRenderer.invoke(IpcChannels.AudioOpenAsioControlPanel, settings),
     resetEngine: () => ipcRenderer.invoke(IpcChannels.AudioResetEngine),
     forceRestart: (reason) => ipcRenderer.invoke(IpcChannels.AudioForceRestart, reason),
     restartWindowsAudioService: () => ipcRenderer.invoke(IpcChannels.AudioRestartWindowsAudioService),

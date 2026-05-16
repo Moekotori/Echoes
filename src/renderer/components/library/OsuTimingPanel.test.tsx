@@ -31,6 +31,10 @@ const makeTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
 
 afterEach(() => {
   cleanup();
+  Object.defineProperty(window, 'echo', {
+    configurable: true,
+    value: undefined,
+  });
   vi.restoreAllMocks();
 });
 
@@ -45,7 +49,7 @@ describe('OsuTimingPanel', () => {
     render(<OsuTimingPanel track={makeTrack({ bpm: 128, bpmConfidence: 0.9, beatOffsetMs: 12, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
 
     expect(screen.getByText('12,468.75,4,1,0,100,1,0')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy timing line' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制 timing 行' }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('12,468.75,4,1,0,100,1,0'));
   });
@@ -78,7 +82,7 @@ describe('OsuTimingPanel', () => {
 
     render(<OsuTimingPanel track={makeTrack({ bpm: null, beatOffsetMs: null })} isOpen onClose={vi.fn()} onTrackUpdated={onTrackUpdated} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze this track' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新分析此曲' }));
 
     await waitFor(() => expect(startBpmAnalysis).toHaveBeenCalledWith({ trackIds: ['track-1'], force: true }));
     await waitFor(() => expect(onTrackUpdated).toHaveBeenCalledWith(updatedTrack));
@@ -88,7 +92,34 @@ describe('OsuTimingPanel', () => {
   it('shows a low-confidence warning without blocking copy', () => {
     render(<OsuTimingPanel track={makeTrack({ bpm: 92, bpmConfidence: 0.2, beatOffsetMs: 0, analysisStatus: 'low_confidence' })} isOpen onClose={vi.fn()} />);
 
-    expect(screen.getByText('Low confidence BPM. Copy is allowed, but verify timing in osu! editor.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Copy timing line' })).toHaveProperty('disabled', false);
+    expect(screen.getByText('BPM 置信度偏低。可以复制，但建议在 osu! editor 里再听一遍确认。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '复制 timing 行' })).toHaveProperty('disabled', false);
+  });
+
+  it('refreshes the latest track when opened so detected BPM is not stale', async () => {
+    const updatedTrack = makeTrack({ bpm: 117.45, bpmConfidence: 0.3, beatOffsetMs: 46, analysisStatus: 'low_confidence' });
+    const onTrackUpdated = vi.fn();
+    Object.defineProperty(window, 'echo', {
+      configurable: true,
+      value: {
+        library: {
+          getTrack: vi.fn().mockResolvedValue(updatedTrack),
+        },
+      },
+    });
+
+    render(<OsuTimingPanel track={makeTrack({ bpm: null, beatOffsetMs: null })} isOpen onClose={vi.fn()} onTrackUpdated={onTrackUpdated} />);
+
+    expect(screen.getAllByText('未知').length).toBeGreaterThan(0);
+    expect(await screen.findByText('117.45 BPM')).toBeTruthy();
+    expect(screen.getByText('46,510.855683,4,1,0,100,1,0')).toBeTruthy();
+    expect(onTrackUpdated).toHaveBeenCalledWith(updatedTrack);
+  });
+
+  it('uses a 0ms offset when BPM exists but detected offset is missing', () => {
+    render(<OsuTimingPanel track={makeTrack({ bpm: 128, bpmConfidence: 0.8, beatOffsetMs: null, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
+
+    expect(screen.getByText('已有 BPM，但没有检测到 offset。当前先按 0ms 生成 timing 行，请用节拍器手动校准。')).toBeTruthy();
+    expect(screen.getByText('0,468.75,4,1,0,100,1,0')).toBeTruthy();
   });
 });

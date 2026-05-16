@@ -14,8 +14,10 @@ import type { AppRoute, AppRouteId } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { AccountProvider, AccountStatus } from '../../shared/types/accounts';
 import type { AppSettings } from '../../shared/types/appSettings';
+import type { DownloadJob } from '../../shared/types/downloads';
 import { useI18n } from '../i18n/I18nProvider';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
+import { clearSongsFirstPageSnapshot } from '../stores/songsFirstPageSnapshot';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import { albumDetailNavigationEvent } from '../utils/albumNavigation';
@@ -46,7 +48,6 @@ const defaultAppWallpaperSettings: AppWallpaperSettings = {
 };
 
 const persistentRouteIds = new Set<AppRouteId>(['songs']);
-
 const accountProviderLabels: Record<AccountProvider, string> = {
   netease: '网易云音乐',
   qqmusic: 'QQ 音乐',
@@ -91,6 +92,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastAudioErrorRef = useRef<string | null>(null);
   const previousRouteIdRef = useRef<AppRouteId>('songs');
+  const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
   const activeRoute = useMemo(
     () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
     [activeRouteId, routes],
@@ -310,6 +312,18 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error]);
 
   useEffect(() => {
+    if (!audioErrorNotice) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setAudioErrorNotice(null);
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [audioErrorNotice]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const refreshLyricsPlayerDrawerSetting = (event?: Event): void => {
@@ -415,6 +429,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       navigateRoute('queue');
     };
     const handleNavigateLyrics = (): void => {
+      if (activeRouteId === 'lyrics') {
+        setActiveRouteId(previousRouteIdRef.current);
+        return;
+      }
+
       navigateRoute('lyrics');
     };
     const handleNavigateLyricsBack = (): void => {
@@ -438,7 +457,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       window.removeEventListener('app:navigate:lyrics-back', handleNavigateLyricsBack);
       window.removeEventListener(albumDetailNavigationEvent, handleNavigateAlbumDetail);
     };
-  }, [navigateRoute]);
+  }, [activeRouteId, navigateRoute]);
 
   useEffect(() => {
     const audio = window.echo?.audio;
@@ -454,9 +473,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       .then(([remembered, settings]) => {
         const useJuceOutput = settings?.audioUseJuceOutput === true;
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
+        const soxrFallbackEnabled = settings?.audioSoxrFallbackEnabled !== false;
         if (!remembered.enabled) {
           return audio
-            .setOutput({ useJuceOutput, asioUnavailableFallbackEnabled })
+            .setOutput({ useJuceOutput, asioUnavailableFallbackEnabled, soxrFallbackEnabled })
             .then(setAudioDrawerStatus);
         }
 
@@ -469,6 +489,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             deviceName: remembered.deviceName,
             useJuceOutput,
             asioUnavailableFallbackEnabled,
+            soxrFallbackEnabled,
           })
           .then(setAudioDrawerStatus);
       })
@@ -485,6 +506,43 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     }
 
     window.dispatchEvent(new Event('library:changed'));
+  }, []);
+
+  useEffect(() => {
+    const downloads = window.echo?.downloads;
+
+    if (!downloads?.onJobsUpdated) {
+      return undefined;
+    }
+
+    const importedTrackIds = downloadImportedTrackIdsRef.current;
+    return downloads.onJobsUpdated((jobs: DownloadJob[]) => {
+      let importedNewTrack = false;
+      const nextJobIds = new Set<string>();
+
+      for (const job of jobs) {
+        nextJobIds.add(job.id);
+        const previousTrackId = importedTrackIds.get(job.id) ?? null;
+        const nextTrackId = job.importedTrackId ?? null;
+
+        if (nextTrackId && previousTrackId !== nextTrackId) {
+          importedNewTrack = true;
+        }
+
+        importedTrackIds.set(job.id, nextTrackId);
+      }
+
+      for (const jobId of Array.from(importedTrackIds.keys())) {
+        if (!nextJobIds.has(jobId)) {
+          importedTrackIds.delete(jobId);
+        }
+      }
+
+      if (importedNewTrack) {
+        clearSongsFirstPageSnapshot();
+        window.dispatchEvent(new Event('library:changed'));
+      }
+    });
   }, []);
 
   const handleImportFolder = useCallback(async (): Promise<void> => {

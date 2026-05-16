@@ -333,6 +333,11 @@ private:
                 dispose();
                 requestQuit();
             }
+            else if (type == L"shutdown" || getString(object, L"command") == L"shutdown")
+            {
+                dispose();
+                requestQuit();
+            }
         }
         catch (hresult_error const& error)
         {

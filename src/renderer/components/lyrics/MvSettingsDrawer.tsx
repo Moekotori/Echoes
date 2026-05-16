@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Database,
   ExternalLink,
+  FastForward,
   FileVideo,
   FolderOpen,
   Globe2,
@@ -13,6 +14,7 @@ import {
   Link2,
   MonitorPlay,
   Play,
+  Rewind,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -35,6 +37,8 @@ const drawerExitAnimationMs = 320;
 const formatScore = (score: number): string => `${Math.round(score * 100)}%`;
 const formatThreshold = (threshold: number | undefined): string => `${Math.round((threshold ?? 0.7) * 100)}%`;
 const thresholdFromPercent = (value: string): number => Math.max(30, Math.min(100, Math.round(Number(value)))) / 100;
+const clampOffset = (value: number): number => Math.max(-10000, Math.min(10000, Math.round(value)));
+const formatOffset = (offsetMs: number): string => (offsetMs === 0 ? '0ms' : `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
 const immersiveBackgroundDefaults = {
   immersiveBackgroundScalePercent: 115,
   immersiveBackgroundOffsetXPercent: 50,
@@ -183,6 +187,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [draggedProvider, setDraggedProvider] = useState<NetworkMvProviderId | null>(null);
   const [dragOverProvider, setDragOverProvider] = useState<NetworkMvProviderId | null>(null);
   const [isNetworkSectionOpen, setIsNetworkSectionOpen] = useState(true);
+  const [isMvOffsetSaving, setIsMvOffsetSaving] = useState(false);
   const mvRequestRef = useRef(0);
 
   const activeTrackId = queue.currentTrackId ?? fallbackTrackId;
@@ -233,11 +238,12 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     [providerLabel, t],
   );
 
-  const enabledProviders = new Set(settings.enabledProviders);
+  const enabledProviders = useMemo(() => new Set(settings.enabledProviders), [settings.enabledProviders]);
   const isMvEnabled = settings.enabled !== false;
   const followMusicProgress = settings.restartAudioOnLoad;
   const replayAudioOnChange = settings.replayAudioOnChange !== false;
   const immersiveBackground = settings.immersiveBackground !== false;
+  const selectedMvOffsetMs = clampOffset(Number(selectedVideo?.offsetMs ?? 0));
 
   const notifyMvChanged = useCallback((trackId: string): void => {
     window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
@@ -451,7 +457,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         }
       }
     }
-  }, [patchSettings, refreshActiveTrack, searchNetworkForActiveTrack, searchQuery, settings.autoSearch, t]);
+  }, [patchSettings, refreshActiveTrack, searchNetworkForActiveTrack, searchQuery, settings.autoSearch]);
 
   const reorderProvider = useCallback(
     (provider: NetworkMvProviderId, targetProvider: NetworkMvProviderId): void => {
@@ -651,6 +657,80 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     }
   }, [selectedVideo]);
 
+  const handleMvOffsetChange = useCallback(
+    async (nextOffsetMs: number): Promise<void> => {
+      const mvApi = window.echo?.mv;
+      const targetTrackId = activeMvTrackId ?? (await refreshActiveTrack());
+      if (!mvApi?.setOffset || !targetTrackId) {
+        return;
+      }
+
+      const clampedOffset = clampOffset(nextOffsetMs);
+      setSelectedVideo((current) => (current ? { ...current, offsetMs: clampedOffset } : current));
+      setIsMvOffsetSaving(true);
+      setError(null);
+      try {
+        const nextVideo = await mvApi.setOffset(targetTrackId, clampedOffset);
+        if (nextVideo) {
+          setSelectedVideo(await resolveSelectedStreams(nextVideo));
+        }
+        notifyMvChanged(targetTrackId);
+      } catch (offsetError) {
+        setError(offsetError instanceof Error ? offsetError.message : String(offsetError));
+        void loadCurrentMv(targetTrackId);
+      } finally {
+        setIsMvOffsetSaving(false);
+      }
+    },
+    [activeMvTrackId, loadCurrentMv, notifyMvChanged, refreshActiveTrack, resolveSelectedStreams],
+  );
+
+  const mvOffsetControls = useMemo(() => {
+    if (!activeMvTrackId || !selectedVideo || followMusicProgress !== true) {
+      return null;
+    }
+
+    const offsetSteps = [-500, -100, 100, 500];
+    return (
+      <section className="mv-drawer-offset" aria-label={t('mvSettings.offset.aria')}>
+        <div className="mv-drawer-offset__header">
+          <span>
+            <strong>{t('mvSettings.offset.title')}</strong>
+            <em>{t('mvSettings.offset.description')}</em>
+          </span>
+          <strong className="mv-offset-value">{formatOffset(selectedMvOffsetMs)}</strong>
+        </div>
+        <div className="mv-offset-buttons">
+          {offsetSteps.map((step) => {
+            const nextOffsetMs = clampOffset(selectedMvOffsetMs + step);
+            const isForward = step > 0;
+            return (
+              <button
+                type="button"
+                key={step}
+                disabled={isMvOffsetSaving || nextOffsetMs === selectedMvOffsetMs}
+                title={isForward ? t('mvSettings.offset.earlier', { value: `${step}ms` }) : t('mvSettings.offset.later', { value: `${Math.abs(step)}ms` })}
+                onClick={() => void handleMvOffsetChange(nextOffsetMs)}
+              >
+                {isForward ? <FastForward size={14} /> : <Rewind size={14} />}
+                <span>{step > 0 ? '+' : ''}{step}ms</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            disabled={isMvOffsetSaving || selectedMvOffsetMs === 0}
+            title={t('mvSettings.offset.reset')}
+            onClick={() => void handleMvOffsetChange(0)}
+          >
+            <RotateCcw size={14} />
+            <span>0ms</span>
+          </button>
+        </div>
+      </section>
+    );
+  }, [activeMvTrackId, followMusicProgress, handleMvOffsetChange, isMvOffsetSaving, selectedMvOffsetMs, selectedVideo, t]);
+
   const openSelectedProviderUrl = useCallback(
     (event: ReactMouseEvent<HTMLAnchorElement>): void => {
       if (!selectedVideo || !window.echo?.mv?.openExternal) {
@@ -834,6 +914,8 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
               </div>
             </div>
           ) : null}
+
+          {mvOffsetControls}
 
           <form
             className="mv-custom-card"

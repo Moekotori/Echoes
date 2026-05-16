@@ -126,6 +126,7 @@ const renderDrawer = (settings: MvSettings = defaultMvSettings, selectedVideo: T
       getCandidates: vi.fn().mockResolvedValue([]),
       resolveStreams: vi.fn().mockImplementation(async () => ({ video: selectedVideo ?? makeVideo(), variants: [] })),
       setQuality: vi.fn(),
+      setOffset: vi.fn(async (_trackId: string, offsetMs: number) => (selectedVideo ? { ...selectedVideo, offsetMs } : { ...makeVideo(), offsetMs })),
       chooseLocalVideo: vi.fn().mockResolvedValue(makeVideo()),
       bindLocalVideo: vi.fn(),
       bindUrl: vi.fn().mockResolvedValue({ ...makeVideo(), provider: 'bilibili', sourceId: 'BV1ECHO', providerUrl: 'https://www.bilibili.com/video/BV1ECHO' }),
@@ -365,6 +366,16 @@ describe('MvSettingsDrawer', () => {
 
     expect(await screen.findByRole('button', { name: /Immersive MV background/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Lyrics readability boost/ })).toBeNull();
+  });
+
+  it('saves MV offset from the MV drawer', async () => {
+    const { container } = renderDrawer({ ...defaultMvSettings, restartAudioOnLoad: true }, makeVideo());
+
+    await waitFor(() => expect(screen.getByLabelText('MV sync offset')).toBeTruthy());
+    fireEvent.click(screen.getByTitle('MV earlier 100ms'));
+
+    await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 100));
+    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+100ms');
   });
 
   it('resets immersive MV background tuning', async () => {

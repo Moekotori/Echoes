@@ -55,6 +55,9 @@ export const readRememberedAudioOutput = (): RememberedAudioOutput => {
       latencyProfile: resolveSupportedLatencyProfile(outputMode, latencyProfile),
       deviceIndex: Number.isInteger(Number(parsed.deviceIndex)) ? Number(parsed.deviceIndex) : undefined,
       deviceName: typeof parsed.deviceName === 'string' && parsed.deviceName.trim() ? parsed.deviceName : undefined,
+      asioOutputChannelStart: outputMode === 'asio' && Number.isInteger(Number(parsed.asioOutputChannelStart)) && Number(parsed.asioOutputChannelStart) >= 0
+        ? Number(parsed.asioOutputChannelStart)
+        : undefined,
     };
 
     const bufferSizeFrames = sanitizeBufferSizeFrames(outputMode, latencyProfile, parsed.bufferSizeFrames);
@@ -108,6 +111,12 @@ export const loadPersistedRememberedAudioOutput = async (): Promise<RememberedAu
     sharedBackend: normalizeSharedBackend(rawRemembered.sharedBackend),
     latencyProfile: resolveSupportedLatencyProfile(outputMode, latencyProfile),
     bufferSizeFrames: sanitizeBufferSizeFrames(outputMode, latencyProfile, rawRemembered.bufferSizeFrames),
+    asioOutputChannelStart:
+      outputMode === 'asio' &&
+      Number.isInteger(Number(rawRemembered.asioOutputChannelStart)) &&
+      Number(rawRemembered.asioOutputChannelStart) >= 0
+        ? Number(rawRemembered.asioOutputChannelStart)
+        : undefined,
   };
   if (remembered.bufferSizeFrames === undefined) {
     delete remembered.bufferSizeFrames;
@@ -142,6 +151,9 @@ export const createOutputSettings = (
       settings.deviceIndex = device.index;
     }
     settings.deviceName = device.name;
+    if (outputMode === 'asio' && Number.isInteger(Number(device.asioOutputChannelStart)) && Number(device.asioOutputChannelStart) >= 0) {
+      settings.asioOutputChannelStart = Number(device.asioOutputChannelStart);
+    }
   }
 
   return settings;

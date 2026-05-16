@@ -40,6 +40,7 @@ struct asio_runtime
     long outputChannelCount = 0;
     long totalChannelCount = 0;
     long outputChannelOffset = 0;
+    long outputChannelStart = 0;
     long bufferSize = 0;
     long minBufferSize = 0;
     long maxBufferSize = 0;
@@ -707,6 +708,50 @@ int collect_asio_devices(std::vector<asio_device_info>& devices)
         asio_device_info info {};
         snprintf(info.name, sizeof(info.name), "%s", utf8Name);
         info.isDefault = devices.empty() ? 1 : 0;
+
+        char ansiName[512] {};
+        utf8_to_ansi(utf8Name, ansiName, static_cast<int>(sizeof(ansiName)));
+        if (contains_icase(utf8Name, "asio4all") && ansiName[0] != '\0' && loadAsioDriver(ansiName))
+        {
+            ASIODriverInfo driverInfo {};
+            driverInfo.asioVersion = 2;
+            HWND window = create_asio_host_window();
+            driverInfo.sysRef = window != nullptr ? window : GetDesktopWindow();
+            if (ASIOInit(&driverInfo) == ASE_OK)
+            {
+                long inputChannels = 0;
+                long outputChannels = 0;
+                if (ASIOGetChannels(&inputChannels, &outputChannels) == ASE_OK && outputChannels > 0)
+                {
+                    info.outputChannels = static_cast<uint32_t>(std::min<long>(outputChannels, maxAsioOutputChannels));
+                    std::string namesText;
+                    for (long channel = 0; channel < static_cast<long>(info.outputChannels); ++channel)
+                    {
+                        ASIOChannelInfo channelInfo {};
+                        channelInfo.channel = channel;
+                        channelInfo.isInput = ASIOFalse;
+                        if (ASIOGetChannelInfo(&channelInfo) == ASE_OK && channelInfo.name[0] != '\0')
+                        {
+                            char channelUtf8[128] {};
+                            ansi_to_utf8(channelInfo.name, channelUtf8, static_cast<int>(sizeof(channelUtf8)));
+                            if (channelUtf8[0] != '\0')
+                            {
+                                if (! namesText.empty())
+                                    namesText += "|";
+                                namesText += channelUtf8;
+                            }
+                        }
+                    }
+                    snprintf(info.outputChannelNames, sizeof(info.outputChannelNames), "%s", namesText.c_str());
+                }
+                ASIOExit();
+                if (asioDrivers != nullptr)
+                    asioDrivers->removeCurrentDriver();
+            }
+            if (window != nullptr)
+                DestroyWindow(window);
+        }
+
         devices.push_back(info);
     }
 
@@ -857,7 +902,7 @@ void prepare_buffer_infos(asio_runtime* runtime, bool includeInputs)
     for (long channel = 0; channel < runtime->outputChannelCount; ++channel, ++index)
     {
         runtime->bufferInfos[index].isInput = ASIOFalse;
-        runtime->bufferInfos[index].channelNum = channel;
+        runtime->bufferInfos[index].channelNum = runtime->outputChannelStart + channel;
     }
 
     runtime->totalChannelCount = index;
@@ -1122,12 +1167,96 @@ void asio_free_devices(asio_device_info* devices)
     free(devices);
 }
 
+int asio_open_control_panel(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    char* error,
+    size_t errorLen)
+{
+    if (error != nullptr && errorLen > 0)
+        error[0] = '\0';
+
+    std::vector<asio_device_info> devices;
+    if (collect_asio_devices(devices) != 0 || devices.empty())
+    {
+        set_error(error, errorLen, "ASIO device enumeration returned no devices");
+        return -1;
+    }
+
+    char selectedUtf8[512] {};
+    if (! resolve_device_name(devices, targetDeviceName, targetDeviceIndex, selectedUtf8, sizeof(selectedUtf8)))
+    {
+        set_error(error, errorLen, "ASIO device not found");
+        return -1;
+    }
+
+    char selectedAnsi[512] {};
+    utf8_to_ansi(selectedUtf8, selectedAnsi, static_cast<int>(sizeof(selectedAnsi)));
+    if (selectedAnsi[0] == '\0')
+    {
+        set_error(error, errorLen, "ASIO device name conversion failed");
+        return -1;
+    }
+
+    if (! loadAsioDriver(selectedAnsi))
+    {
+        set_error(error, errorLen, "ASIO loadDriver failed");
+        return -1;
+    }
+
+    ASIODriverInfo driverInfo {};
+    driverInfo.asioVersion = 2;
+    HWND window = create_asio_host_window();
+    driverInfo.sysRef = window != nullptr ? window : GetDesktopWindow();
+
+    const ASIOError initResult = ASIOInit(&driverInfo);
+    if (initResult != ASE_OK)
+    {
+        if (window != nullptr)
+            DestroyWindow(window);
+        char message[512] {};
+        snprintf(
+            message,
+            sizeof(message),
+            "ASIOInit failed driver=\"%s\" error=%s(%ld)",
+            selectedUtf8,
+            asio_error_name(initResult),
+            static_cast<long>(initResult));
+        set_error(error, errorLen, message);
+        return -1;
+    }
+
+    const ASIOError panelResult = ASIOControlPanel();
+    ASIOExit();
+    if (asioDrivers != nullptr)
+        asioDrivers->removeCurrentDriver();
+    if (window != nullptr)
+        DestroyWindow(window);
+
+    if (panelResult != ASE_OK)
+    {
+        char message[512] {};
+        snprintf(
+            message,
+            sizeof(message),
+            "ASIOControlPanel failed driver=\"%s\" error=%s(%ld)",
+            selectedUtf8,
+            asio_error_name(panelResult),
+            static_cast<long>(panelResult));
+        set_error(error, errorLen, message);
+        return -1;
+    }
+
+    return 0;
+}
+
 int asio_start(
     const char* targetDeviceName,
     int targetDeviceIndex,
     uint32_t requestedSampleRate,
     uint32_t sourceChannels,
     uint32_t requestedBufferFrames,
+    uint32_t outputChannelStart,
     asio_render_callback callback,
     void* userData,
     asio_runtime** outRuntime,
@@ -1180,6 +1309,7 @@ int asio_start(
 
     snprintf(runtime->selectedName, sizeof(runtime->selectedName), "%s", selectedUtf8);
     runtime->sourceChannels = std::max<uint32_t>(1, std::min<uint32_t>(sourceChannels, maxAsioOutputChannels));
+    runtime->outputChannelStart = static_cast<long>(std::min<uint32_t>(outputChannelStart, static_cast<uint32_t>(maxAsioOutputChannels)));
     runtime->requestedSampleRate = requestedSampleRate;
     runtime->callback = callback;
     runtime->userData = userData;
@@ -1252,9 +1382,24 @@ int asio_start(
         return -1;
     }
 
+    if (runtime->outputChannelStart < 0 || runtime->outputChannelStart >= availableOutputChannels)
+    {
+        char message[256] {};
+        snprintf(
+            message,
+            sizeof(message),
+            "ASIO output channel start out of range driver=\"%s\" start=%ld availableOutputs=%ld",
+            selectedUtf8,
+            runtime->outputChannelStart,
+            availableOutputChannels);
+        set_error(error, errorLen, message);
+        asio_stop(runtime);
+        return -1;
+    }
+
     runtime->inputChannelCount = std::min<long>(std::max<long>(0, availableInputChannels), maxAsioInputChannels);
     runtime->outputChannelCount = std::min<long>(
-        std::max<long>(1, availableOutputChannels),
+        std::max<long>(1, availableOutputChannels - runtime->outputChannelStart),
         std::min<long>(maxAsioOutputChannels, static_cast<long>(runtime->sourceChannels)));
 
     runtime->callbacks.bufferSwitch = asio_buffer_switch;
@@ -1327,6 +1472,7 @@ int asio_start(
     outInfo->maxBufferFrames = static_cast<uint32_t>(std::max<long>(0, runtime->maxBufferSize));
     outInfo->preferredBufferFrames = static_cast<uint32_t>(std::max<long>(0, runtime->preferredBufferSize));
     outInfo->granularity = static_cast<int32_t>(runtime->granularity);
+    outInfo->outputChannelStart = static_cast<uint32_t>(runtime->outputChannelStart);
     snprintf(outInfo->format, sizeof(outInfo->format), "%s", output_format_summary(runtime).c_str());
     snprintf(outInfo->deviceName, sizeof(outInfo->deviceName), "%s", runtime->selectedName);
 

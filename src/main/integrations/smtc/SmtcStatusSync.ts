@@ -166,7 +166,7 @@ export const initializeSmtcIntegration = async (): Promise<void> => {
   await syncSmtcStatus();
 };
 
-export const disposeSmtcIntegration = (): void => {
+export const disposeSmtcIntegration = async (): Promise<void> => {
   if (!state.initialized) {
     return;
   }
@@ -175,7 +175,7 @@ export const disposeSmtcIntegration = (): void => {
     getAudioSession().off('status', state.statusListener);
   }
   state.unsubscribeCommand?.();
-  getSmtcService().dispose();
+  await getSmtcService().dispose();
   state.initialized = false;
   state.unsubscribeCommand = null;
   state.statusListener = null;

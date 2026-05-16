@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { app } from 'electron';
-import ffmpegStaticPath from 'ffmpeg-static';
 import type {
   CreateDownloadUrlJobOptions,
   DownloadJob,
@@ -23,6 +22,7 @@ import type {
 import type { AccountCredentials, AccountProvider } from '../../shared/types/accounts';
 import { isSupportedAudioExtension } from '../../shared/constants/audioExtensions';
 import { getAccountService } from '../accounts/AccountService';
+import { resolveFfmpegToolchain, type FfmpegToolchainInfo } from '../audio/FfmpegToolchain';
 import { getLibraryService } from '../library/LibraryService';
 import { getNcmConverter } from '../library/NcmConverter';
 import { writeEmbeddedTrackTags } from '../library/TagWriter';
@@ -147,6 +147,7 @@ type DownloadJobOptions = Required<Pick<DownloadSettings, 'importToLibrary' | 'b
 };
 
 type DownloadServiceDependencies = {
+  addLibraryFolder?: (folderPath: string) => unknown;
   importAudioFile?: (
     filePath: string,
     options?: {
@@ -226,14 +227,6 @@ const resolveBundledYtDlpPath: ToolResolver = () => {
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
-};
-
-const normalizeStaticFfmpegPath = (value: unknown): string | null => {
-  if (typeof value !== 'string' || !value.trim()) {
-    return null;
-  }
-
-  return value.replace(`${join('app.asar', 'node_modules')}`, `${join('app.asar.unpacked', 'node_modules')}`);
 };
 
 const sanitizeSettings = (value: Partial<DownloadSettings> | null | undefined, fallback: DownloadSettings): DownloadSettings => ({
@@ -485,6 +478,7 @@ export class DownloadService extends EventEmitter {
   ) {
     super();
     this.settings = sanitizeSettings(this.dependencies.loadSettings?.() ?? loadDownloadSettings(), defaultSettings);
+    this.ensureOutputDirectoryInLibrary(this.settings.outputDirectory);
   }
 
   getJobs(): DownloadJob[] {
@@ -616,12 +610,14 @@ export class DownloadService extends EventEmitter {
     }
 
     this.settings = nextSettings;
+    this.ensureOutputDirectoryInLibrary(this.settings.outputDirectory);
     (this.dependencies.saveSettings ?? saveDownloadSettings)(this.settings);
     return this.getSettings();
   }
 
   async checkTools(): Promise<DownloadToolsStatus> {
-    const ffmpegPath = this.getFfmpegPath();
+    const ffmpegToolchain = resolveFfmpegToolchain();
+    const ffmpegPath = ffmpegToolchain.path;
     const ytDlpPath = this.ytDlpPathResolver();
     let ytDlpVersion: string | null = null;
 
@@ -634,7 +630,7 @@ export class DownloadService extends EventEmitter {
 
     return {
       ytDlpAvailable: Boolean(ytDlpVersion),
-      ffmpegAvailable: Boolean(ffmpegPath && existsSync(ffmpegPath)),
+      ffmpegAvailable: ffmpegToolchain.healthy,
       ytDlpVersion,
       ytDlpPath,
       ffmpegPath,
@@ -1136,14 +1132,15 @@ export class DownloadService extends EventEmitter {
     }
 
     const ytDlpPath = this.ytDlpPathResolver();
-    const ffmpegPath = this.getFfmpegPath();
+    const ffmpegToolchain = this.getFfmpegToolchain();
+    const ffmpegPath = ffmpegToolchain.path;
     const outputDirectory = this.settings.outputDirectory;
 
     if (!ytDlpPath || !existsSync(ytDlpPath)) {
       throw new Error('yt-dlp is not installed with the application');
     }
 
-    if (!ffmpegPath || !existsSync(ffmpegPath)) {
+    if (!ffmpegToolchain.healthy) {
       throw new Error('ffmpeg is not available');
     }
 
@@ -1162,8 +1159,7 @@ export class DownloadService extends EventEmitter {
       '--extract-audio',
       '--audio-quality',
       '0',
-      '--ffmpeg-location',
-      dirname(ffmpegPath),
+      ...(ffmpegToolchain.source === 'system' ? [] : ['--ffmpeg-location', dirname(ffmpegPath)]),
       '--paths',
       outputDirectory,
       '-o',
@@ -1463,9 +1459,11 @@ export class DownloadService extends EventEmitter {
     if (emitProgress) {
       this.updateJob(jobId, { status: 'importing', progress: 98 });
     }
+    const importFolderPath = this.settings.outputDirectory ?? dirname(job.outputPath);
+    this.ensureOutputDirectoryInLibrary(importFolderPath);
     const importAudioFile = this.dependencies.importAudioFile ?? ((filePath, importOptions) => getLibraryService().importAudioFile(filePath, importOptions));
     const track = await importAudioFile(job.outputPath, {
-      folderPath: this.settings.outputDirectory ?? dirname(job.outputPath),
+      folderPath: importFolderPath,
       metadata: options.directAudio
         ? {
             title: options.suggestedTitle ?? undefined,
@@ -1796,6 +1794,24 @@ export class DownloadService extends EventEmitter {
     return isSupportedAudioExtension(filePath);
   }
 
+  private ensureOutputDirectoryInLibrary(outputDirectory: string | null): void {
+    if (!outputDirectory) {
+      return;
+    }
+
+    try {
+      const normalizedPath = resolve(outputDirectory);
+      if (!existsSync(normalizedPath) || !statSync(normalizedPath).isDirectory()) {
+        return;
+      }
+
+      const addLibraryFolder = this.dependencies.addLibraryFolder ?? ((folderPath: string) => getLibraryService().addFolder(folderPath));
+      addLibraryFolder(normalizedPath);
+    } catch {
+      // Downloading should not fail just because the library index is temporarily unavailable.
+    }
+  }
+
   private safeFileSize(filePath: string): number | null {
     try {
       return statSync(filePath).size;
@@ -1829,8 +1845,8 @@ export class DownloadService extends EventEmitter {
     }
   }
 
-  private getFfmpegPath(): string | null {
-    return normalizeStaticFfmpegPath(ffmpegStaticPath);
+  private getFfmpegToolchain(): FfmpegToolchainInfo {
+    return resolveFfmpegToolchain();
   }
 }
 

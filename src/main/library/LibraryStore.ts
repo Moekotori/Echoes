@@ -92,11 +92,19 @@ const protectedSystemPlaylistIds = new Set([likedSongsSourcePlaylistId, likedAlb
 
 const nowIso = (): string => new Date().toISOString();
 
-const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: number; search: string; sort: string } => ({
+const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: number; search: string; sort: string; sourceProvider: string | null } => ({
   page: Math.max(1, Math.floor(Number(query?.page ?? 1))),
   pageSize: Math.min(maxPageSize, Math.max(1, Math.floor(Number(query?.pageSize ?? defaultPageSize)))),
   search: typeof query?.search === 'string' ? query.search.trim() : '',
   sort: query?.sort ?? 'default',
+  sourceProvider:
+    query?.sourceProvider === 'local' ||
+    query?.sourceProvider === 'netease' ||
+    query?.sourceProvider === 'qqmusic' ||
+    query?.sourceProvider === 'spotify' ||
+    query?.sourceProvider === 'remote'
+      ? query.sourceProvider
+      : null,
 });
 
 const pageFromHistoryQuery = (
@@ -694,7 +702,7 @@ export class LibraryStore {
     const startedAt = performance.now();
     const folder = this.requireFolder(query.folderId);
     const folderPath = this.resolveFolderScopedPath(folder, query.path);
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const scope = this.folderTrackScope(folder.id, folderPath, query.recursive !== false);
@@ -2164,7 +2172,7 @@ export class LibraryStore {
 
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     const startedAt = performance.now();
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const hideDuplicates = query?.hideDuplicates === true;
@@ -2374,7 +2382,7 @@ export class LibraryStore {
 
   getAlbums(query?: LibraryPageQuery): LibraryPage<LibraryAlbum> {
     const startedAt = performance.now();
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
@@ -2663,7 +2671,7 @@ export class LibraryStore {
   }
 
   getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
@@ -3894,7 +3902,7 @@ export class LibraryStore {
     mediaType: LibraryPlaylistItem['mediaType'] | LibraryPlaylistItem['mediaType'][],
     query?: LibraryPageQuery,
   ): LibraryPage<LibraryPlaylistItem> {
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
@@ -3904,10 +3912,11 @@ export class LibraryStore {
     ], searchOptions);
     const mediaTypes = Array.isArray(mediaType) ? mediaType : [mediaType];
     const mediaTypeSql = mediaTypes.map(() => '?').join(', ');
+    const sourceProviderSql = sourceProvider ? ' AND playlist_items.source_provider = ?' : '';
     const whereSql = searchFilter.sql
-      ? `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql}) AND ${searchFilter.sql}`
-      : `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql})`;
-    const params = [playlistId, ...mediaTypes, ...searchFilter.params];
+      ? `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql})${sourceProviderSql} AND ${searchFilter.sql}`
+      : `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql})${sourceProviderSql}`;
+    const params = [playlistId, ...mediaTypes, ...(sourceProvider ? [sourceProvider] : []), ...searchFilter.params];
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
        FROM playlist_items

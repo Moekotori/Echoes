@@ -8,6 +8,7 @@ const providerDisplayNames: Record<StreamingProviderName, string> = {
   qqmusic: 'QQ Music',
   bilibili: 'Bilibili',
   spotify: 'Spotify',
+  m3u8: 'M3U8',
 };
 
 const defaultDescriptor = (provider: StreamingProvider): StreamingProviderDescriptor => ({
@@ -59,7 +60,7 @@ export class StreamingProviderRegistry {
         supportsDownload: false,
         supportsLyrics: false,
         supportsMv: false,
-        requiresAccount: name !== 'mock',
+        requiresAccount: name !== 'mock' && name !== 'm3u8',
       };
     });
   }

@@ -228,12 +228,13 @@ export type LibraryPageQuery = {
   pageSize?: number;
   search?: string;
   sort?: LibrarySort;
+  sourceProvider?: PlaylistSourceProvider;
   hideDuplicates?: boolean;
   duplicateMode?: DuplicateTrackMode;
 };
 
 export type PlaylistKind = 'manual' | 'smart' | 'synced' | 'system';
-export type PlaylistSourceProvider = 'local' | 'netease' | 'qqmusic' | 'spotify' | 'remote';
+export type PlaylistSourceProvider = 'local' | 'netease' | 'qqmusic' | 'spotify' | 'remote' | 'm3u8';
 export type PlaylistSortMode = 'manual' | 'titleAsc' | 'titleDesc' | 'artistAsc' | 'addedDesc';
 export type PlaylistMediaType = 'track' | 'album' | 'stream_track' | 'remote_file';
 export type PlaylistExportFormat = 'json' | 'txt' | 'm3u8' | 'csv';
@@ -298,6 +299,13 @@ export type UpdatePlaylistRequest = {
 export type ExportPlaylistRequest = {
   playlistId: string;
   format: PlaylistExportFormat;
+};
+
+export type ImportPlaylistFileResult = {
+  playlistId: string;
+  playlistName: string;
+  importedCount: number;
+  filePath: string;
 };
 
 export type PlaybackHistoryEntry = {

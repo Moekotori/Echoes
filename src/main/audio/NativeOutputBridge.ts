@@ -328,6 +328,9 @@ const createReuseKey = (options: NativeOutputStartOptions): string => {
     outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
     deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
     deviceName: options.deviceName ?? null,
+    asioOutputChannelStart: outputMode === 'asio' && Number.isInteger(Number(options.asioOutputChannelStart))
+      ? Number(options.asioOutputChannelStart)
+      : null,
     sharedBackend: outputMode === 'shared' ? normalizeSharedBackendForHost(options.sharedBackend) : null,
     sampleRate,
     channels: options.channels,
@@ -878,6 +881,10 @@ export class NativeOutputBridge extends EventEmitter {
 
     if (options.asio) {
       args.push('-asio');
+      const asioOutputChannelStart = Number(options.asioOutputChannelStart);
+      if (Number.isInteger(asioOutputChannelStart) && asioOutputChannelStart > 0) {
+        args.push('-asio-output-channel-start', String(asioOutputChannelStart));
+      }
     }
 
     if (options.exclusive && !options.asio) {

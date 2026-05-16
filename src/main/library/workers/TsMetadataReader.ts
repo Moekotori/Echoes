@@ -3,6 +3,7 @@ import { basename, dirname, extname } from 'node:path';
 import iconv from 'iconv-lite';
 import { parseFile } from 'music-metadata';
 import type { IAudioMetadata } from 'music-metadata';
+import { shouldPreferTagLibForAlacTechnicalFields } from '../../audio/AlacTechnicalMetadata';
 import { resolveCueTrack } from '../../audio/CueSheet';
 import type { EmbeddedCoverData, FieldSource, FieldSources, MetadataFields, MetadataResult } from '../libraryTypes';
 import type { MetadataReader } from './MetadataReader';
@@ -23,6 +24,8 @@ const tagLibPreferredExtensions = new Set([
   '.caf',
   '.mka',
   '.mkv',
+  '.m4a',
+  '.m4b',
   '.mp4',
   '.mov',
   '.webm',
@@ -641,7 +644,7 @@ export class TsMetadataReader implements MetadataReader {
 
       const result = fallbackFields(filePath);
       const tagLibMetadata = await readTagLibFallbackMetadata(filePath);
-      const merged = this.applyTagLibFallback(result, tagLibMetadata);
+      const merged = this.applyTagLibFallback(result, tagLibMetadata, filePath);
       const recovered = hasTagLibFieldData(tagLibMetadata);
 
       return {
@@ -665,7 +668,7 @@ export class TsMetadataReader implements MetadataReader {
       return normalized;
     }
 
-    return this.applyTagLibFallback(normalized, await readTagLibFallbackMetadata(metadataPath));
+    return this.applyTagLibFallback(normalized, await readTagLibFallbackMetadata(metadataPath), metadataPath);
   }
 
   private shouldReadTagLibFallback(filePath: string, result: MetadataResult): boolean {
@@ -682,10 +685,15 @@ export class TsMetadataReader implements MetadataReader {
     );
   }
 
-  private applyTagLibFallback(result: MetadataResult, tagLibMetadata: TagLibFallbackMetadata): MetadataResult {
+  private applyTagLibFallback(result: MetadataResult, tagLibMetadata: TagLibFallbackMetadata, filePath: string): MetadataResult {
     const fields: MetadataFields = { ...result.fields };
     const fieldSources: FieldSources = { ...result.fieldSources };
     let embeddedMetadataStatus = result.embeddedMetadataStatus;
+    const preferTagLibAlacTechnicalFields = shouldPreferTagLibForAlacTechnicalFields(
+      filePath,
+      fields.codec,
+      tagLibMetadata.fields.codec,
+    );
 
     const applyEmbedded = <Key extends keyof MetadataFields>(field: Key, value: MetadataFields[Key] | null | undefined): void => {
       if (value === null || value === undefined || value === '') {
@@ -706,7 +714,10 @@ export class TsMetadataReader implements MetadataReader {
         return;
       }
 
-      if (!replaceableTechnicalSources.has(fieldSources[field] ?? 'unknown')) {
+      const canOverride =
+        preferTagLibAlacTechnicalFields &&
+        (field === 'codec' || field === 'sampleRate' || field === 'bitDepth' || field === 'bitrate');
+      if (!canOverride && !replaceableTechnicalSources.has(fieldSources[field] ?? 'unknown')) {
         return;
       }
 

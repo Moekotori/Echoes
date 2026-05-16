@@ -10,6 +10,7 @@ import type {
   AudioStatus,
 } from '../../shared/types/audio';
 import type { PlaybackProbeHint } from '../../shared/types/playback';
+import type { FfmpegToolchainInfo } from './FfmpegToolchain';
 
 export type {
   AudioDeviceInfo,
@@ -51,11 +52,16 @@ export type SampleRatePlan = {
   warnings: string[];
 };
 
+export type AudioResamplerEngine = 'default' | 'soxr';
+
 export type PcmDecodeRequest = {
   filePath: string;
   startSeconds: number;
   channels: number;
   decoderOutputSampleRate: number;
+  resamplerEngine?: AudioResamplerEngine;
+  allowResamplerFallback?: boolean;
+  onResamplerFallback?: (reason: string) => void;
   inputHeaders?: Record<string, string>;
 };
 
@@ -63,7 +69,14 @@ export type DecoderRun = {
   stream: Readable;
   stop: () => void;
   done: Promise<void>;
+  resamplerEngine?: AudioResamplerEngine;
+  resamplerFallbackActive?: boolean;
 };
+
+export type FfmpegToolchainDiagnostics = Pick<
+  FfmpegToolchainInfo,
+  'path' | 'source' | 'version' | 'healthy' | 'soxrAvailable' | 'aresampleAvailable' | 'manifestVersion' | 'error'
+>;
 
 export type NativeOutputStartOptions = {
   requestedOutputSampleRate: number;
@@ -71,6 +84,7 @@ export type NativeOutputStartOptions = {
   channels: number;
   deviceIndex?: number;
   deviceName?: string;
+  asioOutputChannelStart?: number;
   sharedBackend?: AudioSharedBackend;
   asio?: boolean;
   exclusive?: boolean;
@@ -133,6 +147,7 @@ export type NativeBridgeReadyMessage = Record<string, unknown> & {
   asioMinBufferFrames?: number;
   asioMaxBufferFrames?: number;
   asioGranularity?: number;
+  asioOutputChannelStart?: number;
 };
 
 export type NativeBridgeReadyResult = {

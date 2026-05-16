@@ -39,6 +39,7 @@ import type {
   LibraryTrack,
   ArtistImageCacheClearResult,
   ArtistImageCacheEntry,
+  ArtistImageCacheSummary,
   ArtistImageQueueResult,
   ArtistImageRefreshResult,
   MissingMetadataScanOptions,
@@ -214,6 +215,7 @@ export type EchoApi = {
     refreshArtistImage: (artistId: string, force?: boolean) => Promise<ArtistImageRefreshResult>;
     refreshVisibleArtistImages: (artists: Array<Pick<LibraryArtist, 'id' | 'name'>>) => Promise<ArtistImageQueueResult>;
     getArtistImageStatus: (artistId: string) => Promise<ArtistImageCacheEntry | null>;
+    getArtistImageCacheSummary: () => Promise<ArtistImageCacheSummary>;
     clearArtistImageCache: () => Promise<ArtistImageCacheClearResult>;
     onArtistImagesUpdated: (handler: (payload: { artistId: string | null; artistKey: string; status: string }) => void) => () => void;
     getAlbumTracks: (
@@ -365,6 +367,7 @@ export type EchoApi = {
     onSessionReset: (handler: (event: AudioSessionResetEvent) => void) => () => void;
     listDevices: () => Promise<AudioDeviceInfo[]>;
     setOutput: (settings: AudioOutputSettings) => Promise<AudioStatus>;
+    openAsioControlPanel?: (settings: Pick<AudioOutputSettings, 'deviceIndex' | 'deviceName'>) => Promise<void>;
     resetEngine: () => Promise<AudioStatus>;
     forceRestart: (reason?: string) => Promise<AudioStatus>;
     restartWindowsAudioService: () => Promise<AudioStatus>;

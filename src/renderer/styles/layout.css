@@ -103,13 +103,13 @@ html[data-theme="dark"] .app-wallpaper-layer {
   border-radius: 0;
   border-color: rgba(116, 134, 156, 0.2);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76) 0%, rgba(241, 246, 250, 0.78) 48%, rgba(236, 240, 245, 0.86) 100%),
+    linear-gradient(180deg, var(--theme-legacy-surface-a76) 0%, rgba(241, 246, 250, 0.78) 48%, rgba(236, 240, 245, 0.86) 100%),
     rgba(246, 248, 251, 0.92);
   backdrop-filter: blur(24px) saturate(1.16);
   overscroll-behavior: contain;
   scrollbar-width: none;
   box-shadow:
-    inset -1px 0 0 rgba(255, 255, 255, 0.82),
+    inset -1px 0 0 var(--theme-legacy-surface-a82),
     inset 0 1px 0 rgba(255, 255, 255, 0.74);
 }
 
@@ -191,6 +191,8 @@ html[data-theme="dark"] .app-shell--lyrics {
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
+  pointer-events: auto;
+  -webkit-app-region: drag;
 }
 
 .app-shell--lyrics .app-titlebar-brand {
@@ -200,6 +202,8 @@ html[data-theme="dark"] .app-shell--lyrics {
 
 .app-shell--lyrics .app-titlebar-actions {
   display: inline-flex;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .app-shell--lyrics .titlebar-action {
@@ -220,18 +224,20 @@ html[data-theme="dark"] .app-shell--lyrics .titlebar-action {
 .app-shell--lyrics .titlebar-action[data-active="true"] {
   color: #243142;
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--theme-legacy-white-a18);
 }
 
 html[data-theme="dark"] .app-shell--lyrics .titlebar-action:hover,
 html[data-theme="dark"] .app-shell--lyrics .titlebar-action[data-active="true"] {
   color: #f7fbff;
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--theme-legacy-white-a10);
 }
 
 .app-shell--lyrics .window-controls {
   justify-self: end;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .app-shell--lyrics .window-control {
@@ -250,7 +256,7 @@ html[data-theme="dark"] .app-shell--lyrics .window-control {
 
 html[data-theme="dark"] .app-shell--lyrics .window-control:hover {
   color: #f7fbff;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--theme-legacy-white-a08);
 }
 
 .app-shell--lyrics .page-surface--standalone {
@@ -320,6 +326,8 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) {
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
+  pointer-events: auto;
+  -webkit-app-region: drag;
 }
 
 .app-shell:has(.lyrics-page) .app-titlebar-brand {
@@ -329,6 +337,8 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) {
 
 .app-shell:has(.lyrics-page) .app-titlebar-actions {
   display: inline-flex;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .app-shell:has(.lyrics-page) .titlebar-action {
@@ -349,18 +359,20 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action {
 .app-shell:has(.lyrics-page) .titlebar-action[data-active="true"] {
   color: #243142;
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--theme-legacy-white-a18);
 }
 
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action:hover,
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .titlebar-action[data-active="true"] {
   color: #f7fbff;
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--theme-legacy-white-a10);
 }
 
 .app-shell:has(.lyrics-page) .window-controls {
   justify-self: end;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .app-shell:has(.lyrics-page) .window-control {
@@ -379,7 +391,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control {
 
 html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
   color: #f7fbff;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--theme-legacy-white-a08);
 }
 
 .app-shell:has(.lyrics-page) .page-surface--standalone {
@@ -416,7 +428,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 620px) minmax(0, 1fr);
   align-items: center;
   gap: 18px;
-  padding: 10px 28px;
+  padding: 14px 28px;
   min-width: 0;
   overflow: visible;
   border-width: 1px 0 0;
@@ -425,7 +437,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
   backdrop-filter: blur(18px) saturate(1.12);
   box-shadow:
     0 -8px 24px rgba(0, 0, 0, 0.045),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    inset 0 1px 0 var(--theme-legacy-surface-a82);
 }
 
 .app-shell--wallpaper {
@@ -652,7 +664,7 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
     overflow-y: hidden;
     border-width: 1px 0 0;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.78),
+      inset 0 1px 0 var(--theme-legacy-surface-a78),
       0 -8px 22px rgba(47, 64, 86, 0.05);
   }
 

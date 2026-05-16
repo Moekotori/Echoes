@@ -4,9 +4,38 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { AudioSettingsDrawer } from './AudioSettingsDrawer';
 import type { AudioDeviceInfo, AudioStatus } from '../../../shared/types/audio';
 
+const testTranslations: Record<string, string> = {
+  'audioDrawer.buffer.asio': 'ASIO buffer',
+  'audioDrawer.buffer.auto': 'Auto',
+  'audioDrawer.buffer.default': 'Default',
+  'audioDrawer.buffer.latencyProfile': 'Latency profile',
+  'audioDrawer.buffer.low': 'Low',
+  'audioDrawer.buffer.profileDefault': 'Profile default',
+  'audioDrawer.buffer.safer': 'Safer',
+  'audioDrawer.buffer.stable': 'Stable',
+  'audioDrawer.buffer.title': 'Buffer Settings',
+  'audioDrawer.buffer.ultraLow': 'Ultra low',
+  'audioDrawer.latency.balanced': 'Balanced',
+  'audioDrawer.latency.balancedDetail': '2048 frames',
+  'audioDrawer.latency.lowLatency': 'Low latency',
+  'audioDrawer.latency.lowLatencyDetail': '~8 ms / adaptive',
+  'audioDrawer.latency.stable': 'Stable',
+  'audioDrawer.latency.stableDetail': '8192 frames',
+  'audioDrawer.option.active': 'On',
+  'audioDrawer.option.set': 'Set',
+  'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
+  'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
+  'audioDrawer.action.openAsioPanel': 'Open ASIO Panel',
+  'audioDrawer.badge.soxrResampler': 'SOXR',
+};
+
 vi.mock('../../i18n/I18nProvider', () => ({
   useI18n: () => ({
     t: (key: string, options?: Record<string, string | number>) => {
+      if (testTranslations[key]) {
+        return testTranslations[key];
+      }
+
       const value = key.split('.').at(-1) ?? key;
 
       if (value === 'value' && options?.value !== undefined) {
@@ -64,6 +93,17 @@ const baseStatus: AudioStatus = {
   nativeOutputLatencyMs: null,
   warnings: [],
   error: null,
+};
+
+const soxrResamplingStatus: AudioStatus = {
+  ...baseStatus,
+  fileSampleRate: 192000,
+  decoderOutputSampleRate: 48000,
+  requestedOutputSampleRate: 48000,
+  actualDeviceSampleRate: 48000,
+  resampling: true,
+  resamplerEngine: 'soxr',
+  resamplerFallbackActive: false,
 };
 
 const asioDevice: AudioDeviceInfo = {
@@ -168,6 +208,18 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('heading', { name: 'asioDevices' })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: /wasapiExclusive/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /TEAC ASIO/ })).toBeTruthy();
+  });
+
+  it('hides ASIO panel buttons until the bottom visibility setting is enabled', async () => {
+    renderDrawer(baseStatus);
+
+    await waitFor(() => expect(screen.getAllByText('TEAC ASIO').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('button', { name: /Open ASIO Panel/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show ASIO panel settings/ }));
+
+    expect(screen.getByRole('button', { name: /Open ASIO Panel/ })).toBeTruthy();
+    expect(window.localStorage.getItem('echo-next.show-asio-panel-settings')).toBe('true');
   });
 
   it('does not force low latency when switching WASAPI exclusive on', async () => {
@@ -314,6 +366,24 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     await waitFor(() => expect(resetEngine).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' })));
     expect(screen.getByRole('button', { name: 'resetEngineDone' })).toBeTruthy();
+  });
+
+  it('shows a SOXR label when SOXR resampling is active', () => {
+    renderDrawer(soxrResamplingStatus);
+
+    expect(screen.getByText('192 kHz -> 48 kHz / SOXR')).toBeTruthy();
+    expect(screen.getByText('SOXR')).toBeTruthy();
+  });
+
+  it('hides the SOXR label when resampling fell back to the default engine', () => {
+    renderDrawer({
+      ...soxrResamplingStatus,
+      resamplerEngine: 'default',
+      resamplerFallbackActive: true,
+    });
+
+    expect(screen.getAllByText('192 kHz -> 48 kHz').length).toBeGreaterThan(0);
+    expect(screen.queryByText('192 kHz -> 48 kHz / SOXR')).toBeNull();
   });
 
   it('saves current output mode and ASIO buffer when output settings are enabled', async () => {

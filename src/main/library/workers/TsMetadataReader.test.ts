@@ -204,6 +204,39 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fields.bitDepth).toBe(24);
   });
 
+  it('lets TagLib correct ALAC m4a technical fields misread from the MP4 container', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      format: {
+        duration: 60,
+        codec: 'ALAC',
+        sampleRate: 48000,
+        bitsPerSample: 16,
+        bitrate: 1800000,
+      },
+    }));
+    readTagLibMetadataMock.mockResolvedValue({
+      tags: {},
+      properties: {
+        duration: 60,
+        sampleRate: 192000,
+        bitsPerSample: 24,
+        bitrate: 9216,
+        codec: 'ALAC',
+        containerFormat: 'MP4',
+      },
+      hasCoverArt: false,
+    } as never);
+
+    const result = await new TsMetadataReader().read('D:\\Music\\Hi-Res ALAC.m4a');
+
+    expect(result.fields.codec).toBe('ALAC');
+    expect(result.fields.sampleRate).toBe(192000);
+    expect(result.fields.bitDepth).toBe(24);
+    expect(result.fields.bitrate).toBe(9216000);
+    expect(result.fieldSources.sampleRate).toBe('technical');
+    expect(result.fieldSources.bitDepth).toBe('technical');
+  });
+
   it('repairs mojibake returned by embedded tag parsers', async () => {
     parseFileMock.mockResolvedValue(emptyMetadata({
       common: {

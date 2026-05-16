@@ -31,6 +31,18 @@ describe('lyricsParser', () => {
     ]);
   });
 
+  it('splits inline Chinese translations from synced lyrics', () => {
+    expect(parseSyncedLyrics('[00:08.00]僕ら出会えたの / 才换来你我这一次相遇')).toEqual([
+      { timeMs: 8000, text: '僕ら出会えたの', translation: '才换来你我这一次相遇' },
+    ]);
+  });
+
+  it('keeps slash-delimited non-translation synced lyrics intact', () => {
+    expect(parseSyncedLyrics('[00:08.00]唱おう na-na-na-! / Nanana!')).toEqual([
+      { timeMs: 8000, text: '唱おう na-na-na-! / Nanana!' },
+    ]);
+  });
+
   it('ignores metadata tags', () => {
     expect(parseSyncedLyrics('[ar:Artist]\n[ti:Title]\n[00:01.00]Line')).toEqual([{ timeMs: 1000, text: 'Line' }]);
   });
@@ -39,6 +51,12 @@ describe('lyricsParser', () => {
     expect(parsePlainLyrics('First\n\nSecond')).toEqual([
       { timeMs: -1, text: 'First' },
       { timeMs: -1, text: 'Second' },
+    ]);
+  });
+
+  it('splits inline Chinese translations from plain lyrics', () => {
+    expect(parsePlainLyrics('幾千の時を巡って今 / 千载时光流转')).toEqual([
+      { timeMs: -1, text: '幾千の時を巡って今', translation: '千载时光流转' },
     ]);
   });
 
@@ -179,6 +197,34 @@ describe('lyricsParser', () => {
         romanization: 'su ka re ru na n te ki mo chi wa ru i yo',
         translation: '那一定很令人作呕吧',
       },
+    ]);
+  });
+
+  it('keeps the Han lyric as primary when same-timestamp local romanization comes first', () => {
+    const lyrics = providerResultToTrackLyrics(
+      { title: 'Song', artist: 'Artist' },
+      {
+        provider: 'local',
+        providerLyricsId: 'local:1',
+        title: 'Song',
+        artist: 'Artist',
+        album: null,
+        durationSeconds: null,
+        instrumental: false,
+        plainLyrics: null,
+        syncedLyrics: [
+          '[01:30.00]man sui yao nang zou dou',
+          '[01:30.00]问谁又能做到',
+          '[01:34.00]ho fao ba fan fu si di gai han',
+          '[01:34.00]可否不分肤色的界限',
+        ].join('\n'),
+      },
+      1,
+    );
+
+    expect(lyrics?.lines).toEqual([
+      { timeMs: 90000, text: '问谁又能做到', romanization: 'man sui yao nang zou dou' },
+      { timeMs: 94000, text: '可否不分肤色的界限', romanization: 'ho fao ba fan fu si di gai han' },
     ]);
   });
 

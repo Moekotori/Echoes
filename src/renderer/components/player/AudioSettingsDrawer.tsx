@@ -25,6 +25,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioDiagnostics, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus } from '../../../shared/types/audio';
 import { detectRendererPlatform, isAdvancedNativeOutputPlatform } from '../../../shared/utils/audioPlatformCapabilities';
 import { useI18n } from '../../i18n/I18nProvider';
+import type { TranslationKey } from '../../i18n/locales';
 import { createOutputSettings, normalizeSharedBackend, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
 
 type AudioSettingsDrawerProps = {
@@ -54,6 +55,7 @@ type AudioDrawerCopy = {
   eqOff: string;
   eqOn: string;
   exclusive: string;
+  juceOutput: string;
   nativeRate: string;
   noActiveSource: string;
   noTrack: string;
@@ -61,6 +63,7 @@ type AudioDrawerCopy = {
   processed: string;
   ratePending: string;
   resampling: string;
+  soxrResampler: string;
   shared: string;
   directSound: string;
   sharedMixer: string;
@@ -71,21 +74,22 @@ type AudioDrawerCopy = {
 };
 
 const hiddenDeviceStorageKey = 'echo-next.hidden-audio-devices';
+const showAsioPanelSettingsStorageKey = 'echo-next.show-asio-panel-settings';
 const drawerExitAnimationMs = 320;
 const outputApplyTimeoutMs = 20_000;
 const lowLatencyMaxBufferSizeFrames = 2048;
-const latencyProfileOptions: Array<{ id: AudioLatencyProfile; label: string; detail: string }> = [
-  { id: 'lowLatency', label: 'Low latency', detail: '~8 ms / adaptive' },
-  { id: 'balanced', label: 'Balanced', detail: '2048 frames' },
-  { id: 'stable', label: 'Stable', detail: '8192 frames' },
+const latencyProfileOptionDefinitions: Array<{ id: AudioLatencyProfile; labelKey: TranslationKey; detailKey: TranslationKey }> = [
+  { id: 'lowLatency', labelKey: 'audioDrawer.latency.lowLatency', detailKey: 'audioDrawer.latency.lowLatencyDetail' },
+  { id: 'balanced', labelKey: 'audioDrawer.latency.balanced', detailKey: 'audioDrawer.latency.balancedDetail' },
+  { id: 'stable', labelKey: 'audioDrawer.latency.stable', detailKey: 'audioDrawer.latency.stableDetail' },
 ];
-const asioBufferOptions: Array<{ value: number | null; label: string; detail: string }> = [
-  { value: null, label: 'Auto', detail: 'Profile default' },
-  { value: 64, label: '64', detail: 'Ultra low' },
-  { value: 128, label: '128', detail: 'Low' },
-  { value: 256, label: '256', detail: 'Safer' },
-  { value: 512, label: '512', detail: 'Default' },
-  { value: 1024, label: '1024', detail: 'Stable' },
+const asioBufferOptionDefinitions: Array<{ value: number | null; label?: string; labelKey?: TranslationKey; detailKey: TranslationKey }> = [
+  { value: null, labelKey: 'audioDrawer.buffer.auto', detailKey: 'audioDrawer.buffer.profileDefault' },
+  { value: 64, label: '64', detailKey: 'audioDrawer.buffer.ultraLow' },
+  { value: 128, label: '128', detailKey: 'audioDrawer.buffer.low' },
+  { value: 256, label: '256', detailKey: 'audioDrawer.buffer.safer' },
+  { value: 512, label: '512', detailKey: 'audioDrawer.buffer.default' },
+  { value: 1024, label: '1024', detailKey: 'audioDrawer.buffer.stable' },
 ];
 
 const supportsAdvancedNativeOutput = (): boolean =>
@@ -110,6 +114,11 @@ const sanitizeOutputBufferSizeFrames = (
 };
 
 const getDeviceStorageKey = (device: AudioDeviceInfo): string => `${device.outputMode}:${device.id || device.index}:${device.name}`;
+
+const normalizeAsioOutputChannelStart = (value: unknown): number | undefined => {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric >= 0 ? numeric : undefined;
+};
 
 const readHiddenDeviceKeys = (): string[] => {
   try {
@@ -251,8 +260,9 @@ const getEqSignalText = (status: AudioStatus | null, copy: AudioDrawerCopy): str
 };
 
 const getResampleSignalText = (status: AudioStatus | null, deviceSampleRate: number | null | undefined, copy: AudioDrawerCopy): string => {
+  const resamplerSuffix = status?.resamplerEngine === 'soxr' && status.resamplerFallbackActive !== true ? ` / ${copy.soxrResampler}` : '';
   if (status?.resampling || status?.sampleRateMismatch || hasInferredRateMismatch(status, deviceSampleRate)) {
-    return formatRatePath(status, deviceSampleRate, copy);
+    return `${formatRatePath(status, deviceSampleRate, copy)}${resamplerSuffix}`;
   }
 
   if (status?.outputMode === 'shared') {
@@ -348,6 +358,22 @@ const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: 
   }
 };
 
+const readShowAsioPanelSettings = (): boolean => {
+  try {
+    return window.localStorage.getItem(showAsioPanelSettingsStorageKey) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const writeShowAsioPanelSettings = (enabled: boolean): void => {
+  try {
+    window.localStorage.setItem(showAsioPanelSettingsStorageKey, enabled ? 'true' : 'false');
+  } catch {
+    // UI preference only; failure should never block audio settings.
+  }
+};
+
 const getFramesLatencyMs = (frames: number | null | undefined, status: AudioStatus | null): number | null => {
   const sampleRate = getOutputSampleRate(status, null);
 
@@ -372,8 +398,38 @@ const deviceMatchesStatus = (device: AudioDeviceInfo, status: AudioStatus | null
     return false;
   }
 
-  return status.outputDeviceId === device.id || status.outputDeviceName === device.name;
+  const identityMatches = status.outputDeviceId === device.id || status.outputDeviceName === device.name;
+  if (!identityMatches || mode !== 'asio') {
+    return identityMatches;
+  }
+
+  const deviceChannelStart = normalizeAsioOutputChannelStart(device.asioOutputChannelStart) ?? 0;
+  const statusChannelStart = normalizeAsioOutputChannelStart(status.asioOutputChannelStart) ?? 0;
+  return deviceChannelStart === statusChannelStart;
 };
+
+const shouldShowAsioAdvancedRoutes = (device: AudioDeviceInfo): boolean =>
+  device.outputMode === 'asio' && (
+    device.name.toLocaleLowerCase().includes('asio4all') ||
+    (device.asioOutputChannels ?? 0) > 2
+  );
+
+const formatAsioChannelRoute = (device: AudioDeviceInfo, start: number): string => {
+  const firstName = device.asioChannelNames?.[start]?.trim();
+  const secondName = device.asioChannelNames?.[start + 1]?.trim();
+
+  if (firstName && secondName) {
+    return `${firstName} / ${secondName}`;
+  }
+
+  return `Output ${start + 1}-${start + 2}`;
+};
+
+const createAsioRouteDevice = (device: AudioDeviceInfo, start: number): AudioDeviceInfo => ({
+  ...device,
+  id: `${device.id}:asio-route:${start}`,
+  asioOutputChannelStart: start,
+});
 
 const getDeviceIcon = (deviceName: string, outputMode: AudioOutputMode | AudioDeviceInfo['outputMode']): LucideIcon => {
   const name = deviceName.toLocaleLowerCase();
@@ -455,6 +511,13 @@ const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string => {
     ['actualDeviceSampleRate', diagnostics.actualDeviceSampleRate],
     ['sharedDeviceSampleRate', diagnostics.sharedDeviceSampleRate],
     ['resampling', diagnostics.resampling],
+    ['ffmpegPath', diagnostics.ffmpegPath],
+    ['ffmpegSource', diagnostics.ffmpegSource],
+    ['ffmpegVersion', diagnostics.ffmpegVersion],
+    ['ffmpegHealthy', diagnostics.ffmpegHealthy],
+    ['soxrAvailable', diagnostics.soxrAvailable],
+    ['resamplerEngine', diagnostics.resamplerEngine],
+    ['resamplerFallbackActive', diagnostics.resamplerFallbackActive],
     ['bitPerfectCandidate', diagnostics.bitPerfectCandidate],
     ['sampleRateMismatch', diagnostics.sampleRateMismatch],
     ['sharedStabilityTier', diagnostics.sharedStabilityTier],
@@ -502,6 +565,7 @@ export const AudioSettingsDrawer = ({
       eqOff: t('audioDrawer.signal.eqOff'),
       eqOn: t('audioDrawer.signal.eqOn'),
       exclusive: t('audioDrawer.mode.exclusive'),
+      juceOutput: t('audioDrawer.badge.juceOutput'),
       nativeRate: t('audioDrawer.signal.nativeRate'),
       noActiveSource: t('audioDrawer.signal.noActiveSource'),
       noTrack: t('audioDrawer.status.noTrack'),
@@ -509,6 +573,7 @@ export const AudioSettingsDrawer = ({
       processed: t('audioDrawer.signal.processed'),
       ratePending: t('audioDrawer.status.ratePending'),
       resampling: t('audioDrawer.badge.resampling'),
+      soxrResampler: t('audioDrawer.badge.soxrResampler'),
       shared: t('audioDrawer.mode.shared'),
       directSound: t('audioDrawer.mode.directSound'),
       sharedMixer: t('audioDrawer.signal.sharedMixer'),
@@ -529,12 +594,14 @@ export const AudioSettingsDrawer = ({
   const [isBusy, setIsBusy] = useState(false);
   const [useJuceOutput, setUseJuceOutput] = useState(status?.useJuceOutputRequested === true);
   const [asioUnavailableFallbackEnabled, setAsioUnavailableFallbackEnabled] = useState(false);
+  const [soxrFallbackEnabled, setSoxrFallbackEnabled] = useState(true);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
   const [hiddenDeviceMenu, setHiddenDeviceMenu] = useState<HiddenDeviceMenu>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [isBufferOptionsOpen, setIsBufferOptionsOpen] = useState(false);
+  const [showAsioPanelSettings, setShowAsioPanelSettings] = useState(() => readShowAsioPanelSettings());
 
   const hiddenDeviceKeySet = useMemo(() => new Set(hiddenDeviceKeys), [hiddenDeviceKeys]);
   const visibleDevices = useMemo(
@@ -590,12 +657,16 @@ export const AudioSettingsDrawer = ({
       badges.push({ label: copy.resampling, tone: 'warning' });
     }
 
+    if (status?.resamplerEngine === 'soxr' && status.resamplerFallbackActive !== true) {
+      badges.push({ label: copy.soxrResampler, tone: 'ready' });
+    }
+
     if (status?.outputBackend === 'directsound-shared' || status?.sharedBackend === 'directsound') {
       badges.push({ label: copy.directSound, tone: 'warning' });
     }
 
     if (isActiveJuceBackend(status)) {
-      badges.push({ label: 'JUCE输出', tone: 'ready' });
+      badges.push({ label: copy.juceOutput, tone: 'ready' });
     }
 
     if (hasInferredRateMismatch(status, effectiveSharedSampleRate) && !badges.some((badge) => badge.label === copy.resampling)) {
@@ -611,7 +682,7 @@ export const AudioSettingsDrawer = ({
       { label: 'EQ', value: getEqSignalText(status, copy) },
       { label: t('audioDrawer.meter.resample'), value: getResampleSignalText(status, effectiveSharedSampleRate, copy) },
       { label: t('audioDrawer.meter.direct'), value: getDirectSignalText(status, effectiveSharedSampleRate, copy) },
-      { label: 'Latency', value: getNativeLatencyText(status, t('settings.playback.stability.value.unknown')) },
+      { label: t('audioDrawer.meter.latency'), value: getNativeLatencyText(status, t('settings.playback.stability.value.unknown')) },
       { label: t('settings.playback.stability.field.sharedStabilityTier'), value: getSharedStabilityText(status, t('settings.playback.stability.value.unknown')) },
     ],
     [copy, effectiveSharedSampleRate, status, t],
@@ -642,13 +713,33 @@ export const AudioSettingsDrawer = ({
       ? status.nativeRequestedBufferFrames ?? null
       : readRememberedAudioOutput().bufferSizeFrames ?? null;
   const recommendedLatencyMs = getRecommendedLatencyMs(status);
+  const optionActiveLabel = t('audioDrawer.option.active');
+  const optionSetLabel = t('audioDrawer.option.set');
+  const autoBufferLabel = t('audioDrawer.buffer.auto');
+  const unknownValue = t('settings.playback.stability.value.unknown');
   const recommendedLatencyText = recommendedLatencyMs !== null
     ? t('audioDrawer.asioLatency.value', { value: recommendedLatencyMs })
-    : t('settings.playback.stability.value.unknown');
+    : unknownValue;
   const asioBufferStatusText = t('audioDrawer.asioLatency.status', {
-    requested: formatFramesWithLatency(status?.nativeRequestedBufferFrames, status, 'Auto'),
-    opened: formatFramesWithLatency(status?.nativeActualBufferFrames, status, 'n/a'),
+    requested: formatFramesWithLatency(status?.nativeRequestedBufferFrames, status, autoBufferLabel),
+    opened: formatFramesWithLatency(status?.nativeActualBufferFrames, status, unknownValue),
   });
+  const latencyProfileOptions = useMemo(
+    () => latencyProfileOptionDefinitions.map((option) => ({
+      id: option.id,
+      label: t(option.labelKey),
+      detail: t(option.detailKey),
+    })),
+    [t],
+  );
+  const asioBufferOptions = useMemo(
+    () => asioBufferOptionDefinitions.map((option) => ({
+      value: option.value,
+      label: option.label ?? (option.labelKey ? t(option.labelKey) : ''),
+      detail: t(option.detailKey),
+    })),
+    [t],
+  );
 
   const refresh = useCallback(async (): Promise<void> => {
     const audio = window.echo?.audio;
@@ -710,6 +801,7 @@ export const AudioSettingsDrawer = ({
         setSharedBackend(settings.rememberedAudioOutput?.sharedBackend ?? remembered.sharedBackend ?? 'auto');
         setUseJuceOutput(settings.audioUseJuceOutput === true);
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);
+        setSoxrFallbackEnabled(settings.audioSoxrFallbackEnabled !== false);
       })
       .catch(() => undefined);
     void loadPersistedHiddenDeviceKeys().then(setHiddenDeviceKeys).catch(() => setHiddenDeviceKeys(readHiddenDeviceKeys()));
@@ -783,6 +875,7 @@ export const AudioSettingsDrawer = ({
         latencyProfile: nextLatencyProfile,
         deviceIndex: isDeviceSelection ? settings.deviceIndex : remembered.deviceIndex,
         deviceName: isDeviceSelection ? settings.deviceName : remembered.deviceName,
+        asioOutputChannelStart: isDeviceSelection ? settings.asioOutputChannelStart : remembered.asioOutputChannelStart,
         bufferSizeFrames: nextBufferSizeFrames,
       });
     },
@@ -807,6 +900,9 @@ export const AudioSettingsDrawer = ({
           settingsWithFallback.asioUnavailableFallbackEnabled = settings.asioUnavailableFallbackEnabled;
         } else if (asioUnavailableFallbackEnabled) {
           settingsWithFallback.asioUnavailableFallbackEnabled = true;
+        }
+        if (settings.soxrFallbackEnabled !== undefined) {
+          settingsWithFallback.soxrFallbackEnabled = settings.soxrFallbackEnabled;
         }
         if (rememberOutput) {
           persistOutput(settingsWithFallback);
@@ -837,7 +933,16 @@ export const AudioSettingsDrawer = ({
         setIsBusy(false);
       }
     },
-    [asioUnavailableFallbackEnabled, copy.desktopBridgeUnavailable, onStatusChange, outputMode, persistOutput, rememberOutput, sharedBackend, status?.outputMode],
+    [
+      asioUnavailableFallbackEnabled,
+      copy.desktopBridgeUnavailable,
+      onStatusChange,
+      outputMode,
+      persistOutput,
+      rememberOutput,
+      sharedBackend,
+      status?.outputMode,
+    ],
   );
 
   const applyLatencyProfile = useCallback(
@@ -886,6 +991,27 @@ export const AudioSettingsDrawer = ({
     void applyOutput(settings);
   };
 
+  const openAsioControlPanel = async (device: AudioDeviceInfo): Promise<void> => {
+    const audio = window.echo?.audio;
+    if (!audio?.openAsioControlPanel) {
+      setError(copy.desktopBridgeUnavailable);
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    try {
+      await audio.openAsioControlPanel({
+        deviceIndex: device.index,
+        deviceName: device.name,
+      });
+    } catch (panelError) {
+      setError(panelError instanceof Error ? panelError.message : String(panelError));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const applySharedBackend = (nextSharedBackend: AudioSharedBackend): void => {
     const remembered = readRememberedAudioOutput();
     const currentDevice = allSharedDevices.find((device) => deviceMatchesStatus(device, status, 'shared')) ?? defaultSharedDevice;
@@ -920,6 +1046,7 @@ export const AudioSettingsDrawer = ({
         latencyProfile: resolveSupportedLatencyProfile(status?.outputMode ?? outputMode, status?.latencyProfile ?? currentLatencyProfile),
         deviceIndex: statusDevice?.index,
         deviceName: status?.outputDeviceName ?? statusDevice?.name,
+        asioOutputChannelStart: status?.outputMode === 'asio' ? status.asioOutputChannelStart ?? undefined : undefined,
         bufferSizeFrames: status?.outputMode === 'asio' ? currentAsioBufferFrames : undefined,
       },
       enabled,
@@ -941,6 +1068,15 @@ export const AudioSettingsDrawer = ({
     void window.echo?.app.setSettings({ audioAsioUnavailableFallbackEnabled: enabled }).catch(() => undefined);
     void applyOutput({ asioUnavailableFallbackEnabled: enabled }).catch(() => {
       setAsioUnavailableFallbackEnabled(previous);
+    });
+  };
+
+  const toggleSoxrFallback = (enabled: boolean): void => {
+    const previous = soxrFallbackEnabled;
+    setSoxrFallbackEnabled(enabled);
+    void window.echo?.app.setSettings({ audioSoxrFallbackEnabled: enabled }).catch(() => undefined);
+    void applyOutput({ soxrFallbackEnabled: enabled }).catch(() => {
+      setSoxrFallbackEnabled(previous);
     });
   };
 
@@ -1170,29 +1306,63 @@ export const AudioSettingsDrawer = ({
             <p className="audio-section-note audio-section-note--warning">{t('audioDrawer.note.asioWarning')}</p>
             {asioDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.asioDevices')}</p> : null}
             {asioDevices.map((device) => {
-            const isActive = deviceMatchesStatus(device, status, 'asio');
-            const DeviceIcon = getDeviceIcon(device.name, 'asio');
+              const defaultRouteDevice = createAsioRouteDevice(device, 0);
+              const isActive = deviceMatchesStatus(defaultRouteDevice, status, 'asio');
+              const DeviceIcon = getDeviceIcon(device.name, 'asio');
+              const routeCount = Math.max(0, Math.floor((device.asioOutputChannels ?? 0) / 2));
+              const routeStarts = shouldShowAsioAdvancedRoutes(device)
+                ? Array.from({ length: routeCount }, (_value, index) => index * 2)
+                : [];
 
-            return (
-              <button
-                className={`audio-device-pill audio-device-pill--asio ${isActive ? 'active' : ''}`}
-                key={device.id}
-                type="button"
-                title={device.name}
-                disabled={isBusy}
-                onMouseDown={suppressNativeDeviceMenu}
-                onContextMenu={(event) => openDeviceMenu(event, device)}
-                onClick={() => applyDevice('asio', device)}
-              >
-                <DeviceIcon size={15} />
-                <span>
-                  <strong>{device.name}</strong>
-                  <small>{copy.asioDriver} / {t('audioDrawer.device.lowLatency')}</small>
-                </span>
-                <em>ASIO</em>
-                {isActive ? <Check size={15} /> : null}
-              </button>
-            );
+              return (
+                <div className="audio-asio-device-group" key={device.id}>
+                  <button
+                    className={`audio-device-pill audio-device-pill--asio ${isActive ? 'active' : ''}`}
+                    type="button"
+                    title={device.name}
+                    disabled={isBusy}
+                    onMouseDown={suppressNativeDeviceMenu}
+                    onContextMenu={(event) => openDeviceMenu(event, device)}
+                    onClick={() => applyDevice('asio', defaultRouteDevice)}
+                  >
+                    <DeviceIcon size={15} />
+                    <span>
+                      <strong>{device.name}</strong>
+                      <small>{copy.asioDriver} / {t('audioDrawer.device.lowLatency')}</small>
+                    </span>
+                    <em>ASIO</em>
+                    {isActive ? <Check size={15} /> : null}
+                  </button>
+                  {showAsioPanelSettings ? (
+                    <div className="audio-asio-device-actions">
+                      <button type="button" disabled={isBusy} onClick={() => void openAsioControlPanel(device)}>
+                        <SlidersHorizontal size={14} />
+                        <span>{t('audioDrawer.action.openAsioPanel')}</span>
+                      </button>
+                    </div>
+                  ) : null}
+                  {routeStarts.length > 1 ? (
+                    <div className="audio-asio-routes" aria-label={t('audioDrawer.asioRoutes.title')}>
+                      {routeStarts.map((start) => {
+                        const routeDevice = createAsioRouteDevice(device, start);
+                        const routeActive = deviceMatchesStatus(routeDevice, status, 'asio');
+                        return (
+                          <button
+                            className={`audio-asio-route ${routeActive ? 'active' : ''}`}
+                            key={start}
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => applyDevice('asio', routeDevice)}
+                          >
+                            <span>{formatAsioChannelRoute(device, start)}</span>
+                            {routeActive ? <Check size={14} /> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
             })}
           </section>
         ) : null}
@@ -1208,7 +1378,7 @@ export const AudioSettingsDrawer = ({
               <label className="audio-toggle-row">
                 <span>
                   <AudioLines size={17} />
-                  <strong>使用JUCE输出</strong>
+                  <strong>{t('audioDrawer.option.juceOutput')}</strong>
                 </span>
                 <input
                   type="checkbox"
@@ -1222,7 +1392,7 @@ export const AudioSettingsDrawer = ({
               <label className="audio-toggle-row">
                 <span>
                   <Zap size={17} />
-                  <strong>ASIO unavailable guard</strong>
+                  <strong>{t('audioDrawer.guard.asioUnavailable.title')}</strong>
                 </span>
                 <input
                   type="checkbox"
@@ -1231,7 +1401,21 @@ export const AudioSettingsDrawer = ({
                   onChange={(event) => toggleAsioUnavailableFallback(event.currentTarget.checked)}
                 />
               </label>
-              <p>Default off. Skips the same ASIO device briefly after No device found, then uses safe shared output.</p>
+              <p>{t('audioDrawer.guard.asioUnavailable.description')}</p>
+
+              <label className="audio-toggle-row">
+                <span>
+                  <Waves size={17} />
+                  <strong>{t('audioDrawer.guard.soxrFallback.title')}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={soxrFallbackEnabled}
+                  disabled={isBusy}
+                  onChange={(event) => toggleSoxrFallback(event.currentTarget.checked)}
+                />
+              </label>
+              <p>{t('audioDrawer.guard.soxrFallback.description')}</p>
 
               <div className="audio-drawer-mini-grid" aria-label={t('audioDrawer.option.sharedBackend')}>
                 {([
@@ -1250,7 +1434,7 @@ export const AudioSettingsDrawer = ({
                       <strong>{label}</strong>
                       <small>{detail}</small>
                     </span>
-                    <em>{outputMode === 'shared' && sharedBackend === backend ? 'On' : 'Set'}</em>
+                    <em>{outputMode === 'shared' && sharedBackend === backend ? optionActiveLabel : optionSetLabel}</em>
                   </button>
                 ))}
               </div>
@@ -1280,15 +1464,15 @@ export const AudioSettingsDrawer = ({
             >
               <span>
                 <Gauge size={17} />
-                <strong>缓冲设置</strong>
-                {!isBufferOptionsOpen ? <small>默认折叠，点击展开延迟与 ASIO 缓冲选项</small> : null}
+                <strong>{t('audioDrawer.buffer.title')}</strong>
+                {!isBufferOptionsOpen ? <small>{t('audioDrawer.buffer.collapsedDescription')}</small> : null}
               </span>
               <ChevronDown size={16} aria-hidden="true" />
             </button>
 
             {isBufferOptionsOpen ? (
               <div className="audio-buffer-collapse-body">
-                <div className="audio-drawer-mini-grid" aria-label="Latency profile">
+                <div className="audio-drawer-mini-grid" aria-label={t('audioDrawer.buffer.latencyProfile')}>
                   {latencyProfileOptions.map((option) => (
                     <button
                       className={`audio-device-pill ${supportedLatencyProfile === option.id ? 'active' : ''}`}
@@ -1302,7 +1486,7 @@ export const AudioSettingsDrawer = ({
                         <strong>{option.label}</strong>
                         <small>{option.detail}</small>
                       </span>
-                      <em>{supportedLatencyProfile === option.id ? 'On' : 'Set'}</em>
+                      <em>{supportedLatencyProfile === option.id ? optionActiveLabel : optionSetLabel}</em>
                     </button>
                   ))}
                 </div>
@@ -1311,9 +1495,9 @@ export const AudioSettingsDrawer = ({
                   <>
                     <div className="audio-drawer-section-title audio-drawer-section-title--compact">
                       <Zap size={17} />
-                      <h3>ASIO buffer</h3>
+                      <h3>{t('audioDrawer.buffer.asio')}</h3>
                     </div>
-                    <div className="audio-drawer-mini-grid" aria-label="ASIO buffer">
+                    <div className="audio-drawer-mini-grid" aria-label={t('audioDrawer.buffer.asio')}>
                       {asioBufferOptions.map((option) => {
                         const isActive = option.value === null
                           ? currentAsioBufferFrames === null
@@ -1332,7 +1516,7 @@ export const AudioSettingsDrawer = ({
                               <strong>{option.label}</strong>
                               <small>{option.detail}</small>
                             </span>
-                            <em>{isActive ? 'On' : 'Set'}</em>
+                            <em>{isActive ? optionActiveLabel : optionSetLabel}</em>
                           </button>
                         );
                       })}
@@ -1409,6 +1593,27 @@ export const AudioSettingsDrawer = ({
               );
             })}
           </details>
+
+          {advancedNativeOutputAvailable ? (
+            <section className="audio-drawer-section audio-asio-panel-visibility">
+              <label className="audio-toggle-row">
+                <span>
+                  <SlidersHorizontal size={17} />
+                  <strong>{t('audioDrawer.option.showAsioPanelSettings')}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={showAsioPanelSettings}
+                  onChange={(event) => {
+                    const enabled = event.currentTarget.checked;
+                    setShowAsioPanelSettings(enabled);
+                    writeShowAsioPanelSettings(enabled);
+                  }}
+                />
+              </label>
+              <p>{t('audioDrawer.option.showAsioPanelSettingsDescription')}</p>
+            </section>
+          ) : null}
         </div>
       </aside>
       {hiddenDeviceMenu ? (

@@ -560,4 +560,24 @@ describe('LyricsService', () => {
     expect(cached?.provider).toBe('manual');
     expect(cached?.lines[0].text).toBe('Custom first');
   });
+
+  it('folds same-timestamp romanization when applying custom LRC text', async () => {
+    const { service } = createHarness();
+
+    const lyrics = await service.applyCustomLrc(
+      'track-1',
+      [
+        '[01:30.00]man sui yao nang zou dou',
+        '[01:30.00]问谁又能做到',
+        '[01:34.00]ho fao ba fan fu si di gai han',
+        '[01:34.00]可否不分肤色的界限',
+      ].join('\n'),
+      'custom.lrc',
+    );
+
+    expect(lyrics.lines).toEqual([
+      { timeMs: 90000, text: '问谁又能做到', romanization: 'man sui yao nang zou dou' },
+      { timeMs: 94000, text: '可否不分肤色的界限', romanization: 'ho fao ba fan fu si di gai han' },
+    ]);
+  });
 });

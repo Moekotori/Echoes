@@ -37,6 +37,41 @@ describe('audioOutputMemory', () => {
     });
   });
 
+  it('persists explicit ASIO output channel selection', () => {
+    writeRememberedAudioOutput({
+      enabled: true,
+      outputMode: 'asio',
+      latencyProfile: 'balanced',
+      deviceIndex: 0,
+      deviceName: 'ASIO4ALL v2',
+      asioOutputChannelStart: 2,
+    });
+
+    expect(readRememberedAudioOutput()).toMatchObject({
+      enabled: true,
+      outputMode: 'asio',
+      deviceIndex: 0,
+      deviceName: 'ASIO4ALL v2',
+      asioOutputChannelStart: 2,
+    });
+
+    expect(createOutputSettings('asio', {
+      id: 'asio:0:route:2',
+      index: 0,
+      name: 'ASIO4ALL v2',
+      outputMode: 'asio',
+      sampleRate: null,
+      sharedDeviceSampleRate: null,
+      isDefault: false,
+      asioOutputChannelStart: 2,
+    })).toMatchObject({
+      outputMode: 'asio',
+      deviceIndex: 0,
+      deviceName: 'ASIO4ALL v2',
+      asioOutputChannelStart: 2,
+    });
+  });
+
   it('persists DirectSound shared backend and omits device index when creating output settings', () => {
     writeRememberedAudioOutput({
       enabled: true,

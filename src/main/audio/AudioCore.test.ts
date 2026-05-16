@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AudioSession, type AudioSessionDependencies } from './AudioSession';
-import { DecoderPipeline, resolveDecoderFfmpegPath } from './DecoderPipeline';
+import { DecoderPipeline, classifyFfmpegDecodeError, resolveDecoderFfmpegPath } from './DecoderPipeline';
 import type { DecoderPipelineDependencies } from './DecoderPipeline';
 import { DeviceService } from './DeviceService';
+import { clearFfmpegToolchainCache, resolveFfmpegToolchain } from './FfmpegToolchain';
 import { getEqBridge } from './EqBridge';
 import { NativeOutputBridge, resolveHostBinary } from './NativeOutputBridge';
 import type { HostSpawner } from './NativeOutputBridge';
@@ -24,7 +25,9 @@ const noopLogger = (): void => undefined;
 const asioMatrixSampleRates = [44100, 48000, 88200, 96000, 176400, 192000] as const;
 
 afterEach(() => {
+  vi.useRealTimers();
   getEqBridge().removeAllListeners('state');
+  clearFfmpegToolchainCache();
 });
 
 const probe = (filePath: string, fileSampleRate: number): AudioProbeResult => ({
@@ -887,6 +890,22 @@ describe('Audio Core sample-rate regression guard', () => {
     }
   });
 
+  it('keeps playback running when the EQ control socket disconnects during sync', async () => {
+    const syncSpy = vi.spyOn(getEqBridge(), 'syncStateToNative').mockRejectedValueOnce(new Error('eq_control_disconnected'));
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    try {
+      const status = await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+
+      expect(status.state).toBe('playing');
+      expect(status.warnings).toContain('eq_control_sync_skipped');
+      expect(bridges).toHaveLength(1);
+      expect(bridges[0].sessionBegins).toBe(1);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('reuses shared output across source sample-rate changes at the fixed mix rate', async () => {
     const { bridges, decoder, session } = createSessionHarness([
       probe('441.flac', 44100),
@@ -946,6 +965,8 @@ describe('Audio Core sample-rate regression guard', () => {
         expect(decoder.decodeRequests.at(-1), `shared ${fromRate}->${toRate} decode request`).toMatchObject({
           filePath: toPath,
           decoderOutputSampleRate: 48000,
+          resamplerEngine: toRate === 48000 ? 'default' : 'soxr',
+          allowResamplerFallback: true,
         });
       }
     }
@@ -3597,6 +3618,50 @@ describe('NativeOutputBridge host arguments', () => {
     expect(spawned[0].args).not.toContain('-buffer');
   });
 
+  it('passes ASIO output channel start only when explicitly requested', async () => {
+    const spawned: string[][] = [];
+    const fakeSpawn = (_file: string, args: string[]): ChildProcessWithoutNullStreams => {
+      spawned.push(args);
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write('{"ready":true,"sampleRate":48000,"backend":"asio","deviceType":"ASIO","deviceName":"ASIO4ALL v2"}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      asio: true,
+    });
+    bridge.stop();
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      asio: true,
+      asioOutputChannelStart: 2,
+    });
+
+    expect(spawned[0]).not.toContain('-asio-output-channel-start');
+    expect(spawned[1]).toEqual(expect.arrayContaining(['-asio', '-asio-output-channel-start', '2']));
+    bridge.stop();
+  });
+
   it('passes explicit ASIO buffer arguments only when requested', async () => {
     const spawned: Array<{ file: string; args: string[] }> = [];
     const fakeSpawn = (file: string, args: string[]): ChildProcessWithoutNullStreams => {
@@ -4494,6 +4559,25 @@ describe('DeviceService diagnostics', () => {
     expect(logs[0]).toContain('ASIO device enumeration returned no devices');
   });
 
+  it('parses optional ASIO output channel metadata', () => {
+    const service = new DeviceService({
+      hostBinary: 'echo-audio-host.exe',
+      execFileSync: vi.fn(() => '0\tASIO4ALL v2\t0\t1\t0\t4\t0\tRealtek 1|Realtek 2|USB 1|USB 2\n') as unknown as typeof nodeExecFileSync,
+      logger: noopLogger,
+    });
+
+    expect(service.listAsioDevices()).toMatchObject([
+      {
+        id: 'asio:0',
+        name: 'ASIO4ALL v2',
+        outputMode: 'asio',
+        asioOutputChannels: 4,
+        asioOutputChannelStart: 0,
+        asioChannelNames: ['Realtek 1', 'Realtek 2', 'USB 1', 'USB 2'],
+      },
+    ]);
+  });
+
   it('uses async native host enumeration for UI device lists', async () => {
     const execFileSyncMock = vi.fn(() => {
       throw new Error('sync enumeration should not run');
@@ -4604,42 +4688,92 @@ describe('DeviceService diagnostics', () => {
 });
 
 describe('DecoderPipeline ffmpeg resolution', () => {
-  it('prefers explicit ffmpegPath over env and ffmpeg-static', () => {
+  it('prefers explicit ffmpegPath over env and bundled ffmpeg', () => {
     expect(
       resolveDecoderFfmpegPath({
         ffmpegPath: 'explicit-ffmpeg',
         env: { ECHO_FFMPEG_PATH: 'env-ffmpeg' },
-        staticFfmpegPath: 'static-ffmpeg',
       }),
     ).toBe('explicit-ffmpeg');
   });
 
-  it('prefers ECHO_FFMPEG_PATH over ffmpeg-static', () => {
+  it('prefers ECHO_FFMPEG_PATH over bundled ffmpeg', () => {
     expect(
       resolveDecoderFfmpegPath({
         env: { ECHO_FFMPEG_PATH: 'env-ffmpeg' },
-        staticFfmpegPath: 'static-ffmpeg',
       }),
     ).toBe('env-ffmpeg');
   });
 
-  it('falls back to ffmpeg-static before system ffmpeg', () => {
+  it('falls back to dev-bundled ffmpeg before system ffmpeg', () => {
     expect(
       resolveDecoderFfmpegPath({
         env: {},
-        staticFfmpegPath: 'static-ffmpeg',
+        resourcesPath: null,
+        cwd: join('C:', 'Project', 'ECHO-Next'),
         systemFfmpegPath: 'system-ffmpeg',
+        existsSync: (path) => path === join('C:', 'Project', 'ECHO-Next', 'electron-app', 'tools', 'ffmpeg.exe'),
       }),
-    ).toBe('static-ffmpeg');
+    ).toBe(join('C:', 'Project', 'ECHO-Next', 'electron-app', 'tools', 'ffmpeg.exe'));
   });
 
-  it('uses app.asar.unpacked for packaged ffmpeg-static paths', () => {
+  it('uses app.asar.unpacked for explicit ffmpeg paths', () => {
+    const explicitPath = join('C:', 'App', 'resources', 'app.asar', 'tools', 'ffmpeg.exe');
+    expect(
+      resolveDecoderFfmpegPath({
+        ffmpegPath: explicitPath,
+        env: {},
+        resourcesPath: null,
+      }),
+    ).toBe(join('C:', 'App', 'resources', 'app.asar.unpacked', 'tools', 'ffmpeg.exe'));
+  });
+
+  it('prefers packaged tools ffmpeg before dev-bundled ffmpeg', () => {
     expect(
       resolveDecoderFfmpegPath({
         env: {},
-        staticFfmpegPath: join('C:', 'App', 'resources', 'app.asar', 'node_modules', 'ffmpeg-static', 'ffmpeg.exe'),
+        resourcesPath: join('C:', 'App', 'resources'),
+        cwd: join('C:', 'Project', 'ECHO-Next'),
+        existsSync: (path) =>
+          path === join('C:', 'App', 'resources', 'tools', 'ffmpeg.exe') ||
+          path === join('C:', 'Project', 'ECHO-Next', 'electron-app', 'tools', 'ffmpeg.exe'),
       }),
-    ).toBe(join('C:', 'App', 'resources', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg.exe'));
+    ).toBe(join('C:', 'App', 'resources', 'tools', 'ffmpeg.exe'));
+  });
+
+  it('detects healthy SOXR-capable ffmpeg builds', () => {
+    const execFileSync = vi.fn((_file: string, args: string[]) => {
+      if (args.includes('-version')) {
+        return 'ffmpeg version 8.1.1-full_build-www.gyan.dev\nconfiguration: --enable-gpl --enable-libsoxr\n';
+      }
+
+      return ' .. aresample         A->A       Resample audio data.\n';
+    });
+
+    const info = resolveFfmpegToolchain({
+      env: {},
+      resourcesPath: join('C:', 'App', 'resources'),
+      existsSync: (path) => path === join('C:', 'App', 'resources', 'tools', 'ffmpeg.exe'),
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+    });
+
+    expect(info).toMatchObject({
+      path: join('C:', 'App', 'resources', 'tools', 'ffmpeg.exe'),
+      version: '8.1.1-full_build-www.gyan.dev',
+      healthy: true,
+      soxrAvailable: true,
+      aresampleAvailable: true,
+    });
+  });
+
+  it('classifies ffmpeg stderr for stable fallback decisions', () => {
+    expect(classifyFfmpegDecodeError(['No such filter: soxr'], 'ffmpeg_exit_code_1')).toBe('soxr_or_filter_error');
+    expect(classifyFfmpegDecodeError(['Server returned 403 Forbidden'], 'ffmpeg_exit_code_1')).toBe('http_expired_or_forbidden');
+    expect(classifyFfmpegDecodeError(['Connection reset by peer'], 'ffmpeg_exit_code_1')).toBe('network_error');
+    expect(classifyFfmpegDecodeError(['Invalid data found when processing input'], 'ffmpeg_exit_code_1')).toBe('input_invalid');
+    expect(classifyFfmpegDecodeError(['Unknown decoder flac_test'], 'ffmpeg_exit_code_1')).toBe('unsupported_codec');
+    expect(classifyFfmpegDecodeError([], 'ffmpeg_pcm_start_timeout')).toBe('pcm_start_timeout');
+    expect(classifyFfmpegDecodeError([], 'ffmpeg_missing')).toBe('process_missing');
   });
 
   it('normalizes missing spawn errors to ffmpeg_missing', async () => {
@@ -4719,8 +4853,72 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     });
 
     await expect(run.done).rejects.toThrow(
-      'ffmpeg_exit_code_1; ffmpeg="test-ffmpeg"; args="-hide_banner -loglevel error -nostdin -ss 0 -i broken.flac -vn -f f32le -ac 2 -ar 44100 pipe:1"; stderr="Invalid data found when processing input"',
+      'ffmpeg_exit_code_1; ffmpeg="test-ffmpeg"; args="-hide_banner -loglevel error -nostdin -ss 0 -i broken.flac -vn -f f32le -ac 2 -ar 44100 pipe:1"; kind="input_invalid"; stderr="Invalid data found when processing input"',
     );
+  });
+
+  it('does not add remote reconnect args for local files', async () => {
+    let spawnedArgs: string[] = [];
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs = args;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'song.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 44100,
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    expect(spawnedArgs).not.toContain('-reconnect');
+    expect(spawnedArgs).not.toContain('-rw_timeout');
+  });
+
+  it('adds conservative reconnect args before remote HTTP inputs', async () => {
+    let spawnedArgs: string[] = [];
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs = args;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'https://example.test/song.flac?token=secret',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 44100,
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    const inputIndex = spawnedArgs.indexOf('-i');
+    for (const flag of ['-reconnect', '-reconnect_streamed', '-reconnect_at_eof', '-reconnect_on_network_error', '-reconnect_delay_max', '-rw_timeout']) {
+      expect(spawnedArgs.indexOf(flag)).toBeGreaterThanOrEqual(0);
+      expect(spawnedArgs.indexOf(flag)).toBeLessThan(inputIndex);
+    }
+    expect(spawnedArgs[spawnedArgs.indexOf('-rw_timeout') + 1]).toBe('30000000');
   });
 
   it('passes HTTP input headers to ffmpeg while redacting secrets from diagnostics', async () => {
@@ -4766,6 +4964,318 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     await expect(run.done).rejects.not.toThrow('MUSIC_U=secret');
     expect(logs.join('\n')).toContain('Cookie: <redacted>');
     expect(logs.join('\n')).not.toContain('MUSIC_U=secret');
+  });
+
+  it('times out remote HTTP decodes that produce no PCM startup data', async () => {
+    vi.useFakeTimers();
+    const kill = vi.fn(() => true);
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = () => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill,
+      });
+
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'https://example.test/slow.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 44100,
+    });
+    const rejection = expect(run.done).rejects.toThrow('ffmpeg_pcm_start_timeout');
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('does not time out a remote HTTP decode after PCM starts', async () => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(() => true),
+    });
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = () => {
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'https://example.test/song.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 44100,
+    });
+
+    child.stdout.write(Buffer.alloc(4));
+    await vi.advanceTimersByTimeAsync(30_000);
+    child.emit('exit', 0, null);
+    await expect(run.done).resolves.toBeUndefined();
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('uses SOXR filter args when requested and supported', async () => {
+    let spawnedArgs: string[] = [];
+    const execFileSync = vi.fn((_file: string, args: string[]) =>
+      args.includes('-version')
+        ? 'ffmpeg version 8.1.1-full_build-www.gyan.dev\nconfiguration: --enable-libsoxr\n'
+        : ' .. aresample         A->A       Resample audio data.\n',
+    );
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs = args;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+      requireHealthyFfmpeg: true,
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'song.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 48000,
+      resamplerEngine: 'soxr',
+      allowResamplerFallback: true,
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    expect(spawnedArgs).toEqual(expect.arrayContaining(['-af', 'aresample=resampler=soxr:precision=20', '-ar', '48000']));
+  });
+
+  it('falls back to default resampling when SOXR is unavailable and fallback is enabled', async () => {
+    let spawnedArgs: string[] = [];
+    const fallbacks: string[] = [];
+    const execFileSync = vi.fn((_file: string, args: string[]) =>
+      args.includes('-version')
+        ? 'ffmpeg version 8.1.1\nconfiguration: --enable-gpl\n'
+        : ' .. aresample         A->A       Resample audio data.\n',
+    );
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs = args;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+      requireHealthyFfmpeg: true,
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'song.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 48000,
+      resamplerEngine: 'soxr',
+      allowResamplerFallback: true,
+      onResamplerFallback: (warning) => fallbacks.push(warning),
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    expect(spawnedArgs).not.toContain('aresample=resampler=soxr:precision=20');
+    expect(fallbacks).toEqual(['soxr_unavailable_fallback_to_default']);
+  });
+
+  it('surfaces SOXR unavailable when fallback is disabled', () => {
+    const execFileSync = vi.fn((_file: string, args: string[]) =>
+      args.includes('-version')
+        ? 'ffmpeg version 8.1.1\nconfiguration: --enable-gpl\n'
+        : ' .. aresample         A->A       Resample audio data.\n',
+    );
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+      requireHealthyFfmpeg: true,
+      spawn: vi.fn() as unknown as NonNullable<DecoderPipelineDependencies['spawn']>,
+      logger: noopLogger,
+    });
+
+    expect(() =>
+      decoder.decodeLocalFile({
+        filePath: 'song.flac',
+        startSeconds: 0,
+        channels: 2,
+        decoderOutputSampleRate: 48000,
+        resamplerEngine: 'soxr',
+        allowResamplerFallback: false,
+      }),
+    ).toThrow('soxr_unavailable');
+  });
+
+  it('retries once with default resampling when SOXR fails before PCM output', async () => {
+    const spawnedArgs: string[][] = [];
+    const fallbacks: string[] = [];
+    const execFileSync = vi.fn((_file: string, args: string[]) =>
+      args.includes('-version')
+        ? 'ffmpeg version 8.1.1-full_build-www.gyan.dev\nconfiguration: --enable-libsoxr\n'
+        : ' .. aresample         A->A       Resample audio data.\n',
+    );
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs.push(args);
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => {
+        if (spawnedArgs.length === 1) {
+          child.stderr.write('No such filter: soxr\n');
+          child.emit('exit', 1, null);
+        } else {
+          child.emit('exit', 0, null);
+        }
+      });
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+      requireHealthyFfmpeg: true,
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'song.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 48000,
+      resamplerEngine: 'soxr',
+      allowResamplerFallback: true,
+      onResamplerFallback: (warning) => fallbacks.push(warning),
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    expect(spawnedArgs).toHaveLength(2);
+    expect(spawnedArgs[0]).toContain('aresample=resampler=soxr:precision=20');
+    expect(spawnedArgs[1]).not.toContain('aresample=resampler=soxr:precision=20');
+    expect(fallbacks).toEqual(['soxr_decode_failed_fallback_to_default']);
+  });
+
+  it('does not treat generic input failures as SOXR fallback triggers', async () => {
+    const spawnedArgs: string[][] = [];
+    const fallbacks: string[] = [];
+    const execFileSync = vi.fn((_file: string, args: string[]) =>
+      args.includes('-version')
+        ? 'ffmpeg version 8.1.1-full_build-www.gyan.dev\nconfiguration: --enable-libsoxr\n'
+        : ' .. aresample         A->A       Resample audio data.\n',
+    );
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs.push(args);
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => {
+        child.stderr.write('Invalid data found when processing input\n');
+        child.emit('exit', 1, null);
+      });
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+      requireHealthyFfmpeg: true,
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeLocalFile({
+      filePath: 'broken.flac',
+      startSeconds: 0,
+      channels: 2,
+      decoderOutputSampleRate: 48000,
+      resamplerEngine: 'soxr',
+      allowResamplerFallback: true,
+      onResamplerFallback: (warning) => fallbacks.push(warning),
+    });
+
+    await expect(run.done).rejects.toThrow('Invalid data found when processing input');
+    expect(spawnedArgs).toHaveLength(1);
+    expect(spawnedArgs[0]).toContain('aresample=resampler=soxr:precision=20');
+    expect(fallbacks).toEqual([]);
+  });
+
+  it('does not treat HTTP, network, or codec errors as SOXR fallback triggers', async () => {
+    const cases = [
+      ['Server returned 403 Forbidden', 'http_expired_or_forbidden'],
+      ['Connection reset by peer', 'network_error'],
+      ['Unknown decoder flac_test', 'unsupported_codec'],
+    ] as const;
+
+    for (const [stderrLine, expectedKind] of cases) {
+      const spawnedArgs: string[][] = [];
+      const fallbacks: string[] = [];
+      const execFileSync = vi.fn((_file: string, args: string[]) =>
+        args.includes('-version')
+          ? 'ffmpeg version 8.1.1-full_build-www.gyan.dev\nconfiguration: --enable-libsoxr\n'
+          : ' .. aresample         A->A       Resample audio data.\n',
+      );
+      const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+        spawnedArgs.push(args);
+        const child = Object.assign(new EventEmitter(), {
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(() => true),
+        });
+
+        queueMicrotask(() => {
+          child.stderr.write(`${stderrLine}\n`);
+          child.emit('exit', 1, null);
+        });
+        return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+      };
+      const decoder = new DecoderPipeline({
+        ffmpegPath: 'test-ffmpeg',
+        execFileSync: execFileSync as unknown as typeof nodeExecFileSync,
+        requireHealthyFfmpeg: true,
+        spawn,
+        logger: noopLogger,
+      });
+      const run = decoder.decodeLocalFile({
+        filePath: 'https://example.test/song.flac',
+        startSeconds: 0,
+        channels: 2,
+        decoderOutputSampleRate: 48000,
+        resamplerEngine: 'soxr',
+        allowResamplerFallback: true,
+        onResamplerFallback: (warning) => fallbacks.push(warning),
+      });
+
+      await expect(run.done).rejects.toThrow(`kind="${expectedKind}"`);
+      expect(spawnedArgs).toHaveLength(1);
+      expect(spawnedArgs[0]).toContain('aresample=resampler=soxr:precision=20');
+      expect(fallbacks).toEqual([]);
+    }
   });
 });
 

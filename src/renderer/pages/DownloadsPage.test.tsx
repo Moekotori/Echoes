@@ -26,7 +26,7 @@ const toolsStatus: DownloadToolsStatus = {
   ffmpegAvailable: true,
   ytDlpVersion: null,
   ytDlpPath: null,
-  ffmpegPath: 'D:\\Project\\ECHONext\\node_modules\\ffmpeg-static\\ffmpeg.exe',
+  ffmpegPath: 'D:\\Project\\ECHONext\\resources\\tools\\ffmpeg.exe',
 };
 
 const searchResponse: DownloadSearchResponse = {

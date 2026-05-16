@@ -15,9 +15,19 @@ export type DeviceListOptions = {
   useJuceOutput?: boolean;
 };
 
+export type AsioControlPanelOptions = {
+  deviceIndex?: number;
+  deviceName?: string;
+};
+
 const parsePositiveInteger = (value: string | undefined): number | null => {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const parseNonNegativeInteger = (value: string | undefined): number | undefined => {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
 const parseDeviceListLine = (line: string, outputMode: AudioDeviceInfo['outputMode']): AudioDeviceInfo | null => {
@@ -32,7 +42,7 @@ const parseDeviceListLine = (line: string, outputMode: AudioDeviceInfo['outputMo
     return null;
   }
 
-  return {
+  const device: AudioDeviceInfo = {
     id: `${outputMode}:${index}`,
     index,
     name: parts[1],
@@ -41,6 +51,26 @@ const parseDeviceListLine = (line: string, outputMode: AudioDeviceInfo['outputMo
     isDefault: parts[3] === '1',
     sharedDeviceSampleRate: parsePositiveInteger(parts[4]),
   };
+
+  if (outputMode === 'asio') {
+    const asioOutputChannels = parsePositiveInteger(parts[5]);
+    const asioOutputChannelStart = parseNonNegativeInteger(parts[6]);
+    const asioChannelNames = parts[7]?.trim()
+      ? parts[7].split('|').map((name) => name.trim()).filter(Boolean)
+      : undefined;
+
+    if (asioOutputChannels !== null) {
+      device.asioOutputChannels = asioOutputChannels;
+    }
+    if (asioOutputChannelStart !== undefined) {
+      device.asioOutputChannelStart = asioOutputChannelStart;
+    }
+    if (asioChannelNames && asioChannelNames.length > 0) {
+      device.asioChannelNames = asioChannelNames;
+    }
+  }
+
+  return device;
 };
 
 export class DeviceService {
@@ -85,6 +115,23 @@ export class DeviceService {
     this.asioPending.clear();
 
     return this.listDevicesAsync(options);
+  }
+
+  async openAsioControlPanel(options: AsioControlPanelOptions = {}): Promise<void> {
+    if (!isAdvancedNativeOutputPlatform(this.platform)) {
+      throw new Error(`ASIO control panel is unavailable on ${this.platform}`);
+    }
+
+    const args = ['-asio-control-panel'];
+    const deviceIndex = Number(options.deviceIndex);
+    if (Number.isInteger(deviceIndex) && deviceIndex >= 0) {
+      args.push('-device-index', String(deviceIndex));
+    }
+    if (typeof options.deviceName === 'string' && options.deviceName.trim()) {
+      args.push('-device', options.deviceName.trim());
+    }
+
+    await this.runHostCommandAsync(args, 'asio');
   }
 
   listSharedDevices(options: DeviceListOptions = {}): AudioDeviceInfo[] {
@@ -244,6 +291,26 @@ export class DeviceService {
         }
 
         resolve(devices);
+      });
+    });
+  }
+
+  private runHostCommandAsync(args: string[], outputMode: AudioDeviceInfo['outputMode']): Promise<void> {
+    const bin = this.hostBinary ?? (this.platform === process.platform ? resolveHostBinary() : null);
+
+    if (!bin) {
+      throw new Error(`echo-audio-host binary not found for ${outputMode} command`);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.execAsync(bin, args, { timeout: 10_000, encoding: 'utf-8' }, (error, stdout, stderr) => {
+        if (error) {
+          this.logDeviceListFailure(Object.assign(error, { stderr, stdout }), bin, args, outputMode);
+          reject(error);
+          return;
+        }
+
+        resolve();
       });
     });
   }

@@ -19,6 +19,7 @@ export type TranslationKey =
   | 'audioDrawer.action.copiedDiagnostics'
   | 'audioDrawer.action.copyDiagnostics'
   | 'audioDrawer.action.hideDevice'
+  | 'audioDrawer.action.openAsioPanel'
   | 'audioDrawer.action.resetEngine'
   | 'audioDrawer.action.resetEngineBusy'
   | 'audioDrawer.action.resetEngineDone'
@@ -27,10 +28,24 @@ export type TranslationKey =
   | 'audioDrawer.asioLatency.recommended'
   | 'audioDrawer.asioLatency.status'
   | 'audioDrawer.asioLatency.value'
+  | 'audioDrawer.asioRoutes.title'
   | 'audioDrawer.badge.bitPerfectReady'
   | 'audioDrawer.badge.dspActive'
+  | 'audioDrawer.badge.juceOutput'
   | 'audioDrawer.badge.resampling'
+  | 'audioDrawer.badge.soxrResampler'
   | 'audioDrawer.badge.speedUp'
+  | 'audioDrawer.buffer.asio'
+  | 'audioDrawer.buffer.auto'
+  | 'audioDrawer.buffer.collapsedDescription'
+  | 'audioDrawer.buffer.default'
+  | 'audioDrawer.buffer.latencyProfile'
+  | 'audioDrawer.buffer.low'
+  | 'audioDrawer.buffer.profileDefault'
+  | 'audioDrawer.buffer.safer'
+  | 'audioDrawer.buffer.stable'
+  | 'audioDrawer.buffer.title'
+  | 'audioDrawer.buffer.ultraLow'
   | 'audioDrawer.device.asioDriver'
   | 'audioDrawer.device.lowLatency'
   | 'audioDrawer.device.selected'
@@ -49,6 +64,17 @@ export type TranslationKey =
   | 'audioDrawer.meter.rate'
   | 'audioDrawer.meter.resample'
   | 'audioDrawer.meter.source'
+  | 'audioDrawer.meter.latency'
+  | 'audioDrawer.guard.asioUnavailable.description'
+  | 'audioDrawer.guard.asioUnavailable.title'
+  | 'audioDrawer.guard.soxrFallback.description'
+  | 'audioDrawer.guard.soxrFallback.title'
+  | 'audioDrawer.latency.balanced'
+  | 'audioDrawer.latency.balancedDetail'
+  | 'audioDrawer.latency.lowLatency'
+  | 'audioDrawer.latency.lowLatencyDetail'
+  | 'audioDrawer.latency.stable'
+  | 'audioDrawer.latency.stableDetail'
   | 'audioDrawer.mode.exclusive'
   | 'audioDrawer.mode.exclusiveCandidate'
   | 'audioDrawer.mode.directSound'
@@ -58,8 +84,13 @@ export type TranslationKey =
   | 'audioDrawer.note.currentOutput'
   | 'audioDrawer.note.engine'
   | 'audioDrawer.note.juceOutput'
+  | 'audioDrawer.option.juceOutput'
+  | 'audioDrawer.option.active'
+  | 'audioDrawer.option.set'
   | 'audioDrawer.option.rememberOutput'
   | 'audioDrawer.option.rememberOutputDescription'
+  | 'audioDrawer.option.showAsioPanelSettings'
+  | 'audioDrawer.option.showAsioPanelSettingsDescription'
   | 'audioDrawer.option.directSound'
   | 'audioDrawer.option.directSoundDescription'
   | 'audioDrawer.option.sharedBackend'
@@ -357,6 +388,12 @@ export type TranslationKey =
   | 'mvSettings.network.restartAudioOnLoad'
   | 'mvSettings.network.restartAudioOnLoadDescription'
   | 'mvSettings.network.title'
+  | 'mvSettings.offset.aria'
+  | 'mvSettings.offset.description'
+  | 'mvSettings.offset.earlier'
+  | 'mvSettings.offset.later'
+  | 'mvSettings.offset.reset'
+  | 'mvSettings.offset.title'
   | 'mvSettings.provider.local'
   | 'mvSettings.quality.max'
   | 'mvSettings.search.input'
@@ -388,6 +425,17 @@ export type TranslationKey =
   | 'settings.appearance.density.description'
   | 'settings.appearance.density.standard'
   | 'settings.appearance.density.title'
+  | 'settings.appearance.artistAvatars.action.clear'
+  | 'settings.appearance.artistAvatars.action.queueing'
+  | 'settings.appearance.artistAvatars.action.refreshMissing'
+  | 'settings.appearance.artistAvatars.description'
+  | 'settings.appearance.artistAvatars.message.cleared'
+  | 'settings.appearance.artistAvatars.message.desktopBridgeClear'
+  | 'settings.appearance.artistAvatars.message.desktopBridgeRefresh'
+  | 'settings.appearance.artistAvatars.message.enableFirst'
+  | 'settings.appearance.artistAvatars.message.queued'
+  | 'settings.appearance.artistAvatars.title'
+  | 'settings.appearance.artistAvatars.toggle'
   | 'settings.appearance.font.choose'
   | 'settings.appearance.font.chinese.description'
   | 'settings.appearance.font.chinese.title'
@@ -735,6 +783,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.action.copiedDiagnostics': '已复制播放诊断信息',
   'audioDrawer.action.copyDiagnostics': '复制播放诊断信息',
   'audioDrawer.action.hideDevice': '隐藏设备',
+  'audioDrawer.action.openAsioPanel': '打开 ASIO 面板',
   'audioDrawer.action.resetEngine': '重置音频引擎',
   'audioDrawer.action.resetEngineBusy': '正在重置音频引擎',
   'audioDrawer.action.resetEngineDone': '音频引擎已重置',
@@ -743,10 +792,24 @@ const zhCN: TranslationMap = {
   'audioDrawer.asioLatency.recommended': '推荐延迟',
   'audioDrawer.asioLatency.status': '请求 {requested} frames / 已打开 {opened} frames',
   'audioDrawer.asioLatency.value': '{value} ms',
+  'audioDrawer.asioRoutes.title': 'ASIO 输出通道',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
+  'audioDrawer.badge.juceOutput': 'JUCE 输出',
   'audioDrawer.badge.resampling': 'Resampling',
+  'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': 'Speed Up',
+  'audioDrawer.buffer.asio': 'ASIO 缓冲',
+  'audioDrawer.buffer.auto': '自动',
+  'audioDrawer.buffer.collapsedDescription': '默认收起；点开可调整延迟档位和 ASIO 缓冲。',
+  'audioDrawer.buffer.default': '默认',
+  'audioDrawer.buffer.latencyProfile': '延迟档位',
+  'audioDrawer.buffer.low': '低',
+  'audioDrawer.buffer.profileDefault': '跟随档位默认',
+  'audioDrawer.buffer.safer': '更稳',
+  'audioDrawer.buffer.stable': '稳定',
+  'audioDrawer.buffer.title': '缓冲设置',
+  'audioDrawer.buffer.ultraLow': '超低延迟',
   'audioDrawer.device.asioDriver': 'ASIO 驱动',
   'audioDrawer.device.lowLatency': '低延迟',
   'audioDrawer.device.selected': '已选择',
@@ -765,6 +828,17 @@ const zhCN: TranslationMap = {
   'audioDrawer.meter.rate': '采样率',
   'audioDrawer.meter.resample': '重采样',
   'audioDrawer.meter.source': '音源',
+  'audioDrawer.meter.latency': '延迟',
+  'audioDrawer.guard.asioUnavailable.description': '默认关闭。遇到 No device found 后会短暂跳过同一个 ASIO 设备，并改用安全的共享输出。',
+  'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保护',
+  'audioDrawer.guard.soxrFallback.description': '默认开启。如果共享 SOXR 重采样在 PCM 开始前不可用，会回退到 FFmpeg 默认重采样。',
+  'audioDrawer.guard.soxrFallback.title': 'SOXR 回退保护',
+  'audioDrawer.latency.balanced': '均衡',
+  'audioDrawer.latency.balancedDetail': '2048 frames',
+  'audioDrawer.latency.lowLatency': '低延迟',
+  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自适应',
+  'audioDrawer.latency.stable': '稳定',
+  'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '独占',
   'audioDrawer.mode.exclusiveCandidate': '独占候选',
   'audioDrawer.mode.directSound': 'DirectSound 兼容',
@@ -774,8 +848,13 @@ const zhCN: TranslationMap = {
   'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 会以金色标出。',
   'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
   'audioDrawer.note.juceOutput': '通常来说，JUCE 的输出最稳定；开启后会尝试接管当前输出，失败会自动回退。',
+  'audioDrawer.option.juceOutput': '使用 JUCE 输出',
+  'audioDrawer.option.active': '开启',
+  'audioDrawer.option.set': '设置',
   'audioDrawer.option.rememberOutput': '保存输出设置',
   'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
+  'audioDrawer.option.showAsioPanelSettings': '是否显示 ASIO 面板设置',
+  'audioDrawer.option.showAsioPanelSettingsDescription': '默认关闭。开启后才在 ASIO 设备下显示“打开 ASIO 面板”按钮。',
   'audioDrawer.option.directSound': 'DirectSound 兼容',
   'audioDrawer.option.directSoundDescription': '手动兼容模式，延迟较大；只在 WASAPI 播放异常时尝试。',
   'audioDrawer.option.sharedBackend': '共享后端',
@@ -1073,6 +1152,12 @@ const zhCN: TranslationMap = {
   'mvSettings.network.restartAudioOnLoad': 'MV 跟随音乐进度',
   'mvSettings.network.restartAudioOnLoadDescription': '开启后，只校准 MV 视频时间，不会 seek 或重启音频；歌词同步偏移不会影响 MV。',
   'mvSettings.network.title': '网络来源',
+  'mvSettings.offset.aria': 'MV 同步延迟',
+  'mvSettings.offset.description': '只保存到当前这首歌的 MV；换歌后不会影响其他歌曲。',
+  'mvSettings.offset.earlier': 'MV 提前 {value}',
+  'mvSettings.offset.later': 'MV 延后 {value}',
+  'mvSettings.offset.reset': '重置 MV 延迟',
+  'mvSettings.offset.title': '本歌曲 MV 延迟',
   'mvSettings.provider.local': '本地',
   'mvSettings.quality.max': '最高',
   'mvSettings.search.input': 'MV 搜索关键词',
@@ -1104,6 +1189,17 @@ const zhCN: TranslationMap = {
   'settings.appearance.density.description': '曲库列表采用更紧凑的桌面密度，不再使用过大的卡片行。',
   'settings.appearance.density.standard': '标准',
   'settings.appearance.density.title': '界面密度',
+  'settings.appearance.artistAvatars.action.clear': '清除头像缓存',
+  'settings.appearance.artistAvatars.action.queueing': '加入队列中...',
+  'settings.appearance.artistAvatars.action.refreshMissing': '刷新缺失头像',
+  'settings.appearance.artistAvatars.description': '在后台慢速获取真实歌手头像，并在艺术家墙复用本地缓存图片。',
+  'settings.appearance.artistAvatars.message.cleared': '已清除 {removedRows} 条头像记录和 {deletedFiles} 个文件。',
+  'settings.appearance.artistAvatars.message.desktopBridgeClear': '桌面桥不可用。请在 Electron 中打开 ECHO Next 以清除歌手头像。',
+  'settings.appearance.artistAvatars.message.desktopBridgeRefresh': '桌面桥不可用。请在 Electron 中打开 ECHO Next 以刷新歌手头像。',
+  'settings.appearance.artistAvatars.message.enableFirst': '请先开启自动获取歌手头像。',
+  'settings.appearance.artistAvatars.message.queued': '已加入 {queued} 个歌手头像。跳过 {skipped} 个。',
+  'settings.appearance.artistAvatars.title': '歌手头像',
+  'settings.appearance.artistAvatars.toggle': '自动获取歌手头像',
   'settings.appearance.font.choose': '选择',
   'settings.appearance.font.chinese.description': '当主字体缺少中文字符时，优先使用这个中文字体补齐。',
   'settings.appearance.font.chinese.title': '中文字体',
@@ -1477,6 +1573,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.action.copiedDiagnostics': '已複製播放診斷資訊',
   'audioDrawer.action.copyDiagnostics': '複製播放診斷資訊',
   'audioDrawer.action.hideDevice': '隱藏裝置',
+  'audioDrawer.action.openAsioPanel': '開啟 ASIO 面板',
   'audioDrawer.action.resetEngine': '重置音訊引擎',
   'audioDrawer.action.resetEngineBusy': '正在重置音訊引擎',
   'audioDrawer.action.resetEngineDone': '音訊引擎已重置',
@@ -1485,6 +1582,24 @@ const zhTW: TranslationMap = {
   'audioDrawer.asioLatency.recommended': '建議延遲',
   'audioDrawer.asioLatency.status': '要求 {requested} frames / 已開啟 {opened} frames',
   'audioDrawer.asioLatency.value': '{value} ms',
+  'audioDrawer.asioRoutes.title': 'ASIO 輸出通道',
+  'audioDrawer.badge.bitPerfectReady': 'Bit-perfect 就緒',
+  'audioDrawer.badge.dspActive': 'DSP 啟用',
+  'audioDrawer.badge.juceOutput': 'JUCE 輸出',
+  'audioDrawer.badge.resampling': '重取樣',
+  'audioDrawer.badge.soxrResampler': 'SOXR',
+  'audioDrawer.badge.speedUp': '加速',
+  'audioDrawer.buffer.asio': 'ASIO 緩衝',
+  'audioDrawer.buffer.auto': '自動',
+  'audioDrawer.buffer.collapsedDescription': '預設收合；點開可調整延遲檔位與 ASIO 緩衝。',
+  'audioDrawer.buffer.default': '預設',
+  'audioDrawer.buffer.latencyProfile': '延遲檔位',
+  'audioDrawer.buffer.low': '低',
+  'audioDrawer.buffer.profileDefault': '跟隨檔位預設',
+  'audioDrawer.buffer.safer': '更穩',
+  'audioDrawer.buffer.stable': '穩定',
+  'audioDrawer.buffer.title': '緩衝設定',
+  'audioDrawer.buffer.ultraLow': '超低延遲',
   'audioDrawer.device.asioDriver': 'ASIO 驅動',
   'audioDrawer.device.lowLatency': '低延遲',
   'audioDrawer.device.selected': '已選取',
@@ -1503,6 +1618,17 @@ const zhTW: TranslationMap = {
   'audioDrawer.meter.rate': '取樣率',
   'audioDrawer.meter.resample': '重取樣',
   'audioDrawer.meter.source': '音源',
+  'audioDrawer.meter.latency': '延遲',
+  'audioDrawer.guard.asioUnavailable.description': '預設關閉。遇到 No device found 後會短暫跳過同一個 ASIO 裝置，並改用安全的共享輸出。',
+  'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保護',
+  'audioDrawer.guard.soxrFallback.description': '預設開啟。如果共享 SOXR 重取樣在 PCM 開始前不可用，會退回到 FFmpeg 預設重取樣。',
+  'audioDrawer.guard.soxrFallback.title': 'SOXR 退回保護',
+  'audioDrawer.latency.balanced': '均衡',
+  'audioDrawer.latency.balancedDetail': '2048 frames',
+  'audioDrawer.latency.lowLatency': '低延遲',
+  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自適應',
+  'audioDrawer.latency.stable': '穩定',
+  'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '獨佔',
   'audioDrawer.mode.exclusiveCandidate': '獨佔候選',
   'audioDrawer.mode.directSound': 'DirectSound 相容',
@@ -1512,8 +1638,13 @@ const zhTW: TranslationMap = {
   'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 會以金色標出。',
   'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
   'audioDrawer.note.juceOutput': '通常來說，JUCE 的輸出最穩定；開啟後會嘗試接管目前輸出，失敗會自動退回。',
+  'audioDrawer.option.juceOutput': '使用 JUCE 輸出',
+  'audioDrawer.option.active': '開啟',
+  'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
   'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
+  'audioDrawer.option.showAsioPanelSettings': '是否顯示 ASIO 面板設定',
+  'audioDrawer.option.showAsioPanelSettingsDescription': '預設關閉。開啟後才會在 ASIO 裝置下顯示「開啟 ASIO 面板」按鈕。',
   'audioDrawer.option.directSound': 'DirectSound 相容',
   'audioDrawer.option.directSoundDescription': '手動相容模式，延遲較大；只在 WASAPI 播放異常時嘗試。',
   'audioDrawer.option.sharedBackend': '共享後端',
@@ -1526,6 +1657,11 @@ const zhTW: TranslationMap = {
   'audioDrawer.section.currentOutput': '目前輸出',
   'audioDrawer.section.hiddenDevices': '隱藏裝置',
   'audioDrawer.section.systemDevices': '系統輸出裝置',
+  'audioDrawer.signal.balanceDsp': '平衡 DSP',
+  'audioDrawer.signal.bitPerfect': 'Bit-perfect',
+  'audioDrawer.signal.dspOn': 'DSP 開啟',
+  'audioDrawer.signal.eqOff': 'EQ 關閉',
+  'audioDrawer.signal.eqOn': 'EQ 開啟',
   'audioDrawer.signal.nativeRate': '原生取樣率',
   'audioDrawer.signal.noActiveSource': '沒有作用中的音源',
   'audioDrawer.signal.pending': '等待中',
@@ -1706,6 +1842,12 @@ const zhTW: TranslationMap = {
   'mvSettings.network.restartAudioOnLoad': 'MV 跟隨音樂進度',
   'mvSettings.network.restartAudioOnLoadDescription': '開啟後，只校準 MV 影片時間，不會 seek 或重啟音訊；歌詞同步偏移不會影響 MV。',
   'mvSettings.network.title': '網路來源',
+  'mvSettings.offset.aria': 'MV 同步延遲',
+  'mvSettings.offset.description': '只儲存到目前這首歌的 MV；換歌後不會影響其他歌曲。',
+  'mvSettings.offset.earlier': 'MV 提前 {value}',
+  'mvSettings.offset.later': 'MV 延後 {value}',
+  'mvSettings.offset.reset': '重置 MV 延遲',
+  'mvSettings.offset.title': '本歌曲 MV 延遲',
   'mvSettings.provider.local': '本地',
   'mvSettings.quality.max': '最高',
   'mvSettings.search.input': 'MV 搜尋關鍵字',
@@ -1904,6 +2046,17 @@ const zhTW: TranslationMap = {
   'settings.appearance.density.title': '介面密度',
   'settings.appearance.density.compact': '緊湊',
   'settings.appearance.density.standard': '標準',
+  'settings.appearance.artistAvatars.action.clear': '清除頭像快取',
+  'settings.appearance.artistAvatars.action.queueing': '加入佇列中...',
+  'settings.appearance.artistAvatars.action.refreshMissing': '重新整理缺失頭像',
+  'settings.appearance.artistAvatars.description': '在背景慢速取得真實歌手頭像，並在藝術家牆重複使用本機快取圖片。',
+  'settings.appearance.artistAvatars.message.cleared': '已清除 {removedRows} 筆頭像記錄和 {deletedFiles} 個檔案。',
+  'settings.appearance.artistAvatars.message.desktopBridgeClear': '桌面橋接不可用。請在 Electron 中開啟 ECHO Next 以清除歌手頭像。',
+  'settings.appearance.artistAvatars.message.desktopBridgeRefresh': '桌面橋接不可用。請在 Electron 中開啟 ECHO Next 以重新整理歌手頭像。',
+  'settings.appearance.artistAvatars.message.enableFirst': '請先開啟自動取得歌手頭像。',
+  'settings.appearance.artistAvatars.message.queued': '已加入 {queued} 個歌手頭像。略過 {skipped} 個。',
+  'settings.appearance.artistAvatars.title': '歌手頭像',
+  'settings.appearance.artistAvatars.toggle': '自動取得歌手頭像',
   'settings.devices.title': '裝置列表',
   'settings.devices.empty': 'echo-audio-host 暫未回傳輸出裝置。',
   'settings.danger.clearCache.title': '清空媒體庫快取',
@@ -1960,6 +2113,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.action.copiedDiagnostics': '再生診断情報をコピーしました',
   'audioDrawer.action.copyDiagnostics': '再生診断情報をコピー',
   'audioDrawer.action.hideDevice': 'デバイスを非表示',
+  'audioDrawer.action.openAsioPanel': 'ASIO パネルを開く',
   'audioDrawer.action.resetEngine': '音声エンジンをリセット',
   'audioDrawer.action.resetEngineBusy': '音声エンジンをリセット中',
   'audioDrawer.action.resetEngineDone': '音声エンジンをリセットしました',
@@ -1968,6 +2122,24 @@ const jaJP: TranslationMap = {
   'audioDrawer.asioLatency.recommended': '推奨レイテンシ',
   'audioDrawer.asioLatency.status': '要求 {requested} frames / オープン {opened} frames',
   'audioDrawer.asioLatency.value': '{value} ms',
+  'audioDrawer.asioRoutes.title': 'ASIO 出力チャンネル',
+  'audioDrawer.badge.bitPerfectReady': 'Bit-perfect 対応',
+  'audioDrawer.badge.dspActive': 'DSP 有効',
+  'audioDrawer.badge.juceOutput': 'JUCE 出力',
+  'audioDrawer.badge.resampling': 'リサンプル',
+  'audioDrawer.badge.soxrResampler': 'SOXR',
+  'audioDrawer.badge.speedUp': '速度アップ',
+  'audioDrawer.buffer.asio': 'ASIO バッファー',
+  'audioDrawer.buffer.auto': '自動',
+  'audioDrawer.buffer.collapsedDescription': '既定では折りたたみます。開くとレイテンシプロファイルと ASIO バッファーを調整できます。',
+  'audioDrawer.buffer.default': '既定',
+  'audioDrawer.buffer.latencyProfile': 'レイテンシプロファイル',
+  'audioDrawer.buffer.low': '低',
+  'audioDrawer.buffer.profileDefault': 'プロファイル既定',
+  'audioDrawer.buffer.safer': '安全寄り',
+  'audioDrawer.buffer.stable': '安定',
+  'audioDrawer.buffer.title': 'バッファー設定',
+  'audioDrawer.buffer.ultraLow': '超低遅延',
   'audioDrawer.device.asioDriver': 'ASIO ドライバー',
   'audioDrawer.device.lowLatency': '低遅延',
   'audioDrawer.device.selected': '選択中',
@@ -1986,6 +2158,17 @@ const jaJP: TranslationMap = {
   'audioDrawer.meter.rate': 'レート',
   'audioDrawer.meter.resample': 'リサンプル',
   'audioDrawer.meter.source': 'ソース',
+  'audioDrawer.meter.latency': 'レイテンシ',
+  'audioDrawer.guard.asioUnavailable.description': '既定ではオフです。No device found の後、同じ ASIO デバイスを短時間スキップし、安全な共有出力を使います。',
+  'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可時ガード',
+  'audioDrawer.guard.soxrFallback.description': '既定ではオンです。共有 SOXR リサンプルが PCM 開始前に使えない場合、FFmpeg 既定のリサンプルに戻します。',
+  'audioDrawer.guard.soxrFallback.title': 'SOXR フォールバックガード',
+  'audioDrawer.latency.balanced': 'バランス',
+  'audioDrawer.latency.balancedDetail': '2048 frames',
+  'audioDrawer.latency.lowLatency': '低遅延',
+  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自動調整',
+  'audioDrawer.latency.stable': '安定',
+  'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '排他',
   'audioDrawer.mode.exclusiveCandidate': '排他候補',
   'audioDrawer.mode.directSound': 'DirectSound 互換',
@@ -1995,8 +2178,13 @@ const jaJP: TranslationMap = {
   'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO は金色で表示されます。',
   'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
   'audioDrawer.note.juceOutput': '通常、JUCE 出力が最も安定します。有効にすると現在の出力を引き継ぎ、失敗時は自動で戻します。',
+  'audioDrawer.option.juceOutput': 'JUCE 出力を使う',
+  'audioDrawer.option.active': 'オン',
+  'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
   'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
+  'audioDrawer.option.showAsioPanelSettings': 'ASIO パネル設定を表示する',
+  'audioDrawer.option.showAsioPanelSettingsDescription': '既定ではオフです。オンにすると ASIO デバイスの下に「ASIO パネルを開く」ボタンを表示します。',
   'audioDrawer.option.directSound': 'DirectSound 互換',
   'audioDrawer.option.directSoundDescription': '手動の互換モードです。遅延が大きいため、WASAPI 再生に問題がある場合だけ試してください。',
   'audioDrawer.option.sharedBackend': '共有バックエンド',
@@ -2009,6 +2197,11 @@ const jaJP: TranslationMap = {
   'audioDrawer.section.currentOutput': '現在の出力',
   'audioDrawer.section.hiddenDevices': '非表示デバイス',
   'audioDrawer.section.systemDevices': 'システム出力デバイス',
+  'audioDrawer.signal.balanceDsp': 'バランス DSP',
+  'audioDrawer.signal.bitPerfect': 'Bit-perfect',
+  'audioDrawer.signal.dspOn': 'DSP オン',
+  'audioDrawer.signal.eqOff': 'EQ オフ',
+  'audioDrawer.signal.eqOn': 'EQ オン',
   'audioDrawer.signal.nativeRate': 'ネイティブレート',
   'audioDrawer.signal.noActiveSource': 'アクティブなソースなし',
   'audioDrawer.signal.pending': '保留中',
@@ -2214,6 +2407,12 @@ const jaJP: TranslationMap = {
   'mvSettings.network.restartAudioOnLoad': 'MV を音楽の進行に追従',
   'mvSettings.network.restartAudioOnLoadDescription': 'オンにすると MV の映像時間だけを補正し、音声のシークや再起動は行いません。歌詞同期オフセットの影響も受けません。',
   'mvSettings.network.title': 'ネットワークソース',
+  'mvSettings.offset.aria': 'MV 同期遅延',
+  'mvSettings.offset.description': '現在の曲の MV だけに保存され、別の曲には影響しません。',
+  'mvSettings.offset.earlier': 'MV を {value} 早める',
+  'mvSettings.offset.later': 'MV を {value} 遅らせる',
+  'mvSettings.offset.reset': 'MV 遅延をリセット',
+  'mvSettings.offset.title': 'この曲の MV 遅延',
   'mvSettings.provider.local': 'ローカル',
   'mvSettings.quality.max': '最大',
   'mvSettings.search.input': 'MV 検索キーワード',
@@ -2462,6 +2661,17 @@ const jaJP: TranslationMap = {
   'settings.appearance.density.description': 'ライブラリ一覧はよりコンパクトなデスクトップ密度を使い、大きすぎるカード行は使いません。',
   'settings.appearance.density.compact': 'コンパクト',
   'settings.appearance.density.standard': '標準',
+  'settings.appearance.artistAvatars.action.clear': 'アバターキャッシュを消去',
+  'settings.appearance.artistAvatars.action.queueing': 'キューに追加中...',
+  'settings.appearance.artistAvatars.action.refreshMissing': '不足アバターを更新',
+  'settings.appearance.artistAvatars.description': '本物のアーティストアバターをバックグラウンドでゆっくり取得し、アーティストウォールでローカルキャッシュ画像を再利用します。',
+  'settings.appearance.artistAvatars.message.cleared': '{removedRows} 件のアバター記録と {deletedFiles} 個のファイルを消去しました。',
+  'settings.appearance.artistAvatars.message.desktopBridgeClear': 'デスクトップブリッジを利用できません。アーティストアバターを消去するには Electron で ECHO Next を開いてください。',
+  'settings.appearance.artistAvatars.message.desktopBridgeRefresh': 'デスクトップブリッジを利用できません。アーティストアバターを更新するには Electron で ECHO Next を開いてください。',
+  'settings.appearance.artistAvatars.message.enableFirst': '先にアーティストアバターの自動取得を有効にしてください。',
+  'settings.appearance.artistAvatars.message.queued': '{queued} 件のアーティストアバターをキューに追加しました。{skipped} 件をスキップしました。',
+  'settings.appearance.artistAvatars.title': 'アーティストアバター',
+  'settings.appearance.artistAvatars.toggle': 'アーティストアバターを自動取得',
   'settings.devices.title': 'デバイス一覧',
   'settings.devices.empty': 'echo-audio-host から出力デバイスがまだ返っていません。',
   'settings.about.devMode.title': '開発モード',
@@ -2520,6 +2730,7 @@ const enUS: TranslationMap = {
   'audioDrawer.action.copiedDiagnostics': 'Playback diagnostics copied',
   'audioDrawer.action.copyDiagnostics': 'Copy Playback Diagnostics',
   'audioDrawer.action.hideDevice': 'Hide device',
+  'audioDrawer.action.openAsioPanel': 'Open ASIO Panel',
   'audioDrawer.action.resetEngine': 'Reset Audio Engine',
   'audioDrawer.action.resetEngineBusy': 'Resetting Audio Engine',
   'audioDrawer.action.resetEngineDone': 'Audio engine reset',
@@ -2528,10 +2739,24 @@ const enUS: TranslationMap = {
   'audioDrawer.asioLatency.recommended': 'Recommended latency',
   'audioDrawer.asioLatency.status': 'Requested {requested} frames / opened {opened} frames',
   'audioDrawer.asioLatency.value': '{value} ms',
+  'audioDrawer.asioRoutes.title': 'ASIO output channels',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
+  'audioDrawer.badge.juceOutput': 'JUCE output',
   'audioDrawer.badge.resampling': 'Resampling',
+  'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': 'Speed Up',
+  'audioDrawer.buffer.asio': 'ASIO buffer',
+  'audioDrawer.buffer.auto': 'Auto',
+  'audioDrawer.buffer.collapsedDescription': 'Collapsed by default; open to adjust latency profile and ASIO buffer options.',
+  'audioDrawer.buffer.default': 'Default',
+  'audioDrawer.buffer.latencyProfile': 'Latency profile',
+  'audioDrawer.buffer.low': 'Low',
+  'audioDrawer.buffer.profileDefault': 'Profile default',
+  'audioDrawer.buffer.safer': 'Safer',
+  'audioDrawer.buffer.stable': 'Stable',
+  'audioDrawer.buffer.title': 'Buffer Settings',
+  'audioDrawer.buffer.ultraLow': 'Ultra low',
   'audioDrawer.device.asioDriver': 'ASIO driver',
   'audioDrawer.device.lowLatency': 'Low latency',
   'audioDrawer.device.selected': 'Selected',
@@ -2550,6 +2775,17 @@ const enUS: TranslationMap = {
   'audioDrawer.meter.rate': 'Rate',
   'audioDrawer.meter.resample': 'Resample',
   'audioDrawer.meter.source': 'Source',
+  'audioDrawer.meter.latency': 'Latency',
+  'audioDrawer.guard.asioUnavailable.description': 'Default off. Skips the same ASIO device briefly after No device found, then uses safe shared output.',
+  'audioDrawer.guard.asioUnavailable.title': 'ASIO unavailable guard',
+  'audioDrawer.guard.soxrFallback.description': 'Default on. Shared SOXR resampling falls back to FFmpeg default if SOXR is unavailable before PCM starts.',
+  'audioDrawer.guard.soxrFallback.title': 'SOXR fallback guard',
+  'audioDrawer.latency.balanced': 'Balanced',
+  'audioDrawer.latency.balancedDetail': '2048 frames',
+  'audioDrawer.latency.lowLatency': 'Low latency',
+  'audioDrawer.latency.lowLatencyDetail': '~8 ms / adaptive',
+  'audioDrawer.latency.stable': 'Stable',
+  'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': 'Exclusive',
   'audioDrawer.mode.exclusiveCandidate': 'Exclusive candidate',
   'audioDrawer.mode.directSound': 'DirectSound Compatibility',
@@ -2559,8 +2795,13 @@ const enUS: TranslationMap = {
   'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO is highlighted in gold.',
   'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
   'audioDrawer.note.juceOutput': 'JUCE output is usually the most stable. When enabled, it takes over the current output and falls back automatically if it fails.',
+  'audioDrawer.option.juceOutput': 'Use JUCE Output',
+  'audioDrawer.option.active': 'On',
+  'audioDrawer.option.set': 'Set',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
   'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
+  'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
+  'audioDrawer.option.showAsioPanelSettingsDescription': 'Off by default. When enabled, ASIO devices show an Open ASIO Panel button.',
   'audioDrawer.option.directSound': 'DirectSound Compatibility',
   'audioDrawer.option.directSoundDescription': 'Manual compatibility mode with high latency; try only when WASAPI playback fails.',
   'audioDrawer.option.sharedBackend': 'Shared backend',
@@ -2783,6 +3024,12 @@ const enUS: TranslationMap = {
   'mvSettings.network.restartAudioOnLoad': 'Follow music progress',
   'mvSettings.network.restartAudioOnLoadDescription': 'When enabled, only the MV video time is corrected. Audio is not seeked or restarted, and lyrics sync offsets do not affect the MV.',
   'mvSettings.network.title': 'Network Sources',
+  'mvSettings.offset.aria': 'MV sync offset',
+  'mvSettings.offset.description': 'Saved only for this song MV; other songs are unaffected.',
+  'mvSettings.offset.earlier': 'MV earlier {value}',
+  'mvSettings.offset.later': 'MV later {value}',
+  'mvSettings.offset.reset': 'Reset MV offset',
+  'mvSettings.offset.title': 'This song MV offset',
   'mvSettings.provider.local': 'Local',
   'mvSettings.quality.max': 'Max',
   'mvSettings.search.input': 'MV search keywords',
@@ -3164,6 +3411,17 @@ const enUS: TranslationMap = {
   'settings.appearance.density.description': 'Library lists use a tighter desktop density instead of oversized card rows.',
   'settings.appearance.density.compact': 'Compact',
   'settings.appearance.density.standard': 'Standard',
+  'settings.appearance.artistAvatars.action.clear': 'Clear Avatar Cache',
+  'settings.appearance.artistAvatars.action.queueing': 'Queueing...',
+  'settings.appearance.artistAvatars.action.refreshMissing': 'Refresh Missing Avatars',
+  'settings.appearance.artistAvatars.description': 'Fetch real artist avatars slowly in the background and reuse local cached images on the artist wall.',
+  'settings.appearance.artistAvatars.message.cleared': 'Cleared {removedRows} avatar records and {deletedFiles} files.',
+  'settings.appearance.artistAvatars.message.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear artist avatars.',
+  'settings.appearance.artistAvatars.message.desktopBridgeRefresh': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh artist avatars.',
+  'settings.appearance.artistAvatars.message.enableFirst': 'Enable automatic artist avatar fetching first.',
+  'settings.appearance.artistAvatars.message.queued': 'Queued {queued} artist avatars. Skipped {skipped}.',
+  'settings.appearance.artistAvatars.title': 'Artist Avatars',
+  'settings.appearance.artistAvatars.toggle': 'Auto Fetch Artist Avatars',
   'settings.appearance.font.choose': 'Choose',
   'settings.appearance.font.chinese.description': 'Used first when the main font does not include Chinese glyphs.',
   'settings.appearance.font.chinese.title': 'Chinese Font',

@@ -27,6 +27,7 @@ import './styles/album-detail.css';
 import './styles/artist-detail.css';
 import './styles/queue.css';
 import './styles/lyrics.css';
+import './styles/legacy-theme-bridge.css';
 import './styles/ui-polish.css';
 
 const appearancePreferences = readAppearancePreferences();

@@ -16,7 +16,7 @@ const defaultLogger: SmtcLogger = {
   info: () => undefined,
 };
 
-type SmtcHostProcess = Pick<ChildProcessWithoutNullStreams, 'stdin' | 'stdout' | 'stderr' | 'on' | 'kill' | 'killed'>;
+type SmtcHostProcess = Pick<ChildProcessWithoutNullStreams, 'stdin' | 'stdout' | 'stderr' | 'on' | 'once' | 'kill' | 'killed' | 'exitCode'>;
 type SpawnSmtcHost = (command: string, args?: readonly string[], options?: SpawnOptionsWithoutStdio) => SmtcHostProcess;
 type CoverCacheLike = Pick<SmtcCoverCache, 'resolve'>;
 
@@ -51,6 +51,8 @@ export class WindowsSmtcService implements SmtcService {
   private unavailable = false;
   private stdoutBuffer = '';
   private stderrBuffer = '';
+  private pendingGracefulStop: Promise<void> | null = null;
+  private stoppingGracefully = false;
 
   constructor(options: WindowsSmtcServiceOptions | SmtcLogger = {}) {
     if ('info' in options && 'warn' in options) {
@@ -99,20 +101,67 @@ export class WindowsSmtcService implements SmtcService {
     }
   }
 
-  dispose(): void {
-    this.writeRaw({ type: 'dispose' });
+  async dispose(): Promise<void> {
     this.disposed = true;
+    await this.stopGracefullyImpl();
+    this.commands.removeAllListeners();
+    this.initialized = false;
+  }
+
+  async stopGracefullyImpl(timeoutMs = 1000): Promise<void> {
+    if (this.pendingGracefulStop) {
+      return this.pendingGracefulStop;
+    }
+
+    const host = this.host;
+    if (!host || host.killed || host.exitCode !== null) {
+      this.host = null;
+      return;
+    }
+
+    this.stoppingGracefully = true;
+    this.pendingGracefulStop = this.stopHostProcess(host, timeoutMs).finally(() => {
+      if (this.host === host) {
+        this.host = null;
+      }
+      this.stoppingGracefully = false;
+      this.pendingGracefulStop = null;
+    });
+
+    return this.pendingGracefulStop;
+  }
+
+  private async stopHostProcess(host: SmtcHostProcess, timeoutMs: number): Promise<void> {
     try {
-      this.host?.stdin.end();
+      this.writeRawToHost(host, { type: 'dispose' });
+    } catch {
+      // Best-effort child cleanup.
+    }
+
+    try {
+      if (!host.stdin.destroyed && !host.stdin.writableEnded) {
+        host.stdin.end();
+      }
     } catch {
       // ignore process teardown races
     }
-    if (this.host && !this.host.killed) {
-      this.host.kill();
+
+    const exited = await Promise.race([
+      new Promise<boolean>((resolve) => host.once('exit', () => resolve(true))),
+      new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), Math.max(1, timeoutMs));
+        timer.unref?.();
+      }),
+    ]);
+
+    if (!exited && !host.killed && host.exitCode === null) {
+      this.logger.warn('[SMTC] graceful shutdown timed out, force killing');
+      try {
+        host.kill('SIGKILL');
+      } catch {
+        // Best-effort emergency cleanup.
+      }
     }
-    this.host = null;
-    this.commands.removeAllListeners();
-    this.initialized = false;
   }
 
   async setPlaybackState(state: SmtcPlaybackState): Promise<void> {
@@ -180,7 +229,7 @@ export class WindowsSmtcService implements SmtcService {
     host.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       this.host = null;
       this.initialized = false;
-      if (!this.disposed) {
+      if (!this.disposed && !this.stoppingGracefully) {
         this.unavailable = true;
         this.logger.warn('[SMTC] Windows SMTC host exited unexpectedly', { hostPath, code, signal });
       }
@@ -228,7 +277,15 @@ export class WindowsSmtcService implements SmtcService {
       return;
     }
 
-    this.host.stdin.write(`${JSON.stringify(message)}\n`);
+    this.writeRawToHost(this.host, message);
+  }
+
+  private writeRawToHost(host: SmtcHostProcess, message: Record<string, unknown>): void {
+    if (host.stdin.destroyed || !host.stdin.writable) {
+      return;
+    }
+
+    host.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
   private safeNumber(value: number): number {

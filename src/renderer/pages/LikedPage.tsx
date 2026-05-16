@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Cloud, Disc3, Heart, ListFilter, Play, RefreshCw, Search, Shuffle, Trash2 } from 'lucide-react';
-import type { LibraryAlbum, LibraryPage, LibraryPlaylistItem, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import type { LibraryAlbum, LibraryPage, LibraryPlaylistItem, LibrarySort, LibraryTrack, PlaylistSourceProvider } from '../../shared/types/library';
+import type { StreamingProviderName } from '../../shared/types/streaming';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
 import { TrackList } from '../components/library/TrackList';
 import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
@@ -19,16 +20,56 @@ const sortOptions: Array<{ value: LibrarySort; label: string }> = [
 ];
 
 type LikedTab = 'tracks' | 'albums';
-type LikedSyncProvider = 'netease' | 'qqmusic';
+type LikedTrackSource = 'all' | 'netease' | 'qqmusic';
+type LikedSyncProvider = Exclude<LikedTrackSource, 'all'>;
 
 const likedSyncProviderLabels: Record<LikedSyncProvider, string> = {
   netease: '网易云',
   qqmusic: 'QQ 音乐',
 };
 
+const likedSourceProvider = (source: LikedTrackSource): PlaylistSourceProvider | undefined =>
+  source === 'all' ? undefined : source;
+
+const isLikedStreamingProvider = (provider: string | null | undefined): provider is Extract<StreamingProviderName, 'netease' | 'qqmusic'> =>
+  provider === 'netease' || provider === 'qqmusic';
+
 const itemToTrack = (item: LibraryPlaylistItem): LibraryTrack => {
   if (item.track) {
     return { ...item.track, unavailable: item.unavailable, playlistItemId: item.id };
+  }
+
+  if (item.mediaType === 'stream_track' && item.mediaId && item.sourceItemId && !item.unavailable) {
+    return {
+      id: item.mediaId,
+      mediaType: 'streaming',
+      path: item.mediaId,
+      provider: item.sourceProvider,
+      providerTrackId: item.sourceItemId,
+      stableKey: item.mediaId,
+      title: item.titleSnapshot ?? 'Streaming track',
+      artist: item.artistSnapshot ?? 'Unknown Artist',
+      album: item.albumSnapshot ?? '',
+      albumArtist: item.artistSnapshot ?? '',
+      trackNo: null,
+      discNo: null,
+      year: null,
+      genre: null,
+      duration: item.durationSnapshot ?? 0,
+      codec: null,
+      sampleRate: null,
+      bitDepth: null,
+      bitrate: null,
+      coverId: item.coverId,
+      coverThumb: item.coverThumb,
+      fieldSources: {
+        title: item.sourceProvider,
+        artist: item.sourceProvider,
+        album: item.sourceProvider,
+      },
+      unavailable: false,
+      playlistItemId: item.id,
+    };
   }
 
   return {
@@ -86,6 +127,7 @@ export const LikedPage = (): JSX.Element => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('recent');
+  const [trackSource, setTrackSource] = useState<LikedTrackSource>('all');
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncingLikedProvider, setSyncingLikedProvider] = useState<LikedSyncProvider | null>(null);
@@ -118,7 +160,7 @@ export const LikedPage = (): JSX.Element => {
   }, [searchInput]);
 
   const loadTracks = useCallback(
-    async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
+    async (nextPage: number, mode: 'replace' | 'append', source = trackSource): Promise<void> => {
       const requestId = trackRequestIdRef.current + 1;
       trackRequestIdRef.current = requestId;
       setIsTrackLoading(true);
@@ -139,6 +181,7 @@ export const LikedPage = (): JSX.Element => {
           pageSize,
           search,
           sort,
+          sourceProvider: likedSourceProvider(source),
         });
 
         if (trackRequestIdRef.current !== requestId) {
@@ -159,7 +202,7 @@ export const LikedPage = (): JSX.Element => {
         }
       }
     },
-    [search, sort],
+    [search, sort, trackSource],
   );
 
   const loadAlbums = useCallback(
@@ -225,7 +268,7 @@ export const LikedPage = (): JSX.Element => {
 
   useLayoutEffect(() => {
     writePageScrollTop(pageRootRef.current, 0);
-  }, [search, sort, tab]);
+  }, [search, sort, tab, trackSource]);
 
   useLayoutEffect(() => {
     if (selectedAlbum || !shouldRestorePageScrollRef.current) {
@@ -276,7 +319,20 @@ export const LikedPage = (): JSX.Element => {
   }, [playTrack, replaceQueue, tracks]);
 
   const handleToggleTrackLiked = useCallback(async (track: LibraryTrack): Promise<void> => {
-    await window.echo.library.unlikeTrack(track.id);
+    if (track.mediaType === 'streaming' && isLikedStreamingProvider(track.provider) && track.providerTrackId) {
+      const streaming = window.echo?.streaming;
+      if (!streaming?.setTrackLiked) {
+        throw new Error('Streaming liked tracks are unavailable.');
+      }
+
+      await streaming.setTrackLiked({
+        provider: track.provider,
+        providerTrackId: track.providerTrackId,
+        liked: false,
+      });
+    } else {
+      await window.echo.library.unlikeTrack(track.id);
+    }
     setTrackItems((current) => current.filter((item) => (item.mediaId ?? item.id) !== track.id));
     setTrackTotal((current) => Math.max(0, current - 1));
     window.dispatchEvent(new Event(likedTracksChangedEvent));
@@ -312,8 +368,11 @@ export const LikedPage = (): JSX.Element => {
     window.dispatchEvent(new Event(likedChangedEvent));
   }, [tab]);
 
-  const handleSyncLikedSongs = useCallback(async (provider: LikedSyncProvider): Promise<void> => {
+  const handleOpenProviderLikedSongs = useCallback(async (provider: LikedSyncProvider): Promise<void> => {
     const streaming = window.echo?.streaming;
+    setTab('tracks');
+    setTrackSource(provider);
+
     if (!streaming?.syncLikedSongs) {
       setError('当前版本暂不支持同步在线喜欢歌单。');
       return;
@@ -321,14 +380,14 @@ export const LikedPage = (): JSX.Element => {
 
     setSyncingLikedProvider(provider);
     setError(null);
-    setSyncStatus(`正在同步${likedSyncProviderLabels[provider]}我喜欢...`);
+    setSyncStatus(`正在读取${likedSyncProviderLabels[provider]}喜欢的歌曲...`);
 
     try {
       const result = await streaming.syncLikedSongs(provider);
       const failedProviders = result.providers.filter((item) => !item.success);
       const successProviders = result.providers.filter((item) => item.success);
       const successText = successProviders.length
-        ? `已同步 ${likedSyncProviderLabels[provider]}，新增 ${result.addedCount} 首。`
+        ? `已打开 ${likedSyncProviderLabels[provider]}喜欢的歌曲，新增 ${result.addedCount} 首。`
         : failedProviders.length
           ? failedProviders.map((item) => `${likedSyncProviderLabels[item.provider]}：${item.error ?? '同步失败'}`).join('；')
           : '没有平台同步成功。';
@@ -336,7 +395,7 @@ export const LikedPage = (): JSX.Element => {
       if (successProviders.length > 0 && failedProviders.length > 0) {
         setError(failedProviders.map((item) => `${likedSyncProviderLabels[item.provider]}：${item.error ?? '同步失败'}`).join('；'));
       }
-      await loadTracks(1, 'replace');
+      await loadTracks(1, 'replace', provider);
       window.dispatchEvent(new Event(likedTracksChangedEvent));
       window.dispatchEvent(new Event(likedChangedEvent));
     } catch (syncError) {
@@ -362,7 +421,16 @@ export const LikedPage = (): JSX.Element => {
       </header>
 
       <div className="liked-tabs" role="tablist">
-        <button className={tab === 'tracks' ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === 'tracks'} onClick={() => setTab('tracks')}>
+        <button
+          className={tab === 'tracks' && trackSource === 'all' ? 'is-active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={tab === 'tracks' && trackSource === 'all'}
+          onClick={() => {
+            setTab('tracks');
+            setTrackSource('all');
+          }}
+        >
           喜欢的歌曲
         </button>
         <button className={tab === 'albums' ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === 'albums'} onClick={() => setTab('albums')}>
@@ -395,11 +463,23 @@ export const LikedPage = (): JSX.Element => {
             <button className="queue-tool-button" type="button" disabled={tracks.length === 0} onClick={() => void handleShuffleAll()}>
               <Shuffle size={16} /> 随机播放
             </button>
-            <button className="queue-tool-button" type="button" disabled={syncingLikedProvider !== null} onClick={() => void handleSyncLikedSongs('netease')}>
-              {syncingLikedProvider === 'netease' ? <RefreshCw size={16} className="spinning-icon" /> : <Cloud size={16} />} 同步网易云
+            <button
+              className={`queue-tool-button ${trackSource === 'netease' ? 'is-active' : ''}`}
+              type="button"
+              disabled={syncingLikedProvider !== null}
+              aria-pressed={trackSource === 'netease'}
+              onClick={() => void handleOpenProviderLikedSongs('netease')}
+            >
+              {syncingLikedProvider === 'netease' ? <RefreshCw size={16} className="spinning-icon" /> : <Cloud size={16} />} 网易云喜欢
             </button>
-            <button className="queue-tool-button" type="button" disabled={syncingLikedProvider !== null} onClick={() => void handleSyncLikedSongs('qqmusic')}>
-              {syncingLikedProvider === 'qqmusic' ? <RefreshCw size={16} className="spinning-icon" /> : <Cloud size={16} />} 同步 QQ
+            <button
+              className={`queue-tool-button ${trackSource === 'qqmusic' ? 'is-active' : ''}`}
+              type="button"
+              disabled={syncingLikedProvider !== null}
+              aria-pressed={trackSource === 'qqmusic'}
+              onClick={() => void handleOpenProviderLikedSongs('qqmusic')}
+            >
+              {syncingLikedProvider === 'qqmusic' ? <RefreshCw size={16} className="spinning-icon" /> : <Cloud size={16} />} QQ 喜欢
             </button>
           </>
         ) : null}

@@ -12,7 +12,7 @@ import {
 } from "@testing-library/react";
 import type { AudioStatus } from "../../shared/types/audio";
 import type { AppSettings } from "../../shared/types/appSettings";
-import type { LibraryTrack } from "../../shared/types/library";
+import type { LibraryAlbum, LibraryTrack } from "../../shared/types/library";
 import type {
   LyricsSearchCandidate,
   TrackLyrics,
@@ -24,6 +24,7 @@ import {
 } from "../stores/PlaybackQueueProvider";
 import { LyricsPage } from "./LyricsPage";
 import type { LyricLine } from "../components/lyrics/lyricsTypes";
+import { albumDetailNavigationEvent } from "../utils/albumNavigation";
 
 const makeTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   id: "track-1",
@@ -47,6 +48,19 @@ const makeTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   embeddedCoverStatus: "present",
   networkMetadataStatus: "none",
   fieldSources: {},
+  ...overrides,
+});
+
+const makeAlbum = (overrides: Partial<LibraryAlbum> = {}): LibraryAlbum => ({
+  id: "album-1",
+  albumKey: "test-artist/test-album",
+  title: "Test Album",
+  albumArtist: "Test Album Artist",
+  year: 2026,
+  trackCount: 1,
+  duration: 180,
+  coverId: null,
+  coverThumb: "echo-cover://album/test",
   ...overrides,
 });
 
@@ -198,6 +212,17 @@ const makeTrackLyrics = (
   updatedAt: "2026-05-13T00:00:00.000Z",
   ...overrides,
 });
+
+const deferred = <T,>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason?: unknown) => void } => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+};
 
 const makeTrackVideo = (
   overrides: Partial<TrackVideo> = {},
@@ -392,6 +417,16 @@ describe("LyricsPage", () => {
     expect(css).not.toMatch(/\.lyrics-page:has\(\.lyrics-mv-background\)[\s\S]*font-size: calc\(var\(--lyrics-font-size\) \* 1\.5\);/);
   });
 
+  it("does not wash out the lyrics wallpaper when regular MV is visible", () => {
+    const css = readFileSync("src/renderer/styles/lyrics.css", "utf8");
+    const regularMvSelector = '.lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="true"][data-immersive-active="false"]) .lyrics-backdrop::before';
+
+    expect(css).toContain(`${regularMvSelector} {\n  background: none;`);
+    expect(css).toContain('.lyrics-page[data-background="cover"]:has(.lyrics-mv-panel[data-mv-enabled="true"][data-immersive-active="false"]) .lyrics-backdrop::after');
+    expect(css).toContain('brightness(var(--lyrics-cover-brightness)) saturate(1.04);');
+    expect(css).toContain('.lyrics-page[data-background="customWallpaper"]:has(.lyrics-mv-panel[data-mv-enabled="true"][data-immersive-active="false"]) .lyrics-backdrop {\n  background: transparent;');
+  });
+
   it("shows current song information when a track is playing", async () => {
     const track = makeTrack();
     mockEcho(track);
@@ -409,6 +444,38 @@ describe("LyricsPage", () => {
     ).toBeTruthy();
     expect(screen.getAllByText("Test Artist").length).toBeGreaterThan(0);
     expect(screen.queryByText(/FLAC \/ 2400 kbps \/ 96 kHz/)).toBeNull();
+  });
+
+  it("opens the current track album detail from the lyrics header", async () => {
+    const track = makeTrack();
+    const album = makeAlbum();
+    mockEcho(track);
+    const getAlbumForTrack = vi.fn().mockResolvedValue(album);
+    window.echo = {
+      ...window.echo,
+      library: {
+        getAlbumForTrack,
+      },
+    } as unknown as Window["echo"];
+    const navigationEvents: unknown[] = [];
+    const handleAlbumNavigation = (event: Event): void => {
+      navigationEvents.push((event as CustomEvent).detail);
+    };
+    window.addEventListener(albumDetailNavigationEvent, handleAlbumNavigation);
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Test Album" }));
+
+    await waitFor(() => expect(getAlbumForTrack).toHaveBeenCalledWith("track-1"));
+    expect(navigationEvents).toEqual([{ album }]);
+    window.removeEventListener(albumDetailNavigationEvent, handleAlbumNavigation);
   });
 
   it("hides the lyrics page song header when configured", async () => {
@@ -1067,6 +1134,34 @@ describe("LyricsPage", () => {
     );
   });
 
+  it("keeps the initial automatic lyrics lookup panel hidden while it is loading", async () => {
+    const track = makeTrack();
+    const pendingLyrics = deferred<TrackLyrics | null>();
+    mockEcho(track);
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockReturnValue(pendingLyrics.promise),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(window.echo.lyrics.getForTrack).toHaveBeenCalledWith("track-1"));
+    expect(container.querySelector(".lyrics-match-panel")).toBeNull();
+
+    pendingLyrics.resolve(makeTrackLyrics());
+  });
+
   it("does not auto-apply medium risk candidates", async () => {
     const track = makeTrack();
     mockEcho(track);
@@ -1598,7 +1693,7 @@ describe("LyricsPage", () => {
       "72%",
     );
     expect(page.style.getPropertyValue("--lyrics-background-scale")).toBe(
-      "0.86",
+      "1.00",
     );
     expect(page.style.getPropertyValue("--lyrics-secondary-font-size")).toBe(
       "22px",

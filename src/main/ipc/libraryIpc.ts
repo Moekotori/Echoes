@@ -9,6 +9,7 @@ import type {
   EditableTrackTags,
   FinishPlaybackHistoryRequest,
   ImportPathClassification,
+  ImportPlaylistFileResult,
   LibraryFolderChildrenQuery,
   LibraryFolderPathRequest,
   LibraryFolderTracksQuery,
@@ -33,6 +34,8 @@ import type {
 import { getAppSettings } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
 import { SongCardRenderer } from '../library/SongCardRenderer';
+import { getStreamingService } from '../streaming/StreamingService';
+import { decodeM3u8ProviderTrackId } from '../streaming/M3u8Playlist';
 
 const sortValues = new Set<LibrarySort>([
   'default',
@@ -53,6 +56,7 @@ const sortValues = new Set<LibrarySort>([
   'album',
   'recent',
 ]);
+const sourceProviderValues = new Set(['local', 'netease', 'qqmusic', 'spotify', 'remote', 'm3u8']);
 const songCardRenderer = new SongCardRenderer();
 
 const requireText = (value: unknown, name: string): string => {
@@ -124,6 +128,10 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
 
   if (typeof input.sort === 'string' && sortValues.has(input.sort as LibrarySort)) {
     query.sort = input.sort as LibrarySort;
+  }
+
+  if (typeof input.sourceProvider === 'string' && sourceProviderValues.has(input.sourceProvider)) {
+    query.sourceProvider = input.sourceProvider as LibraryPageQuery['sourceProvider'];
   }
 
   if (typeof input.hideDuplicates === 'boolean') {
@@ -799,12 +807,13 @@ const csvCell = (value: unknown): string => {
 
 const playlistTrackExportRow = (item: LibraryPlaylistItem) => {
   const track = item.track;
+  const streamUrl = item.sourceProvider === 'm3u8' && item.sourceItemId ? decodeM3u8ProviderTrackId(item.sourceItemId) : '';
   return {
     title: item.titleSnapshot ?? track?.title ?? item.album?.title ?? 'Unavailable track',
     artist: item.artistSnapshot ?? track?.artist ?? item.album?.albumArtist ?? 'Unknown artist',
     album: item.albumSnapshot ?? track?.album ?? item.album?.title ?? '',
     duration: item.durationSnapshot ?? track?.duration ?? item.album?.duration ?? 0,
-    path: item.mediaType === 'track' && track && !item.unavailable ? track.path : '',
+    path: item.mediaType === 'track' && track && !item.unavailable ? track.path : streamUrl,
     provider: item.sourceProvider,
     sourceItemId: item.sourceItemId,
     mediaType: item.mediaType,
@@ -934,6 +943,27 @@ const exportPlaylist = async (request: unknown): Promise<string | null> => {
   return result.filePath;
 };
 
+const importPlaylistFile = async (): Promise<ImportPlaylistFileResult | null> => {
+  const result = await dialog.showOpenDialog({
+    title: '导入 M3U8 歌单',
+    properties: ['openFile'],
+    filters: [{ name: 'M3U/M3U8 Playlist', extensions: ['m3u8', 'm3u'] }],
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const filePath = result.filePaths[0];
+  const imported = await getStreamingService().importM3u8PlaylistFile(filePath, readFileSync(filePath, 'utf8'));
+  return {
+    playlistId: imported.playlistId,
+    playlistName: imported.playlistName,
+    importedCount: imported.importedCount,
+    filePath,
+  };
+};
+
 export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryChooseFolder, async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog({
@@ -1014,6 +1044,7 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetPlaylistItems, (_event, playlistId: unknown, query: unknown) =>
     getLibraryService().getPlaylistItems(requireText(playlistId, 'playlistId'), normalizePlaylistItemsQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryImportPlaylistFile, () => importPlaylistFile());
   ipcMain.handle(IpcChannels.LibraryExportPlaylist, (_event, request: unknown) => exportPlaylist(request));
   ipcMain.handle(IpcChannels.LibraryAddTrackToPlaylist, (_event, playlistId: unknown, trackId: unknown) =>
     getLibraryService().addTrackToPlaylist(requireText(playlistId, 'playlistId'), requireText(trackId, 'trackId')),
@@ -1115,6 +1146,7 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryArtistImagesGetStatus, (_event, artistIdOrKey: unknown) =>
     getLibraryService().getArtistImage(requireText(artistIdOrKey, 'artistId')),
   );
+  ipcMain.handle(IpcChannels.LibraryArtistImagesGetSummary, () => getLibraryService().getArtistImageCacheSummary());
   ipcMain.handle(IpcChannels.LibraryArtistImagesClearCache, () => getLibraryService().clearArtistImageCache());
   ipcMain.handle(IpcChannels.LibraryGetAlbumTracks, (_event, albumId: unknown, query: unknown) =>
     getLibraryService().getAlbumTracks(requireText(albumId, 'albumId'), normalizeQuery(query)),

@@ -148,6 +148,7 @@ struct Options
     int channels = 2;
     int deviceIndex = -1;
     int bufferSize = 0;
+    int asioOutputChannelStart = 0;
     int fifoCapacityMs = 0;
     int startupPrebufferMs = 0;
     int startupPrebufferTimeoutMs = 0;
@@ -155,6 +156,7 @@ struct Options
     bool startupPrebufferTimeoutMsSpecified = false;
     bool framedStdin = false;
     bool useJuceOutput = false;
+    bool asioControlPanel = false;
     int eqControlPort = 0;
     double volume = 1.0;
     juce::String deviceName;
@@ -186,6 +188,8 @@ struct DeviceDescriptor
     int sharedSampleRate = 0;
     bool isDefault = false;
     bool isAsio = false;
+    int asioOutputChannels = 0;
+    juce::String asioOutputChannelNames;
 };
 
 enum class DeviceListMode
@@ -320,6 +324,11 @@ Options parseOptions(const std::vector<juce::String>& args)
         {
             options.useJuceOutput = true;
         }
+        else if (arg == "-asio-control-panel")
+        {
+            options.asioControlPanel = true;
+            options.asio = true;
+        }
         else if (arg == "-sr" && i + 1 < args.size())
         {
             options.sampleRate = std::max(1, parseInt(args[++i], options.sampleRate));
@@ -339,6 +348,10 @@ Options parseOptions(const std::vector<juce::String>& args)
         else if ((arg == "-buffer" || arg == "-buffer-size") && i + 1 < args.size())
         {
             options.bufferSize = std::max(0, parseInt(args[++i], options.bufferSize));
+        }
+        else if (arg == "-asio-output-channel-start" && i + 1 < args.size())
+        {
+            options.asioOutputChannelStart = std::max(0, parseInt(args[++i], options.asioOutputChannelStart));
         }
         else if (arg == "-fifo-ms" && i + 1 < args.size())
         {
@@ -902,6 +915,8 @@ std::vector<DeviceDescriptor> enumerateLegacyAsioDevices()
             0,
             rawDevices[i].isDefault != 0,
             true,
+            static_cast<int>(rawDevices[i].outputChannels),
+            juce::String::fromUTF8(rawDevices[i].outputChannelNames),
         });
     }
 
@@ -1049,7 +1064,17 @@ int listDevices(const Options& options)
             << device.name.toRawUTF8() << "\t"
             << device.sampleRate << "\t"
             << (device.isDefault ? 1 : 0) << "\t"
-            << device.sharedSampleRate << std::endl;
+            << device.sharedSampleRate;
+
+        if (mode == DeviceListMode::Asio)
+        {
+            std::cout
+                << "\t" << device.asioOutputChannels
+                << "\t0"
+                << "\t" << device.asioOutputChannelNames.toRawUTF8();
+        }
+
+        std::cout << std::endl;
     }
 
     return 0;
@@ -2523,6 +2548,30 @@ int runLegacyWasapiExclusiveHost(const Options& options)
     return 0;
 }
 
+int openAsioControlPanel(const Options& options)
+{
+#if ECHO_ENABLE_ASIO
+    char error[1024] {};
+    const int result = asio_open_control_panel(
+        options.deviceName.isNotEmpty() ? options.deviceName.toRawUTF8() : nullptr,
+        options.deviceIndex,
+        error,
+        sizeof(error));
+
+    if (result != 0)
+    {
+        logLine(std::string("ASIO control panel failed: ") + (error[0] != '\0' ? error : "unknown error"));
+        return 3;
+    }
+
+    return 0;
+#else
+    (void)options;
+    logLine("ASIO control panel failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF)");
+    return 3;
+#endif
+}
+
 int runLegacyWasapiSharedHost(const Options& options)
 {
     const auto descriptor = selectDevice(options);
@@ -2742,6 +2791,7 @@ int runLegacyAsioHost(const Options& options)
         static_cast<uint32_t>(options.sampleRate),
         static_cast<uint32_t>(options.channels),
         static_cast<uint32_t>(requestedDeviceBufferFrames),
+        static_cast<uint32_t>(options.asioOutputChannelStart),
         [] (void* userData, float* output, unsigned int frameCount, unsigned int channels) -> unsigned int
         {
             auto* pcmSource = static_cast<PcmRingAudioSource*>(userData);
@@ -2797,6 +2847,7 @@ int runLegacyAsioHost(const Options& options)
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
         + ",\"asioInputChannels\":" + std::to_string(readyInfo.inputChannels)
         + ",\"asioOutputChannels\":" + std::to_string(readyInfo.outputChannels)
+        + ",\"asioOutputChannelStart\":" + std::to_string(readyInfo.outputChannelStart)
         + ",\"asioPreferredBufferFrames\":" + std::to_string(readyInfo.preferredBufferFrames)
         + ",\"asioMinBufferFrames\":" + std::to_string(readyInfo.minBufferFrames)
         + ",\"asioMaxBufferFrames\":" + std::to_string(readyInfo.maxBufferFrames)
@@ -3076,6 +3127,11 @@ int main(int argc, char* argv[])
         if (options.list)
         {
             return listDevices(options);
+        }
+
+        if (options.asioControlPanel)
+        {
+            return openAsioControlPanel(options);
         }
 
         return runHost(options);

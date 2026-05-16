@@ -4,6 +4,7 @@ import type { SmtcCommand } from '../../../shared/types/smtc';
 import { isSpotifyTrack, pauseSpotifyPlayback, resumeSpotifyPlayback, seekSpotifyPlayback } from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
+import { shouldSuppressAudioHostError } from './audioErrorFormat';
 import { bindMediaSessionActions, clearMediaSession } from './mediaSession';
 
 const playbackSeekedEvent = 'playback:seeked';
@@ -33,7 +34,8 @@ export const PlaybackCommandController = (): null => {
       }
       await refreshPlaybackStatus();
     } catch (error) {
-      setPlaybackStatusSnapshot({ error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      setPlaybackStatusSnapshot({ error: shouldSuppressAudioHostError(message) ? null : message });
     }
   }, []);
 

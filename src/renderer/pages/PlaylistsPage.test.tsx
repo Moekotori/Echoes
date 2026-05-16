@@ -10,16 +10,21 @@ vi.mock('../components/library/TrackList', () => ({
     tracks,
     onOpenTrackMenu,
     onPlay,
+    onToggleLiked,
   }: {
     tracks: LibraryTrack[];
     onOpenTrackMenu?: (track: LibraryTrack, position: { x: number; y: number }) => void;
     onPlay?: (track: LibraryTrack) => void;
+    onToggleLiked?: (track: LibraryTrack) => void;
   }) => (
     <div data-testid="playlist-track-list">
       {tracks.map((track) => (
         <div key={track.playlistItemId ?? track.id}>
           <button type="button" onClick={() => onPlay?.(track)}>
             {track.title}
+          </button>
+          <button type="button" onClick={() => onToggleLiked?.(track)}>
+            Like {track.title}
           </button>
           <button type="button" onClick={() => onOpenTrackMenu?.(track, { x: 12, y: 34 })}>
             Open menu for {track.title}
@@ -266,6 +271,46 @@ describe('PlaylistsPage actions menu', () => {
 
     await screen.findByRole('button', { name: 'Song One' });
     expect(screen.queryByRole('button', { name: 'Streaming quality' })).toBeNull();
+  });
+
+  it('likes NetEase and QQ streaming playlist tracks through the provider bridge', async () => {
+    const remoteTrackItem = item({
+      mediaType: 'stream_track',
+      mediaId: 'streaming:netease:1983779468',
+      sourceProvider: 'netease',
+      sourceItemId: '1983779468',
+      titleSnapshot: 'Remote Like Song',
+      track: null,
+    });
+    const toggleTrackLiked = vi.fn();
+    const setTrackLiked = vi.fn().mockResolvedValue({ liked: true });
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValue([playlist({ sourceProvider: 'netease', sourcePlaylistId: 'daily-recommend' })]),
+        getPlaylistItems: vi.fn().mockResolvedValue(page([remoteTrackItem])),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ 'streaming:netease:1983779468': false }),
+        toggleTrackLiked,
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+      },
+      streaming: {
+        setTrackLiked,
+      },
+    } as unknown as Window['echo'];
+
+    renderPlaylistsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Like Remote Like Song' }));
+
+    await waitFor(() =>
+      expect(setTrackLiked).toHaveBeenCalledWith({
+        provider: 'netease',
+        providerTrackId: '1983779468',
+        liked: true,
+      }),
+    );
+    expect(toggleTrackLiked).not.toHaveBeenCalled();
   });
 
   it('runs local file actions from the track context menu', async () => {

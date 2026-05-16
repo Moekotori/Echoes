@@ -14,6 +14,8 @@ typedef unsigned int (*asio_render_callback)(
 typedef struct asio_device_info {
     char name[512];
     int isDefault;
+    uint32_t outputChannels;
+    char outputChannelNames[1024];
 } asio_device_info;
 
 typedef struct asio_ready_info {
@@ -27,6 +29,7 @@ typedef struct asio_ready_info {
     uint32_t maxBufferFrames;
     uint32_t preferredBufferFrames;
     int32_t granularity;
+    uint32_t outputChannelStart;
     char format[64];
     char deviceName[512];
 } asio_ready_info;
@@ -42,10 +45,17 @@ int asio_start(
     uint32_t requestedSampleRate,
     uint32_t sourceChannels,
     uint32_t requestedBufferFrames,
+    uint32_t outputChannelStart,
     asio_render_callback callback,
     void* userData,
     asio_runtime** outRuntime,
     asio_ready_info* outInfo,
+    char* error,
+    size_t errorLen);
+
+int asio_open_control_panel(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
     char* error,
     size_t errorLen);
 

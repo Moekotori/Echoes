@@ -31,7 +31,7 @@ import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
 import type { DownloadSettings } from '../../shared/types/downloads';
 import type { LastFmStatus } from '../../shared/types/lastfm';
-import type { BpmAnalysisJobStatus, DuplicateTrackIndexSummary } from '../../shared/types/library';
+import type { ArtistImageCacheSummary, BpmAnalysisJobStatus, DuplicateTrackIndexSummary } from '../../shared/types/library';
 import type { UpdateStatus } from '../../shared/types/updates';
 import { EqPanel } from '../components/audio/EqPanel';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
@@ -131,6 +131,26 @@ const accountProviderLabels: Record<AccountProvider, string> = {
   soundcloud: 'SoundCloud',
   spotify: 'Spotify',
 };
+
+type ArtistImageProgress = {
+  queued: number;
+  skipped: number;
+  summary: ArtistImageCacheSummary | null;
+  startedAt: number;
+};
+
+const emptyArtistImageSummary: ArtistImageCacheSummary = {
+  total: 0,
+  matched: 0,
+  pending: 0,
+  loading: 0,
+  notFound: 0,
+  error: 0,
+  rateLimited: 0,
+};
+
+const artistImageActiveCount = (summary: ArtistImageCacheSummary | null | undefined): number =>
+  (summary?.pending ?? 0) + (summary?.loading ?? 0);
 
 const accountLoginUrls: Record<AccountProvider, string> = {
   netease: 'https://music.163.com/',
@@ -241,6 +261,11 @@ const statusRows = (
   { label: 'sharedDeviceSampleRate', value: formatRate(status?.sharedDeviceSampleRate ?? null) },
   { label: 'outputDeviceName', value: status?.outputDeviceName ?? 'n/a' },
   { label: 'resampling', value: formatBool(status?.resampling ?? false) },
+  { label: 'ffmpegSource', value: status?.ffmpegSource ?? 'n/a' },
+  { label: 'ffmpegVersion', value: status?.ffmpegVersion ?? 'n/a' },
+  { label: 'soxrAvailable', value: formatBool(status?.soxrAvailable ?? false) },
+  { label: 'resamplerEngine', value: status?.resamplerEngine ?? 'default' },
+  { label: 'resamplerFallbackActive', value: formatBool(status?.resamplerFallbackActive ?? false) },
   { label: 'bitPerfectCandidate', value: formatBool(status?.bitPerfectCandidate ?? false) },
   { label: 'bitPerfectDisabledReason', value: status?.bitPerfectDisabledReason ?? 'n/a' },
   { label: 'sampleRateMismatch', value: formatBool(status?.sampleRateMismatch ?? false) },
@@ -676,6 +701,7 @@ export const SettingsPage = (): JSX.Element => {
   const [libraryScanMessage, setLibraryScanMessage] = useState<string | null>(null);
   const [artistImageBusyAction, setArtistImageBusyAction] = useState<'refresh' | 'clear' | null>(null);
   const [artistImageMessage, setArtistImageMessage] = useState<string | null>(null);
+  const [artistImageProgress, setArtistImageProgress] = useState<ArtistImageProgress | null>(null);
   const [embeddedTagRescanBusy, setEmbeddedTagRescanBusy] = useState<'all' | 'missing-cover' | null>(null);
   const [embeddedTagRescanMessage, setEmbeddedTagRescanMessage] = useState<string | null>(null);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateTrackIndexSummary | null>(null);
@@ -895,6 +921,53 @@ export const SettingsPage = (): JSX.Element => {
   }, [activeSection]);
 
   useEffect(() => {
+    if (!artistImageProgress) {
+      return undefined;
+    }
+
+    const library = getLibraryBridge();
+    if (!library?.getArtistImageCacheSummary) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let timer: number | null = null;
+
+    const refreshSummary = async (): Promise<void> => {
+      try {
+        const summary = await library.getArtistImageCacheSummary();
+        if (disposed) {
+          return;
+        }
+
+        setArtistImageProgress((current) => (current ? { ...current, summary } : current));
+
+        if (artistImageActiveCount(summary) === 0 && timer !== null) {
+          window.clearInterval(timer);
+          timer = null;
+        }
+      } catch {
+        if (!disposed && timer !== null) {
+          window.clearInterval(timer);
+          timer = null;
+        }
+      }
+    };
+
+    void refreshSummary();
+    timer = window.setInterval(() => {
+      void refreshSummary();
+    }, 1500);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) {
+        window.clearInterval(timer);
+      }
+    };
+  }, [artistImageProgress?.startedAt]);
+
+  useEffect(() => {
     const handleSettingsChanged = (event: Event): void => {
       const patch = (event as CustomEvent<Partial<AppSettings>>).detail;
       if (!patch || typeof patch !== 'object') {
@@ -997,6 +1070,7 @@ export const SettingsPage = (): JSX.Element => {
         latencyProfile: 'lowLatency',
         useJuceOutput: appSettings?.audioUseJuceOutput === true,
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
+        soxrFallbackEnabled: appSettings?.audioSoxrFallbackEnabled !== false,
       };
 
       if (nextDevice) {
@@ -1015,7 +1089,15 @@ export const SettingsPage = (): JSX.Element => {
 
       setStatus(await audio.setOutput(output));
     },
-    [appSettings?.audioAsioUnavailableFallbackEnabled, appSettings?.audioUseJuceOutput, devices, outputMode, selectedDeviceId, sharedBackend],
+    [
+      appSettings?.audioAsioUnavailableFallbackEnabled,
+      appSettings?.audioSoxrFallbackEnabled,
+      appSettings?.audioUseJuceOutput,
+      devices,
+      outputMode,
+      selectedDeviceId,
+      sharedBackend,
+    ],
   );
 
   const handleNavClick = (key: SettingsNavKey): void => {
@@ -1071,6 +1153,23 @@ export const SettingsPage = (): JSX.Element => {
 
     try {
       setStatus(await audio.setOutput({ asioUnavailableFallbackEnabled: nextEnabled }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
+  };
+
+  const handleSoxrFallbackToggle = async (): Promise<void> => {
+    const nextEnabled = !(appSettings?.audioSoxrFallbackEnabled ?? true);
+    patchAppSettings({ audioSoxrFallbackEnabled: nextEnabled });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ soxrFallbackEnabled: nextEnabled }));
     } catch (audioError) {
       setError(audioError instanceof Error ? audioError.message : String(audioError));
     }
@@ -1618,6 +1717,17 @@ export const SettingsPage = (): JSX.Element => {
       ? `${formatUpdateBytes(updateStatus.transferredBytes)} / ${formatUpdateBytes(updateStatus.totalBytes)}`
       : formatUpdateBytes(updateStatus?.totalBytes);
   const updateDownloadSpeedLabel = updateStatus?.bytesPerSecond ? `${formatUpdateBytes(updateStatus.bytesPerSecond)}/s` : 'n/a';
+  const artistImageSummary = artistImageProgress?.summary ?? emptyArtistImageSummary;
+  const artistImageActive = artistImageActiveCount(artistImageSummary);
+  const artistImageQueuedTotal = artistImageProgress?.queued ?? 0;
+  const artistImageProgressTotal = artistImageQueuedTotal > 0 ? artistImageQueuedTotal : Math.max(artistImageSummary.total, 1);
+  const artistImageProgressDone =
+    artistImageQueuedTotal > 0
+      ? Math.max(0, Math.min(artistImageQueuedTotal, artistImageQueuedTotal - Math.min(artistImageQueuedTotal, artistImageActive)))
+      : Math.max(0, artistImageSummary.total - artistImageActive);
+  const artistImageProgressPercent =
+    artistImageProgressTotal > 0 ? Math.max(0, Math.min(100, Math.round((artistImageProgressDone / artistImageProgressTotal) * 100))) : 0;
+  const artistImageFailed = artistImageSummary.error + artistImageSummary.rateLimited;
 
   const handleDownloadDirectoryChoose = async (): Promise<void> => {
     try {
@@ -1741,18 +1851,28 @@ export const SettingsPage = (): JSX.Element => {
     const library = getLibraryBridge();
 
     if (!library?.enqueueMissingArtistImages) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to refresh artist avatars.');
+      setError(t('settings.appearance.artistAvatars.message.desktopBridgeRefresh'));
       return;
     }
 
     try {
       setArtistImageBusyAction('refresh');
       setArtistImageMessage(null);
-      const result = await library.enqueueMissingArtistImages({ limit: 500 });
+      const result = await library.enqueueMissingArtistImages({ force: true, limit: 500 });
       setArtistImageMessage(
         result.disabled
-          ? 'Enable automatic artist avatar fetching first.'
-          : `Queued ${result.queued} artist avatars. Skipped ${result.skipped}.`,
+          ? t('settings.appearance.artistAvatars.message.enableFirst')
+          : t('settings.appearance.artistAvatars.message.queued', { queued: result.queued, skipped: result.skipped }),
+      );
+      setArtistImageProgress(
+        result.disabled
+          ? null
+          : {
+              queued: result.queued,
+              skipped: result.skipped,
+              summary: null,
+              startedAt: Date.now(),
+            },
       );
     } catch (artistImageError) {
       setError(artistImageError instanceof Error ? artistImageError.message : String(artistImageError));
@@ -1765,7 +1885,7 @@ export const SettingsPage = (): JSX.Element => {
     const library = getLibraryBridge();
 
     if (!library?.clearArtistImageCache) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear artist avatars.');
+      setError(t('settings.appearance.artistAvatars.message.desktopBridgeClear'));
       return;
     }
 
@@ -1773,7 +1893,10 @@ export const SettingsPage = (): JSX.Element => {
       setArtistImageBusyAction('clear');
       setArtistImageMessage(null);
       const result = await library.clearArtistImageCache();
-      setArtistImageMessage(`Cleared ${result.removedRows} avatar records and ${result.deletedFiles} files.`);
+      setArtistImageMessage(
+        t('settings.appearance.artistAvatars.message.cleared', { removedRows: result.removedRows, deletedFiles: result.deletedFiles }),
+      );
+      setArtistImageProgress(null);
       window.dispatchEvent(new Event('library:changed'));
     } catch (artistImageError) {
       setError(artistImageError instanceof Error ? artistImageError.message : String(artistImageError));
@@ -2363,6 +2486,13 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleAsioUnavailableFallbackToggle()}
                 />
               </SettingRow>
+              <SettingRow title="SOXR fallback guard" description="Default on. Shared-mode SOXR resampling falls back to the default FFmpeg resampler if SOXR is missing or fails before PCM starts.">
+                <ToggleButton
+                  active={appSettings?.audioSoxrFallbackEnabled ?? true}
+                  disabled={!appSettings}
+                  onClick={() => void handleSoxrFallbackToggle()}
+                />
+              </SettingRow>
               <SettingRow title={t('settings.playback.speedMode.title')} description={t('settings.playback.speedMode.description')}>
                 <div className="settings-chip-row">
                   {playbackSpeedModes.map((item) => (
@@ -2591,28 +2721,64 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
+                title={t('settings.appearance.artistAvatars.title')}
+                description={t('settings.appearance.artistAvatars.description')}
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>{t('settings.appearance.artistAvatars.toggle')}</span>
+                      <ToggleButton
+                        active={appSettings?.autoFetchArtistImages ?? false}
+                        disabled={!appSettings || artistImageBusyAction !== null}
+                        onClick={handleAutoFetchArtistImagesToggle}
+                      />
+                    </div>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleRefreshMissingArtistImages()}
+                    >
+                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
+                      {artistImageBusyAction === 'refresh'
+                        ? t('settings.appearance.artistAvatars.action.queueing')
+                        : t('settings.appearance.artistAvatars.action.refreshMissing')}
+                    </button>
+                    <button
+                      className="settings-danger-button"
+                      type="button"
+                      disabled={artistImageBusyAction !== null}
+                      onClick={() => void handleClearArtistImageCache()}
+                    >
+                      <Trash2 size={15} />
+                      {t('settings.appearance.artistAvatars.action.clear')}
+                    </button>
+                  </div>
+                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
                 title="自定义壁纸"
                 description="保存原图文件，不压缩、不转码；默认完整显示不裁切。"
               >
-                <div className="settings-cache-panel settings-cache-panel--app-wallpaper">
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
-                      <FolderOpen size={15} />
-                      选择壁纸
-                    </button>
-                    {appSettings?.appCustomWallpaperPath ? (
+                {appSettings?.appCustomWallpaperPath ? (
+                  <div className="settings-cache-panel settings-cache-panel--app-wallpaper">
+                    <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                      <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
+                        <FolderOpen size={15} />
+                        选择壁纸
+                      </button>
                       <button className="settings-danger-button" type="button" onClick={handleAppWallpaperClear}>
                         <Trash2 size={15} />
                         清除壁纸
                       </button>
-                    ) : null}
-                  </div>
-                  {appSettings?.appCustomWallpaperPath ? (
-                    <>
-                      <p className="settings-wallpaper-path" title={appSettings.appCustomWallpaperPath}>
-                        {appSettings.appCustomWallpaperPath}
-                      </p>
-                      <div className="settings-wallpaper-controls">
+                    </div>
+                    <p className="settings-wallpaper-path" title={appSettings.appCustomWallpaperPath}>
+                      {appSettings.appCustomWallpaperPath}
+                    </p>
+                    <div className="settings-wallpaper-controls">
                         <div className="settings-wallpaper-control">
                           <span>壁纸缩放</span>
                           <NumberRangeField
@@ -2679,10 +2845,16 @@ export const SettingsPage = (): JSX.Element => {
                             }
                           />
                         </div>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions settings-wallpaper-empty-actions">
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
+                      <FolderOpen size={15} />
+                      选择壁纸
+                    </button>
+                  </div>
+                )}
               </SettingRow>
               <SettingRow title={t('settings.appearance.font.main.title')} description={t('settings.appearance.font.main.description')}>
                 <button className="settings-font-picker-button" type="button" onClick={() => handleFontPickerOpen('main')}>
@@ -3057,43 +3229,6 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                   {bpmAnalysisMessage ? <p className="settings-inline-note">{bpmAnalysisMessage}</p> : null}
                   {bpmAnalysisJob?.errorCount ? <p className="settings-inline-error">分析错误 {bpmAnalysisJob.errorCount} 个，已跳过问题文件。</p> : null}
-                </div>
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title="Artist Avatars"
-                description="Fetch real artist avatars slowly in the background and reuse local cached images on the artist wall."
-              >
-                <div className="settings-cache-panel">
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>Auto Fetch Artist Avatars</span>
-                      <ToggleButton
-                        active={appSettings?.autoFetchArtistImages ?? false}
-                        disabled={!appSettings || artistImageBusyAction !== null}
-                        onClick={handleAutoFetchArtistImagesToggle}
-                      />
-                    </div>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
-                      onClick={() => void handleRefreshMissingArtistImages()}
-                    >
-                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
-                      {artistImageBusyAction === 'refresh' ? 'Queueing...' : 'Refresh Missing Avatars'}
-                    </button>
-                    <button
-                      className="settings-danger-button"
-                      type="button"
-                      disabled={artistImageBusyAction !== null}
-                      onClick={() => void handleClearArtistImageCache()}
-                    >
-                      <Trash2 size={15} />
-                      Clear Avatar Cache
-                    </button>
-                  </div>
-                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.library.network.title')} description={t('settings.library.network.description')}>

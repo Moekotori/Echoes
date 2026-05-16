@@ -32,6 +32,9 @@ const streamingQualityOptions: Array<{ value: StreamingAudioQuality; label: stri
 const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
 const runningDownloadStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 
+const isLikedStreamingProvider = (provider: string | null | undefined): provider is Extract<StreamingProviderName, 'netease' | 'qqmusic'> =>
+  provider === 'netease' || provider === 'qqmusic';
+
 const streamingPlaylistUrl = (playlist: LibraryPlaylist): string | null => {
   if (!playlist.sourcePlaylistId) {
     return null;
@@ -771,13 +774,26 @@ export const PlaylistsPage = (): JSX.Element => {
 
     try {
       setError(null);
-      await library.toggleTrackLiked(track.id);
+      if (track.mediaType === 'streaming' && isLikedStreamingProvider(track.provider) && track.providerTrackId) {
+        const streaming = window.echo?.streaming;
+        if (!streaming?.setTrackLiked) {
+          throw new Error('Streaming liked tracks are unavailable.');
+        }
+
+        await streaming.setTrackLiked({
+          provider: track.provider,
+          providerTrackId: track.providerTrackId,
+          liked: likedTrackIds[track.id] !== true,
+        });
+      } else {
+        await library.toggleTrackLiked(track.id);
+      }
       window.dispatchEvent(new Event(likedTracksChangedEvent));
       window.dispatchEvent(new Event(likedChangedEvent));
     } catch (likeError) {
       setError(likeError instanceof Error ? likeError.message : String(likeError));
     }
-  }, []);
+  }, [likedTrackIds]);
 
   const handleTrackMenuAction = useCallback(
     async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {

@@ -189,7 +189,7 @@ export class ArtistImageCacheService {
     const force = options.force === true;
     const resolvedArtists = artists.length > 0
       ? artists.map((artist) => this.resolveArtist(artist)).filter((artist): artist is ResolvedArtist => Boolean(artist))
-      : this.findMissingArtists(options.limit ?? 200);
+      : this.findMissingArtists(options.limit ?? 200, force);
     let queued = 0;
     let skipped = 0;
 
@@ -583,19 +583,20 @@ export class ArtistImageCacheService {
     };
   }
 
-  private findMissingArtists(limit: number): ResolvedArtist[] {
+  private findMissingArtists(limit: number, includeFailed = false): ResolvedArtist[] {
     return this.database
-      .prepare<[number], DbRow>(
+      .prepare<[number, number], DbRow>(
         `SELECT artists.id, artists.artist_key, artists.name
          FROM artists
          LEFT JOIN artist_image_cache ON artist_image_cache.artist_key = artists.artist_key
          WHERE artist_image_cache.artist_key IS NULL
             OR artist_image_cache.status = 'pending'
             OR artist_image_cache.status = 'loading'
+            OR (? = 1 AND artist_image_cache.status IN ('not_found', 'error', 'rate_limited'))
          ORDER BY artists.track_count DESC, artists.album_count DESC, artists.name COLLATE NOCASE
          LIMIT ?`,
       )
-      .all(Math.max(1, Math.min(1000, Math.floor(limit))))
+      .all(includeFailed ? 1 : 0, Math.max(1, Math.min(1000, Math.floor(limit))))
       .map((row) => ({
         artistId: String(row.id),
         artistKey: String(row.artist_key),

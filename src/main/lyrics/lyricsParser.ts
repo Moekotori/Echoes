@@ -65,6 +65,28 @@ const looksLikeTranslationText = (primaryText: string, value: string): boolean =
   return hasKana(primaryText) || hasLatin(primaryText) || hasHangul(primaryText) || !hasHan(primaryText);
 };
 
+const splitInlineTranslation = (value: string): Pick<LyricLine, 'text' | 'translation'> => {
+  const delimiterPattern = /\s*[\/／]\s*/g;
+  for (const match of value.matchAll(delimiterPattern)) {
+    const delimiterIndex = match.index ?? -1;
+    if (delimiterIndex <= 0) {
+      continue;
+    }
+
+    const primaryText = normalizeLineText(value.slice(0, delimiterIndex));
+    const translationText = normalizeLineText(value.slice(delimiterIndex + match[0].length));
+    if (!primaryText || !translationText) {
+      continue;
+    }
+
+    if (looksLikeTranslationText(primaryText, translationText)) {
+      return { text: primaryText, translation: translationText };
+    }
+  }
+
+  return { text: value };
+};
+
 const classifyAlternateLine = (
   primaryText: string,
   value: string,
@@ -81,12 +103,47 @@ const classifyAlternateLine = (
   return null;
 };
 
+const primaryLineScore = (line: LyricLine): number => {
+  const text = normalizeLineText(line.text) ?? '';
+  let score = 0;
+
+  if (hasKana(text) || hasHangul(text)) {
+    score += 8;
+  } else if (hasHan(text)) {
+    score += 6;
+  } else if (hasEastAsianScript(text)) {
+    score += 4;
+  }
+
+  if (looksLikeRomanizationText(text)) {
+    score -= 10;
+  }
+
+  return score;
+};
+
+const selectPrimaryLineIndex = (group: LyricLine[]): number => {
+  let primaryIndex = 0;
+  let primaryScore = primaryLineScore(group[0]);
+
+  for (let index = 1; index < group.length; index += 1) {
+    const score = primaryLineScore(group[index]);
+    if (score > primaryScore) {
+      primaryIndex = index;
+      primaryScore = score;
+    }
+  }
+
+  return primaryIndex;
+};
+
 const collapseTimestampGroup = (group: LyricLine[]): LyricLine[] => {
   if (group.length <= 1) {
     return group;
   }
 
-  const primary = group[0];
+  const primaryIndex = selectPrimaryLineIndex(group);
+  const primary = group[primaryIndex];
   const usedFields = new Set<'romanization' | 'translation'>();
   const collapsed: LyricLine = { ...primary };
   if (normalizeLineText(collapsed.romanization)) {
@@ -98,7 +155,11 @@ const collapseTimestampGroup = (group: LyricLine[]): LyricLine[] => {
 
   let changed = false;
   const pending: string[] = [];
-  for (const line of group.slice(1)) {
+  for (const [index, line] of group.entries()) {
+    if (index === primaryIndex) {
+      continue;
+    }
+
     const alternateText = normalizeLineText(line.text);
     if (!alternateText || alternateText === collapsed.text) {
       continue;
@@ -198,7 +259,7 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
           continue;
         }
 
-        lines.push({ timeMs, text });
+        lines.push({ timeMs, ...splitInlineTranslation(text) });
       }
 
       continue;
@@ -215,7 +276,7 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
       const textEnd = timestamps[index + 1]?.index ?? line.length;
       const text = cleanLyricText(line.slice(textStart, textEnd));
       if (text) {
-        lines.push({ timeMs, text });
+        lines.push({ timeMs, ...splitInlineTranslation(text) });
       }
     }
   }
@@ -230,7 +291,7 @@ export const parsePlainLyrics = (plainText: string): LyricLine[] =>
     .filter((line) => line.length > 0)
     .map((text) => ({
       timeMs: -1,
-      text,
+      ...splitInlineTranslation(text),
     }));
 
 export const detectLyricsKind = ({

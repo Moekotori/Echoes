@@ -134,6 +134,23 @@ describe('ArtistImageCacheService', () => {
     database.close();
   });
 
+  it('includes failed cache rows when enqueueing missing artists with force', async () => {
+    const database = createDatabase(':memory:');
+    const missingKey = insertArtist(database, 'artist-1', 'Missing Artist');
+    const errorKey = insertArtist(database, 'artist-2', 'Error Artist');
+    insertCache(database, missingKey, 'not_found', { failureReason: 'no_result' });
+    insertCache(database, errorKey, 'error', { failureReason: 'network' });
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    const result = service.enqueueMissingArtistImages([], { force: true, limit: 10 });
+
+    expect(result).toEqual({ queued: 2, skipped: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(providerSearch).toHaveBeenCalledTimes(2);
+    database.close();
+  });
+
   it('retries stale loading rows on the next service run', async () => {
     const database = createDatabase(':memory:');
     const artistKey = insertArtist(database, 'artist-1', 'Interrupted Artist');

@@ -17,11 +17,13 @@ import type {
   AudioOutputSettings,
   AudioPlaybackState,
   AudioProbeResult,
+  AudioResamplerEngine,
   AudioSharedBackend,
   AudioSessionPrepareLocalFileRequest,
   AudioSessionPlayRequest,
   AudioStatus,
   DecoderRun,
+  FfmpegToolchainDiagnostics,
   NativeHostNotificationEvent,
   NativeBridgeReadyResult,
   NativeOutputTelemetry,
@@ -32,8 +34,10 @@ import type { PlaybackSpeedMode, SharedStabilityTier } from '../../shared/types/
 import type { PlaybackMemory } from './PlaybackMemoryStore';
 import type { AudioCrashReportPayload } from '../diagnostics/CrashReportService';
 
-type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'>;
-type DeviceServiceLike = Pick<DeviceService, 'listDevices'> & Partial<Pick<DeviceService, 'listDevicesAsync' | 'refresh'>>;
+type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'> & {
+  getToolchainInfo?: () => FfmpegToolchainDiagnostics;
+};
+type DeviceServiceLike = Pick<DeviceService, 'listDevices'> & Partial<Pick<DeviceService, 'listDevicesAsync' | 'refresh' | 'openAsioControlPanel'>>;
 type OutputBridgeLike = {
   writable: Writable | null;
   start: (options: NativeOutputStartOptions) => Promise<NativeBridgeReadyResult>;
@@ -398,6 +402,12 @@ const asioUnavailablePatterns = [
 const isAsioDeviceUnavailableError = (error: Error): boolean =>
   asioUnavailablePatterns.some((pattern) => pattern.test(error.message));
 
+const isEqControlDisconnectError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /\beq_control_(?:closed|disconnected)\b/u.test(message);
+};
+
 const numericReadyField = (ready: NativeBridgeReadyResult, field: string): number | null => {
   const value = ready.device[field];
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
@@ -496,6 +506,9 @@ const createDeviceFromOutputSettings = (settings: AudioOutputSettings): AudioDev
     sampleRate: normalizePositiveInteger(settings.requestedOutputSampleRate),
     sharedDeviceSampleRate: null,
     isDefault: false,
+    asioOutputChannelStart: outputModeKey === 'asio' && Number.isInteger(Number(settings.asioOutputChannelStart))
+      ? Math.max(0, Number(settings.asioOutputChannelStart))
+      : undefined,
   };
 };
 
@@ -528,6 +541,13 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
   actualDeviceSampleRate: null,
   sharedDeviceSampleRate: null,
   resampling: false,
+  ffmpegPath: null,
+  ffmpegSource: null,
+  ffmpegVersion: null,
+  ffmpegHealthy: false,
+  soxrAvailable: false,
+  resamplerEngine: 'default',
+  resamplerFallbackActive: false,
   bitPerfectCandidate: false,
   sampleRateMismatch: false,
   eqEnabled: false,
@@ -677,6 +697,7 @@ export class AudioSession extends EventEmitter {
     latencyProfile: 'balanced',
     sharedBackend: 'auto',
     asioUnavailableFallbackEnabled: false,
+    soxrFallbackEnabled: true,
     volume: 1,
     playbackRate: 1,
     playbackSpeedMode: 'nightcore',
@@ -699,6 +720,8 @@ export class AudioSession extends EventEmitter {
   private currentBridgeOutputMode: AudioOutputMode | null = null;
   private currentBridgeSharedBackend: AudioSharedBackend | null = null;
   private currentResidentOutputSampleRate: number | null = null;
+  private currentResamplerEngine: AudioResamplerEngine = 'default';
+  private currentResamplerFallbackActive = false;
   private bridge: OutputBridgeLike | null = null;
   private attachedBridgeEvents: { bridge: OutputBridgeLike; listeners: BridgeEventListeners } | null = null;
   private decoderRun: DecoderRun | null = null;
@@ -790,6 +813,14 @@ export class AudioSession extends EventEmitter {
 
   async listDevicesAsync(): Promise<AudioDeviceInfo[]> {
     return this.deviceService.listDevicesAsync?.() ?? this.deviceService.listDevices();
+  }
+
+  async openAsioControlPanel(settings: Pick<AudioOutputSettings, 'deviceIndex' | 'deviceName'>): Promise<void> {
+    if (!this.deviceService.openAsioControlPanel) {
+      throw new Error('ASIO control panel is unavailable');
+    }
+
+    await this.deviceService.openAsioControlPanel(settings);
   }
 
   private async refreshDeviceService(options: DeviceListOptions = {}): Promise<void> {
@@ -905,6 +936,7 @@ export class AudioSession extends EventEmitter {
       latencyProfile: nextLatencyProfile,
       bufferSizeFrames: nextBufferSizeFrames,
       asioUnavailableFallbackEnabled: settings.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
+      soxrFallbackEnabled: settings.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
       volume: Math.max(0, Math.min(1, Number(settings.volume ?? this.outputSettings.volume) || 0)),
       playbackRate: normalizePlaybackRate(settings.playbackRate ?? this.outputSettings.playbackRate),
       playbackSpeedMode: normalizePlaybackSpeedMode(settings.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
@@ -1012,6 +1044,8 @@ export class AudioSession extends EventEmitter {
     this.currentOutputBackendImpl = null;
     this.currentOutputDeviceType = null;
     this.currentOutputDeviceName = null;
+    this.currentResamplerEngine = 'default';
+    this.currentResamplerFallbackActive = false;
     this.currentOutputSettings = this.createOutputSettingsForRequest(request.output);
     this.currentUseJuceOutputRequested = this.currentOutputSettings.useJuceOutput === true;
     this.currentDevice = this.resolvePlanDeviceForSettings(this.currentOutputSettings);
@@ -1093,15 +1127,18 @@ export class AudioSession extends EventEmitter {
         preparedLocalProbeUsed: Boolean(preparedProbe),
         preparedLocalProbeAgeMs: preparedProbe?.ageMs ?? null,
       });
-      const run = this.decoder.decodeLocalFile({
-        filePath: request.filePath,
-        inputHeaders: request.inputHeaders,
-        startSeconds: request.startSeconds ?? 0,
-        channels: probe.channels,
-        decoderOutputSampleRate: activePlan.decoderOutputSampleRate,
-      });
+      const run = this.decoder.decodeLocalFile(
+        this.createDecodeRequest(
+          request.filePath,
+          request.inputHeaders,
+          request.startSeconds ?? 0,
+          probe.channels,
+          activePlan,
+          this.currentOutputSettings,
+        ),
+      );
 
-      await getEqBridge().syncStateToNative();
+      await this.syncEqStateForPlayback();
       this.assertCurrentRun(token);
       const sessionId = bridge.beginSession?.({
         startSeconds: request.startSeconds ?? 0,
@@ -1147,6 +1184,8 @@ export class AudioSession extends EventEmitter {
     this.currentTrackId = memory.trackId;
     this.currentOutputSettings = { ...this.outputSettings };
     this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings);
+    this.currentResamplerEngine = 'default';
+    this.currentResamplerFallbackActive = false;
     this.currentProbe = createProbeFromHint(memory.filePath, {
       durationSeconds: memory.probe?.durationSeconds ?? memory.durationSeconds,
       fileSampleRate: memory.probe?.fileSampleRate,
@@ -1186,7 +1225,7 @@ export class AudioSession extends EventEmitter {
         const startSeconds = this.pausedPositionSeconds ?? this.clock.getPositionSeconds();
         this.pausedPositionSeconds = null;
         this.attachBridgeEvents(bridge, token);
-        await getEqBridge().syncStateToNative();
+        await this.syncEqStateForPlayback();
         this.assertCurrentRun(token);
         const sessionId = bridge.beginSession?.({
           startSeconds,
@@ -1196,13 +1235,16 @@ export class AudioSession extends EventEmitter {
         bridge.resetOutputClock?.(startSeconds, this.currentOutputSettings.playbackRate ?? 1);
         this.clock.reset(startSeconds, currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate);
 
-        const run = this.decoder.decodeLocalFile({
-          filePath: this.currentFilePath,
-          inputHeaders: this.currentInputHeaders ?? undefined,
-          startSeconds,
-          channels: currentProbe.channels,
-          decoderOutputSampleRate: currentPlan.decoderOutputSampleRate,
-        });
+        const run = this.decoder.decodeLocalFile(
+          this.createDecodeRequest(
+            this.currentFilePath,
+            this.currentInputHeaders,
+            startSeconds,
+            currentProbe.channels,
+            currentPlan,
+            this.currentOutputSettings,
+          ),
+        );
         const writable = bridge.createSessionWritable?.(sessionId) ?? bridge.writable;
         if (!writable) {
           throw new Error('native output bridge did not expose a writable PCM stream');
@@ -1291,6 +1333,8 @@ export class AudioSession extends EventEmitter {
     this.currentOutputBackendImpl = null;
     this.currentOutputDeviceType = null;
     this.currentOutputDeviceName = null;
+    this.currentResamplerEngine = 'default';
+    this.currentResamplerFallbackActive = false;
     this.currentUseJuceOutputRequested = false;
     this.currentReadyResult = null;
     this.currentBridgeSharedBackend = null;
@@ -1396,7 +1440,7 @@ export class AudioSession extends EventEmitter {
       const token = this.runToken + 1;
       this.runToken = token;
       this.stopDecoderRun();
-      await getEqBridge().syncStateToNative();
+      await this.syncEqStateForPlayback();
       this.assertCurrentRun(token);
       const sessionId = this.bridge.beginSession?.({
         startSeconds: safePositionSeconds,
@@ -1407,13 +1451,16 @@ export class AudioSession extends EventEmitter {
       this.attachBridgeEvents(this.bridge, token);
       this.clock.reset(safePositionSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
 
-      const run = this.decoder.decodeLocalFile({
-        filePath: this.currentFilePath,
-        inputHeaders: this.currentInputHeaders ?? undefined,
-        startSeconds: safePositionSeconds,
-        channels: this.currentProbe.channels,
-        decoderOutputSampleRate: this.currentPlan.decoderOutputSampleRate,
-      });
+      const run = this.decoder.decodeLocalFile(
+        this.createDecodeRequest(
+          this.currentFilePath,
+          this.currentInputHeaders,
+          safePositionSeconds,
+          this.currentProbe.channels,
+          this.currentPlan,
+          this.currentOutputSettings,
+        ),
+      );
       const writable = this.bridge.createSessionWritable?.(sessionId) ?? this.bridge.writable;
       if (!writable) {
         throw new Error('native output bridge did not expose a writable PCM stream');
@@ -1478,13 +1525,14 @@ export class AudioSession extends EventEmitter {
         : null;
     const nativePositionStalenessMs =
       this.bridge?.getPositionStalenessMs?.() ?? this.nativeTelemetry.nativePositionStalenessMs ?? null;
+    const ffmpeg = this.decoder.getToolchainInfo?.() ?? null;
 
     return {
       ...status,
       host: this.hostStatus,
       state: this.state,
       outputDeviceId: this.currentDevice?.id ?? null,
-      outputDeviceName: this.currentOutputDeviceName ?? this.currentDevice?.name ?? null,
+    outputDeviceName: this.currentOutputDeviceName ?? this.currentDevice?.name ?? null,
       outputDeviceType: this.currentOutputDeviceType,
       outputBackend: this.currentOutputBackend,
       activeOutputBackendImpl: this.currentOutputBackendImpl,
@@ -1509,6 +1557,13 @@ export class AudioSession extends EventEmitter {
       actualDeviceSampleRate: plan?.actualDeviceSampleRate ?? null,
       sharedDeviceSampleRate: plan?.sharedDeviceSampleRate ?? this.currentDevice?.sharedDeviceSampleRate ?? null,
       resampling: plan?.resampling ?? false,
+      ffmpegPath: ffmpeg?.path ?? null,
+      ffmpegSource: ffmpeg?.source ?? null,
+      ffmpegVersion: ffmpeg?.version ?? ffmpeg?.manifestVersion ?? null,
+      ffmpegHealthy: ffmpeg?.healthy ?? false,
+      soxrAvailable: ffmpeg?.soxrAvailable ?? false,
+      resamplerEngine: this.currentResamplerEngine,
+      resamplerFallbackActive: this.currentResamplerFallbackActive,
       bitPerfectCandidate: (plan?.bitPerfectCandidate ?? false) && !dspActive,
       sampleRateMismatch: plan?.sampleRateMismatch ?? false,
       eqEnabled: eqState.enabled,
@@ -1531,6 +1586,7 @@ export class AudioSession extends EventEmitter {
       nativeBufferedMs,
       nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
       nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+      asioOutputChannelStart: this.currentReadyResult ? numericReadyField(this.currentReadyResult, 'asioOutputChannelStart') : null,
       lastSharedStabilityRecoveryAt: this.lastSharedStabilityRecoveryAt,
       warnings,
       error: this.errorMessage,
@@ -1561,6 +1617,13 @@ export class AudioSession extends EventEmitter {
       actualDeviceSampleRate: status.actualDeviceSampleRate,
       sharedDeviceSampleRate: status.sharedDeviceSampleRate,
       resampling: status.resampling,
+      ffmpegPath: status.ffmpegPath,
+      ffmpegSource: status.ffmpegSource,
+      ffmpegVersion: status.ffmpegVersion,
+      ffmpegHealthy: status.ffmpegHealthy,
+      soxrAvailable: status.soxrAvailable,
+      resamplerEngine: status.resamplerEngine,
+      resamplerFallbackActive: status.resamplerFallbackActive,
       bitPerfectCandidate: status.bitPerfectCandidate,
       sampleRateMismatch: status.sampleRateMismatch,
       sharedStabilityTier: status.sharedStabilityTier,
@@ -1666,6 +1729,7 @@ export class AudioSession extends EventEmitter {
         'playback_request',
       ),
       asioUnavailableFallbackEnabled: output?.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
+      soxrFallbackEnabled: output?.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
       volume: Math.max(0, Math.min(1, Number(output?.volume ?? this.outputSettings.volume) || 0)),
       playbackRate: normalizePlaybackRate(output?.playbackRate ?? this.outputSettings.playbackRate),
       playbackSpeedMode: normalizePlaybackSpeedMode(output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
@@ -1676,6 +1740,48 @@ export class AudioSession extends EventEmitter {
     }
 
     return settings;
+  }
+
+  private getRequestedResamplerEngine(plan: SampleRatePlan, outputSettings: AudioOutputSettings): AudioResamplerEngine {
+    if (
+      plan.outputMode === 'shared' &&
+      outputSettings.sharedBackend !== 'directsound' &&
+      plan.fileSampleRate !== null &&
+      plan.fileSampleRate !== plan.decoderOutputSampleRate
+    ) {
+      return 'soxr';
+    }
+
+    return 'default';
+  }
+
+  private createDecodeRequest(
+    filePath: string,
+    inputHeaders: Record<string, string> | null | undefined,
+    startSeconds: number,
+    channels: number,
+    plan: SampleRatePlan,
+    outputSettings: AudioOutputSettings,
+  ) {
+    const resamplerEngine = this.getRequestedResamplerEngine(plan, outputSettings);
+    this.currentResamplerEngine = resamplerEngine;
+    this.currentResamplerFallbackActive = false;
+
+    return {
+      filePath,
+      inputHeaders: inputHeaders ?? undefined,
+      startSeconds,
+      channels,
+      decoderOutputSampleRate: plan.decoderOutputSampleRate,
+      resamplerEngine,
+      allowResamplerFallback: outputSettings.soxrFallbackEnabled !== false,
+      onResamplerFallback: (warning: string) => {
+        this.currentResamplerEngine = 'default';
+        this.currentResamplerFallbackActive = true;
+        this.addOutputWarning(warning);
+        this.emitStatus();
+      },
+    };
   }
 
   private resolvePlanDeviceForSettings(outputSettings: AudioOutputSettings): AudioDeviceInfo | null {
@@ -2340,6 +2446,9 @@ export class AudioSession extends EventEmitter {
           ? undefined
           : candidate?.index ?? (usingDefaultSharedFallback || usingDefaultAsioFallback ? undefined : this.currentOutputSettings.deviceIndex),
         deviceName: candidate?.name ?? (usingDefaultSharedFallback || usingDefaultAsioFallback ? undefined : this.currentOutputSettings.deviceName),
+        asioOutputChannelStart: outputMode === 'asio'
+          ? candidate?.asioOutputChannelStart ?? this.currentOutputSettings.asioOutputChannelStart
+          : undefined,
         sharedBackend,
         asio: outputMode === 'asio',
         exclusive: outputMode === 'exclusive',
@@ -3357,6 +3466,22 @@ export class AudioSession extends EventEmitter {
       });
     } catch {
       // Diagnostics must never interrupt playback recovery.
+    }
+  }
+
+  private async syncEqStateForPlayback(): Promise<void> {
+    try {
+      await getEqBridge().syncStateToNative();
+    } catch (error) {
+      if (!isEqControlDisconnectError(error)) {
+        throw error;
+      }
+
+      this.addOutputWarning('eq_control_sync_skipped');
+      this.logger(`[AudioSession] EQ control sync skipped during playback start: ${error instanceof Error ? error.message : String(error)}`);
+      this.reportRecoverableAudioError(error instanceof Error ? error : new Error(String(error)), 'eq-control-sync', {
+        recovered: true,
+      });
     }
   }
 

@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessByStdio, SpawnOptionsWithStdioTuple } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import readline from 'node:readline';
-import { resolveDecoderFfmpegPath } from '../../audio/DecoderPipeline';
+import { resolveFfmpegToolchainPath } from '../../audio/FfmpegToolchain';
 
 type AnalyzerProcess = ChildProcessByStdio<null, Readable, Readable>;
 type AnalyzerSpawnOptions = SpawnOptionsWithStdioTuple<'ignore', 'pipe', 'pipe'> & {
@@ -168,7 +168,7 @@ export class BpmAnalyzer {
   private readonly logger: (message: string) => void;
 
   constructor(dependencies: BpmAnalyzerDependencies = {}) {
-    this.ffmpegPath = dependencies.ffmpegPath ?? resolveDecoderFfmpegPath();
+    this.ffmpegPath = dependencies.ffmpegPath ?? resolveFfmpegToolchainPath();
     this.spawn = dependencies.spawn ?? (nodeSpawn as AnalyzerSpawner);
     this.logger = dependencies.logger ?? defaultLogger;
   }

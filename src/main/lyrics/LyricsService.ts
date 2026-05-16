@@ -652,7 +652,7 @@ export class LyricsService {
     }
 
     const query = toQuery(track);
-    const syncedLines = parseSyncedLyrics(normalizedText);
+    const syncedLines = normalizeSyncedLyricAlternates(parseSyncedLyrics(normalizedText));
     const plainLines = syncedLines.length > 0 ? [] : parsePlainLyrics(normalizedText);
     if (syncedLines.length === 0 && plainLines.length === 0) {
       throw new Error('Custom LRC file does not contain readable lyrics');

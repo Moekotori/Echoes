@@ -367,7 +367,7 @@ describe('SongsPage', () => {
     expect(await screen.findByRole('dialog', { name: 'osu! Timing' })).toBeTruthy();
     expect(screen.getByText('12,468.75,4,1,0,100,1,0')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy timing line' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制 timing 行' }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('12,468.75,4,1,0,100,1,0'));
   });

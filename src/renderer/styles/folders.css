@@ -121,7 +121,7 @@
 .folder-tree-node[data-active='true'] {
   color: #203047;
   border-color: rgba(70, 111, 151, 0.12);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--theme-legacy-surface-a72);
 }
 
 .folder-root-button[data-active='true'],
@@ -230,7 +230,7 @@
   width: 58px;
   height: 58px;
   object-fit: cover;
-  border: 2px solid rgba(255, 255, 255, 0.92);
+  border: 2px solid var(--theme-legacy-surface-a92);
   border-radius: 8px;
   box-shadow: 0 8px 18px rgba(31, 54, 80, 0.12);
   transform: translate(calc((var(--cover-index) - 1.5) * 10px), calc((var(--cover-index) - 1.5) * 7px));
@@ -282,7 +282,7 @@
   color: var(--color-muted);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--theme-legacy-surface-a72);
   box-shadow: var(--shadow-panel);
   font-size: 12px;
   font-weight: 720;
@@ -315,7 +315,7 @@
 }
 
 .folder-toggle input {
-  accent-color: #55799f;
+  accent-color: var(--theme-legacy-accent-text-strong);
 }
 
 .folder-sort-select,
@@ -326,7 +326,7 @@
   border: 1px solid rgba(35, 54, 78, 0.1);
   border-radius: 8px;
   outline: 0;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--theme-legacy-surface-a76);
   font: inherit;
 }
 
@@ -364,9 +364,9 @@
   justify-content: center;
   gap: 8px;
   color: #40556f;
-  border: 1px solid rgba(40, 62, 88, 0.1);
+  border: 1px solid var(--theme-legacy-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--theme-legacy-surface-a72);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -380,7 +380,7 @@
 .folder-import-box button:hover,
 .folder-action-grid button:hover {
   color: #2d4f74;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--theme-legacy-surface-a90);
 }
 
 .folder-action-grid button.danger {
@@ -397,7 +397,7 @@
   display: grid;
   gap: 6px;
   padding: 12px;
-  border: 1px solid rgba(40, 62, 88, 0.1);
+  border: 1px solid var(--theme-legacy-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.68);
 }

@@ -5,7 +5,7 @@
   align-content: start;
   gap: 26px;
   padding: 38px 42px 28px;
-  color: #172235;
+  color: var(--theme-legacy-heading-text);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 252, 0.92) 58%, rgba(241, 246, 251, 0.9)),
     #f7f9fc;
@@ -34,7 +34,7 @@
 }
 
 .album-back-button:hover {
-  color: #172235;
+  color: var(--theme-legacy-heading-text);
 }
 
 .album-back-button svg {
@@ -71,7 +71,7 @@
     #edf3f9;
   box-shadow:
     0 30px 72px rgba(35, 55, 80, 0.16),
-    0 1px 0 rgba(255, 255, 255, 0.92) inset;
+    0 1px 0 var(--theme-legacy-surface-a92) inset;
 }
 
 .album-detail-cover img {
@@ -152,7 +152,7 @@
   justify-content: center;
   color: #243143;
   border: 1px solid rgba(37, 62, 92, 0.13);
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--theme-legacy-surface-a78);
   font: inherit;
   font-weight: 850;
 }
@@ -493,7 +493,7 @@ html[data-theme="dark"] .album-detail-cover {
     #151c26;
   box-shadow:
     0 30px 72px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 var(--theme-legacy-white-a06);
 }
 
 html[data-theme="dark"] .album-icon-action,

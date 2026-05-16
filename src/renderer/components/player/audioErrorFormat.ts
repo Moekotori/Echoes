@@ -1,4 +1,22 @@
+const nonActionableAudioErrorPatterns = [
+  /\beq_control_(?:closed|disconnected)\b/u,
+  /\beq_control_sync_skipped\b/u,
+  /\baudio_session_run_cancelled\b/u,
+];
+
+export const shouldSuppressAudioHostError = (error: string | null | undefined): boolean => {
+  if (!error) {
+    return true;
+  }
+
+  return nonActionableAudioErrorPatterns.some((pattern) => pattern.test(error));
+};
+
 export const formatAudioHostError = (error: string | null | undefined): string | null => {
+  if (shouldSuppressAudioHostError(error)) {
+    return null;
+  }
+
   if (!error) {
     return null;
   }

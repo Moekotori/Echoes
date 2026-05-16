@@ -1,12 +1,12 @@
 {
-  "src/renderer/styles/album-detail.css": 42,
-  "src/renderer/styles/app.css": 736,
-  "src/renderer/styles/artist-detail.css": 50,
-  "src/renderer/styles/eq.css": 171,
-  "src/renderer/styles/folders.css": 32,
+  "src/renderer/styles/album-detail.css": 39,
+  "src/renderer/styles/app.css": 554,
+  "src/renderer/styles/artist-detail.css": 46,
+  "src/renderer/styles/eq.css": 110,
+  "src/renderer/styles/folders.css": 23,
   "src/renderer/styles/layout.css": 52,
-  "src/renderer/styles/lyrics.css": 174,
-  "src/renderer/styles/queue.css": 27,
-  "src/renderer/styles/songs.css": 364,
+  "src/renderer/styles/lyrics.css": 104,
+  "src/renderer/styles/queue.css": 22,
+  "src/renderer/styles/songs.css": 281,
   "src/renderer/styles/theme.css": 1
 }

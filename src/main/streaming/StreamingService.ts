@@ -30,6 +30,8 @@ import { MockStreamingProvider } from './providers/MockStreamingProvider';
 import { NeteaseStreamingProvider } from './providers/NeteaseStreamingProvider';
 import { QQMusicStreamingProvider } from './providers/QQMusicStreamingProvider';
 import { SpotifyStreamingProvider } from './providers/SpotifyStreamingProvider';
+import { M3u8StreamingProvider } from './providers/M3u8StreamingProvider';
+import { buildM3u8StreamingPlaylistDetail } from './M3u8Playlist';
 
 const searchTtlMs = 5 * 60 * 1000;
 const trackDetailTtlMs = 30 * 60 * 1000;
@@ -513,6 +515,23 @@ export class StreamingService {
     };
   }
 
+  async importM3u8PlaylistFile(filePath: string, content: string): Promise<StreamingPlaylistImportResult> {
+    const detail = buildM3u8StreamingPlaylistDetail(filePath, content);
+    const result = this.cacheStore.importStreamingPlaylistPage(detail, {
+      reset: true,
+      startPosition: 0,
+      addedFrom: 'm3u8-import',
+    });
+
+    return {
+      playlistId: result.playlist.id,
+      playlistName: result.playlist.name,
+      importedCount: detail.tracks.length,
+      provider: 'm3u8',
+      providerPlaylistId: detail.providerPlaylistId,
+    };
+  }
+
   async syncLikedSongs(providerName?: LikedSongsSyncProviderName): Promise<StreamingLikedSongsSyncResult> {
     const targetProviders = providerName ? [providerName] : likedSongsSyncProviders;
     const providers = await Promise.all(targetProviders.map((targetProvider) => this.syncProviderLikedSongs(targetProvider)));
@@ -672,6 +691,7 @@ export const createStreamingService = (database: EchoDatabase): StreamingService
   registry.register(new NeteaseStreamingProvider());
   registry.register(new QQMusicStreamingProvider());
   registry.register(new SpotifyStreamingProvider());
+  registry.register(new M3u8StreamingProvider());
   return new StreamingService(
     registry,
     new StreamingCacheStore(database, (playlistId) => backupPlaylistIfEnabled(database, playlistId, 'streaming-refresh', getAppSettings)),

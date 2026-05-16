@@ -126,6 +126,48 @@ describe('AppLayout standalone routes', () => {
     expect(onSongsUnmount).not.toHaveBeenCalled();
   });
 
+  it('notifies the library views when a download is imported', async () => {
+    let jobsUpdated: ((jobs: Array<{ id: string; importedTrackId: string | null }>) => void) | null = null;
+    const unsubscribeDownloads = vi.fn();
+    const onLibraryChanged = vi.fn();
+    window.echo = {
+      downloads: {
+        onJobsUpdated: vi.fn((handler) => {
+          jobsUpdated = handler as typeof jobsUpdated;
+          return unsubscribeDownloads;
+        }),
+      },
+    } as unknown as Window['echo'];
+    window.addEventListener('library:changed', onLibraryChanged);
+
+    const { unmount } = render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(window.echo?.downloads?.onJobsUpdated).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jobsUpdated?.([{ id: 'job-1', importedTrackId: null }]);
+    });
+    expect(onLibraryChanged).not.toHaveBeenCalled();
+
+    act(() => {
+      jobsUpdated?.([{ id: 'job-1', importedTrackId: 'track-1' }]);
+    });
+    expect(onLibraryChanged).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jobsUpdated?.([{ id: 'job-1', importedTrackId: 'track-1' }]);
+    });
+    expect(onLibraryChanged).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(unsubscribeDownloads).toHaveBeenCalledTimes(1);
+    window.removeEventListener('library:changed', onLibraryChanged);
+  });
+
   it('keeps the player bar on the standalone lyrics page', async () => {
     render(
       <AppProviders>
@@ -143,6 +185,25 @@ describe('AppLayout standalone routes', () => {
     expect(screen.queryByRole('complementary', { name: 'Main navigation' })).toBeNull();
     expect(screen.getByRole('contentinfo', { name: '播放控制' })).toBeTruthy();
   });
+  it('returns to the previous shell route when the lyrics transport button is clicked from lyrics', async () => {
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(screen.queryByRole('complementary', { name: 'Main navigation' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Shell page')).toBeTruthy());
+    expect(screen.getByRole('complementary', { name: 'Main navigation' })).toBeTruthy();
+  });
+
   it('uses the lyrics player bar drawer when the lyrics setting is enabled', async () => {
     window.echo = {
       app: {
@@ -334,6 +395,84 @@ describe('AppLayout standalone routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '打开报告' }));
     await waitFor(() => expect(openAudioCrashReport).toHaveBeenCalledTimes(1));
+  });
+
+  it('auto-dismisses upper-left audio error notices after five seconds', async () => {
+    let audioStatusHandler: ((status: { error: string | null; state: string }) => void) | undefined;
+    const audioOnStatus = vi.fn((handler) => {
+      audioStatusHandler = handler as typeof audioStatusHandler;
+      return vi.fn();
+    });
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ lyricsPlayerBarDrawerEnabled: false, smtcEnabled: true }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          positionMs: 0,
+          durationMs: 0,
+          filePath: null,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          currentFilePath: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          error: null,
+          warnings: [],
+        }),
+        onStatus: audioOnStatus,
+        setOutput: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          currentFilePath: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          error: null,
+          warnings: [],
+        }),
+      },
+      diagnostics: {
+        getLastCrashSummary: vi.fn().mockResolvedValue(null),
+        openAudioCrashReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md'),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(null),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(audioStatusHandler).toBeTruthy());
+    vi.useFakeTimers();
+    act(() => {
+      audioStatusHandler?.({
+        state: 'error',
+        error: 'echo-audio-host timeout_waiting_for_ready; mode="asio"',
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows an upper-left notice when an account login expires', async () => {

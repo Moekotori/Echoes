@@ -93,14 +93,40 @@ export const registerAppLifecycle = (): void => {
     });
   });
 
-  app.on('before-quit', () => {
+  let gracefulQuitInProgress = false;
+  let gracefulQuitCompleted = false;
+
+  const cleanupBeforeQuit = async (): Promise<void> => {
     savePlaybackMemoryNow();
     disposeLastFmIntegration();
     disposeDiscordPresenceIntegration();
-    disposeSmtcIntegration();
+    await disposeSmtcIntegration();
     disposeBackgroundPlaybackShortcuts();
     getCrashReportService().closeSession();
     requestAppQuit();
+  };
+
+  app.on('before-quit', (event) => {
+    if (gracefulQuitCompleted) {
+      return;
+    }
+
+    event.preventDefault();
+    if (gracefulQuitInProgress) {
+      return;
+    }
+
+    gracefulQuitInProgress = true;
+    void cleanupBeforeQuit()
+      .catch((error) => {
+        getCrashReportService().getLogger()?.warn('main', '[Lifecycle] graceful shutdown cleanup failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        gracefulQuitCompleted = true;
+        app.quit();
+      });
   });
 
   app.on('window-all-closed', () => {

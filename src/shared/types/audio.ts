@@ -7,6 +7,8 @@ export type PlaybackSpeedMode = 'nightcore' | 'daycore' | 'speed';
 export type AudioLatencyProfile = 'stable' | 'balanced' | 'lowLatency';
 export type ChannelBalanceMonoMode = 'off' | 'sum' | 'left' | 'right';
 export type SharedStabilityTier = 'standard' | 'recovery' | 'emergency';
+export type AudioResamplerEngine = 'default' | 'soxr';
+export type FfmpegToolchainSource = 'explicit' | 'bundled' | 'dev-bundled' | 'system';
 
 export type ChannelBalanceState = {
   enabled: boolean;
@@ -45,6 +47,9 @@ export type AudioDeviceInfo = {
   sampleRate: number | null;
   sharedDeviceSampleRate: number | null;
   isDefault: boolean;
+  asioOutputChannels?: number;
+  asioOutputChannelStart?: number;
+  asioChannelNames?: string[];
 };
 
 export type AudioOutputSettings = {
@@ -52,11 +57,13 @@ export type AudioOutputSettings = {
   sharedBackend?: AudioSharedBackend;
   deviceIndex?: number;
   deviceName?: string;
+  asioOutputChannelStart?: number;
   requestedOutputSampleRate?: number;
   latencyProfile?: AudioLatencyProfile;
   bufferSizeFrames?: number | null;
   useJuceOutput?: boolean;
   asioUnavailableFallbackEnabled?: boolean;
+  soxrFallbackEnabled?: boolean;
   volume?: number;
   playbackRate?: number;
   playbackSpeedMode?: PlaybackSpeedMode;
@@ -90,6 +97,13 @@ export type AudioStatus = {
   actualDeviceSampleRate: number | null;
   sharedDeviceSampleRate: number | null;
   resampling: boolean;
+  ffmpegPath?: string | null;
+  ffmpegSource?: FfmpegToolchainSource | null;
+  ffmpegVersion?: string | null;
+  ffmpegHealthy?: boolean;
+  soxrAvailable?: boolean;
+  resamplerEngine?: AudioResamplerEngine;
+  resamplerFallbackActive?: boolean;
   bitPerfectCandidate: boolean;
   sampleRateMismatch: boolean;
   latencyProfile?: AudioLatencyProfile;
@@ -113,6 +127,7 @@ export type AudioStatus = {
   nativeBufferedMs?: number | null;
   nativeUnderrunCallbacks?: number;
   nativeUnderrunFrames?: number;
+  asioOutputChannelStart?: number | null;
   lastSharedStabilityRecoveryAt?: string | null;
   warnings: string[];
   error: string | null;
@@ -144,6 +159,13 @@ export type AudioDiagnostics = Pick<
   | 'actualDeviceSampleRate'
   | 'sharedDeviceSampleRate'
   | 'resampling'
+  | 'ffmpegPath'
+  | 'ffmpegSource'
+  | 'ffmpegVersion'
+  | 'ffmpegHealthy'
+  | 'soxrAvailable'
+  | 'resamplerEngine'
+  | 'resamplerFallbackActive'
   | 'bitPerfectCandidate'
   | 'sampleRateMismatch'
   | 'latencyProfile'

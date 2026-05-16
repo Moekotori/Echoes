@@ -169,6 +169,7 @@ const installLibraryService = () => {
     refreshArtistImage: vi.fn(async () => ({ queued: true, entry: null })),
     refreshVisibleArtistImages: vi.fn(() => ({ queued: 0, skipped: 0 })),
     getArtistImage: vi.fn(() => null),
+    getArtistImageCacheSummary: vi.fn(() => ({ total: 0, matched: 0, pending: 0, loading: 0, notFound: 0, error: 0, rateLimited: 0 })),
     clearArtistImageCache: vi.fn(() => ({ removedRows: 0, deletedFiles: 0, freedBytes: 0 })),
     getAlbumTracks: vi.fn(),
     getSummary: vi.fn(),
@@ -403,6 +404,7 @@ describe('library IPC', () => {
     await handlers[IpcChannels.LibraryArtistImagesRefreshVisible]!(null, [{ id: 'artist-1', name: 'Suara' }]);
     await handlers[IpcChannels.LibraryArtistImagesRefreshOne]!(null, { artistId: 'artist-1', force: true });
     await handlers[IpcChannels.LibraryArtistImagesGetStatus]!(null, 'artist-1');
+    await handlers[IpcChannels.LibraryArtistImagesGetSummary]!(null);
     await handlers[IpcChannels.LibraryArtistImagesClearCache]!();
 
     expect(service.enqueueMissingArtistImages).toHaveBeenCalledWith([{ id: 'artist-1', name: 'Suara', artistKey: undefined, artistName: undefined }], {
@@ -412,6 +414,7 @@ describe('library IPC', () => {
     expect(service.refreshVisibleArtistImages).toHaveBeenCalledWith([{ id: 'artist-1', name: 'Suara', artistKey: undefined, artistName: undefined }]);
     expect(service.refreshArtistImage).toHaveBeenCalledWith('artist-1', true);
     expect(service.getArtistImage).toHaveBeenCalledWith('artist-1');
+    expect(service.getArtistImageCacheSummary).toHaveBeenCalledTimes(1);
     expect(service.clearArtistImageCache).toHaveBeenCalledTimes(1);
   });
 

@@ -26,6 +26,7 @@ export type RememberedAudioOutput = {
   latencyProfile?: AudioLatencyProfile;
   deviceIndex?: number;
   deviceName?: string;
+  asioOutputChannelStart?: number;
   bufferSizeFrames?: number;
 };
 
@@ -44,6 +45,7 @@ export type AppSettings = {
   hiddenAudioDeviceKeys?: string[];
   audioUseJuceOutput?: boolean;
   audioAsioUnavailableFallbackEnabled?: boolean;
+  audioSoxrFallbackEnabled?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;

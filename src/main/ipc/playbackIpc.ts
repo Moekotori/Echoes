@@ -114,6 +114,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
     output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
   }
 
+  if (typeof input.soxrFallbackEnabled === 'boolean') {
+    output.soxrFallbackEnabled = input.soxrFallbackEnabled;
+  }
+
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
     output.volume = Math.max(0, Math.min(1, input.volume));
   }

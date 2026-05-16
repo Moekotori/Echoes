@@ -87,6 +87,14 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
   }
 
   if (
+    typeof input.asioOutputChannelStart === 'number' &&
+    Number.isInteger(input.asioOutputChannelStart) &&
+    input.asioOutputChannelStart >= 0
+  ) {
+    output.asioOutputChannelStart = input.asioOutputChannelStart;
+  }
+
+  if (
     typeof input.requestedOutputSampleRate === 'number' &&
     Number.isFinite(input.requestedOutputSampleRate) &&
     input.requestedOutputSampleRate > 0
@@ -111,6 +119,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
 
   if (typeof input.asioUnavailableFallbackEnabled === 'boolean') {
     output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
+  }
+
+  if (typeof input.soxrFallbackEnabled === 'boolean') {
+    output.soxrFallbackEnabled = input.soxrFallbackEnabled;
   }
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
@@ -167,6 +179,15 @@ export const registerAudioIpc = (): void => {
       return await getAudioSession().setOutput(normalized);
     } catch (error) {
       reportAudioIpcError(error, 'set-output-ipc', { settings });
+      throw error;
+    }
+  });
+  ipcMain.handle(IpcChannels.AudioOpenAsioControlPanel, async (_event, settings: unknown): Promise<void> => {
+    try {
+      const normalized = normalizeOutputSettings({ ...(typeof settings === 'object' && settings ? settings : {}), outputMode: 'asio' });
+      await getAudioSession().openAsioControlPanel(normalized);
+    } catch (error) {
+      reportAudioIpcError(error, 'open-asio-control-panel-ipc', { settings });
       throw error;
     }
   });

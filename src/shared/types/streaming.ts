@@ -1,4 +1,4 @@
-export type StreamingProviderName = 'mock' | 'netease' | 'qqmusic' | 'bilibili' | 'spotify';
+export type StreamingProviderName = 'mock' | 'netease' | 'qqmusic' | 'bilibili' | 'spotify' | 'm3u8';
 
 export type StreamingMediaType = 'track' | 'album' | 'artist' | 'playlist' | 'mv';
 
@@ -13,6 +13,7 @@ export const streamingProviderNames: StreamingProviderName[] = [
   'qqmusic',
   'bilibili',
   'spotify',
+  'm3u8',
 ];
 
 export const streamingStableKey = (provider: StreamingProviderName, providerTrackId: string): string =>
@@ -205,7 +206,7 @@ export type StreamingPlaylistImportResult = {
   playlistId: string;
   playlistName: string;
   importedCount: number;
-  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify'>;
+  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify' | 'm3u8'>;
   providerPlaylistId: string;
 };
 

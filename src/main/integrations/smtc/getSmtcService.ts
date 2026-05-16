@@ -45,6 +45,6 @@ export const getSmtcService = (): SmtcService => {
 };
 
 export const resetSmtcServiceForTests = (): void => {
-  smtcService?.dispose();
+  void smtcService?.dispose();
   smtcService = null;
 };

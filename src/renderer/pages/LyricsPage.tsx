@@ -28,9 +28,11 @@ import { decodeTextFileBytes } from "../../shared/utils/decodeTextFile";
 import { LyricsView } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import type { LyricLine, LyricsState } from "../components/lyrics/lyricsTypes";
+import { PlayerStatusChips } from "../components/player/PlayerStatusChips";
 import { titleFromPath } from "../components/player/playerFormat";
 import { usePlaybackQueue } from "../stores/PlaybackQueueProvider";
 import { refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from "../stores/playbackStatusStore";
+import { openAlbumDetailForTrack } from "../utils/albumNavigation";
 
 type LyricsPageProps = {
   initialLyrics?: LyricLine[];
@@ -75,6 +77,7 @@ const lyricsCandidateSourceMemoryKey = "echo:lyrics:candidate-source";
 const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
+const albumNavigationTransitionMs = 180;
 
 const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsEnabled: true,
@@ -684,7 +687,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [activeCandidateSource, setActiveCandidateSource] =
     useState<CandidateSourceFilter>(() => readRememberedCandidateSource());
   const [isLyricsMatchPanelClosed, setIsLyricsMatchPanelClosed] = useState(false);
+  const [isLyricsMatchPanelRevealed, setIsLyricsMatchPanelRevealed] = useState(false);
   const [isCandidateLoading, setIsCandidateLoading] = useState(false);
+  const [isAlbumNavigating, setIsAlbumNavigating] = useState(false);
   const [applyingCandidateId, setApplyingCandidateId] = useState<string | null>(
     null,
   );
@@ -692,6 +697,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [, setIsCustomLyricsApplying] = useState(false);
   const [isCustomLyricsDragging, setIsCustomLyricsDragging] = useState(false);
   const lyricsRequestRef = useRef(0);
+  const albumNavigationTimeoutRef = useRef<number | null>(null);
   const state = audioStatus?.state ?? playbackStatus?.state ?? "idle";
   const statusTrackId =
     playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
@@ -724,6 +730,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     currentTrack?.artist ||
     currentTrack?.albumArtist ||
     (filePath ? "Local file" : "Ready");
+  const album = currentTrack?.album?.trim() || null;
   const coverUrl = safeCoverUrl(currentTrack);
   const headerCoverUrl = safeOriginalCoverUrl(currentTrack);
   const backgroundCoverUrl = safeOriginalCoverUrl(currentTrack);
@@ -734,6 +741,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       : lyricsDisplaySettings.lyricsBackgroundMode === "cover" && !backgroundCoverUrl
         ? "theme"
         : lyricsDisplaySettings.lyricsBackgroundMode;
+  const effectiveLyricsBackgroundScalePercent =
+    effectiveLyricsBackgroundMode === "cover"
+      ? Math.max(100, lyricsDisplaySettings.lyricsBackgroundScalePercent)
+      : lyricsDisplaySettings.lyricsBackgroundScalePercent;
   const lyricsWallpaperUrl = lyricsDisplaySettings.lyricsCustomWallpaperPath
     ? `echo-wallpaper://lyrics/custom?path=${encodeURIComponent(lyricsDisplaySettings.lyricsCustomWallpaperPath)}`
     : null;
@@ -758,16 +769,16 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         ).toFixed(2),
         "--lyrics-cover-blur": `${lyricsDisplaySettings.lyricsCoverBlurPx}px`,
         "--lyrics-cover-brightness": `${lyricsDisplaySettings.lyricsCoverBrightnessPercent}%`,
-        "--lyrics-background-scale": (lyricsDisplaySettings.lyricsBackgroundScalePercent / 100).toFixed(2),
+        "--lyrics-background-scale": (effectiveLyricsBackgroundScalePercent / 100).toFixed(2),
         "--lyrics-background-bleed": `-${lyricsDisplaySettings.lyricsCoverBlurPx * 2}px`,
       }) as CSSProperties,
     [
       backgroundCoverUrl,
+      effectiveLyricsBackgroundScalePercent,
       lyricsDisplaySettings.lyricsColor,
       lyricsDisplaySettings.lyricsCoverBlurPx,
       lyricsDisplaySettings.lyricsCoverBrightnessPercent,
       lyricsDisplaySettings.lyricsCoverOpacityPercent,
-      lyricsDisplaySettings.lyricsBackgroundScalePercent,
       lyricsDisplaySettings.lyricsFontSizePx,
       lyricsDisplaySettings.lyricsSecondaryFontSizePx,
       lyricsDisplaySettings.lyricsLineSpacingPercent,
@@ -775,6 +786,44 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       lyricsWallpaperUrl,
     ],
   );
+
+  const handleOpenAlbumDetail = useCallback((): void => {
+    if (!currentTrack || isAlbumNavigating) {
+      return;
+    }
+
+    setIsAlbumNavigating(true);
+    setError(null);
+
+    if (albumNavigationTimeoutRef.current !== null) {
+      window.clearTimeout(albumNavigationTimeoutRef.current);
+    }
+
+    albumNavigationTimeoutRef.current = window.setTimeout(() => {
+      albumNavigationTimeoutRef.current = null;
+      void openAlbumDetailForTrack(currentTrack)
+        .then((locatedAlbum) => {
+          if (!locatedAlbum) {
+            setIsAlbumNavigating(false);
+            setError("No album page found for this track.");
+          }
+        })
+        .catch((albumError) => {
+          setIsAlbumNavigating(false);
+          setError(albumError instanceof Error ? albumError.message : String(albumError));
+        });
+    }, albumNavigationTransitionMs);
+  }, [currentTrack, isAlbumNavigating]);
+
+  useEffect(
+    () => () => {
+      if (albumNavigationTimeoutRef.current !== null) {
+        window.clearTimeout(albumNavigationTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
   const { audioClock: mvAudioClock, displayPositionSeconds } = useLyricsDisplayPosition(
     audioStatus,
     playbackStatus,
@@ -996,6 +1045,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
   useEffect(() => {
     setIsLyricsMatchPanelClosed(false);
+    setIsLyricsMatchPanelRevealed(false);
   }, [trackId]);
 
   const tryAutoApplyCandidate = useCallback(
@@ -1065,6 +1115,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setLyricsStatus(null);
       setCandidates([]);
       setActiveCandidateSource(readRememberedCandidateSource());
+      setIsLyricsMatchPanelRevealed(false);
       setIsLyricsLoading(false);
       setIsCandidateLoading(false);
       return;
@@ -1081,6 +1132,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setLyricsStatus(null);
       setCandidates([]);
       setActiveCandidateSource(readRememberedCandidateSource());
+      setIsLyricsMatchPanelRevealed(false);
       return;
     }
 
@@ -1103,6 +1155,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setLyricsStatus("Loading streaming lyrics...");
       setCandidates([]);
       setActiveCandidateSource(readRememberedCandidateSource());
+      setIsLyricsMatchPanelRevealed(false);
 
       // Streaming lyrics are exact-provider lookups: provider + providerTrackId, no local candidate matching.
       void streamingApi
@@ -1161,6 +1214,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setLyricsStatus("正在匹配歌词...");
     setCandidates([]);
     setActiveCandidateSource(readRememberedCandidateSource());
+    setIsLyricsMatchPanelRevealed(false);
 
     void lyricsApi
       .getForTrack(trackId)
@@ -1199,6 +1253,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
           setCandidates(nextCandidates);
           setActiveCandidateSource(readRememberedCandidateSource());
+          setIsLyricsMatchPanelRevealed(nextCandidates.length > 0);
           setLyricsStatus(nextCandidates.length ? null : "No lyrics found");
           return;
         }
@@ -1245,6 +1300,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     }
 
     setIsLyricsMatchPanelClosed(false);
+    setIsLyricsMatchPanelRevealed(true);
 
     if (streamingTarget) {
       const streamingApi = window.echo?.streaming;
@@ -1359,6 +1415,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     }
 
     setIsLyricsMatchPanelClosed(false);
+    setIsLyricsMatchPanelRevealed(true);
 
     if (streamingTarget) {
       await handleSearchLyrics();
@@ -1723,6 +1780,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return null;
     }
 
+    if (!isLyricsMatchPanelRevealed && candidates.length === 0) {
+      return null;
+    }
+
     return (
       <section className="lyrics-match-panel" aria-label="Lyrics matching">
         <div className="lyrics-match-panel__bar">
@@ -1809,6 +1870,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     candidateSourceOptions,
     handleApplyCandidate,
     isLyricsMatchPanelClosed,
+    isLyricsMatchPanelRevealed,
     isCandidateLoading,
     isLyricsLoading,
     lyricsDisplaySettings.lyricsEnabled,
@@ -1849,6 +1911,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     <div
       className="lyrics-page"
       data-background={effectiveLyricsBackgroundMode}
+      data-album-transition={isAlbumNavigating ? "true" : undefined}
       data-custom-lrc-dragging={isCustomLyricsDragging}
       data-window-maximized={isWindowMaximized}
       style={lyricsPageStyle}
@@ -1889,7 +1952,21 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             <div className="lyrics-track-copy">
               <span className="lyrics-kicker">Now Playing</span>
               <h1>{title}</h1>
-              <p>{artist}</p>
+              {album ? (
+                <button
+                  className="lyrics-track-album"
+                  type="button"
+                  disabled={!currentTrack || isAlbumNavigating}
+                  title={`Open ${album}`}
+                  onClick={handleOpenAlbumDetail}
+                >
+                  {album}
+                </button>
+              ) : null}
+              <p className="lyrics-track-artist">{artist}</p>
+              <div className="lyrics-track-status">
+                <PlayerStatusChips status={audioStatus} state={state} track={currentTrack} />
+              </div>
             </div>
           </header>
         )}

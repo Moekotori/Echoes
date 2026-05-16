@@ -133,6 +133,7 @@ export const defaultSettings: AppSettings = {
   hiddenAudioDeviceKeys: [],
   audioUseJuceOutput: false,
   audioAsioUnavailableFallbackEnabled: false,
+  audioSoxrFallbackEnabled: true,
   albumMergeStrategy: 'standard',
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
@@ -322,6 +323,7 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
       : defaultRememberedAudioOutput.latencyProfile;
   const deviceIndex = Number(input.deviceIndex);
   const deviceName = normalizeOptionalText(input.deviceName) ?? undefined;
+  const asioOutputChannelStart = Number(input.asioOutputChannelStart);
   const bufferSizeFrames = Number(input.bufferSizeFrames);
   const normalized: RememberedAudioOutput = {
     enabled: input.enabled === true,
@@ -330,6 +332,9 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
     latencyProfile,
     deviceIndex: Number.isInteger(deviceIndex) ? deviceIndex : undefined,
     deviceName,
+    asioOutputChannelStart: outputMode === 'asio' && Number.isInteger(asioOutputChannelStart) && asioOutputChannelStart >= 0
+      ? Math.round(asioOutputChannelStart)
+      : undefined,
   };
 
   const normalizedBufferSizeFrames = sanitizeRememberedBufferSizeFrames(outputMode, latencyProfile, bufferSizeFrames);
@@ -509,6 +514,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: settings.audioUseJuceOutput === true,
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
+    audioSoxrFallbackEnabled: settings.audioSoxrFallbackEnabled !== false,
     albumMergeStrategy,
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,

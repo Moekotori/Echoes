@@ -18,6 +18,7 @@ const createFakeHost = () => {
     stdout: new PassThrough(),
     stderr: new PassThrough(),
     killed: false,
+    exitCode: null as number | null,
     kill: vi.fn(() => {
       host.killed = true;
       return true;
@@ -26,7 +27,16 @@ const createFakeHost = () => {
       events.on(event, listener);
       return host;
     }),
-    emit: (event: string, ...args: unknown[]) => events.emit(event, ...args),
+    once: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+      events.once(event, listener);
+      return host;
+    }),
+    emit: (event: string, ...args: unknown[]) => {
+      if (event === 'exit') {
+        host.exitCode = typeof args[0] === 'number' ? args[0] : null;
+      }
+      return events.emit(event, ...args);
+    },
   };
 
   return host;
@@ -106,5 +116,48 @@ describe('WindowsSmtcService', () => {
       '[SMTC] Windows SMTC host binary is missing; using no-op bridge mode',
       expect.objectContaining({ hostPath: 'D:\\Echo\\missing.exe' }),
     );
+  });
+
+  it('disposes the helper gracefully without force killing when it exits', async () => {
+    const host = createFakeHost();
+    const writes: string[] = [];
+    host.stdin.on('data', (chunk) => writes.push(chunk.toString()));
+    const service = new WindowsSmtcService({
+      spawnHost: vi.fn(() => host as never),
+      hostExists: () => true,
+      resolveHostPath: () => 'D:\\Echo\\echo-smtc-host.exe',
+      coverCache: { resolve: vi.fn(async () => null) },
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    await service.initialize();
+    const disposed = service.dispose();
+    host.emit('exit', 0, null);
+    await disposed;
+
+    expect(writes.join('')).toContain('"type":"dispose"');
+    expect(host.kill).not.toHaveBeenCalled();
+  });
+
+  it('force kills the helper when graceful dispose times out', async () => {
+    vi.useFakeTimers();
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const host = createFakeHost();
+    const service = new WindowsSmtcService({
+      spawnHost: vi.fn(() => host as never),
+      hostExists: () => true,
+      resolveHostPath: () => 'D:\\Echo\\echo-smtc-host.exe',
+      coverCache: { resolve: vi.fn(async () => null) },
+      logger,
+    });
+
+    await service.initialize();
+    const stopped = service.stopGracefullyImpl(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await stopped;
+
+    expect(host.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(logger.warn).toHaveBeenCalledWith('[SMTC] graceful shutdown timed out, force killing');
+    vi.useRealTimers();
   });
 });

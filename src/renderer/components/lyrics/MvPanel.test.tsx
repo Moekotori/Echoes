@@ -305,6 +305,23 @@ describe('MvPanel', () => {
     expect(backgroundVideo?.loop).toBe(true);
   });
 
+  it('marks the regular MV panel when immersive background is disabled', async () => {
+    const { container } = renderPanel(makeVideo(), true, {
+      ...defaultMvSettings,
+      immersiveBackground: false,
+    });
+
+    const panel = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-panel') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      expect(element?.dataset.mvEnabled).toBe('true');
+      return element!;
+    });
+
+    expect(panel.dataset.immersiveActive).toBe('false');
+    expect(container.querySelector('.lyrics-mv-background')).toBeNull();
+  });
+
   it('uses streaming provider MV metadata to search when no library track id is available', async () => {
     const selectedAfterSearch = makeVideo({ id: 'streaming-video-1', trackId: 'streaming:qqmusic:song-mid', provider: 'bilibili' });
     window.echo = {
@@ -556,14 +573,13 @@ describe('MvPanel', () => {
     await waitFor(() => expect(video.currentTime).toBeCloseTo(42.75, 3));
   });
 
-  it('saves MV offset from the panel controls for the current track', async () => {
+  it('does not render MV offset controls on the lyrics page', async () => {
     const { container } = renderPanel(makeVideo(), true, { ...defaultMvSettings, restartAudioOnLoad: true }, 10);
 
-    await waitFor(() => expect(container.querySelector('.mv-offset-controls')).toBeTruthy());
-    fireEvent.click(screen.getByTitle('MV earlier 100ms'));
+    await waitFor(() => expect(container.querySelector('video')).toBeTruthy());
 
-    await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 100));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+100ms');
+    expect(container.querySelector('.mv-offset-controls')).toBeNull();
+    expect(screen.queryByLabelText('MV sync')).toBeNull();
   });
 
   it('corrects drift conservatively while allowing obvious audio position jumps through', async () => {

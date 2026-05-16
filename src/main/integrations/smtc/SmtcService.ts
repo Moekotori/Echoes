@@ -4,7 +4,8 @@ export type { SmtcCommand, SmtcEnabledActions, SmtcPlaybackState, SmtcTrackMetad
 
 export interface SmtcService {
   initialize(): void | Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
+  stopGracefullyImpl?(timeoutMs?: number): Promise<void>;
   setPlaybackState(state: SmtcPlaybackState): void | Promise<void>;
   setMetadata(metadata: SmtcTrackMetadata): void | Promise<void>;
   setTimeline(positionSeconds: number, durationSeconds: number): void | Promise<void>;
