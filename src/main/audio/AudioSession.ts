@@ -100,6 +100,8 @@ type PreparedLocalProbeUse = {
   ageMs: number;
 };
 
+export type AudioErrorRecoveryHandler = (error: Error, status: AudioStatus) => boolean;
+
 export type AudioSessionDependencies = {
   decoder?: DecoderPipelineLike;
   juceDecoder?: JuceDecodePipelineLike;
@@ -941,6 +943,7 @@ export class AudioSession extends EventEmitter {
   private readonly preparedLocalPlaybackCache = new Map<string, PreparedLocalPlaybackItem>();
   private readonly sharedStabilityMemory = new Map<string, { tier: SharedStabilityTier; expiresAt: number }>();
   private lastSharedStabilityRecoveryKey: string | null = null;
+  private audioErrorRecoveryHandler: AudioErrorRecoveryHandler | null = null;
   private readonly eqStateListener = (): void => {
     this.emitStatus();
   };
@@ -978,6 +981,10 @@ export class AudioSession extends EventEmitter {
 
   async listDevicesAsync(): Promise<AudioDeviceInfo[]> {
     return this.deviceService.listDevicesAsync?.() ?? this.deviceService.listDevices();
+  }
+
+  setAudioErrorRecoveryHandler(handler: AudioErrorRecoveryHandler | null): void {
+    this.audioErrorRecoveryHandler = handler;
   }
 
   async openAsioControlPanel(settings: Pick<AudioOutputSettings, 'deviceIndex' | 'deviceName'>): Promise<void> {
@@ -3897,6 +3904,16 @@ export class AudioSession extends EventEmitter {
 
   private handleError(error: Error): void {
     this.logger(`[AudioSession] ${error.message}`);
+    if (this.tryClaimRecoverableAudioError(error)) {
+      this.stopResources();
+      this.errorMessage = null;
+      this.state = 'loading';
+      this.hostStatus = 'starting';
+      this.resetWatchdogProgress();
+      this.emitStatus();
+      return;
+    }
+
     this.stopResources();
     this.errorMessage = error.message;
     this.state = 'error';
@@ -3905,6 +3922,21 @@ export class AudioSession extends EventEmitter {
     this.resetWatchdogProgress();
     this.emit('error', error, this.getStatus());
     this.emitStatus();
+  }
+
+  private tryClaimRecoverableAudioError(error: Error): boolean {
+    if (!this.audioErrorRecoveryHandler) {
+      return false;
+    }
+
+    try {
+      return this.audioErrorRecoveryHandler(error, this.getStatus()) === true;
+    } catch (recoveryError) {
+      this.logger(`[AudioSession] audio error recovery handler failed: ${
+        recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+      }`);
+      return false;
+    }
   }
 
   private assertCurrentRun(token: number): void {

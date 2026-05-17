@@ -317,6 +317,24 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error]);
 
   useEffect(() => {
+    const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
+    const latestState = playbackStatusSnapshot.audioStatus?.state ?? playbackStatusSnapshot.playbackStatus?.state ?? null;
+
+    if (rawError || !audioErrorNotice || latestState === 'error') {
+      return;
+    }
+
+    lastAudioErrorRef.current = null;
+    setAudioErrorNotice(null);
+  }, [
+    audioErrorNotice,
+    playbackStatusSnapshot.audioStatus?.error,
+    playbackStatusSnapshot.audioStatus?.state,
+    playbackStatusSnapshot.error,
+    playbackStatusSnapshot.playbackStatus?.state,
+  ]);
+
+  useEffect(() => {
     if (!audioErrorNotice) {
       return undefined;
     }

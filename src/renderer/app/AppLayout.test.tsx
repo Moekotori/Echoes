@@ -397,6 +397,68 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => expect(openAudioCrashReport).toHaveBeenCalledTimes(1));
   });
 
+  it('clears transient audio error notices after playback recovers', async () => {
+    let audioStatusHandler: ((status: { error: string | null; state: string }) => void) | undefined;
+    const audioOnStatus = vi.fn((handler) => {
+      audioStatusHandler = handler as typeof audioStatusHandler;
+      return vi.fn();
+    });
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ lyricsPlayerBarDrawerEnabled: false, smtcEnabled: true }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          positionMs: 0,
+          durationMs: 0,
+          filePath: null,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          currentFilePath: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          error: null,
+        }),
+        onStatus: audioOnStatus,
+      },
+      diagnostics: {
+        getLastCrashSummary: vi.fn().mockResolvedValue(null),
+        openAudioCrashReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md'),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(null),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(audioStatusHandler).toBeTruthy());
+    audioStatusHandler?.({
+      state: 'error',
+      error: 'echo-audio-host timeout_waiting_for_ready; mode="asio"',
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    audioStatusHandler?.({
+      state: 'playing',
+      error: null,
+    });
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
   it('auto-dismisses upper-left audio error notices after five seconds', async () => {
     let audioStatusHandler: ((status: { error: string | null; state: string }) => void) | undefined;
     const audioOnStatus = vi.fn((handler) => {

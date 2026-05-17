@@ -13,6 +13,7 @@
   --lyrics-color: #314054;
   --lyrics-readable-color: color-mix(in srgb, var(--lyrics-color) 24%, #1b2a3d 76%);
   --lyrics-cover-opacity: 1;
+  --lyrics-background-surface-alpha: 1;
   --lyrics-cover-blur: 10px;
   --lyrics-cover-brightness: 100%;
   --lyrics-background-scale: 1;
@@ -83,6 +84,7 @@
       rgba(211, 222, 234, 0.24)
     );
   content: "";
+  opacity: var(--lyrics-background-surface-alpha);
 }
 
 .lyrics-page[data-background="theme"] .lyrics-backdrop::after {
@@ -93,7 +95,7 @@
   background-image: var(--lyrics-cover);
   filter: blur(var(--lyrics-cover-blur))
     brightness(calc(var(--lyrics-cover-brightness) * 0.82)) saturate(0.94);
-  opacity: var(--lyrics-cover-opacity);
+  opacity: 1;
 }
 
 .lyrics-page[data-background="customWallpaper"] .lyrics-backdrop {
@@ -114,7 +116,7 @@
   background-image: var(--lyrics-wallpaper);
   filter: blur(var(--lyrics-cover-blur))
     brightness(calc(var(--lyrics-cover-brightness) * 0.82)) saturate(0.92);
-  opacity: var(--lyrics-cover-opacity);
+  opacity: 1;
 }
 
 html[data-theme="dark"] .page-surface:has(.lyrics-page) {
@@ -142,7 +144,7 @@ html[data-theme="dark"] .lyrics-backdrop {
 }
 
 html[data-theme="dark"] .lyrics-backdrop::before {
-  opacity: 0;
+  background: var(--theme-panel-bg-strong);
 }
 
 html[data-theme="dark"] .lyrics-backdrop::after {
@@ -153,7 +155,7 @@ html[data-theme="dark"] .lyrics-backdrop::after {
 html[data-theme="dark"] .lyrics-page[data-background="cover"] .lyrics-backdrop::after {
   filter: blur(var(--lyrics-cover-blur))
     brightness(var(--lyrics-cover-brightness)) saturate(1.08);
-  opacity: var(--lyrics-cover-opacity);
+  opacity: 1;
 }
 
 html[data-theme="dark"] .lyrics-page[data-background="customWallpaper"] .lyrics-backdrop {

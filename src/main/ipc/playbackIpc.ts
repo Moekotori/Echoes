@@ -2,7 +2,7 @@ import { dialog, ipcMain } from 'electron';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import { normalizeAudioOutputModeForPlatform, normalizeAudioSharedBackendForPlatform } from '../../shared/utils/audioPlatformCapabilities';
-import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, PlaybackSpeedMode } from '../../shared/types/audio';
+import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type {
   LocalFileResolveResult,
   PlaybackMediaStartRequest,
@@ -13,7 +13,7 @@ import type {
 } from '../../shared/types/playback';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
-import { getAudioSession } from '../audio/AudioSession';
+import { getAudioSession, type AudioErrorRecoveryHandler } from '../audio/AudioSession';
 import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
@@ -28,6 +28,7 @@ const latencyProfiles = new Set<AudioLatencyProfile>(['stable', 'balanced', 'low
 const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
 const streamingProviders = new Set<StreamingProviderName>(streamingProviderNames);
 const preparedMediaTtlMs = 2 * 60 * 1000;
+const maxExpiredUrlRecoveryAttempts = 1;
 
 type PreparedMediaItem = {
   filePath: string;
@@ -36,7 +37,16 @@ type PreparedMediaItem = {
   durationSeconds: number | null;
 };
 
+type ActiveMediaPlayback = {
+  key: string;
+  request: PlaybackMediaStartRequest;
+  recoveryAttempts: number;
+  recoveryInFlight: boolean;
+};
+
 const preparedMediaCache = new Map<string, { expiresAt: number; prepared: PreparedMediaItem }>();
+let activeMediaPlayback: ActiveMediaPlayback | null = null;
+let audioErrorRecoveryRegistered = false;
 
 const isSupersededPlaybackRun = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
@@ -162,8 +172,15 @@ const optionalStreamingQuality = (value: unknown): StreamingAudioQuality | undef
 const isHttpUrl = (value: string): boolean => /^https?:\/\//iu.test(value);
 
 const isLikelyExpiredUrlError = (error: unknown): boolean => {
+  if (error && typeof error === 'object') {
+    const kind = (error as { ffmpegErrorKind?: unknown }).ffmpegErrorKind;
+    if (typeof kind === 'string') {
+      return kind === 'http_expired_or_forbidden';
+    }
+  }
+
   const message = error instanceof Error ? error.message : String(error);
-  return /403|404|expired|forbidden|unauthorized|invalid data|server returned|http error/iu.test(message);
+  return /kind="http_expired_or_forbidden"|\b(?:401|403|404)\b|expired|forbidden|unauthorized|server returned 4\d\d|http error\s*4\d\d/iu.test(message);
 };
 
 const createPreparedMediaKey = (request: PlaybackMediaStartRequest): string => {
@@ -189,6 +206,24 @@ const createPreparedMediaKey = (request: PlaybackMediaStartRequest): string => {
   }
 
   return JSON.stringify({ mediaType: item.mediaType, trackId: item.trackId, path: item.path });
+};
+
+const setActiveMediaPlayback = (request: PlaybackMediaStartRequest): void => {
+  if (request.item.mediaType !== 'remote' && request.item.mediaType !== 'streaming') {
+    activeMediaPlayback = null;
+    return;
+  }
+
+  activeMediaPlayback = {
+    key: createPreparedMediaKey(request),
+    request,
+    recoveryAttempts: 0,
+    recoveryInFlight: false,
+  };
+};
+
+const clearActiveMediaPlayback = (): void => {
+  activeMediaPlayback = null;
 };
 
 const normalizeProbeHint = (value: unknown): PlaybackProbeHint | undefined => {
@@ -468,6 +503,112 @@ const reportPlaybackAudioError = (error: unknown, phase: string, details?: unkno
   });
 };
 
+const reportPlaybackAudioRecovery = (error: unknown, phase: string, details?: unknown): void => {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+
+  getCrashReportService().reportAudioError({
+    message: normalized.message,
+    stack: normalized.stack,
+    phase,
+    severity: 'recoverable',
+    recovered: true,
+    details,
+    audioStatus: getAudioSession().getStatus(),
+  });
+};
+
+const clampRecoveryPositionSeconds = (status: AudioStatus): number => {
+  const positionSeconds = Number.isFinite(status.positionSeconds) ? Math.max(0, status.positionSeconds) : 0;
+  const durationSeconds = Number.isFinite(status.durationSeconds) && status.durationSeconds > 0 ? status.durationSeconds : Number.POSITIVE_INFINITY;
+
+  return Math.min(positionSeconds, durationSeconds);
+};
+
+const recoverActiveMediaPlaybackFromExpiredUrl = async (
+  active: ActiveMediaPlayback,
+  error: Error,
+  status: AudioStatus,
+): Promise<void> => {
+  const { key, request } = active;
+  let playbackStartAttempted = false;
+
+  try {
+    preparedMediaCache.delete(key);
+    const prepared = await resolveMediaItemForPlayback(request, { forceRefresh: true });
+    if (activeMediaPlayback !== active || activeMediaPlayback.key !== key) {
+      return;
+    }
+
+    const startSeconds = clampRecoveryPositionSeconds(status);
+    playbackStartAttempted = true;
+    await getAudioSession().playLocalFile({
+      filePath: prepared.filePath,
+      inputHeaders: prepared.inputHeaders,
+      trackId: request.item.trackId,
+      startSeconds,
+      output: request.output,
+      probe: prepared.probe,
+    });
+    savePlaybackMemoryNow();
+    const recoveredStatus = toPlaybackStatus();
+    if (request.item.mediaType === 'remote' && recoveredStatus.durationMs > 0) {
+      getRemoteSourceService().backfillDuration(request.item.trackId, recoveredStatus.durationMs / 1000);
+      getRemoteSourceService().setPlaybackActive(true);
+    }
+    void syncSmtcStatus();
+    reportPlaybackAudioRecovery(error, 'play-media-item-expired-url-retry', {
+      recovered: true,
+      mediaType: request.item.mediaType,
+      trackId: request.item.trackId,
+      provider: request.item.mediaType === 'streaming' ? request.item.provider : undefined,
+      providerTrackId: request.item.mediaType === 'streaming' ? request.item.providerTrackId : undefined,
+      startSeconds,
+      attempt: active.recoveryAttempts,
+    });
+  } catch (retryError) {
+    if (!playbackStartAttempted && !isSupersededPlaybackRun(retryError)) {
+      clearActiveMediaPlayback();
+      reportPlaybackAudioError(retryError, 'play-media-item-expired-url-refresh', {
+        request,
+        originalError: error.message,
+      });
+      getAudioSession().stop();
+    }
+  } finally {
+    if (activeMediaPlayback === active && activeMediaPlayback.key === key) {
+      activeMediaPlayback.recoveryInFlight = false;
+    }
+  }
+};
+
+const beginActiveMediaExpiredUrlRecovery: AudioErrorRecoveryHandler = (error, status) => {
+  const active = activeMediaPlayback;
+  if (!active || active.recoveryInFlight || active.recoveryAttempts >= maxExpiredUrlRecoveryAttempts) {
+    return false;
+  }
+
+  if ((active.request.item.mediaType !== 'streaming' && active.request.item.mediaType !== 'remote') || !isLikelyExpiredUrlError(error)) {
+    return false;
+  }
+
+  active.recoveryAttempts += 1;
+  active.recoveryInFlight = true;
+  void recoverActiveMediaPlaybackFromExpiredUrl(active, error, status);
+  return true;
+};
+
+const registerExpiredUrlRecovery = (): void => {
+  if (audioErrorRecoveryRegistered) {
+    return;
+  }
+
+  audioErrorRecoveryRegistered = true;
+  const session = getAudioSession() as ReturnType<typeof getAudioSession> & {
+    setAudioErrorRecoveryHandler?: (handler: AudioErrorRecoveryHandler | null) => void;
+  };
+  session.setAudioErrorRecoveryHandler?.(beginActiveMediaExpiredUrlRecovery);
+};
+
 let playbackMemoryRegistered = false;
 let lastPlaybackMemorySaveAt = 0;
 const playbackMemorySaveIntervalMs = 5000;
@@ -500,8 +641,10 @@ const registerPlaybackMemoryPersistence = (): void => {
 
 export const registerPlaybackIpc = (): void => {
   registerPlaybackMemoryPersistence();
+  registerExpiredUrlRecovery();
   ipcMain.handle(IpcChannels.PlaybackGetStatus, (): PlaybackStatus => toPlaybackStatus());
   ipcMain.handle(IpcChannels.PlaybackPlayLocalFile, async (_event, request: unknown): Promise<PlaybackStatus> => {
+    clearActiveMediaPlayback();
     try {
       await getAudioSession().playLocalFile(normalizePlayRequest(request));
       savePlaybackMemoryNow();
@@ -538,6 +681,7 @@ export const registerPlaybackIpc = (): void => {
     }
 
     const item = request.item;
+    clearActiveMediaPlayback();
     if (item.mediaType === 'streaming' && item.provider === 'spotify') {
       throw new Error('Spotify playback uses the official Web Playback SDK and must not enter the native audio session.');
     }
@@ -561,6 +705,7 @@ export const registerPlaybackIpc = (): void => {
       if (item.mediaType === 'remote') {
         getRemoteSourceService().setPlaybackActive(true);
       }
+      setActiveMediaPlayback(request);
       void syncSmtcStatus();
       return status;
     } catch (error) {
@@ -590,6 +735,7 @@ export const registerPlaybackIpc = (): void => {
         if (item.mediaType === 'remote') {
           getRemoteSourceService().setPlaybackActive(true);
         }
+        setActiveMediaPlayback(request);
         void syncSmtcStatus();
         return status;
       } catch (retryError) {
@@ -607,6 +753,10 @@ export const registerPlaybackIpc = (): void => {
       void syncSmtcStatus();
       return toPlaybackStatus();
     } catch (error) {
+      if (error instanceof Error && beginActiveMediaExpiredUrlRecovery(error, getAudioSession().getStatus())) {
+        return toPlaybackStatus();
+      }
+
       reportPlaybackAudioError(error, 'playback-resume-ipc');
       throw error;
     }
@@ -618,6 +768,7 @@ export const registerPlaybackIpc = (): void => {
     return toPlaybackStatus();
   });
   ipcMain.handle(IpcChannels.PlaybackStop, (): PlaybackStatus => {
+    clearActiveMediaPlayback();
     getAudioSession().stop();
     getRemoteSourceService().setPlaybackActive(false);
     getPlaybackMemoryStore().clear();

@@ -86,6 +86,7 @@ const lyricsCandidateSourceMemoryKey = "echo:lyrics:candidate-source";
 const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
+const playbackRateChangeDiscontinuitySeconds = 0.35;
 const albumNavigationTransitionMs = 180;
 
 const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
@@ -581,17 +582,23 @@ const useLyricsDisplayPosition = (
     }
 
     if (!seekAnchorRef.current && samePlayback && !stateChanged && state === "playing") {
-      const elapsedSeconds = Math.max(0, (now - previous.updatedAtMs) / 1000) * previous.playbackRate;
-      const estimatedPositionSeconds = Math.min(previous.positionSeconds + elapsedSeconds, durationLimit);
+      const wallElapsedSeconds = Math.max(0, (now - previous.updatedAtMs) / 1000);
+      const mediaElapsedSeconds = wallElapsedSeconds * previous.playbackRate;
+      const estimatedPositionSeconds = Math.min(previous.positionSeconds + mediaElapsedSeconds, durationLimit);
       const sourceJumpedBackward = boundedSourcePosition + 1 < previous.sourcePositionSeconds;
       const sourceCaughtUp = boundedSourcePosition + 0.35 >= estimatedPositionSeconds;
       const sourceJumpedForward = boundedSourcePosition > estimatedPositionSeconds + 0.35;
-      const canBridgeSourceLag = elapsedSeconds <= maxInterpolatedStatusGapSeconds;
+      const canBridgeSourceLag = wallElapsedSeconds <= maxInterpolatedStatusGapSeconds;
+      const playbackRateChanged = Math.abs(previous.playbackRate - playbackRate) > 0.001;
+      const rateChangeSourceDiscontinuity =
+        playbackRateChanged && Math.abs(boundedSourcePosition - estimatedPositionSeconds) > playbackRateChangeDiscontinuitySeconds;
       const staleRegressionSeconds = previous.positionSeconds - boundedSourcePosition;
       const canIgnoreStaleRegression =
         canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
 
-      if (canIgnoreStaleRegression) {
+      if (rateChangeSourceDiscontinuity) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (canIgnoreStaleRegression) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
         nextPositionSeconds = estimatedPositionSeconds;
@@ -805,6 +812,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         ).toFixed(2),
         "--lyrics-color": lyricsDisplaySettings.lyricsColor,
         "--lyrics-cover-opacity": (
+          lyricsDisplaySettings.lyricsCoverOpacityPercent / 100
+        ).toFixed(2),
+        "--lyrics-background-surface-alpha": (
           lyricsDisplaySettings.lyricsCoverOpacityPercent / 100
         ).toFixed(2),
         "--lyrics-cover-blur": `${lyricsDisplaySettings.lyricsCoverBlurPx}px`,

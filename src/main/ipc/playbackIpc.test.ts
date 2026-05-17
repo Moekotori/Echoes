@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -147,6 +148,157 @@ describe('playback media prepare IPC', () => {
         fileSampleRate: 44100,
         channels: 2,
       }),
+    }));
+  });
+
+  it('refreshes an active streaming source when FFmpeg reports an expired CDN URL after playback started', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const reportAudioError = vi.fn();
+    const recovery = {
+      handler: null as ((error: Error, status: unknown) => boolean) | null,
+    };
+    let status = {
+      state: 'playing',
+      currentTrackId: null as string | null,
+      positionSeconds: 0,
+      durationSeconds: 239.932,
+      currentFilePath: null as string | null,
+    };
+    const playLocalFile = vi.fn(async (request: {
+      filePath: string;
+      trackId?: string;
+      startSeconds?: number;
+      probe?: { durationSeconds?: number };
+    }) => {
+      status = {
+        state: 'playing',
+        currentTrackId: request.trackId ?? null,
+        positionSeconds: request.startSeconds ?? 0,
+        durationSeconds: request.probe?.durationSeconds ?? status.durationSeconds,
+        currentFilePath: request.filePath,
+      };
+      return status;
+    });
+    const audioSession = Object.assign(new EventEmitter(), {
+      getStatus: () => status,
+      restorePlaybackMemory: vi.fn(),
+      playLocalFile,
+      setAudioErrorRecoveryHandler: vi.fn((handler: (error: Error, status: unknown) => boolean) => {
+        recovery.handler = handler;
+      }),
+    });
+    const invalidatePlayback = vi.fn();
+    const resolvePlayback = vi
+      .fn()
+      .mockResolvedValueOnce({
+        url: 'https://m801.music.126.net/token/song.mp3?auth=old',
+        sampleRate: 44100,
+        codec: 'mp3',
+        bitDepth: null,
+        bitrate: 320000,
+        headers: {
+          Referer: 'https://music.163.com/',
+        },
+        requiresProxy: false,
+      })
+      .mockResolvedValueOnce({
+        url: 'https://m701.music.126.net/token/song.mp3?auth=fresh',
+        sampleRate: 44100,
+        codec: 'mp3',
+        bitDepth: null,
+        bitrate: 320000,
+        headers: {
+          Referer: 'https://music.163.com/',
+        },
+        requiresProxy: false,
+      });
+
+    vi.doMock('electron', () => ({
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => audioSession,
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../diagnostics/CrashReportService', () => ({
+      getCrashReportService: () => ({ reportAudioError }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback,
+        invalidatePlayback,
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    const request = {
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming:netease:1442466883',
+        provider: 'netease',
+        providerTrackId: '1442466883',
+        stableKey: 'streaming:netease:1442466883',
+        quality: 'high',
+        title: 'Expired CDN',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 239.932,
+      },
+    };
+
+    await handlers.get(IpcChannels.PlaybackPlayMediaItem)?.({}, request);
+    expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: 'https://m801.music.126.net/token/song.mp3?auth=old',
+    }));
+
+    status = { ...status, positionSeconds: 0.09039979999978096 };
+    const expiredError = Object.assign(
+      new Error('ffmpeg_exit_code_3436169992; kind="http_expired_or_forbidden"; stderr="Server returned 403 Forbidden"'),
+      { ffmpegErrorKind: 'http_expired_or_forbidden' },
+    );
+
+    expect(recovery.handler?.(expiredError, status)).toBe(true);
+
+    await expect.poll(() => playLocalFile.mock.calls.length).toBe(2);
+    expect(invalidatePlayback).toHaveBeenCalledWith({
+      provider: 'netease',
+      providerTrackId: '1442466883',
+      quality: 'high',
+    });
+    expect(playLocalFile).toHaveBeenLastCalledWith(expect.objectContaining({
+      filePath: 'https://m701.music.126.net/token/song.mp3?auth=fresh',
+      startSeconds: 0.09039979999978096,
+      trackId: 'streaming:netease:1442466883',
+    }));
+    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('ffmpeg_exit_code_3436169992'),
+      phase: 'play-media-item-expired-url-retry',
+      severity: 'recoverable',
+      recovered: true,
     }));
   });
 

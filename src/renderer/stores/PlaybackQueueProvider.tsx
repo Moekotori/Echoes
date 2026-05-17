@@ -705,6 +705,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
                   });
             })();
       } catch (error) {
+        if (playRequestTokenRef.current !== requestToken) {
+          throw new Error('audio_session_run_cancelled');
+        }
+
         setPlaybackStatusSnapshot({
           playbackStatus: statusForPlaybackFailure(item.track),
           error: error instanceof Error ? error.message : String(error),

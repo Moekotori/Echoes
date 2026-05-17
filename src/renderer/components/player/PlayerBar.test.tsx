@@ -1667,6 +1667,173 @@ describe('PlayerBar', () => {
     expect(Number(slider.value)).toBeGreaterThanOrEqual(12);
   });
 
+  it('keeps high-speed progress from jumping backward on a brief same-track stale audio status', async () => {
+    const performanceNow = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const track = makeTrack(1);
+    const statusHandlers: Array<(status: AudioStatus) => void> = [];
+    const initialStatus = { ...audioStatus(track), playbackRate: 2, positionSeconds: 12 };
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 12000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(initialStatus),
+        onStatus: vi.fn((handler) => {
+          statusHandlers[0] = handler;
+          return () => {
+            statusHandlers.length = 0;
+          };
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
+    await waitFor(() => expect(Number(slider.value)).toBeGreaterThanOrEqual(12));
+
+    performanceNow.mockReturnValue(900);
+    act(() => {
+      statusHandlers[0]?.({ ...audioStatus(track), playbackRate: 2, positionSeconds: 12.2 });
+    });
+
+    expect(Number(slider.value)).toBeGreaterThanOrEqual(13.7);
+  });
+
+  it('rebases progress smoothly when playback speed changes with a stale source position', async () => {
+    const performanceNow = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const track = makeTrack(1);
+    const statusHandlers: Array<(status: AudioStatus) => void> = [];
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 12000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({ ...audioStatus(track), playbackRate: 1, positionSeconds: 12 }),
+        onStatus: vi.fn((handler) => {
+          statusHandlers[0] = handler;
+          return () => {
+            statusHandlers.length = 0;
+          };
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
+    await waitFor(() => expect(Number(slider.value)).toBeGreaterThanOrEqual(12));
+
+    performanceNow.mockReturnValue(2000);
+    act(() => {
+      statusHandlers[0]?.({ ...audioStatus(track), playbackRate: 2, positionSeconds: 12.4 });
+    });
+
+    expect(Number(slider.value)).toBeGreaterThanOrEqual(13.9);
+  });
+
   it('broadcasts the requested seek target when streaming seek returns stale status', async () => {
     const track = makeTrack(1, {
       id: 'streaming:qqmusic:song-1',

@@ -16,6 +16,10 @@ CMakeCache.txt
 cmake_install.cmake
 compile_commands.json
 
+# Local binary tools downloaded outside source control
+electron-app/tools/ffmpeg.exe
+electron-app/tools/ffprobe.exe
+
 # Electron Builder artifacts
 *.blockmap
 *.AppImage

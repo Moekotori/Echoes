@@ -587,6 +587,97 @@ describe('PlaybackQueueProvider playback history session', () => {
     finishSecondPlay();
     await waitFor(() => expect(screen.getByLabelText('visual-state').textContent).toBe(''));
   });
+
+  it('does not let a superseded ASIO start failure overwrite the active track', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const firstPlayback = { reject: null as ((error: Error) => void) | null };
+    const playLocalFile = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        new Promise((_resolve, reject) => {
+          firstPlayback.reject = reject;
+        }),
+      )
+      .mockImplementationOnce((request: { trackId: string; filePath: string }) =>
+        Promise.resolve({
+          state: 'playing',
+          currentTrackId: request.trackId,
+          positionMs: 0,
+          durationMs: second.duration * 1000,
+          filePath: request.filePath,
+        }),
+      );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: second.id,
+          positionMs: 0,
+          durationMs: second.duration * 1000,
+          filePath: second.path,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: second.id,
+          currentFilePath: second.path,
+          positionSeconds: 0,
+          durationSeconds: second.duration,
+          error: null,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const SupersededFailureProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const status = useSharedPlaybackStatus();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.replaceQueue([first, second]);
+        void queue.playTrack(first).catch(() => undefined);
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="queue-track">{queue.currentTrackId ?? ''}</output>
+          <output aria-label="shared-track">{status.playbackStatus?.currentTrackId ?? ''}</output>
+          <output aria-label="shared-error">{status.error ?? ''}</output>
+          <button type="button" onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <SupersededFailureProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('queue-track').textContent).toBe(first.id));
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+    await waitFor(() => expect(screen.getByLabelText('queue-track').textContent).toBe(second.id));
+
+    const rejectFirstPlay = firstPlayback.reject;
+    if (!rejectFirstPlay) {
+      throw new Error('first playback promise was not captured');
+    }
+    rejectFirstPlay(new Error('echo-audio-host timeout_waiting_for_ready; mode="asio"'));
+
+    await waitFor(() => expect(screen.getByLabelText('shared-track').textContent).toBe(second.id));
+    expect(screen.getByLabelText('shared-error').textContent).toBe('');
+  });
 });
 
 describe('PlaybackQueueProvider playback modes', () => {

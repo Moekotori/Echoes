@@ -211,6 +211,29 @@ class FailingDecoder extends FakeDecoder {
   }
 }
 
+class ControlledFailingDecoder extends FakeDecoder {
+  private rejectDone: ((error: Error) => void) | null = null;
+
+  override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+    this.decodeRequests.push(request);
+    const stream = new PassThrough();
+
+    return {
+      stream,
+      stop: vi.fn(() => {
+        stream.destroy();
+      }),
+      done: new Promise<void>((_resolve, reject) => {
+        this.rejectDone = reject;
+      }),
+    };
+  }
+
+  fail(error: Error): void {
+    this.rejectDone?.(error);
+  }
+}
+
 class StreamErrorDecoder extends FakeDecoder {
   private stream: PassThrough | null = null;
 
@@ -1401,6 +1424,46 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(fallbackBridge.startOptions?.deviceName).toBeUndefined();
     expect(status.state).toBe('playing');
     expect(status.warnings).toContain('shared_output_fell_back_to_default_device');
+  });
+
+  it('lets a recovery handler claim post-start expired FFmpeg stream URLs before fatal reporting', async () => {
+    const decoder = new ControlledFailingDecoder(
+      new Map([['https://m801.music.126.net/token/song.mp3?auth=old', {
+        ...probe('https://m801.music.126.net/token/song.mp3?auth=old', 44100),
+        codec: 'mp3',
+      }]]),
+    );
+    const reportAudioError = vi.fn();
+    const recoverAudioError = vi.fn(() => true);
+    const session = new AudioSession({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => new FakeBridge(44100),
+      reportAudioError,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    session.setAudioErrorRecoveryHandler(recoverAudioError);
+    await session.playLocalFile({
+      filePath: 'https://m801.music.126.net/token/song.mp3?auth=old',
+      trackId: 'streaming:netease:1442466883',
+      output: { outputMode: 'exclusive' },
+    });
+
+    const error = Object.assign(
+      new Error('ffmpeg_exit_code_3436169992; kind="http_expired_or_forbidden"; stderr="Server returned 403 Forbidden"'),
+      { ffmpegErrorKind: 'http_expired_or_forbidden' },
+    );
+    decoder.fail(error);
+
+    await expect.poll(() => session.getStatus().state).toBe('loading');
+    expect(recoverAudioError).toHaveBeenCalledWith(error, expect.objectContaining({
+      state: 'playing',
+      currentTrackId: 'streaming:netease:1442466883',
+      currentFilePath: 'https://m801.music.126.net/token/song.mp3?auth=old',
+    }));
+    expect(reportAudioError).not.toHaveBeenCalled();
   });
 
   it('marks selected shared device timeout recovery when the default shared device starts', async () => {

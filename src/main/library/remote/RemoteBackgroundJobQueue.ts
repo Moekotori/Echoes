@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/types/remoteSources';
 import { getLyricsService } from '../../lyrics/LyricsService';
 import { getMvService } from '../../mv/MvService';
-import { CoverService } from '../CoverService';
+import type { CoverService } from '../CoverService';
 import type { FieldSources, MetadataStatus, ParsedTrackMetadata } from '../libraryTypes';
 import type { RemoteLibraryStore } from './RemoteLibraryStore';
 import type { RemoteSourceAdapter, RemoteTrackWrite } from './remoteTypes';
@@ -268,7 +268,7 @@ export class RemoteBackgroundJobQueue {
 
     for (const kind of jobKinds) {
       const pending = this.pendingByKind[kind];
-      while (true) {
+      while (pending.length > 0) {
         const index = pending.findIndex((job) => this.canStart(job));
         if (index < 0) {
           break;

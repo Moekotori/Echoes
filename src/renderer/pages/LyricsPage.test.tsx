@@ -584,6 +584,67 @@ describe("LyricsPage", () => {
     ).toContain("Second line");
   });
 
+  it("keeps high-speed active lyrics from jumping backward on a brief same-track stale audio status", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.4);
+    window.echo.audio.getStatus = vi
+      .fn()
+      .mockResolvedValue({ ...makeAudioStatus(track, 10.4), playbackRate: 2 });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+
+    performanceNow.mockReturnValue(900);
+    act(() => {
+      emitAudioStatus({ ...makeAudioStatus(track, 8.9), playbackRate: 2 });
+    });
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Second line");
+  });
+
+  it("rebases active lyrics smoothly when playback speed changes with a stale source position", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.4);
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+
+    performanceNow.mockReturnValue(2000);
+    act(() => {
+      emitAudioStatus({ ...makeAudioStatus(track, 8.9), playbackRate: 2 });
+    });
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Second line");
+  });
+
   it("updates active lyrics immediately when playback seek commits from the progress bar", async () => {
     const track = makeTrack();
     const { emitAudioStatus } = mockEcho(track, 0);
@@ -957,10 +1018,15 @@ describe("LyricsPage", () => {
   it("uses a high resolution network cover for cover-following lyrics background when available", async () => {
     const track = makeTrack({ coverId: "cover 1" });
     mockEcho(track, 0, { lyricsBackgroundMode: "cover" });
-    window.echo.library.resolveLyricsBackgroundCover = vi.fn().mockResolvedValue({
-      coverUrl: "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg%3Fparam%3D2000y2000",
-      provider: "netease-cloud-music",
-      confidence: 0.96,
+    let resolveNetworkCover!: (value: {
+      coverUrl: string;
+      provider: string;
+      confidence: number;
+    }) => void;
+    window.echo.library.resolveLyricsBackgroundCover = vi.fn().mockImplementation(() => {
+      return new Promise((resolve) => {
+        resolveNetworkCover = resolve;
+      });
     });
 
     const { container } = render(
@@ -977,6 +1043,11 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-cover")).toBe(
       'url("echo-cover://original/cover%201")',
     );
+    resolveNetworkCover({
+      coverUrl: "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg%3Fparam%3D2000y2000",
+      provider: "netease-cloud-music",
+      confidence: 0.96,
+    });
     await waitFor(() =>
       expect(page.style.getPropertyValue("--lyrics-cover")).toBe(
         'url("echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg%3Fparam%3D2000y2000")',
@@ -1716,6 +1787,7 @@ describe("LyricsPage", () => {
       "echo-wallpaper://lyrics/custom",
     );
     expect(page.style.getPropertyValue("--lyrics-cover-opacity")).toBe("0.66");
+    expect(page.style.getPropertyValue("--lyrics-background-surface-alpha")).toBe("0.66");
     expect(page.style.getPropertyValue("--lyrics-cover-blur")).toBe("18px");
     expect(page.style.getPropertyValue("--lyrics-cover-brightness")).toBe(
       "120%",
@@ -1821,6 +1893,7 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-color")).toBe("#FFFFFF");
     expect(page.style.getPropertyValue("--lyrics-smart-primary-color")).toMatch(/^rgb\(/);
     expect(page.style.getPropertyValue("--lyrics-cover-opacity")).toBe("0.24");
+    expect(page.style.getPropertyValue("--lyrics-background-surface-alpha")).toBe("0.24");
     expect(page.style.getPropertyValue("--lyrics-cover-blur")).toBe("4px");
     expect(page.style.getPropertyValue("--lyrics-cover-brightness")).toBe(
       "72%",
