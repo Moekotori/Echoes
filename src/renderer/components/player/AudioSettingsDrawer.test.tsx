@@ -31,6 +31,15 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
   'audioDrawer.action.openAsioPanel': 'Open ASIO Panel',
+  'audioDrawer.troubleshooting.description': 'Use this when audio is stuck.',
+  'audioDrawer.troubleshooting.hardAction': 'Restart Windows Audio Service',
+  'audioDrawer.troubleshooting.hardBusy': 'Restarting Windows Audio Service',
+  'audioDrawer.troubleshooting.hardConfirm': 'This affects all apps. Continue?',
+  'audioDrawer.troubleshooting.hardDone': 'Windows audio service recovered.',
+  'audioDrawer.troubleshooting.softAction': 'Restart Audio Engine',
+  'audioDrawer.troubleshooting.softBusy': 'Restarting Audio Engine',
+  'audioDrawer.troubleshooting.softDone': 'Audio engine restarted.',
+  'audioDrawer.troubleshooting.title': 'Audio Troubleshooting',
   'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.meter.chain': 'Chain',
   'audioDrawer.signal.asioSdkOutput': 'ASIO SDK output',
@@ -136,6 +145,8 @@ const renderDrawer = (
   status: AudioStatus,
   setOutput = vi.fn().mockResolvedValue(status),
   resetEngine = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+  forceRestart = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+  restartWindowsAudioService = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
 ): void => {
   window.echo = {
     app: {
@@ -153,6 +164,8 @@ const renderDrawer = (
       getDiagnostics: vi.fn().mockResolvedValue(status),
       setOutput,
       resetEngine,
+      forceRestart,
+      restartWindowsAudioService,
     },
   } as unknown as Window['echo'];
 
@@ -609,6 +622,81 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     await waitFor(() => expect(resetEngine).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' })));
     expect(screen.getByRole('button', { name: 'resetEngineDone' })).toBeTruthy();
+  });
+
+  it('shows troubleshooting controls at the bottom and force restarts the audio engine', async () => {
+    const forceRestart = vi.fn().mockResolvedValue({ ...baseStatus, state: 'stopped' });
+    const onStatusChange = vi.fn();
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ rememberedAudioOutput: { enabled: false } }),
+        setSettings: vi.fn().mockResolvedValue({}),
+      },
+      audio: {
+        listDevices: vi.fn().mockResolvedValue([asioDevice]),
+        getStatus: vi.fn().mockResolvedValue(baseStatus),
+        getDiagnostics: vi.fn().mockResolvedValue(baseStatus),
+        setOutput: vi.fn().mockResolvedValue(baseStatus),
+        resetEngine: vi.fn().mockResolvedValue(baseStatus),
+        forceRestart,
+        restartWindowsAudioService: vi.fn().mockResolvedValue(baseStatus),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AudioSettingsDrawer
+        isOpen
+        status={baseStatus}
+        onClose={vi.fn()}
+        onStatusChange={onStatusChange}
+      />,
+    );
+
+    const troubleshooting = document.querySelector('.audio-drawer-scroll > .audio-drawer-troubleshooting');
+    expect(troubleshooting?.nextElementSibling).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart Audio Engine' }));
+
+    await waitFor(() => expect(forceRestart).toHaveBeenCalledWith('audio-drawer-force-restart'));
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' })));
+    expect(await screen.findByText('Audio engine restarted.')).toBeTruthy();
+  });
+
+  it('confirms before restarting the Windows audio service from the drawer', async () => {
+    const restartWindowsAudioService = vi.fn().mockResolvedValue({ ...baseStatus, state: 'stopped' });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onStatusChange = vi.fn();
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ rememberedAudioOutput: { enabled: false } }),
+        setSettings: vi.fn().mockResolvedValue({}),
+      },
+      audio: {
+        listDevices: vi.fn().mockResolvedValue([asioDevice]),
+        getStatus: vi.fn().mockResolvedValue(baseStatus),
+        getDiagnostics: vi.fn().mockResolvedValue(baseStatus),
+        setOutput: vi.fn().mockResolvedValue(baseStatus),
+        resetEngine: vi.fn().mockResolvedValue(baseStatus),
+        forceRestart: vi.fn().mockResolvedValue(baseStatus),
+        restartWindowsAudioService,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AudioSettingsDrawer
+        isOpen
+        status={baseStatus}
+        onClose={vi.fn()}
+        onStatusChange={onStatusChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart Windows Audio Service' }));
+
+    expect(confirmSpy).toHaveBeenCalledWith('This affects all apps. Continue?');
+    await waitFor(() => expect(restartWindowsAudioService).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' })));
+    expect(await screen.findByText('Windows audio service recovered.')).toBeTruthy();
   });
 
   it('shows a SOXR label when SOXR resampling is active', () => {

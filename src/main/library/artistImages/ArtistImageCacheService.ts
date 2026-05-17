@@ -879,9 +879,9 @@ export class ArtistImageCacheService {
       }
 
       await Promise.all([
-        source.clone().resize(192, 192, { fit: 'cover', position: 'centre' }).webp({ quality: 88, effort: 5 }).toFile(tempThumbPath),
-        source.clone().resize(384, 384, { fit: 'cover', position: 'centre' }).webp({ quality: 90, effort: 5 }).toFile(tempMediumPath),
-        source.clone().resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 92, effort: 5 }).toFile(tempLargePath),
+        source.clone().resize(320, 320, { fit: 'cover', position: 'centre' }).webp({ quality: 94, effort: 5 }).toFile(tempThumbPath),
+        source.clone().resize(640, 640, { fit: 'cover', position: 'centre' }).webp({ quality: 95, effort: 5 }).toFile(tempMediumPath),
+        source.clone().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 96, effort: 5 }).toFile(tempLargePath),
       ]);
       await rename(tempThumbPath, thumbPath);
       await rename(tempMediumPath, mediumPath);

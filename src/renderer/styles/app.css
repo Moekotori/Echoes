@@ -4051,6 +4051,49 @@
   background: var(--theme-glass-bg-raised);
 }
 
+.audio-diagnostics-copy-button--danger {
+  border-color: rgba(255, 143, 143, 0.34);
+  color: #ffe8e8;
+  background: rgba(255, 94, 94, 0.13);
+}
+
+.audio-diagnostics-copy-button--danger:hover {
+  background: rgba(255, 94, 94, 0.2);
+}
+
+.audio-diagnostics-copy-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.audio-drawer-troubleshooting {
+  order: 12;
+}
+
+.audio-drawer-troubleshooting > p {
+  margin: 0;
+  color: var(--audio-drawer-muted-text);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.5;
+}
+
+.audio-drawer-troubleshooting__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.audio-drawer-troubleshooting__message {
+  color: #d8f7df !important;
+}
+
+@media (max-width: 520px) {
+  .audio-drawer-troubleshooting__actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .audio-buffer-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5593,7 +5636,8 @@
 }
 
 .settings-wallpaper-empty-actions {
-  justify-self: start;
+  justify-self: end;
+  justify-content: flex-end;
   width: max-content;
   max-width: 100%;
 }

@@ -53,6 +53,7 @@ export type AppSettings = {
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
+  artistWallAlbumFallbackForMissingAvatars?: boolean;
   autoFetchArtistImages?: boolean;
   artistImageFetchPaused?: boolean;
   autoUpdateEnabled?: boolean;

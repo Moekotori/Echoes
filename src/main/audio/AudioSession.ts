@@ -773,7 +773,7 @@ class PcmVolumeTransform extends Transform {
 
 class PcmPlaybackRateTransform extends Transform {
   private readonly frameBytes: number;
-  private readonly playbackRate: number;
+  private playbackRate: number;
   private remainder: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   private frameCursor = 0;
 
@@ -783,8 +783,12 @@ class PcmPlaybackRateTransform extends Transform {
     this.playbackRate = normalizePlaybackRate(playbackRate);
   }
 
+  setPlaybackRate(playbackRate: number): void {
+    this.playbackRate = normalizePlaybackRate(playbackRate);
+  }
+
   override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer) => void): void {
-    if (Math.abs(this.playbackRate - 1) < 1e-6) {
+    if (Math.abs(this.playbackRate - 1) < 1e-6 && this.remainder.length === 0 && Math.abs(this.frameCursor) < 1e-6) {
       callback(null, chunk);
       return;
     }
@@ -1130,11 +1134,25 @@ export class AudioSession extends EventEmitter {
       previousOutputSettings !== null &&
       Object.keys(settings).every((key) => key === 'volume') &&
       this.currentOutputSettings !== null;
+    const outputOnlyChangesPlaybackSpeed =
+      previousOutputSettings !== null &&
+      Object.keys(settings).every((key) => key === 'playbackRate' || key === 'playbackSpeedMode') &&
+      this.currentOutputSettings !== null &&
+      (this.state !== 'playing' || this.speedTransform !== null);
 
     if (outputOnlyChangesVolume) {
       this.bridge?.setVolume?.(this.outputSettings.volume);
       this.gainTransform?.setVolume(this.bridge?.setVolume ? 1 : this.outputSettings.volume);
       this.levelMeterTransform?.setGain(this.bridge?.setVolume ? this.outputSettings.volume : 1);
+      this.emitStatus();
+      return this.getStatus();
+    }
+
+    if (outputOnlyChangesPlaybackSpeed) {
+      const positionSeconds = this.clock.getPositionSeconds();
+      this.speedTransform?.setPlaybackRate(this.outputSettings.playbackRate);
+      this.bridge?.resetOutputClock?.(positionSeconds, this.outputSettings.playbackRate);
+      this.clock.reset(positionSeconds, this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null);
       this.emitStatus();
       return this.getStatus();
     }

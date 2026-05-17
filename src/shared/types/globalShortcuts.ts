@@ -97,10 +97,20 @@ const keyAliases = new Map<string, string>([
   ['mousebutton5', 'MouseButton5'],
   ['xbutton1', 'MouseButton4'],
   ['xbutton2', 'MouseButton5'],
-  ['browserback', 'MouseButton4'],
-  ['browserforward', 'MouseButton5'],
+  ['browserback', 'BrowserBack'],
+  ['browserforward', 'BrowserForward'],
   ['plus', 'Plus'],
   ['+', 'Plus'],
+  ['add', 'Plus'],
+  ['numpadadd', 'Plus'],
+  ['subtract', '-'],
+  ['numpadsubtract', '-'],
+  ['multiply', '*'],
+  ['numpadmultiply', '*'],
+  ['divide', '/'],
+  ['numpaddivide', '/'],
+  ['decimal', '.'],
+  ['numpaddecimal', '.'],
 ]);
 
 const normalizeKeyToken = (token: string): string | null => {

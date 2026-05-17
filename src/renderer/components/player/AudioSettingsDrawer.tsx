@@ -736,6 +736,9 @@ export const AudioSettingsDrawer = ({
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [forceRestartBusy, setForceRestartBusy] = useState(false);
+  const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
+  const [troubleshootingMessage, setTroubleshootingMessage] = useState<string | null>(null);
   const [isAdvancedOutputOpen, setIsAdvancedOutputOpen] = useState(() => readAdvancedOutputOpen());
   const [isBufferOptionsOpen, setIsBufferOptionsOpen] = useState(false);
   const [showAsioPanelSettings, setShowAsioPanelSettings] = useState(() => readShowAsioPanelSettings());
@@ -1364,6 +1367,60 @@ export const AudioSettingsDrawer = ({
     }
   }, [copy.desktopBridgeUnavailable, onStatusChange, refresh, t]);
 
+  const forceRestartAudioEngine = useCallback(async (): Promise<void> => {
+    const audio = window.echo?.audio;
+
+    if (!audio) {
+      setError(copy.desktopBridgeUnavailable);
+      return;
+    }
+
+    setForceRestartBusy(true);
+    setTroubleshootingMessage(null);
+    try {
+      const nextStatus = await audio.forceRestart('audio-drawer-force-restart');
+      setOutputMode(nextStatus.outputMode);
+      onStatusChange(nextStatus);
+      setError(null);
+      setTroubleshootingMessage(t('audioDrawer.troubleshooting.softDone'));
+      window.setTimeout(() => setTroubleshootingMessage(null), 2400);
+      void refresh();
+    } catch (restartError) {
+      setError(restartError instanceof Error ? restartError.message : String(restartError));
+    } finally {
+      setForceRestartBusy(false);
+    }
+  }, [copy.desktopBridgeUnavailable, onStatusChange, refresh, t]);
+
+  const restartWindowsAudioService = useCallback(async (): Promise<void> => {
+    if (!window.confirm(t('audioDrawer.troubleshooting.hardConfirm'))) {
+      return;
+    }
+
+    const audio = window.echo?.audio;
+
+    if (!audio) {
+      setError(copy.desktopBridgeUnavailable);
+      return;
+    }
+
+    setWindowsAudioRestartBusy(true);
+    setTroubleshootingMessage(null);
+    try {
+      const nextStatus = await audio.restartWindowsAudioService();
+      setOutputMode(nextStatus.outputMode);
+      onStatusChange(nextStatus);
+      setError(null);
+      setTroubleshootingMessage(t('audioDrawer.troubleshooting.hardDone'));
+      window.setTimeout(() => setTroubleshootingMessage(null), 2800);
+      void refresh();
+    } catch (restartError) {
+      setError(restartError instanceof Error ? restartError.message : String(restartError));
+    } finally {
+      setWindowsAudioRestartBusy(false);
+    }
+  }, [copy.desktopBridgeUnavailable, onStatusChange, refresh, t]);
+
   if (!shouldRender) {
     return null;
   }
@@ -1888,6 +1945,35 @@ export const AudioSettingsDrawer = ({
             </div>
             <p>{t('audioDrawer.note.outputResponsibilityPrimary')}</p>
             <p>{t('audioDrawer.note.outputResponsibilitySecondary')}</p>
+          </section>
+
+          <section className="audio-drawer-section audio-drawer-troubleshooting">
+            <div className="audio-drawer-section-title">
+              <RefreshCw size={17} />
+              <h3>{t('audioDrawer.troubleshooting.title')}</h3>
+            </div>
+            <p>{t('audioDrawer.troubleshooting.description')}</p>
+            <div className="audio-drawer-troubleshooting__actions">
+              <button
+                className="audio-diagnostics-copy-button"
+                type="button"
+                disabled={forceRestartBusy || windowsAudioRestartBusy || isBusy}
+                onClick={() => void forceRestartAudioEngine()}
+              >
+                <RefreshCw size={16} />
+                <span>{forceRestartBusy ? t('audioDrawer.troubleshooting.softBusy') : t('audioDrawer.troubleshooting.softAction')}</span>
+              </button>
+              <button
+                className="audio-diagnostics-copy-button audio-diagnostics-copy-button--danger"
+                type="button"
+                disabled={forceRestartBusy || windowsAudioRestartBusy || isBusy}
+                onClick={() => void restartWindowsAudioService()}
+              >
+                <Waves size={16} />
+                <span>{windowsAudioRestartBusy ? t('audioDrawer.troubleshooting.hardBusy') : t('audioDrawer.troubleshooting.hardAction')}</span>
+              </button>
+            </div>
+            {troubleshootingMessage ? <p className="audio-drawer-troubleshooting__message">{troubleshootingMessage}</p> : null}
           </section>
         </div>
       </aside>

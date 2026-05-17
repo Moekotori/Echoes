@@ -10,6 +10,7 @@ import {
   Github,
   Globe2,
   Headphones,
+  History,
   Info,
   Keyboard,
   Link2,
@@ -97,6 +98,12 @@ const globalShortcutActionMeta: Array<{
   { action: 'seekBackward', titleKey: 'settings.shortcuts.action.seekBackward.title', descriptionKey: 'settings.shortcuts.action.seekBackward.description' },
   { action: 'seekForward', titleKey: 'settings.shortcuts.action.seekForward.title', descriptionKey: 'settings.shortcuts.action.seekForward.description' },
   { action: 'showMainWindow', titleKey: 'settings.shortcuts.action.showMainWindow.title', descriptionKey: 'settings.shortcuts.action.showMainWindow.description' },
+  { action: 'bossKey', titleKey: 'settings.shortcuts.action.bossKey.title', descriptionKey: 'settings.shortcuts.action.bossKey.description' },
+  { action: 'speedUp', titleKey: 'settings.shortcuts.action.speedUp.title', descriptionKey: 'settings.shortcuts.action.speedUp.description' },
+  { action: 'speedDown', titleKey: 'settings.shortcuts.action.speedDown.title', descriptionKey: 'settings.shortcuts.action.speedDown.description' },
+  { action: 'openAudioSettings', titleKey: 'settings.shortcuts.action.openAudioSettings.title', descriptionKey: 'settings.shortcuts.action.openAudioSettings.description' },
+  { action: 'openMvSettings', titleKey: 'settings.shortcuts.action.openMvSettings.title', descriptionKey: 'settings.shortcuts.action.openMvSettings.description' },
+  { action: 'openLyricsSettings', titleKey: 'settings.shortcuts.action.openLyricsSettings.title', descriptionKey: 'settings.shortcuts.action.openLyricsSettings.description' },
 ];
 
 const shortcutKeyAliases = new Map<string, string>([
@@ -107,16 +114,40 @@ const shortcutKeyAliases = new Map<string, string>([
   ['ArrowUp', 'Up'],
   ['ArrowDown', 'Down'],
   ['Escape', 'Esc'],
+  ['+', 'Plus'],
+  ['Add', 'Plus'],
+  ['NumpadAdd', 'Plus'],
+  ['Subtract', '-'],
+  ['NumpadSubtract', '-'],
+  ['Multiply', '*'],
+  ['NumpadMultiply', '*'],
+  ['Divide', '/'],
+  ['NumpadDivide', '/'],
+  ['Decimal', '.'],
+  ['NumpadDecimal', '.'],
+  ['MediaPlayPause', 'MediaPlayPause'],
+  ['MediaNextTrack', 'MediaNextTrack'],
+  ['MediaPreviousTrack', 'MediaPreviousTrack'],
+  ['MediaStop', 'MediaStop'],
 ]);
 
 const normalizeShortcutEventKey = (event: KeyboardEvent): string | null => {
   const code = event.code;
+  const aliasedCode = shortcutKeyAliases.get(code);
+  if (aliasedCode) {
+    return aliasedCode;
+  }
+
   if (/^Key[A-Z]$/u.test(code)) {
     return code.slice(3);
   }
 
   if (/^Digit[0-9]$/u.test(code)) {
     return code.slice(5);
+  }
+
+  if (/^Numpad[0-9]$/u.test(code)) {
+    return code.slice(6);
   }
 
   const aliased = shortcutKeyAliases.get(event.key);
@@ -1299,6 +1330,32 @@ export const SettingsPage = (): JSX.Element => {
         terms: ['曲库文件夹', '管理本地音乐来源和扫描入口。', 'library folders', 'scan', 'folder', '曲库', '文件夹', '扫描'],
       },
       {
+        id: 'row-artist-wall-artwork',
+        sectionKey: 'library',
+        targetId: 'settings-row-artist-wall-artwork',
+        title: '艺术家墙封面',
+        description: '用艺术家的一张专辑封面替代字母占位。',
+        terms: ['艺术家墙封面', '用艺术家的一张专辑封面替代字母占位。', 'artist wall', 'album artwork', 'artist cover', '艺术家', '封面'],
+      },
+      {
+        id: 'row-artist-avatars',
+        sectionKey: 'library',
+        targetId: 'settings-row-artist-avatars',
+        title: t('settings.appearance.artistAvatars.title'),
+        description: t('settings.appearance.artistAvatars.description'),
+        terms: [
+          t('settings.appearance.artistAvatars.title'),
+          t('settings.appearance.artistAvatars.description'),
+          t('settings.appearance.artistAvatars.toggle'),
+          'artist avatars',
+          'artist images',
+          'avatar cache',
+          '歌手头像',
+          '艺术家头像',
+          '头像缓存',
+        ],
+      },
+      {
         id: 'row-diagnostics',
         sectionKey: 'about',
         targetId: 'settings-row-diagnostics',
@@ -2000,6 +2057,17 @@ export const SettingsPage = (): JSX.Element => {
     await app.openRepository();
   };
 
+  const handleOpenExternalUrl = async (url: string): Promise<void> => {
+    const app = getAppBridge();
+
+    if (!app?.openExternalUrl) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    await app.openExternalUrl(url);
+  };
+
   const previewAndPersistAppWallpaperSettings = (patch: Partial<AppSettings>): void => {
     setAppSettings((current) => (current ? { ...current, ...patch } : current));
     dispatchSettingsChanged(patch);
@@ -2676,7 +2744,7 @@ export const SettingsPage = (): JSX.Element => {
       commitRecordedShortcut(recordingShortcutAction, acceleratorFromKeyboardEvent(event));
     };
 
-    const handleShortcutMouseDown = (event: MouseEvent): void => {
+    const handleShortcutMouseEvent = (event: MouseEvent): void => {
       const rawAccelerator = acceleratorFromMouseEvent(event);
       if (!rawAccelerator) {
         return;
@@ -2693,17 +2761,70 @@ export const SettingsPage = (): JSX.Element => {
     };
 
     window.addEventListener('keydown', handleShortcutKeyDown, true);
-    window.addEventListener('mousedown', handleShortcutMouseDown, true);
+    window.addEventListener('mousedown', handleShortcutMouseEvent, true);
+    window.addEventListener('mouseup', handleShortcutMouseEvent, true);
+    window.addEventListener('auxclick', handleShortcutMouseEvent, true);
     window.addEventListener('contextmenu', handleShortcutContextMenu, true);
     return () => {
       window.removeEventListener('keydown', handleShortcutKeyDown, true);
-      window.removeEventListener('mousedown', handleShortcutMouseDown, true);
+      window.removeEventListener('mousedown', handleShortcutMouseEvent, true);
+      window.removeEventListener('mouseup', handleShortcutMouseEvent, true);
+      window.removeEventListener('auxclick', handleShortcutMouseEvent, true);
       window.removeEventListener('contextmenu', handleShortcutContextMenu, true);
     };
   }, [commitRecordedShortcut, recordingShortcutAction]);
 
-  const handleAutoFetchArtistImagesToggle = (): void => {
-    patchAppSettings({ autoFetchArtistImages: !(appSettings?.autoFetchArtistImages ?? false) });
+  const handleAutoFetchArtistImagesToggle = async (): Promise<void> => {
+    const app = getAppBridge();
+
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save app settings.');
+      return;
+    }
+
+    const nextAutoFetch = !(appSettings?.autoFetchArtistImages ?? false);
+    const patch: Partial<AppSettings> = nextAutoFetch
+      ? { autoFetchArtistImages: true, artistImageFetchPaused: false }
+      : { autoFetchArtistImages: false };
+
+    try {
+      setArtistImageBusyAction(nextAutoFetch ? 'refresh' : null);
+      setArtistImageMessage(null);
+      const settings = await app.setSettings(patch);
+      setAppSettings(settings);
+      dispatchSettingsChanged(settings);
+
+      const library = getLibraryBridge();
+      if (nextAutoFetch) {
+        if (!library?.kickoffArtistImageBackfill) {
+          setError(t('settings.appearance.artistAvatars.message.desktopBridgeRefresh'));
+          return;
+        }
+
+        const status = await library.kickoffArtistImageBackfill({ force: true, limit: 500 });
+        setArtistImageProgress({ ...status, startedAt: Date.now() });
+        setArtistImageMessage(
+          t('settings.appearance.artistAvatars.message.queued', {
+            queued: status.lastQueued.queued,
+            skipped: status.lastQueued.skipped,
+          }),
+        );
+        return;
+      }
+
+      const status = await library?.getArtistImageJobStatus?.();
+      setArtistImageProgress(status ? { ...status, startedAt: Date.now() } : null);
+    } catch (settingsError) {
+      setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+    } finally {
+      setArtistImageBusyAction(null);
+    }
+  };
+
+  const handleArtistWallAlbumFallbackForMissingAvatarsToggle = (): void => {
+    patchAppSettings({
+      artistWallAlbumFallbackForMissingAvatars: !(appSettings?.artistWallAlbumFallbackForMissingAvatars ?? false),
+    });
   };
 
   const handleRefreshMissingArtistImages = async (): Promise<void> => {
@@ -3715,83 +3836,6 @@ export const SettingsPage = (): JSX.Element => {
                   <ChipButton>{t('settings.appearance.density.standard')}</ChipButton>
                 </div>
               </SettingRow>
-              <SettingRow title="艺术家墙封面" description="用艺术家的一张专辑封面替代字母占位。">
-                <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title={t('settings.appearance.artistAvatars.title')}
-                description={t('settings.appearance.artistAvatars.description')}
-              >
-                <div className="settings-cache-panel">
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>{t('settings.appearance.artistAvatars.toggle')}</span>
-                      <ToggleButton
-                        active={appSettings?.autoFetchArtistImages ?? false}
-                        disabled={!appSettings || artistImageBusyAction !== null}
-                        onClick={handleAutoFetchArtistImagesToggle}
-                      />
-                    </div>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
-                      onClick={() => void handleRefreshMissingArtistImages()}
-                    >
-                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
-                      {artistImageBusyAction === 'refresh'
-                        ? t('settings.appearance.artistAvatars.action.queueing')
-                        : t('settings.appearance.artistAvatars.action.refreshMissing')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
-                      onClick={() => void handleArtistImagePauseToggle()}
-                    >
-                      {artistImagePaused ? <Play size={15} /> : <Pause size={15} />}
-                      {artistImagePaused ? '继续获取' : '暂停获取'}
-                    </button>
-                    <button
-                      className="settings-danger-button"
-                      type="button"
-                      disabled={artistImageBusyAction !== null}
-                      onClick={() => void handleClearArtistImageCache()}
-                    >
-                      <Trash2 size={15} />
-                      {t('settings.appearance.artistAvatars.action.clear')}
-                    </button>
-                  </div>
-                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
-                  {artistImageProgress ? (
-                    <div className="settings-update-progress settings-artist-image-progress" role="status" aria-live="polite">
-                      <div className="settings-update-progress-label">
-                        <strong>头像获取进度 · {artistImageStatusLabel}</strong>
-                        <span>
-                          {artistImageProgressDone} / {artistImageProgressTotal}
-                        </span>
-                      </div>
-                      <div
-                        className="settings-update-progress-track"
-                        role="progressbar"
-                        aria-label="头像获取进度"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={artistImageProgressPercent}
-                      >
-                        <span style={{ width: `${artistImageProgressPercent}%` }} />
-                      </div>
-                      <div className="settings-update-progress-meta">
-                        <span>
-                          处理中 {artistImageActive} · 待处理 {artistImageSummary.pending} · 已缓存 {artistImageSummary.matched} · 未找到 {artistImageSummary.notFound} · 失败 {artistImageFailed}
-                        </span>
-                        <span>跳过 {artistImageProgress.lastQueued.skipped}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-wallpaper"
@@ -3947,6 +3991,98 @@ export const SettingsPage = (): JSX.Element => {
               <div id="settings-row-library-folders" data-search-highlight={highlightedSettingId === 'settings-row-library-folders' ? 'true' : undefined}>
                 <LibraryFoldersPanel />
               </div>
+              <SettingRow
+                id="settings-row-artist-wall-artwork"
+                highlighted={highlightedSettingId === 'settings-row-artist-wall-artwork'}
+                title="艺术家墙封面"
+                description="用艺术家的一张专辑封面替代字母占位。"
+              >
+                <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-artist-avatars"
+                highlighted={highlightedSettingId === 'settings-row-artist-avatars'}
+                title={t('settings.appearance.artistAvatars.title')}
+                description={t('settings.appearance.artistAvatars.description')}
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>{t('settings.appearance.artistAvatars.toggle')}</span>
+                      <ToggleButton
+                        active={appSettings?.autoFetchArtistImages ?? false}
+                        disabled={!appSettings || artistImageBusyAction !== null}
+                        onClick={handleAutoFetchArtistImagesToggle}
+                      />
+                    </div>
+                    <div className="settings-inline-toggle">
+                      <span>{t('settings.appearance.artistAvatars.fallback')}</span>
+                      <ToggleButton
+                        active={appSettings?.artistWallAlbumFallbackForMissingAvatars ?? false}
+                        disabled={!appSettings}
+                        onClick={handleArtistWallAlbumFallbackForMissingAvatarsToggle}
+                      />
+                    </div>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleRefreshMissingArtistImages()}
+                    >
+                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
+                      {artistImageBusyAction === 'refresh'
+                        ? t('settings.appearance.artistAvatars.action.queueing')
+                        : t('settings.appearance.artistAvatars.action.refreshMissing')}
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleArtistImagePauseToggle()}
+                    >
+                      {artistImagePaused ? <Play size={15} /> : <Pause size={15} />}
+                      {artistImagePaused ? '继续获取' : '暂停获取'}
+                    </button>
+                    <button
+                      className="settings-danger-button"
+                      type="button"
+                      disabled={artistImageBusyAction !== null}
+                      onClick={() => void handleClearArtistImageCache()}
+                    >
+                      <Trash2 size={15} />
+                      {t('settings.appearance.artistAvatars.action.clear')}
+                    </button>
+                  </div>
+                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
+                  {artistImageProgress ? (
+                    <div className="settings-update-progress settings-artist-image-progress" role="status" aria-live="polite">
+                      <div className="settings-update-progress-label">
+                        <strong>头像获取进度 · {artistImageStatusLabel}</strong>
+                        <span>
+                          {artistImageProgressDone} / {artistImageProgressTotal}
+                        </span>
+                      </div>
+                      <div
+                        className="settings-update-progress-track"
+                        role="progressbar"
+                        aria-label="头像获取进度"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={artistImageProgressPercent}
+                      >
+                        <span style={{ width: `${artistImageProgressPercent}%` }} />
+                      </div>
+                      <div className="settings-update-progress-meta">
+                        <span>
+                          处理中 {artistImageActive} · 待处理 {artistImageSummary.pending} · 已缓存 {artistImageSummary.matched} · 未找到 {artistImageSummary.notFound} · 失败 {artistImageFailed}
+                        </span>
+                        <span>跳过 {artistImageProgress.lastQueued.skipped}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 title="下载路径"
@@ -4207,14 +4343,14 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
-                title="Scan performance"
-                description="Choose how many files ECHO Next reads in parallel during library scans."
+                title="扫描性能"
+                description="选择 ECHO Next 在曲库扫描时并行读取的文件数量。"
               >
                 <div className="settings-chip-row">
                   {[
-                    ['low', 'Low impact'],
-                    ['balanced', 'Balanced'],
-                    ['performance', 'Performance'],
+                    ['low', '低占用'],
+                    ['balanced', '均衡'],
+                    ['performance', '高性能'],
                   ].map(([mode, label]) => (
                     <ChipButton
                       active={(appSettings?.scanPerformanceMode ?? 'balanced') === mode}
@@ -4367,14 +4503,30 @@ export const SettingsPage = (): JSX.Element => {
                       <Github size={15} />
                       ECHO NEXT
                     </button>
-                    <a className="settings-action-button" href="https://qm.qq.com/q/KrJE8PIqSQ" target="_blank" rel="noreferrer">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl('https://github.com/moekotori/echo/releases')}
+                    >
+                      <History size={15} />
+                      查看历史更新日志
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl('https://qm.qq.com/q/KrJE8PIqSQ')}
+                    >
                       <ExternalLink size={15} />
                       加入 QQ 群聊
-                    </a>
-                    <a className="settings-action-button" href="https://discord.gg/g7v4WMRq3K" target="_blank" rel="noreferrer">
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl('https://discord.gg/g7v4WMRq3K')}
+                    >
                       <ExternalLink size={15} />
                       加入 Discord
-                    </a>
+                    </button>
                   </div>
                   {updateStatus?.releaseNotes ? (
                     <div className="settings-update-notes">

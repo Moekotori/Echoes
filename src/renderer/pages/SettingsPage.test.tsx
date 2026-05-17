@@ -10,6 +10,7 @@ const settings: AppSettings = {
   appearanceTheme: 'light',
   albumMergeStrategy: 'standard',
   artistWallAlbumArtwork: false,
+  artistWallAlbumFallbackForMissingAvatars: false,
   autoAccountCheckOnStartup: true,
   coverCacheDir: null,
   hideToTrayOnClose: false,
@@ -91,6 +92,7 @@ const resetSettingsMock = vi.fn();
 const clearCacheMock = vi.fn();
 const chooseLyricsWallpaperMock = vi.fn();
 const chooseAppWallpaperMock = vi.fn();
+const openExternalUrlMock = vi.fn();
 const getDownloadSettingsMock = vi.fn();
 const chooseDownloadOutputDirectoryMock = vi.fn();
 const audioGetStatusMock = vi.fn();
@@ -100,6 +102,8 @@ const audioResetEngineMock = vi.fn();
 const audioForceRestartMock = vi.fn();
 const audioRestartWindowsAudioServiceMock = vi.fn();
 const validateGlobalShortcutMock = vi.fn();
+const kickoffArtistImageBackfillMock = vi.fn();
+const getArtistImageJobStatusMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -124,6 +128,7 @@ vi.mock('../utils/echoBridge', () => ({
     getSettings: getSettingsMock,
     getVersion: vi.fn().mockResolvedValue('1.0.1'),
     chooseAppWallpaper: chooseAppWallpaperMock,
+    openExternalUrl: openExternalUrlMock,
     validateGlobalShortcut: validateGlobalShortcutMock,
     resetSettings: resetSettingsMock,
     setCoverCacheDirectory: vi.fn(),
@@ -170,6 +175,8 @@ vi.mock('../utils/echoBridge', () => ({
   }),
   getLibraryBridge: () => ({
     clearCache: clearCacheMock,
+    getArtistImageJobStatus: getArtistImageJobStatusMock,
+    kickoffArtistImageBackfill: kickoffArtistImageBackfillMock,
     getDuplicateIndexSummary: vi.fn().mockResolvedValue({
       mode: 'strict',
       totalTracksScanned: 0,
@@ -217,11 +224,44 @@ beforeEach(() => {
   audioResetEngineMock.mockResolvedValue({ state: 'stopped', warnings: [] });
   audioForceRestartMock.mockResolvedValue({ state: 'stopped', warnings: [] });
   audioRestartWindowsAudioServiceMock.mockResolvedValue({ state: 'stopped', warnings: [] });
+  openExternalUrlMock.mockResolvedValue(undefined);
   validateGlobalShortcutMock.mockResolvedValue({
     accelerator: 'Ctrl+Alt+Space',
     available: true,
     reason: 'available',
     valid: true,
+  });
+  kickoffArtistImageBackfillMock.mockResolvedValue({
+    paused: false,
+    running: true,
+    queued: 4,
+    active: 1,
+    lastQueued: { queued: 5, skipped: 2 },
+    summary: {
+      total: 5,
+      matched: 0,
+      pending: 4,
+      loading: 1,
+      notFound: 0,
+      error: 0,
+      rateLimited: 0,
+    },
+  });
+  getArtistImageJobStatusMock.mockResolvedValue({
+    paused: true,
+    running: false,
+    queued: 0,
+    active: 0,
+    lastQueued: { queued: 0, skipped: 0 },
+    summary: {
+      total: 0,
+      matched: 0,
+      pending: 0,
+      loading: 0,
+      notFound: 0,
+      error: 0,
+      rateLimited: 0,
+    },
   });
   window.echo = {
     app: {
@@ -232,6 +272,11 @@ beforeEach(() => {
     },
   } as unknown as Window['echo'];
 });
+
+const clickSettingsNav = (labelPattern: string): void => {
+  const nav = screen.getByRole('navigation', { name: 'route.settings.label' });
+  fireEvent.click(within(nav).getByRole('button', { name: new RegExp(labelPattern) }));
+};
 
 afterEach(() => {
   cleanup();
@@ -277,6 +322,25 @@ describe('SettingsPage', () => {
     expect(screen.getByText('settings.appearance.theme.title')).toBeTruthy();
   });
 
+  it('opens community links through the desktop external-url bridge', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.about\\.label');
+    fireEvent.click(screen.getByRole('button', { name: /查看历史更新日志/ }));
+    fireEvent.click(screen.getByRole('button', { name: /加入 QQ 群聊/ }));
+    fireEvent.click(screen.getByRole('button', { name: /加入 Discord/ }));
+
+    await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/moekotori/echo/releases'));
+    expect(openExternalUrlMock).toHaveBeenCalledWith('https://qm.qq.com/q/KrJE8PIqSQ');
+    expect(openExternalUrlMock).toHaveBeenCalledWith('https://discord.gg/g7v4WMRq3K');
+  });
+
   it('finds status aliases and jumps to the exact Discord presence row', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -306,7 +370,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.appearance.label')[0]);
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
     const darkButton = screen.getByRole('button', { name: /settings\.appearance\.theme\.dark/ });
     fireEvent.click(darkButton);
 
@@ -326,7 +390,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.appearance.label')[0]);
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
     const systemButton = screen.getByRole('button', { name: /settings\.appearance\.theme\.followSystem/ });
     fireEvent.click(systemButton);
 
@@ -349,14 +413,62 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.appearance.label')[0]);
-    const row = screen.getByText('艺术家墙封面').closest('.setting-row') as HTMLElement;
+    clickSettingsNav('settings\\.nav\\.library\\.label');
+    const row = screen.getByRole('heading', { name: /艺术家墙封面/ }).closest('.setting-row') as HTMLElement;
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ artistWallAlbumArtwork: true }));
     expect(settingsChanged).toHaveBeenCalledTimes(1);
 
     window.removeEventListener('settings:changed', settingsChanged);
+  });
+
+  it('saves the missing artist avatar album fallback setting', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+    getDownloadSettingsMock.mockResolvedValue(downloadSettings);
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.library\\.label');
+    const row = screen.getByRole('heading', { name: 'settings.appearance.artistAvatars.title' }).closest('.setting-row') as HTMLElement;
+    const fallbackToggle = within(
+      within(row).getByText('settings.appearance.artistAvatars.fallback').closest('.settings-inline-toggle') as HTMLElement,
+    ).getByRole('button');
+    fireEvent.click(fallbackToggle);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ artistWallAlbumFallbackForMissingAvatars: true }));
+  });
+
+  it('starts missing artist avatar fetching immediately when automatic fetching is enabled', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, autoFetchArtistImages: false, artistImageFetchPaused: true });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.library\\.label');
+    const row = screen.getByRole('heading', { name: 'settings.appearance.artistAvatars.title' }).closest('.setting-row') as HTMLElement;
+    const autoFetchToggle = within(
+      within(row).getByText('settings.appearance.artistAvatars.toggle').closest('.settings-inline-toggle') as HTMLElement,
+    ).getByRole('button');
+    fireEvent.click(autoFetchToggle);
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        autoFetchArtistImages: true,
+        artistImageFetchPaused: false,
+      }),
+    );
+    expect(kickoffArtistImageBackfillMock).toHaveBeenCalledWith({ force: true, limit: 500 });
+    expect(await screen.findByText('settings.appearance.artistAvatars.message.queued')).toBeTruthy();
   });
 
   it('chooses the download folder from Settings', async () => {
@@ -370,7 +482,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.library.label')[0]);
+    clickSettingsNav('settings\\.nav\\.library\\.label');
     expect(await screen.findByText('D:\\Downloads')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '更换文件夹' }));
@@ -521,6 +633,84 @@ describe('SettingsPage', () => {
     );
   });
 
+  it('records mouse side buttons from auxclick events and exposes playback speed shortcuts', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    expect(screen.getByText('settings.shortcuts.action.speedUp.title')).toBeTruthy();
+    expect(screen.getByText('settings.shortcuts.action.speedDown.title')).toBeTruthy();
+
+    const row = screen.getByText('settings.shortcuts.action.speedUp.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent(window, new MouseEvent('auxclick', { button: 4, bubbles: true, cancelable: true }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...createDefaultGlobalShortcuts(),
+          speedUp: { enabled: false, accelerator: 'MouseButton5' },
+        },
+      }),
+    );
+  });
+
+  it('records the plus key as a valid global shortcut token', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.speedUp.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.keyDown(window, { code: 'Equal', key: '+', ctrlKey: true, altKey: true, shiftKey: true });
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...createDefaultGlobalShortcuts(),
+          speedUp: { enabled: false, accelerator: 'Ctrl+Alt+Shift+Plus' },
+        },
+      }),
+    );
+  });
+
+  it('records browser navigation keys without rewriting them to mouse buttons', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.previousTrack.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.keyDown(window, { code: 'BrowserBack', key: 'BrowserBack' });
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...createDefaultGlobalShortcuts(),
+          previousTrack: { enabled: false, accelerator: 'BrowserBack' },
+        },
+      }),
+    );
+  });
+
   it('restores recommended global shortcuts without enabling them', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -602,7 +792,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.appearance.label')[0]);
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
     expect(screen.queryByText('壁纸缩放')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /选择壁纸/ }));
 

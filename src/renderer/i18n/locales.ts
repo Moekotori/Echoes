@@ -139,6 +139,15 @@ export type TranslationKey =
   | 'audioDrawer.title'
   | 'audioDrawer.todo.outputControls'
   | 'audioDrawer.todo.outputControlsDescription'
+  | 'audioDrawer.troubleshooting.description'
+  | 'audioDrawer.troubleshooting.hardAction'
+  | 'audioDrawer.troubleshooting.hardBusy'
+  | 'audioDrawer.troubleshooting.hardConfirm'
+  | 'audioDrawer.troubleshooting.hardDone'
+  | 'audioDrawer.troubleshooting.softAction'
+  | 'audioDrawer.troubleshooting.softBusy'
+  | 'audioDrawer.troubleshooting.softDone'
+  | 'audioDrawer.troubleshooting.title'
   | 'common.available'
   | 'common.build'
   | 'common.checking'
@@ -464,6 +473,7 @@ export type TranslationKey =
   | 'settings.appearance.artistAvatars.action.queueing'
   | 'settings.appearance.artistAvatars.action.refreshMissing'
   | 'settings.appearance.artistAvatars.description'
+  | 'settings.appearance.artistAvatars.fallback'
   | 'settings.appearance.artistAvatars.message.cleared'
   | 'settings.appearance.artistAvatars.message.desktopBridgeClear'
   | 'settings.appearance.artistAvatars.message.desktopBridgeRefresh'
@@ -984,6 +994,15 @@ const zhCN: TranslationMap = {
   'audioDrawer.title': '音频设置',
   'audioDrawer.todo.outputControls': '目标采样率和缓冲控制',
   'audioDrawer.todo.outputControlsDescription': 'TODO：等 DeviceService 暴露安全控制后接入真实音频设置。',
+  'audioDrawer.troubleshooting.description': '如果声音卡住或设备列表不正常，点这里。软重启不会影响其他应用。',
+  'audioDrawer.troubleshooting.hardAction': '重启 Windows 音频服务',
+  'audioDrawer.troubleshooting.hardBusy': '正在重启 Windows 音频服务',
+  'audioDrawer.troubleshooting.hardConfirm': '这会中断所有应用的声音（Chrome、游戏、通话），并需要管理员权限。是否继续？',
+  'audioDrawer.troubleshooting.hardDone': 'Windows 音频服务已恢复，你可以重新开始播放',
+  'audioDrawer.troubleshooting.softAction': '重启音频引擎',
+  'audioDrawer.troubleshooting.softBusy': '正在重启音频引擎',
+  'audioDrawer.troubleshooting.softDone': '音频引擎已重启，你可以重新开始播放',
+  'audioDrawer.troubleshooting.title': '音频故障排除',
   'common.available': '可用',
   'common.build': '构建版',
   'common.checking': '检查中',
@@ -1309,6 +1328,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.artistAvatars.action.queueing': '加入队列中...',
   'settings.appearance.artistAvatars.action.refreshMissing': '刷新缺失头像',
   'settings.appearance.artistAvatars.description': '在后台慢速获取真实歌手头像，并在艺术家墙复用本地缓存图片。',
+  'settings.appearance.artistAvatars.fallback': '搜索不到时使用艺术家专辑封面',
   'settings.appearance.artistAvatars.message.cleared': '已清除 {removedRows} 条头像记录和 {deletedFiles} 个文件。',
   'settings.appearance.artistAvatars.message.desktopBridgeClear': '桌面桥不可用。请在 Electron 中打开 ECHO Next 以清除歌手头像。',
   'settings.appearance.artistAvatars.message.desktopBridgeRefresh': '桌面桥不可用。请在 Electron 中打开 ECHO Next 以刷新歌手头像。',
@@ -1855,6 +1875,15 @@ const zhTW: TranslationMap = {
   'audioDrawer.title': '音訊設定',
   'audioDrawer.todo.outputControls': '目標取樣率與緩衝控制',
   'audioDrawer.todo.outputControlsDescription': 'TODO：等 DeviceService 暴露安全控制後接入真實音訊設定。',
+  'audioDrawer.troubleshooting.description': '如果聲音卡住或裝置列表不正常，點這裡。軟重啟不會影響其他應用程式。',
+  'audioDrawer.troubleshooting.hardAction': '重啟 Windows 音訊服務',
+  'audioDrawer.troubleshooting.hardBusy': '正在重啟 Windows 音訊服務',
+  'audioDrawer.troubleshooting.hardConfirm': '這會中斷所有應用程式的聲音（Chrome、遊戲、通話），並需要系統管理員權限。是否繼續？',
+  'audioDrawer.troubleshooting.hardDone': 'Windows 音訊服務已恢復，你可以重新開始播放',
+  'audioDrawer.troubleshooting.softAction': '重啟音訊引擎',
+  'audioDrawer.troubleshooting.softBusy': '正在重啟音訊引擎',
+  'audioDrawer.troubleshooting.softDone': '音訊引擎已重啟，你可以重新開始播放',
+  'audioDrawer.troubleshooting.title': '音訊故障排除',
   'trackMenu.action.addToPlaylist': '加入播放清單...',
   'trackMenu.action.playNext': '下一首播放',
   'trackMenu.action.addToQueue': '加入佇列',
@@ -2247,6 +2276,7 @@ const zhTW: TranslationMap = {
   'settings.appearance.artistAvatars.action.queueing': '加入佇列中...',
   'settings.appearance.artistAvatars.action.refreshMissing': '重新整理缺失頭像',
   'settings.appearance.artistAvatars.description': '在背景慢速取得真實歌手頭像，並在藝術家牆重複使用本機快取圖片。',
+  'settings.appearance.artistAvatars.fallback': '搜尋不到時使用藝術家的專輯封面',
   'settings.appearance.artistAvatars.message.cleared': '已清除 {removedRows} 筆頭像記錄和 {deletedFiles} 個檔案。',
   'settings.appearance.artistAvatars.message.desktopBridgeClear': '桌面橋接不可用。請在 Electron 中開啟 ECHO Next 以清除歌手頭像。',
   'settings.appearance.artistAvatars.message.desktopBridgeRefresh': '桌面橋接不可用。請在 Electron 中開啟 ECHO Next 以重新整理歌手頭像。',
@@ -2430,6 +2460,15 @@ const jaJP: TranslationMap = {
   'audioDrawer.title': '音声設定',
   'audioDrawer.todo.outputControls': 'ターゲットレートとバッファー制御',
   'audioDrawer.todo.outputControlsDescription': 'TODO: DeviceService が安全な制御を公開したら実際の音声設定に接続します。',
+  'audioDrawer.troubleshooting.description': '音が固まったりデバイス一覧が不正な時に使います。ソフト再起動は他のアプリに影響しません。',
+  'audioDrawer.troubleshooting.hardAction': 'Windows Audio サービスを再起動',
+  'audioDrawer.troubleshooting.hardBusy': 'Windows Audio サービスを再起動中',
+  'audioDrawer.troubleshooting.hardConfirm': 'これはすべてのアプリの音声（Chrome、ゲーム、通話）を中断し、管理者権限が必要です。続行しますか？',
+  'audioDrawer.troubleshooting.hardDone': 'Windows Audio サービスが復旧しました。もう一度再生できます',
+  'audioDrawer.troubleshooting.softAction': '音声エンジンを再起動',
+  'audioDrawer.troubleshooting.softBusy': '音声エンジンを再起動中',
+  'audioDrawer.troubleshooting.softDone': '音声エンジンを再起動しました。もう一度再生できます',
+  'audioDrawer.troubleshooting.title': '音声トラブルシューティング',
   'folders.action.addScan': '追加してスキャン',
   'folders.action.browse': '参照',
   'folders.action.cancel': 'キャンセル',
@@ -2897,6 +2936,7 @@ const jaJP: TranslationMap = {
   'settings.appearance.artistAvatars.action.queueing': 'キューに追加中...',
   'settings.appearance.artistAvatars.action.refreshMissing': '不足アバターを更新',
   'settings.appearance.artistAvatars.description': '本物のアーティストアバターをバックグラウンドでゆっくり取得し、アーティストウォールでローカルキャッシュ画像を再利用します。',
+  'settings.appearance.artistAvatars.fallback': '見つからない場合はアーティストのアルバムアートを使用',
   'settings.appearance.artistAvatars.message.cleared': '{removedRows} 件のアバター記録と {deletedFiles} 個のファイルを消去しました。',
   'settings.appearance.artistAvatars.message.desktopBridgeClear': 'デスクトップブリッジを利用できません。アーティストアバターを消去するには Electron で ECHO Next を開いてください。',
   'settings.appearance.artistAvatars.message.desktopBridgeRefresh': 'デスクトップブリッジを利用できません。アーティストアバターを更新するには Electron で ECHO Next を開いてください。',
@@ -3082,6 +3122,15 @@ const enUS: TranslationMap = {
   'audioDrawer.title': 'Audio Settings',
   'audioDrawer.todo.outputControls': 'Target sample rate and buffer controls',
   'audioDrawer.todo.outputControlsDescription': 'TODO: wire to real audio settings when DeviceService exposes safe controls.',
+  'audioDrawer.troubleshooting.description': 'Use this when audio is stuck or the device list looks wrong. The soft restart only affects ECHO.',
+  'audioDrawer.troubleshooting.hardAction': 'Restart Windows Audio Service',
+  'audioDrawer.troubleshooting.hardBusy': 'Restarting Windows Audio Service',
+  'audioDrawer.troubleshooting.hardConfirm': 'This will interrupt audio from all apps (Chrome, games, calls) and requires administrator permission. Continue?',
+  'audioDrawer.troubleshooting.hardDone': 'Windows audio service recovered. You can start playback again.',
+  'audioDrawer.troubleshooting.softAction': 'Restart Audio Engine',
+  'audioDrawer.troubleshooting.softBusy': 'Restarting Audio Engine',
+  'audioDrawer.troubleshooting.softDone': 'Audio engine restarted. You can start playback again.',
+  'audioDrawer.troubleshooting.title': 'Audio Troubleshooting',
   'folders.action.addScan': 'Add + scan',
   'folders.action.browse': 'Browse',
   'folders.action.cancel': 'Cancel',
@@ -3728,6 +3777,7 @@ const enUS: TranslationMap = {
   'settings.appearance.artistAvatars.action.queueing': 'Queueing...',
   'settings.appearance.artistAvatars.action.refreshMissing': 'Refresh Missing Avatars',
   'settings.appearance.artistAvatars.description': 'Fetch real artist avatars slowly in the background and reuse local cached images on the artist wall.',
+  'settings.appearance.artistAvatars.fallback': 'Use artist album artwork when no avatar is found',
   'settings.appearance.artistAvatars.message.cleared': 'Cleared {removedRows} avatar records and {deletedFiles} files.',
   'settings.appearance.artistAvatars.message.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear artist avatars.',
   'settings.appearance.artistAvatars.message.desktopBridgeRefresh': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh artist avatars.',

@@ -139,6 +139,46 @@ const dispatchLyricsDisplaySettingsChanged = (patch: Partial<AppSettings>): void
   window.dispatchEvent(new CustomEvent('lyrics:display-settings-changed', { detail: patch }));
 };
 
+const pickSavedLyricsPatch = (
+  settings: LyricsDrawerSettings,
+  patch: Partial<AppSettings>,
+): Partial<AppSettings> => {
+  const settingsRecord = settings as Record<string, unknown>;
+  const patchRecord = patch as Record<string, unknown>;
+  const savedPatch: Record<string, unknown> = {};
+
+  for (const key of Object.keys(patchRecord)) {
+    savedPatch[key] = Object.prototype.hasOwnProperty.call(settingsRecord, key)
+      ? settingsRecord[key]
+      : patchRecord[key];
+  }
+
+  return savedPatch as Partial<AppSettings>;
+};
+
+const patchValuesMatch = (left: Partial<AppSettings>, right: Partial<AppSettings>): boolean => {
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+
+  for (const key of keys) {
+    const leftValue = leftRecord[key];
+    const rightValue = rightRecord[key];
+    if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
+      if (leftValue.length !== rightValue.length || leftValue.some((value, index) => value !== rightValue[index])) {
+        return false;
+      }
+      continue;
+    }
+
+    if (!Object.is(leftValue, rightValue)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 const dispatchLyricsAction = (action: 'search' | 'rematch', query?: string): void => {
   const eventName = action === 'search' ? 'lyrics:search-requested' : 'lyrics:rematch-requested';
   const normalizedQuery = query?.trim();
@@ -417,10 +457,13 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
       const nextSettings = await app.setSettings(patch);
       if (requestId === saveRequestIdRef.current) {
         const nextLyricsSettings = selectLyricsSettings(nextSettings);
+        const savedPatch = pickSavedLyricsPatch(nextLyricsSettings, patch);
         setSettings(nextLyricsSettings);
         setError(null);
-        dispatchSettingsChanged(nextLyricsSettings);
-        dispatchLyricsDisplaySettingsChanged(nextLyricsSettings);
+        if (!optimistic || !patchValuesMatch(patch, savedPatch)) {
+          dispatchSettingsChanged(savedPatch);
+          dispatchLyricsDisplaySettingsChanged(savedPatch);
+        }
       }
     } catch (settingsError) {
       if (requestId === saveRequestIdRef.current) {
@@ -451,9 +494,13 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
       const nextSettings = await app.setSettings(patch);
       if (requestId === debouncedSaveRequestIdRef.current) {
         const nextLyricsSettings = selectLyricsSettings(nextSettings);
+        const savedPatch = pickSavedLyricsPatch(nextLyricsSettings, patch);
         setSettings(nextLyricsSettings);
         setError(null);
-        dispatchSettingsChanged(nextLyricsSettings);
+        dispatchSettingsChanged(savedPatch);
+        if (!patchValuesMatch(patch, savedPatch)) {
+          dispatchLyricsDisplaySettingsChanged(savedPatch);
+        }
       }
     } catch (settingsError) {
       if (requestId === debouncedSaveRequestIdRef.current) {
@@ -579,7 +626,14 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         });
         const nextLyricsSettings = selectLyricsSettings(nextSettings);
         setSettings(nextLyricsSettings);
-        dispatchSettingsChanged(nextLyricsSettings);
+        dispatchSettingsChanged({
+          lyricsBackgroundMode: nextLyricsSettings.lyricsBackgroundMode,
+          lyricsCustomWallpaperPath: nextLyricsSettings.lyricsCustomWallpaperPath,
+        });
+        dispatchLyricsDisplaySettingsChanged({
+          lyricsBackgroundMode: nextLyricsSettings.lyricsBackgroundMode,
+          lyricsCustomWallpaperPath: nextLyricsSettings.lyricsCustomWallpaperPath,
+        });
       }
       setError(null);
     } catch (settingsError) {

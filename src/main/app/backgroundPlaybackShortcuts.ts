@@ -25,17 +25,22 @@ let initialized = false;
 const registeredAccelerators = new Map<GlobalShortcutAction, string>();
 const registeredMouseAccelerators = new Map<string, GlobalShortcutAction>();
 let mouseHookProcess: ChildProcessWithoutNullStreams | null = null;
+let activeMouseHookAccelerators = '';
 let lastRegistrationStatuses: RegistrationStatus[] = [];
 
 const windowsMouseHookScript = `
 Add-Type -TypeDefinition @"
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 public static class EchoMouseShortcutHook
 {
     private const int WH_MOUSE_LL = 14;
+    private const int WM_MBUTTONDOWN = 0x0207;
+    private const int WM_MBUTTONUP = 0x0208;
     private const int WM_XBUTTONDOWN = 0x020B;
+    private const int WM_XBUTTONUP = 0x020C;
     private const int WM_QUIT = 0x0012;
     private static LowLevelMouseProc _proc = HookCallback;
     private static IntPtr _hookID = IntPtr.Zero;
@@ -73,6 +78,9 @@ public static class EchoMouseShortcutHook
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr GetModuleHandle(string lpModuleName);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool UnhookWindowsHookEx(IntPtr hhk);
@@ -91,7 +99,12 @@ public static class EchoMouseShortcutHook
 
     public static void Run()
     {
-        _hookID = SetWindowsHookEx(WH_MOUSE_LL, _proc, IntPtr.Zero, 0);
+        using (Process currentProcess = Process.GetCurrentProcess())
+        using (ProcessModule currentModule = currentProcess.MainModule)
+        {
+            _hookID = SetWindowsHookEx(WH_MOUSE_LL, _proc, GetModuleHandle(currentModule.ModuleName), 0);
+        }
+
         if (_hookID == IntPtr.Zero)
         {
             Console.Error.WriteLine("hook-failed");
@@ -116,21 +129,58 @@ public static class EchoMouseShortcutHook
         UnhookWindowsHookEx(_hookID);
     }
 
+    private static bool ShouldCapture(string buttonName)
+    {
+        string configuredButtons = Environment.GetEnvironmentVariable("ECHO_MOUSE_SHORTCUT_BUTTONS") ?? "";
+        return ("," + configuredButtons + ",").IndexOf("," + buttonName + ",", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static IntPtr EmitAndSuppress(string buttonName, bool emit)
+    {
+        if (!ShouldCapture(buttonName))
+        {
+            return IntPtr.Zero;
+        }
+
+        if (emit)
+        {
+            Console.WriteLine(buttonName);
+            Console.Out.Flush();
+        }
+
+        return (IntPtr)1;
+    }
+
     private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && wParam == (IntPtr)WM_XBUTTONDOWN)
+        if (nCode >= 0 && (wParam == (IntPtr)WM_MBUTTONDOWN || wParam == (IntPtr)WM_MBUTTONUP))
+        {
+            IntPtr result = EmitAndSuppress("MouseButton3", wParam == (IntPtr)WM_MBUTTONDOWN);
+            if (result != IntPtr.Zero)
+            {
+                return result;
+            }
+        }
+
+        if (nCode >= 0 && (wParam == (IntPtr)WM_XBUTTONDOWN || wParam == (IntPtr)WM_XBUTTONUP))
         {
             MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
             int xButton = (int)((hookStruct.mouseData >> 16) & 0xffff);
             if (xButton == 1)
             {
-                Console.WriteLine("MouseButton4");
-                Console.Out.Flush();
+                IntPtr result = EmitAndSuppress("MouseButton4", wParam == (IntPtr)WM_XBUTTONDOWN);
+                if (result != IntPtr.Zero)
+                {
+                    return result;
+                }
             }
             else if (xButton == 2)
             {
-                Console.WriteLine("MouseButton5");
-                Console.Out.Flush();
+                IntPtr result = EmitAndSuppress("MouseButton5", wParam == (IntPtr)WM_XBUTTONDOWN);
+                if (result != IntPtr.Zero)
+                {
+                    return result;
+                }
             }
         }
 
@@ -165,11 +215,13 @@ const unregisterManagedShortcuts = (): void => {
 
 const stopMouseShortcutHook = (): void => {
   if (!mouseHookProcess) {
+    activeMouseHookAccelerators = '';
     return;
   }
 
   mouseHookProcess.kill();
   mouseHookProcess = null;
+  activeMouseHookAccelerators = '';
 };
 
 const dispatchMouseShortcutLine = (line: string): void => {
@@ -184,9 +236,16 @@ const ensureMouseShortcutHook = (): boolean => {
     return false;
   }
 
-  if (mouseHookProcess && !mouseHookProcess.killed) {
+  const nextMouseHookAccelerators = Array.from(registeredMouseAccelerators.keys()).sort().join(',');
+  if (!nextMouseHookAccelerators) {
+    return false;
+  }
+
+  if (mouseHookProcess && !mouseHookProcess.killed && activeMouseHookAccelerators === nextMouseHookAccelerators) {
     return true;
   }
+
+  stopMouseShortcutHook();
 
   const encodedScript = Buffer.from(windowsMouseHookScript, 'utf16le').toString('base64');
   const nextProcess = spawn('powershell.exe', [
@@ -196,8 +255,15 @@ const ensureMouseShortcutHook = (): boolean => {
     'Bypass',
     '-EncodedCommand',
     encodedScript,
-  ], { windowsHide: true });
+  ], {
+    env: {
+      ...process.env,
+      ECHO_MOUSE_SHORTCUT_BUTTONS: nextMouseHookAccelerators,
+    },
+    windowsHide: true,
+  });
   mouseHookProcess = nextProcess;
+  activeMouseHookAccelerators = nextMouseHookAccelerators;
 
   let pending = '';
   nextProcess.stdout.setEncoding('utf8');
@@ -271,14 +337,16 @@ const registerActionShortcut = (
   binding: GlobalShortcutBinding,
 ): RegistrationStatus => {
   if (isMouseButtonAccelerator(accelerator)) {
+    registeredMouseAccelerators.set(accelerator, action);
+
     if (!ensureMouseShortcutHook()) {
+      registeredMouseAccelerators.delete(accelerator);
       return createStatus(action, binding, {
         registered: false,
         error: 'unavailable',
       });
     }
 
-    registeredMouseAccelerators.set(accelerator, action);
     return createStatus(action, binding, { registered: true });
   }
 
@@ -399,10 +467,6 @@ export const validateGlobalShortcut = (accelerator: unknown): GlobalShortcutVali
     return validation;
   }
 
-  if (globalShortcut.isRegistered(validation.accelerator)) {
-    return validation;
-  }
-
   if (isMouseButtonAccelerator(validation.accelerator)) {
     return process.platform === 'win32'
       ? validation
@@ -411,6 +475,18 @@ export const validateGlobalShortcut = (accelerator: unknown): GlobalShortcutVali
           available: false,
           reason: 'unavailable',
         };
+  }
+
+  try {
+    if (globalShortcut.isRegistered(validation.accelerator)) {
+      return validation;
+    }
+  } catch {
+    return {
+      ...validation,
+      available: false,
+      reason: 'unavailable',
+    };
   }
 
   let available = false;

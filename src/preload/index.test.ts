@@ -173,12 +173,14 @@ describe('preload SMTC API', () => {
     listener?.({}, status);
     unsubscribe();
     await exposedApi!.app.openRepository();
+    await exposedApi!.app.openExternalUrl('https://discord.gg/g7v4WMRq3K');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppGetUpdateStatus);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppCheckForUpdates);
     expect(handler).toHaveBeenCalledWith(status);
     expect(listeners.has(IpcChannels.AppUpdateStatusChanged)).toBe(false);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppOpenRepository);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppOpenExternalUrl, 'https://discord.gg/g7v4WMRq3K');
   });
 
   it('exposes global shortcut validation and command events', async () => {

@@ -308,6 +308,45 @@ describe('ArtistsPage', () => {
     expect(screen.queryByText('AR')).toBeNull();
   });
 
+  it('uses album artwork only for artists whose avatar lookup failed when fallback is enabled', async () => {
+    const getArtists = vi.fn().mockResolvedValue(
+      page([
+        artist('1', {
+          coverId: 'cover-1',
+          coverThumb: 'echo-cover://album/cover-1',
+          avatarStatus: 'not_found',
+        }),
+        artist('2', {
+          coverId: 'cover-2',
+          coverThumb: 'echo-cover://album/cover-2',
+          avatarStatus: null,
+        }),
+        artist('3', {
+          coverId: 'cover-3',
+          coverThumb: 'echo-cover://album/cover-3',
+          avatarThumbUrl: 'echo-artist-image://thumb/artist-3',
+          avatarUrl: 'echo-artist-image://large/artist-3',
+          avatarStatus: 'matched',
+        }),
+      ]),
+    );
+    installLibrary(getArtists, vi.fn().mockResolvedValue({
+      artistWallAlbumArtwork: false,
+      artistWallAlbumFallbackForMissingAvatars: true,
+      autoFetchArtistImages: false,
+    }));
+
+    renderArtistsPage();
+
+    await screen.findByText('Artist 1');
+    const images = [...document.querySelectorAll('.artist-avatar img')] as HTMLImageElement[];
+    expect(images.map((image) => image.getAttribute('src'))).toEqual([
+      'echo-cover://album/cover-1',
+      'echo-artist-image://large/artist-3',
+    ]);
+    expect(screen.getByText('AR')).toBeTruthy();
+  });
+
   it('falls back to the letter avatar when artist artwork fails to load', async () => {
     const getArtists = vi.fn().mockResolvedValue(page([artist('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })]));
     installLibrary(getArtists, vi.fn().mockResolvedValue({ artistWallAlbumArtwork: true }));

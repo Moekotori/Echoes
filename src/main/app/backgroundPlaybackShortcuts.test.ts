@@ -200,6 +200,19 @@ describe('global playback shortcuts', () => {
     });
   });
 
+  it('validates browser navigation keys through Electron registration', async () => {
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    expect(shortcuts.validateGlobalShortcut('browserback')).toEqual({
+      accelerator: 'BrowserBack',
+      available: true,
+      reason: 'available',
+      valid: true,
+    });
+    expect(registerMock).toHaveBeenCalledWith('BrowserBack', expect.any(Function));
+    expect(unregisterMock).toHaveBeenCalledWith('BrowserBack');
+  });
+
   it('routes mouse side buttons through the Windows mouse hook helper', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
     currentSettings = createSettings({
@@ -214,8 +227,41 @@ describe('global playback shortcuts', () => {
     spawnedProcesses[0]?.stdout.emit('data', 'ready\r\nMouseButton4\r\n');
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock).toHaveBeenCalledWith(
+      'powershell.exe',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ ECHO_MOUSE_SHORTCUT_BUTTONS: 'MouseButton4' }),
+        windowsHide: true,
+      }),
+    );
     expect(registerMock).not.toHaveBeenCalledWith('MouseButton4', expect.any(Function));
     expect(sendMock).toHaveBeenCalledWith(IpcChannels.AppGlobalShortcutCommand, 'nextTrack');
+  });
+
+  it('routes middle mouse button shortcuts through the Windows mouse hook helper', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    currentSettings = createSettings({
+      globalShortcuts: {
+        ...createDefaultGlobalShortcuts(),
+        playPause: { enabled: true, accelerator: 'MouseButton3' },
+      },
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    shortcuts.refreshBackgroundSpaceRegistration();
+    spawnedProcesses[0]?.stdout.emit('data', 'ready\r\nMouseButton3\r\nMouseButton5\r\n');
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'powershell.exe',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ ECHO_MOUSE_SHORTCUT_BUTTONS: 'MouseButton3' }),
+        windowsHide: true,
+      }),
+    );
+    expect(sendMock).toHaveBeenCalledWith(IpcChannels.AppGlobalShortcutCommand, 'playPause');
+    expect(sendMock).not.toHaveBeenCalledWith(IpcChannels.AppGlobalShortcutCommand, 'nextTrack');
   });
 
   it('validates mouse side buttons without Electron globalShortcut registration on Windows', async () => {
@@ -229,6 +275,23 @@ describe('global playback shortcuts', () => {
       valid: true,
     });
     expect(registerMock).not.toHaveBeenCalledWith('MouseButton5', expect.any(Function));
+  });
+
+  it('does not let Electron accelerator validation reject mouse buttons on Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    isRegisteredMock.mockImplementationOnce(() => {
+      throw new Error('invalid accelerator');
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    expect(shortcuts.validateGlobalShortcut('MouseButton4')).toEqual({
+      accelerator: 'MouseButton4',
+      available: true,
+      reason: 'available',
+      valid: true,
+    });
+    expect(isRegisteredMock).not.toHaveBeenCalledWith('MouseButton4');
+    expect(registerMock).not.toHaveBeenCalledWith('MouseButton4', expect.any(Function));
   });
 
   it('shows the main window directly for showMainWindow', async () => {

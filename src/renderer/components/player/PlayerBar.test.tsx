@@ -1863,7 +1863,7 @@ describe('PlayerBar', () => {
     expect(screen.getByText('Song 2')).toBeTruthy();
   });
 
-  it('does not auto-play the next queued track after the MV ends before audio', async () => {
+  it('still auto-plays the next queued track when the audio ends after the MV', async () => {
     const firstTrack = makeTrack(1);
     const secondTrack = makeTrack(2);
     const statusHandlers: Array<(status: AudioStatus) => void> = [];
@@ -1943,14 +1943,17 @@ describe('PlayerBar', () => {
 
     await screen.findByText('Song 1');
     window.dispatchEvent(new CustomEvent('mv:ended-before-audio', { detail: { trackId: firstTrack.id } }));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(playLocalFile).not.toHaveBeenCalled();
+
     statusHandlers[0]?.({
       ...audioStatus(firstTrack),
       state: 'ended',
       positionSeconds: firstTrack.duration,
     });
 
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(playLocalFile).not.toHaveBeenCalled();
-    expect(screen.getByText('Song 1')).toBeTruthy();
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
+    await screen.findByText('Song 2');
   });
 });

@@ -6,6 +6,7 @@ const handleMock = vi.fn((channel: string, handler: (...args: unknown[]) => unkn
   handlers[channel] = handler;
 });
 const showOpenDialogMock = vi.fn();
+const openExternalMock = vi.fn();
 const setAppSettingsMock = vi.fn((patch) => ({ coverCacheDir: patch.coverCacheDir ?? null, hideToTrayOnClose: false }));
 const getLibraryServiceMock = vi.fn();
 const ensureCoverCacheDirectoryMock = vi.fn();
@@ -31,6 +32,9 @@ vi.mock('electron', () => ({
   },
   ipcMain: {
     handle: handleMock,
+  },
+  shell: {
+    openExternal: openExternalMock,
   },
 }));
 
@@ -175,6 +179,7 @@ describe('app IPC cover cache directory', () => {
     resetHandlers();
     handleMock.mockClear();
     showOpenDialogMock.mockReset();
+    openExternalMock.mockReset();
     setAppSettingsMock.mockClear();
     getLibraryServiceMock.mockReset();
     ensureCoverCacheDirectoryMock.mockReset();
@@ -254,6 +259,15 @@ describe('app IPC cover cache directory', () => {
         filters: [{ name: 'Image files', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
         properties: ['openFile'],
       }),
+    );
+  });
+
+  it('opens external http links through the system browser only', async () => {
+    await handlers[IpcChannels.AppOpenExternalUrl]!(null, 'https://discord.gg/g7v4WMRq3K');
+
+    expect(openExternalMock).toHaveBeenCalledWith('https://discord.gg/g7v4WMRq3K');
+    await expect(handlers[IpcChannels.AppOpenExternalUrl]!(null, 'file:///C:/Windows/System32/calc.exe')).rejects.toThrow(
+      'external URL must use http or https',
     );
   });
 

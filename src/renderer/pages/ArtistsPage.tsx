@@ -46,6 +46,7 @@ export const ArtistsPage = (): JSX.Element => {
   const [hasMore, setHasMore] = useState(false);
   const [selectedArtist, setSelectedArtist] = useState<LibraryArtist | null>(null);
   const [artistWallAlbumArtwork, setArtistWallAlbumArtwork] = useState(false);
+  const [artistWallAlbumFallbackForMissingAvatars, setArtistWallAlbumFallbackForMissingAvatars] = useState(false);
   const [artistImagesAutoFetch, setArtistImagesAutoFetch] = useState(false);
   const [failedAvatarUrls, setFailedAvatarUrls] = useState<Record<string, string>>({});
   const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
@@ -176,6 +177,7 @@ export const ArtistsPage = (): JSX.Element => {
 
       if (!app?.getSettings) {
         setArtistWallAlbumArtwork(false);
+        setArtistWallAlbumFallbackForMissingAvatars(false);
         return;
       }
 
@@ -183,10 +185,12 @@ export const ArtistsPage = (): JSX.Element => {
         .getSettings()
         .then((settings) => {
           setArtistWallAlbumArtwork(settings.artistWallAlbumArtwork === true);
+          setArtistWallAlbumFallbackForMissingAvatars(settings.artistWallAlbumFallbackForMissingAvatars === true);
           setArtistImagesAutoFetch(settings.autoFetchArtistImages === true);
         })
         .catch(() => {
           setArtistWallAlbumArtwork(false);
+          setArtistWallAlbumFallbackForMissingAvatars(false);
           setArtistImagesAutoFetch(false);
         });
     };
@@ -424,8 +428,15 @@ export const ArtistsPage = (): JSX.Element => {
           const shouldShowAvatar = Boolean(
             avatarImageUrl && failedAvatarUrls[artist.id] !== avatarImageUrl,
           );
+          const shouldUseMissingAvatarFallback = artist.avatarStatus === 'not_found'
+            || artist.avatarStatus === 'error'
+            || artist.avatarStatus === 'rate_limited'
+            || Boolean(avatarImageUrl && failedAvatarUrls[artist.id] === avatarImageUrl);
           const shouldShowCover = Boolean(
-            !shouldShowAvatar && artistWallAlbumArtwork && artist.coverThumb && failedCoverUrls[artist.id] !== artist.coverThumb,
+            !shouldShowAvatar
+              && (artistWallAlbumArtwork || (artistWallAlbumFallbackForMissingAvatars && shouldUseMissingAvatarFallback))
+              && artist.coverThumb
+              && failedCoverUrls[artist.id] !== artist.coverThumb,
           );
           const imageUrl = shouldShowAvatar ? avatarImageUrl : shouldShowCover ? artist.coverThumb : null;
           const avatarSrcSet = shouldShowAvatar && artist.avatarThumbUrl && artist.avatarUrl && artist.avatarThumbUrl !== artist.avatarUrl

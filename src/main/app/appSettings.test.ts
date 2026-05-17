@@ -24,6 +24,7 @@ describe('app settings normalization', () => {
     expect(settings.albumMergeStrategy).toBe('standard');
     expect(settings.chineseCrossScriptSearchEnabled).toBe(true);
     expect(settings.artistWallAlbumArtwork).toBe(false);
+    expect(settings.artistWallAlbumFallbackForMissingAvatars).toBe(false);
     expect(settings.autoFetchArtistImages).toBe(false);
     expect(settings.artistImageFetchPaused).toBe(false);
     expect(settings.autoAccountCheckOnStartup).toBe(true);
@@ -136,6 +137,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: 'yes' as never }).artistWallAlbumArtwork).toBe(false);
     expect(normalizeSettings({ artistWallAlbumArtwork: true }).artistWallAlbumArtwork).toBe(true);
+  });
+
+  it('normalizes artist wall missing-avatar fallback as disabled by default', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).artistWallAlbumFallbackForMissingAvatars).toBe(false);
+    expect(normalizeSettings({ artistWallAlbumFallbackForMissingAvatars: 'yes' as never }).artistWallAlbumFallbackForMissingAvatars).toBe(false);
+    expect(normalizeSettings({ artistWallAlbumFallbackForMissingAvatars: true }).artistWallAlbumFallbackForMissingAvatars).toBe(true);
   });
 
   it('normalizes automatic artist image fetching as disabled by default', async () => {

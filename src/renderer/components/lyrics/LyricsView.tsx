@@ -388,6 +388,10 @@ export const LyricsView = ({
   }, [activeIndex, animateScrollTop, stopScrollAnimation]);
 
   const preserveActiveLyricPosition = useCallback((event: Event): void => {
+    if (event.type === 'settings:changed' && event instanceof CustomEvent) {
+      return;
+    }
+
     if (event instanceof CustomEvent && event.detail && typeof event.detail === 'object' && !Array.isArray(event.detail)) {
       const hasLayoutSetting = Object.keys(event.detail as Record<string, unknown>).some((key) => lyricsLayoutSettingKeys.has(key));
       if (!hasLayoutSetting) {

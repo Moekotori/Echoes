@@ -260,6 +260,37 @@ describe('CrashReportService', () => {
     expect(readFileSync(join(service.getSessionDir()!, 'crash.log'), 'utf8')).toContain('White screen');
   });
 
+  it('deduplicates renderer error bursts and keeps empty audio reports audio-only', async () => {
+    const service = new CrashReportService(tempDir);
+    service.initialize();
+
+    const rendererError = {
+      message: 'usePlaybackQueue must be used inside PlaybackQueueProvider',
+      stack: 'stack',
+      filename: 'D:\\Project\\PlaybackQueueProvider.tsx',
+      lineno: 962,
+      colno: 11,
+      source: 'error' as const,
+      timestamp: '2026-05-17T05:11:03.788Z',
+    };
+
+    service.reportRendererError(rendererError);
+    service.reportRendererError({
+      ...rendererError,
+      timestamp: '2026-05-17T05:11:03.792Z',
+    });
+
+    const rendererLog = readFileSync(join(service.getSessionDir()!, 'renderer.log'), 'utf8');
+    expect(rendererLog.trim().split(/\r?\n/)).toHaveLength(1);
+
+    const reportPath = await service.openAudioCrashReportFile();
+    const report = readFileSync(reportPath, 'utf8');
+    expect(report).toContain('No audio crash has been recorded in this session.');
+    expect(report).toContain('renderer and crash logs are omitted from this audio-only report');
+    expect(report).not.toContain('### crash.log');
+    expect(report).not.toContain('usePlaybackQueue must be used inside PlaybackQueueProvider');
+  });
+
   it('writes audio crash reports with safe audio status snapshots', async () => {
     const service = new CrashReportService(tempDir);
     const outputPath = join(tempDir, 'diagnostics.zip');

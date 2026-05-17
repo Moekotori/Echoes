@@ -3276,6 +3276,22 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].setVolume).toHaveBeenCalledWith(0.35);
   });
 
+  it('changing playback speed while playing updates the active pipeline without restarting output', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+    bridges[0].positionSeconds = 21.75;
+    const status = await session.setOutput({ playbackRate: 1.2, playbackSpeedMode: 'nightcore' });
+
+    expect(status.state).toBe('playing');
+    expect(status.playbackRate).toBe(1.2);
+    expect(status.playbackSpeedMode).toBe('nightcore');
+    expect(status.positionSeconds).toBe(21.75);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(decoder.decodeRequests).toHaveLength(1);
+  });
+
   it('switching output while playing restarts the current file on the new device', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
 

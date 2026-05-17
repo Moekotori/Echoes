@@ -194,4 +194,50 @@ describe('LyricsView', () => {
 
     expect(scrollContainer.scrollTop).toBe(84);
   });
+
+  it('ignores persisted settings payloads because display preview events handle lyric layout changes', () => {
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameId += 1;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={lyrics}
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+    const scrollContainer = container.querySelector('.lyrics-scroll') as HTMLElement;
+    const activeLine = container.querySelector('.lyrics-line[data-active="true"]') as HTMLButtonElement;
+    let activeTop = 200;
+
+    Object.defineProperty(scrollContainer, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
+    scrollContainer.getBoundingClientRect = vi.fn(() => makeRect(0, 400));
+    activeLine.getBoundingClientRect = vi.fn(() => makeRect(activeTop, 42));
+    scrollContainer.scrollTop = 120;
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('settings:changed', { detail: { lyricsFontSizePx: 44 } }));
+    });
+
+    activeTop = 164;
+    act(() => {
+      for (const [id, callback] of Array.from(frames.entries())) {
+        frames.delete(id);
+        callback(16);
+      }
+    });
+
+    expect(scrollContainer.scrollTop).toBe(120);
+  });
 });

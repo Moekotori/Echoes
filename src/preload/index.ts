@@ -53,6 +53,7 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.AppUpdateStatusChanged, listener);
     },
     openRepository: () => ipcRenderer.invoke(IpcChannels.AppOpenRepository),
+    openExternalUrl: (url) => ipcRenderer.invoke(IpcChannels.AppOpenExternalUrl, url),
     validateGlobalShortcut: (accelerator) => ipcRenderer.invoke(IpcChannels.AppValidateGlobalShortcut, accelerator),
     onGlobalShortcutCommand: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, action: unknown): void => {

@@ -460,6 +460,8 @@ export class CrashReportService {
   private sessionDir: string | null = null;
   private lastCrashSummary: LastCrashSummary | null = null;
   private logger: Logger | null = null;
+  private lastRendererErrorSignature: string | null = null;
+  private lastRendererErrorAt = 0;
 
   constructor(private readonly userDataPath = app.getPath('userData')) {}
 
@@ -585,6 +587,21 @@ export class CrashReportService {
   }
 
   reportRendererError(payload: RendererErrorPayload): void {
+    const signature = [
+      payload.message,
+      payload.stack ?? '',
+      payload.filename ?? '',
+      payload.source ?? '',
+    ].join('\n');
+    const reportedAt = payload.timestamp ? Date.parse(payload.timestamp) : Date.now();
+    const timestampMs = Number.isFinite(reportedAt) ? reportedAt : Date.now();
+    if (signature === this.lastRendererErrorSignature && timestampMs - this.lastRendererErrorAt < 2000) {
+      return;
+    }
+
+    this.lastRendererErrorSignature = signature;
+    this.lastRendererErrorAt = timestampMs;
+
     const safePayload = sanitizeLogPayload(payload);
     this.logger?.error('renderer', payload.message, safePayload);
     this.logger?.error('crash', 'renderer error', safePayload);
@@ -735,7 +752,13 @@ export class CrashReportService {
       '',
       '## Recent Audio Logs',
       '',
-      this.createLogTailMarkdown(['audio.log', 'crash.log', 'main.log']),
+      record
+        ? this.createLogTailMarkdown(['audio.log', 'main.log'])
+        : [
+            'No audio crash was recorded, so renderer and crash logs are omitted from this audio-only report.',
+            '',
+            this.createLogTailMarkdown(['audio.log', 'main.log']),
+          ].join('\n'),
       '',
       '## Notes For Audio Debugging',
       '',

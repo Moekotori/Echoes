@@ -104,6 +104,20 @@ const copyLyricsWallpaper = (wallpaperPathInput: unknown): string => copyWallpap
 
 const copyAppWallpaper = (wallpaperPathInput: unknown): string => copyWallpaper(wallpaperPathInput, getAppWallpaperDirectory());
 
+const requireExternalHttpUrl = (value: unknown): string => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('external URL must be a non-empty string');
+  }
+
+  const url = new URL(value.trim());
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('external URL must use http or https');
+  }
+
+  return url.toString();
+};
+
 const normalizeCoverCacheRequest = (value: unknown): SetCoverCacheDirectoryRequest => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('cover cache directory request must be an object');
@@ -237,6 +251,9 @@ export const registerIpc = (): void => {
   ipcMain.handle(IpcChannels.AppCheckForUpdates, (): Promise<UpdateStatus> => checkForUpdates());
   ipcMain.handle(IpcChannels.AppOpenRepository, async (): Promise<void> => {
     await shell.openExternal('https://github.com/moekotori/echo');
+  });
+  ipcMain.handle(IpcChannels.AppOpenExternalUrl, async (_event: IpcMainInvokeEvent, rawUrl: unknown): Promise<void> => {
+    await shell.openExternal(requireExternalHttpUrl(rawUrl));
   });
   ipcMain.handle(
     IpcChannels.AppSetCoverCacheDirectory,

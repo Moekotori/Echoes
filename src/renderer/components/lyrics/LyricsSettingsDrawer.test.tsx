@@ -390,6 +390,42 @@ describe('LyricsSettingsDrawer', () => {
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsPlayerBarDrawerEnabled: true }));
   });
 
+  it('does not rebroadcast full lyrics settings after saving a non-layout toggle', async () => {
+    const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsPlayerBarDrawerEnabled: true }));
+    const settingsChangedListener = vi.fn();
+    const displaySettingsChangedListener = vi.fn();
+    window.addEventListener('settings:changed', settingsChangedListener);
+    window.addEventListener('lyrics:display-settings-changed', displaySettingsChangedListener);
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    const toggle = await waitFor(() => {
+      const playerDrawerToggle = Array.from(container.querySelectorAll<HTMLInputElement>('.audio-toggle-row input')).find((input) =>
+        /搴曟爮鎶藉眽|底栏抽屉/.test(input.closest('label')?.textContent ?? ''),
+      );
+      expect(playerDrawerToggle).toBeTruthy();
+      return playerDrawerToggle as HTMLInputElement;
+    });
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsPlayerBarDrawerEnabled: true }));
+
+    const settingDetails = settingsChangedListener.mock.calls.map(([event]) => (event as CustomEvent).detail);
+    const displayDetails = displaySettingsChangedListener.mock.calls.map(([event]) => (event as CustomEvent).detail);
+    expect(settingDetails).toEqual([{ lyricsPlayerBarDrawerEnabled: true }]);
+    expect(displayDetails).toEqual([{ lyricsPlayerBarDrawerEnabled: true }]);
+
+    window.removeEventListener('settings:changed', settingsChangedListener);
+    window.removeEventListener('lyrics:display-settings-changed', displaySettingsChangedListener);
+  });
+
   it('shows the MV track info toggle only when lyrics song info is hidden', async () => {
     const getSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsHeaderHidden: true }));
     const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsMvAutoShowTrackInfoDisabled: false }));

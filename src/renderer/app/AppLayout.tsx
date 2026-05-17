@@ -15,6 +15,7 @@ import type { AudioStatus } from '../../shared/types/audio';
 import type { AccountProvider, AccountStatus } from '../../shared/types/accounts';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadJob } from '../../shared/types/downloads';
+import type { UpdateStatus } from '../../shared/types/updates';
 import { useI18n } from '../i18n/I18nProvider';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import { clearSongsFirstPageSnapshot } from '../stores/songsFirstPageSnapshot';
@@ -97,6 +98,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const lastAudioErrorRef = useRef<string | null>(null);
   const previousRouteIdRef = useRef<AppRouteId>('songs');
   const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
+  const notifiedUpdateKeysRef = useRef<Set<string>>(new Set());
   const activeRoute = useMemo(
     () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
     [activeRouteId, routes],
@@ -325,6 +327,33 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     return () => window.clearTimeout(timer);
   }, [audioErrorNotice]);
+
+  useEffect(() => {
+    const notifyUpdateStatus = (status: UpdateStatus): void => {
+      if (status.state !== 'available' && status.state !== 'downloaded') {
+        return;
+      }
+
+      const version = status.latestVersion ?? status.releaseName ?? '';
+      const noticeKey = `${status.state}:${version || status.checkedAt || 'unknown'}`;
+      if (notifiedUpdateKeysRef.current.has(noticeKey)) {
+        return;
+      }
+
+      notifiedUpdateKeysRef.current.add(noticeKey);
+      if (status.state === 'downloaded') {
+        setChromeNotice(version ? `ECHO NEXT ${version} 已下载完成，准备安装。` : 'ECHO NEXT 更新已下载完成，准备安装。');
+        return;
+      }
+
+      setChromeNotice(version ? `发现 ECHO NEXT 新版本 ${version}。` : '发现 ECHO NEXT 新版本。');
+    };
+
+    const unsubscribe = window.echo?.app?.onUpdateStatus?.(notifyUpdateStatus);
+    void window.echo?.app?.getUpdateStatus?.().then(notifyUpdateStatus).catch(() => undefined);
+
+    return () => unsubscribe?.();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

@@ -17,6 +17,7 @@ export const IpcChannels = {
   AppCheckForUpdates: 'app:check-for-updates',
   AppUpdateStatusChanged: 'app:update-status-changed',
   AppOpenRepository: 'app:open-repository',
+  AppOpenExternalUrl: 'app:open-external-url',
   AppValidateGlobalShortcut: 'app:validate-global-shortcut',
   AppGlobalShortcutCommand: 'app:global-shortcut-command',
   DiagnosticsGetLastCrashSummary: 'diagnostics:get-last-crash-summary',

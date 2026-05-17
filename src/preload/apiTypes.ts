@@ -154,6 +154,7 @@ export type EchoApi = {
     checkForUpdates: () => Promise<UpdateStatus>;
     onUpdateStatus: (handler: (status: UpdateStatus) => void) => () => void;
     openRepository: () => Promise<void>;
+    openExternalUrl: (url: string) => Promise<void>;
     validateGlobalShortcut: (accelerator: string) => Promise<GlobalShortcutValidationResult>;
     onGlobalShortcutCommand: (handler: (action: GlobalShortcutAction) => void) => () => void;
   };
