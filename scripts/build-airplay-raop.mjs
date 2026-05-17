@@ -143,7 +143,7 @@ const patchNodeLibraopWindowsBuild = () => {
 
   const platformPath = join(packageRoot, 'vendor', 'libraop', 'crosstools', 'src', 'platform.h');
   let platform = readFileSync(platformPath, 'utf8');
-  if (!platform.includes('#include <pthread.h>')) {
+  if (!platform.includes('#include <sys/timeb.h>\n#include <pthread.h>')) {
     platform = platform.replace(
       '#include <sys/timeb.h>',
       '#include <sys/timeb.h>\n#include <pthread.h>',
