@@ -1,6 +1,7 @@
 node_modules/
 out/
 dist/
+.cache/
 .electron-cache/
 *.log
 .DS_Store
