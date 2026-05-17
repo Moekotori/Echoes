@@ -7,7 +7,15 @@ import { defaultSettings, getAppSettings } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
-import type { LyricsMatchRisk, LyricsProviderId, LyricsQuery, LyricsSearchCandidate, LyricsSource, TrackLyrics } from '../../shared/types/lyrics';
+import type {
+  LyricsMatchRisk,
+  LyricsProviderId,
+  LyricsQuery,
+  LyricsSearchCandidate,
+  LyricsSource,
+  LyricsTrackSnapshotRequest,
+  TrackLyrics,
+} from '../../shared/types/lyrics';
 import {
   deserializeLyricLines,
   normalizeSyncedLyricAlternates,
@@ -255,6 +263,37 @@ const toNetworkQuery = (query: LyricsQuery): LyricsQuery => ({
   durationSeconds: query.durationSeconds ?? null,
   filePath: null,
 });
+
+const toSnapshotQuery = (request: LyricsTrackSnapshotRequest): LyricsQuery => ({
+  trackId: request.trackId,
+  mediaType: request.mediaType ?? 'remote',
+  sourceId: request.sourceId ?? null,
+  stableKey: request.stableKey ?? request.trackId,
+  title: request.title,
+  artist: request.artist || request.albumArtist || 'Unknown Artist',
+  album: request.album ?? null,
+  durationSeconds: request.durationSeconds ?? null,
+  filePath: null,
+});
+
+const toManualSnapshotSearchQuery = (request: LyricsTrackSnapshotRequest, searchText?: string | null): LyricsQuery => {
+  const normalizedSearchText = textOrNull(searchText);
+  if (!normalizedSearchText) {
+    return toSnapshotQuery(request);
+  }
+
+  return {
+    trackId: request.trackId,
+    mediaType: request.mediaType ?? 'remote',
+    sourceId: request.sourceId ?? null,
+    stableKey: request.stableKey ?? request.trackId,
+    title: normalizedSearchText,
+    artist: '',
+    album: null,
+    durationSeconds: null,
+    filePath: null,
+  };
+};
 
 const cacheKeyFor = (query: LyricsQuery, provider: LyricsSource): string =>
   query.mediaType === 'remote' && query.sourceId && query.stableKey
@@ -538,7 +577,15 @@ export class LyricsService {
       return null;
     }
 
-    const query = toQuery(track);
+    return this.getLyricsForQuery(toQuery(track));
+  }
+
+  async getLyricsForSnapshot(request: LyricsTrackSnapshotRequest): Promise<TrackLyrics | null> {
+    return this.getLyricsForQuery(toSnapshotQuery(request));
+  }
+
+  private async getLyricsForQuery(query: LyricsQuery): Promise<TrackLyrics | null> {
+    const trackId = query.trackId ?? cacheKeyFor(query, 'cached');
     const settings = safeSettings(this.readAppSettings);
     const cached = this.findCachedLyricsWithRepair(query);
     if (cached) {
@@ -584,8 +631,27 @@ export class LyricsService {
       return [];
     }
 
+    return this.searchLyricsCandidatesForQuery(trackId, toManualSearchQuery(track, searchText), providerId);
+  }
+
+  async searchLyricsCandidatesForSnapshot(
+    request: LyricsTrackSnapshotRequest,
+    searchText?: string | null,
+    providerId?: string | null,
+  ): Promise<LyricsSearchCandidate[]> {
+    return this.searchLyricsCandidatesForQuery(
+      request.trackId,
+      toManualSnapshotSearchQuery(request, searchText),
+      providerId,
+    );
+  }
+
+  private async searchLyricsCandidatesForQuery(
+    trackId: string,
+    query: LyricsQuery,
+    providerId?: string | null,
+  ): Promise<LyricsSearchCandidate[]> {
     const settings = safeSettings(this.readAppSettings);
-    const query = toManualSearchQuery(track, searchText);
     const storedCandidates: StoredCandidate[] = [];
     const enabledProviders = isSearchableLyricsProvider(providerId) ? [providerId] : settings.lyricsEnabledProviders;
 
@@ -668,6 +734,36 @@ export class LyricsService {
     } else if (row.provider === 'lrclib') {
       lyrics = mapLrclibRecordToTrackLyrics(toNetworkQuery(query), raw as LrclibRecord, row.score);
     }
+
+    if (!lyrics) {
+      throw new Error('Lyrics candidate is no longer available');
+    }
+
+    const cached = this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+    this.database
+      .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
+      .run('accepted', nowIso(), candidateId);
+    return cached;
+  }
+
+  async applyLyricsCandidateForSnapshot(
+    request: LyricsTrackSnapshotRequest,
+    candidateId: string,
+  ): Promise<TrackLyrics> {
+    const row = this.getCandidateRow(candidateId);
+    if (!row || row.track_id !== request.trackId) {
+      throw new Error(`Unknown lyrics candidate ${candidateId}`);
+    }
+
+    const query = toSnapshotQuery(request);
+    const raw = parseRawJson(row.raw_json);
+    const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const providerResult = this.readProviderResult(rawRecord);
+    const lyrics = providerResult
+      ? providerResultToTrackLyrics(query, providerResult, row.score)
+      : row.provider === 'lrclib'
+        ? mapLrclibRecordToTrackLyrics(toNetworkQuery(query), raw as LrclibRecord, row.score)
+        : null;
 
     if (!lyrics) {
       throw new Error('Lyrics candidate is no longer available');

@@ -2185,33 +2185,44 @@ void stdinReader(PcmRingAudioSource& source, int channels)
     _setmode(_fileno(stdin), _O_BINARY);
 #endif
 
-    constexpr size_t chunkBytes = 16 * 1024;
-    const size_t frameBytes = static_cast<size_t>(channels) * sizeof(float);
-    std::vector<char> chunk(chunkBytes);
-    std::vector<char> pending;
-
-    while (std::cin.good())
+    try
     {
-        std::cin.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        const auto bytesRead = static_cast<size_t>(std::cin.gcount());
+        constexpr size_t chunkBytes = 16 * 1024;
+        const size_t frameBytes = static_cast<size_t>(channels) * sizeof(float);
+        std::vector<char> chunk(chunkBytes);
+        std::vector<char> pending;
 
-        if (bytesRead == 0)
-            break;
+        while (std::cin.good())
+        {
+            std::cin.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+            const auto bytesRead = static_cast<size_t>(std::cin.gcount());
 
-        pending.insert(pending.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(bytesRead));
+            if (bytesRead == 0)
+                break;
 
-        const size_t frameCount = pending.size() / frameBytes;
-        if (frameCount == 0)
-            continue;
+            pending.insert(pending.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(bytesRead));
 
-        const size_t sampleCount = frameCount * static_cast<size_t>(channels);
-        std::vector<float> samples(sampleCount);
-        std::memcpy(samples.data(), pending.data(), sampleCount * sizeof(float));
+            const size_t frameCount = pending.size() / frameBytes;
+            if (frameCount == 0)
+                continue;
 
-        if (! source.push(samples.data(), static_cast<int>(frameCount)))
-            break;
+            const size_t sampleCount = frameCount * static_cast<size_t>(channels);
+            std::vector<float> samples(sampleCount);
+            std::memcpy(samples.data(), pending.data(), sampleCount * sizeof(float));
 
-        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(sampleCount * sizeof(float)));
+            if (! source.push(samples.data(), static_cast<int>(frameCount)))
+                break;
+
+            pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(sampleCount * sizeof(float)));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        logLine(std::string("stdin reader fatal: ") + e.what());
+    }
+    catch (...)
+    {
+        logLine("stdin reader fatal: unknown exception");
     }
 
     source.markInputEnded();
@@ -2355,25 +2366,36 @@ void framedStdinReader(PcmRingAudioSource& source, int channels, std::atomic<boo
     bool hasSession = false;
     std::vector<char> pendingPcm;
 
-    while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+    try
     {
-        StdinFrameHeader header;
-        if (! readFrameHeader(header))
-            break;
+        while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+        {
+            StdinFrameHeader header;
+            if (! readFrameHeader(header))
+                break;
 
-        std::vector<char> payload(header.payloadBytes);
-        if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
-            break;
+            std::vector<char> payload(header.payloadBytes);
+            if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
+                break;
 
-        handleFramedStdinPayload(
-            source,
-            channels,
-            shutdownRequested,
-            currentSessionId,
-            hasSession,
-            pendingPcm,
-            header,
-            payload);
+            handleFramedStdinPayload(
+                source,
+                channels,
+                shutdownRequested,
+                currentSessionId,
+                hasSession,
+                pendingPcm,
+                header,
+                payload);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        logLine(std::string("stdin reader fatal: ") + e.what());
+    }
+    catch (...)
+    {
+        logLine("stdin reader fatal: unknown exception");
     }
 
     shutdownRequested.store(true, std::memory_order_release);
@@ -2464,25 +2486,36 @@ void framedDopStdinReader(DopRingSource& source, int channels, std::atomic<bool>
     bool hasSession = false;
     std::vector<char> pendingDop;
 
-    while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+    try
     {
-        StdinFrameHeader header;
-        if (! readFrameHeader(header))
-            break;
+        while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+        {
+            StdinFrameHeader header;
+            if (! readFrameHeader(header))
+                break;
 
-        std::vector<char> payload(header.payloadBytes);
-        if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
-            break;
+            std::vector<char> payload(header.payloadBytes);
+            if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
+                break;
 
-        handleFramedDopStdinPayload(
-            source,
-            channels,
-            shutdownRequested,
-            currentSessionId,
-            hasSession,
-            pendingDop,
-            header,
-            payload);
+            handleFramedDopStdinPayload(
+                source,
+                channels,
+                shutdownRequested,
+                currentSessionId,
+                hasSession,
+                pendingDop,
+                header,
+                payload);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        logLine(std::string("stdin reader fatal: ") + e.what());
+    }
+    catch (...)
+    {
+        logLine("stdin reader fatal: unknown exception");
     }
 
     shutdownRequested.store(true, std::memory_order_release);
@@ -2563,25 +2596,36 @@ void framedNativeDsdStdinReader(NativeDsdRingSource& source, int channels, std::
     bool hasSession = false;
     std::vector<char> pendingNativeDsd;
 
-    while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+    try
     {
-        StdinFrameHeader header;
-        if (! readFrameHeader(header))
-            break;
+        while (std::cin.good() && ! shutdownRequested.load(std::memory_order_acquire))
+        {
+            StdinFrameHeader header;
+            if (! readFrameHeader(header))
+                break;
 
-        std::vector<char> payload(header.payloadBytes);
-        if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
-            break;
+            std::vector<char> payload(header.payloadBytes);
+            if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
+                break;
 
-        handleFramedNativeDsdStdinPayload(
-            source,
-            channels,
-            shutdownRequested,
-            currentSessionId,
-            hasSession,
-            pendingNativeDsd,
-            header,
-            payload);
+            handleFramedNativeDsdStdinPayload(
+                source,
+                channels,
+                shutdownRequested,
+                currentSessionId,
+                hasSession,
+                pendingNativeDsd,
+                header,
+                payload);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        logLine(std::string("stdin reader fatal: ") + e.what());
+    }
+    catch (...)
+    {
+        logLine("stdin reader fatal: unknown exception");
     }
 
     shutdownRequested.store(true, std::memory_order_release);
@@ -2879,6 +2923,21 @@ std::unique_ptr<juce::AudioIODevice> openSelectedDevice(
 }
 
 #if JUCE_WINDOWS
+template <typename Source>
+void stopStdinReaderForEarlyReturn(Source& source, std::atomic<bool>& shutdownRequested, std::thread& reader)
+{
+    shutdownRequested.store(true, std::memory_order_release);
+    source.requestStop();
+
+    if (reader.joinable())
+    {
+        const int stdinFd = _fileno(stdin);
+        if (stdinFd >= 0)
+            _close(stdinFd);
+        reader.join();
+    }
+}
+
 uint32_t legacyWasapiRenderCallback(void* userData, float* output, uint32_t frameCount, uint32_t channels)
 {
     auto* source = static_cast<PcmRingAudioSource*>(userData);
@@ -3321,7 +3380,9 @@ int runLegacyWasapiExclusiveHost(const Options& options)
         {
             logLine(std::string("WASAPI exclusive open failed: ") + (error[0] != '\0' ? error : "device initialize timeout"));
             std::cerr.flush();
-            ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+            shutdownRequested.store(true, std::memory_order_release);
+            source.requestStop();
+            eqControlServer.stop();
             return echo_audio_host::kExitDeviceInitializeTimeout;
         }
         shutdownRequested.store(true, std::memory_order_release);
@@ -3478,7 +3539,7 @@ int runLegacyWasapiExclusiveDopHost(const Options& options)
         {
             logLine(std::string("WASAPI exclusive DoP open failed: ") + (error[0] != '\0' ? error : "device initialize timeout"));
             std::cerr.flush();
-            ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+            stopStdinReaderForEarlyReturn(source, shutdownRequested, reader);
             return echo_audio_host::kExitDeviceInitializeTimeout;
         }
         shutdownRequested.store(true, std::memory_order_release);
@@ -3659,7 +3720,8 @@ int runLegacyWasapiSharedHost(const Options& options)
         {
             logLine(std::string("WASAPI shared open failed: ") + (error[0] != '\0' ? error : "device initialize timeout"));
             std::cerr.flush();
-            ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+            stopStdinReaderForEarlyReturn(source, shutdownRequested, reader);
+            eqControlServer.stop();
             return echo_audio_host::kExitDeviceInitializeTimeout;
         }
         shutdownRequested.store(true, std::memory_order_release);

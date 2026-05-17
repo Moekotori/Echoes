@@ -79,3 +79,15 @@ export type LyricsQuery = {
   durationSeconds?: number | null;
   filePath?: string | null;
 };
+
+export type LyricsTrackSnapshotRequest = {
+  trackId: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  albumArtist?: string | null;
+  durationSeconds?: number | null;
+  mediaType?: 'local' | 'remote' | 'streaming';
+  sourceId?: string | null;
+  stableKey?: string | null;
+};

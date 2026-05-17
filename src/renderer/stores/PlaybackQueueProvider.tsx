@@ -390,6 +390,19 @@ const createReceiverTrackSnapshot = (status: ConnectReceiverStatus): LibraryTrac
   };
 };
 
+const isSameReceiverTrackSnapshot = (left: LibraryTrack | null, right: LibraryTrack): boolean =>
+  Boolean(
+    left &&
+      left.id === right.id &&
+      left.path === right.path &&
+      left.title === right.title &&
+      left.artist === right.artist &&
+      left.album === right.album &&
+      left.albumArtist === right.albumArtist &&
+      left.duration === right.duration &&
+      left.coverThumb === right.coverThumb,
+  );
+
 let queueIdCounter = 0;
 
 const createQueueId = (trackId: string): string => {
@@ -559,9 +572,15 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         if (!receiverTrack) {
           return;
         }
-        setCurrentQueueId(null);
-        setLastPlayedTrack(receiverTrack);
-        setCurrentTrackIdInternal(receiverTrack.id);
+        if (currentQueueIdRef.current !== null) {
+          setCurrentQueueId(null);
+        }
+        if (!isSameReceiverTrackSnapshot(lastPlayedTrackRef.current, receiverTrack)) {
+          setLastPlayedTrack(receiverTrack);
+        }
+        if (currentTrackIdRef.current !== receiverTrack.id) {
+          setCurrentTrackIdInternal(receiverTrack.id);
+        }
         setPlaybackStatusSnapshot({
           playbackStatus: {
             state: receiverStatusToPlaybackState(status),

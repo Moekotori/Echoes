@@ -1317,7 +1317,7 @@ static int wasapi_exclusive_start_impl(
     result = 0;
 
 done:
-    if (runtime != NULL && result != echo_audio_host::kExitDeviceInitializeTimeout) {
+    if (runtime != NULL) {
         wasapi_exclusive_stop(runtime);
     }
     if (renderClient != NULL) renderClient->Release();
@@ -1394,9 +1394,7 @@ int wasapi_exclusive_start_dop(
 void wasapi_exclusive_stop(wasapi_exclusive_runtime* runtime) {
     if (runtime == NULL) return;
 
-    if (!runtime->audioClientLeakedOnTimeout) {
-        unregister_watchers(runtime);
-    }
+    unregister_watchers(runtime);
     if (runtime->stopEvent != NULL) SetEvent(runtime->stopEvent);
     if (runtime->thread != NULL) {
         DWORD waitResult = WaitForSingleObject(runtime->thread, 5000);

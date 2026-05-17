@@ -78,6 +78,7 @@ const mvSyncCorrectionCooldownMs = 1000;
 const playbackSeekedEvent = 'playback:seeked';
 const mvEndedBeforeAudioEvent = 'mv:ended-before-audio';
 const lyricsSmartReadableVideoSampleEvent = 'lyrics:smart-readable-video-sample';
+const isDlnaReceiverTrackId = (value: string | null | undefined): value is string => Boolean(value?.startsWith('dlna-receiver:'));
 const mvSettingsKeys = [
   'enabled',
   'autoSearch',
@@ -383,6 +384,28 @@ export const MvPanel = ({
     }
   }, []);
 
+  const searchCandidatesForActiveTrack = useCallback(async (): Promise<void> => {
+    const mvApi = window.echo?.mv;
+    if (!trackId || !mvApi) {
+      return;
+    }
+
+    if (isDlnaReceiverTrackId(trackId) && mvApi.searchNetworkCandidatesForSnapshot) {
+      await mvApi.searchNetworkCandidatesForSnapshot({
+        trackId,
+        title: title?.trim() || 'DLNA stream',
+        artist: artist?.trim() || 'Unknown Artist',
+        durationSeconds: audioClockRef.current.durationSeconds,
+        coverThumb: coverUrl,
+        mediaType: 'remote',
+        query: [title, artist].filter(Boolean).join(' '),
+      });
+      return;
+    }
+
+    await mvApi.searchNetworkCandidates?.(trackId);
+  }, [artist, coverUrl, title, trackId]);
+
   const loadSelected = useCallback(async (options: { preserveCurrent?: boolean } = {}): Promise<void> => {
     if (streamingTarget) {
       return;
@@ -415,7 +438,7 @@ export const MvPanel = ({
       let video = await window.echo.mv.getSelected(trackId);
       if (!video && nextSettings.autoPreload && isAudioPlayingRef.current && preloadAttemptRef.current !== trackId) {
         preloadAttemptRef.current = trackId;
-        await window.echo.mv.searchNetworkCandidates?.(trackId);
+        await searchCandidatesForActiveTrack();
         video = await window.echo.mv.getSelected(trackId);
       }
       let resolvedVideo = await resolveNetworkVideo(video);
@@ -426,7 +449,7 @@ export const MvPanel = ({
         preloadAttemptRef.current !== trackId
       ) {
         preloadAttemptRef.current = trackId;
-        await window.echo.mv.searchNetworkCandidates?.(trackId);
+        await searchCandidatesForActiveTrack();
         video = await window.echo.mv.getSelected(trackId);
         resolvedVideo = await resolveNetworkVideo(video);
       }
@@ -444,7 +467,7 @@ export const MvPanel = ({
         setIsLoading(false);
       }
     }
-  }, [loadSettings, resolveNetworkVideo, streamingTarget, trackId]);
+  }, [loadSettings, resolveNetworkVideo, searchCandidatesForActiveTrack, streamingTarget, trackId]);
 
   useEffect(() => {
     if (!streamingTarget) {

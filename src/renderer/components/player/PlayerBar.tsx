@@ -1120,7 +1120,21 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
             return;
           }
 
-          await mv.searchNetworkCandidates(trackId);
+          if ((currentTrack?.isTemporary || trackId.startsWith('dlna-receiver:')) && mv.searchNetworkCandidatesForSnapshot) {
+            await mv.searchNetworkCandidatesForSnapshot({
+              trackId: currentTrack?.id ?? trackId,
+              title: currentTrack?.title?.trim() || title,
+              artist: currentTrack?.artist?.trim() || currentTrack?.albumArtist?.trim() || artist || 'Unknown Artist',
+              album: currentTrack?.album || null,
+              albumArtist: currentTrack?.albumArtist || null,
+              durationSeconds: currentTrack?.duration && currentTrack.duration > 0 ? currentTrack.duration : null,
+              coverThumb: currentTrack?.coverThumb ?? artworkUrl ?? null,
+              mediaType: currentTrack?.mediaType ?? 'remote',
+              query: [currentTrack?.title || title, currentTrack?.artist || currentTrack?.albumArtist || artist].filter(Boolean).join(' '),
+            });
+          } else {
+            await mv.searchNetworkCandidates(trackId);
+          }
           if (!cancelled && (await mv.getSelected(trackId))) {
             window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
           }
@@ -1134,7 +1148,22 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       cancelled = true;
       cancelDeferredTask();
     };
-  }, [currentTrack?.mediaType, isPlaying, trackId]);
+  }, [
+    artist,
+    artworkUrl,
+    currentTrack?.album,
+    currentTrack?.albumArtist,
+    currentTrack?.artist,
+    currentTrack?.coverThumb,
+    currentTrack?.duration,
+    currentTrack?.id,
+    currentTrack?.isTemporary,
+    currentTrack?.mediaType,
+    currentTrack?.title,
+    isPlaying,
+    title,
+    trackId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;

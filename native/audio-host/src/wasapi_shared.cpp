@@ -888,6 +888,7 @@ static int rebuild_audio_client(wasapi_shared_runtime* runtime) {
     uint32_t bufferFrames = 0;
     char error[512] = {0};
     int result = -1;
+    bool leakedOnTimeout = false;
 
     if (runtime == NULL || runtime->renderEvent == NULL || runtime->stopEvent == NULL) return -1;
     if (WaitForSingleObject(runtime->stopEvent, 0) == WAIT_OBJECT_0) return -1;
@@ -914,9 +915,11 @@ static int rebuild_audio_client(wasapi_shared_runtime* runtime) {
 
     HRESULT hr = activate_audio_client(device, &audioClient);
     if (hr == E_PENDING) {
-        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Activate timed out; exiting host\n");
+        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Activate timed out\n");
         fflush(stderr);
-        ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+        result = echo_audio_host::kExitDeviceInitializeTimeout;
+        leakedOnTimeout = true;
+        goto done;
     }
     if (FAILED(hr)) {
         fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Activate failed hr=0x%08lx\n", (unsigned long)hr);
@@ -952,9 +955,11 @@ static int rebuild_audio_client(wasapi_shared_runtime* runtime) {
         (WAVEFORMATEX*)&format.wave,
         NULL);
     if (hr == E_PENDING) {
-        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Initialize timed out; exiting host\n");
+        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Initialize timed out\n");
         fflush(stderr);
-        ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+        result = echo_audio_host::kExitDeviceInitializeTimeout;
+        leakedOnTimeout = true;
+        goto done;
     }
     if (FAILED(hr)) {
         fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Initialize failed hr=0x%08lx\n", (unsigned long)hr);
@@ -988,18 +993,18 @@ static int rebuild_audio_client(wasapi_shared_runtime* runtime) {
 
     hr = echo_wasapi_timeout::start_with_timeout(audioClient);
     if (hr == E_PENDING) {
-        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Start timed out; exiting host\n");
+        fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Start timed out\n");
         fflush(stderr);
-        ExitProcess((UINT)echo_audio_host::kExitDeviceInitializeTimeout);
+        result = echo_audio_host::kExitDeviceInitializeTimeout;
+        leakedOnTimeout = true;
+        goto done;
     }
     if (FAILED(hr)) {
         fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild Start failed hr=0x%08lx\n", (unsigned long)hr);
         goto done;
     }
 
-    if (!runtime->audioClientLeakedOnTimeout) {
-        unregister_watchers(runtime);
-    }
+    unregister_watchers(runtime);
     release_audio_client_pair(runtime->audioClient, runtime->renderClient, runtime->audioClientLeakedOnTimeout);
 
     runtime->audioClient = audioClient;
@@ -1028,7 +1033,7 @@ static int rebuild_audio_client(wasapi_shared_runtime* runtime) {
 done:
     if (closestMatch != NULL) CoTaskMemFree(closestMatch);
     if (mixFormat != NULL) CoTaskMemFree(mixFormat);
-    release_audio_client_pair(audioClient, renderClient);
+    release_audio_client_pair(audioClient, renderClient, leakedOnTimeout);
     if (device != NULL) device->Release();
     return result;
 }
@@ -1134,11 +1139,18 @@ static DWORD WINAPI render_thread_proc(void* param) {
                     (unsigned int)attemptNumber,
                     (unsigned int)kSharedRebuildRetryCount);
 
-                if (rebuild_audio_client(runtime) == 0) {
+                const int rebuildResult = rebuild_audio_client(runtime);
+                if (rebuildResult == 0) {
                     rebuildPending = false;
                     nextRebuildAttemptIndex = 0;
                     nextRebuildAttemptAtMs = 0;
                     continue;
+                }
+
+                if (rebuildResult == echo_audio_host::kExitDeviceInitializeTimeout) {
+                    fprintf(stderr, "[echo-audio-host] WASAPI shared rebuild timed out; failing render thread\n");
+                    InterlockedExchange(&runtime->renderFailed, 1);
+                    break;
                 }
 
                 nextRebuildAttemptIndex++;
@@ -1463,7 +1475,7 @@ int wasapi_shared_start(
 done:
     if (closestMatch != NULL) CoTaskMemFree(closestMatch);
     if (mixFormat != NULL) CoTaskMemFree(mixFormat);
-    if (runtime != NULL && result != echo_audio_host::kExitDeviceInitializeTimeout) {
+    if (runtime != NULL) {
         wasapi_shared_stop(runtime);
     }
     if (renderClient != NULL) renderClient->Release();
@@ -1482,14 +1494,13 @@ void wasapi_shared_stop(wasapi_shared_runtime* runtime) {
         if (waitResult != WAIT_OBJECT_0) {
             fprintf(stderr,
                 "[echo-audio-host] WASAPI shared render thread did not stop in time; deferring resource release to process teardown\n");
+            unregister_watchers(runtime);
             CloseHandle(runtime->thread);
             return;
         }
         CloseHandle(runtime->thread);
     }
-    if (!runtime->audioClientLeakedOnTimeout) {
-        unregister_watchers(runtime);
-    }
+    unregister_watchers(runtime);
     if (runtime->audioClient != NULL && !runtime->audioClientLeakedOnTimeout) runtime->audioClient->Stop();
     if (runtime->renderEvent != NULL) CloseHandle(runtime->renderEvent);
     if (runtime->stopEvent != NULL) CloseHandle(runtime->stopEvent);

@@ -20,7 +20,14 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import type { MvMatchCandidate, MvProviderId, MvSettings, NetworkMvProviderId, TrackVideo } from '../../../shared/types/mv';
+import type {
+  MvMatchCandidate,
+  MvProviderId,
+  MvSettings,
+  MvTrackSnapshotSearchRequest,
+  NetworkMvProviderId,
+  TrackVideo,
+} from '../../../shared/types/mv';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { StreamingProviderName } from '../../../shared/types/streaming';
 import { streamingProviderNames } from '../../../shared/types/streaming';
@@ -165,6 +172,33 @@ const isStreamingTrack = (
 const streamingTrackKey = (track: LibraryTrack & { provider: StreamingProviderName; providerTrackId: string }): string =>
   track.stableKey?.trim() || `streaming:${track.provider}:${track.providerTrackId}`;
 
+const shouldUseSnapshotMvSearch = (track: LibraryTrack | null): track is LibraryTrack =>
+  Boolean(track?.isTemporary || track?.id.startsWith('dlna-receiver:'));
+
+const mvTrackKey = (track: LibraryTrack | null, fallbackTrackId: string | null): string | null => {
+  if (isStreamingTrack(track)) {
+    return streamingTrackKey(track);
+  }
+
+  return track?.id ?? fallbackTrackId;
+};
+
+const buildSnapshotSearchRequest = (
+  track: LibraryTrack,
+  trackId: string,
+  query: string,
+): MvTrackSnapshotSearchRequest => ({
+  trackId,
+  title: track.title?.trim() || track.path || 'DLNA stream',
+  artist: track.artist?.trim() || track.albumArtist?.trim() || 'Unknown Artist',
+  album: track.album?.trim() || null,
+  albumArtist: track.albumArtist?.trim() || null,
+  durationSeconds: Number.isFinite(track.duration) && track.duration > 0 ? track.duration : null,
+  coverThumb: track.coverThumb ?? null,
+  mediaType: track.mediaType ?? 'remote',
+  query,
+});
+
 export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JSX.Element | null => {
   const { t } = useI18n();
   const queue = usePlaybackQueue();
@@ -195,7 +229,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     queue.currentTrack ??
     (activeTrackId ? queue.tracks.find((item) => item.id === activeTrackId) ?? null : null) ??
     (queue.lastPlayedTrack?.id === activeTrackId ? queue.lastPlayedTrack : null);
-  const activeMvTrackId = isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : activeTrackId;
+  const activeMvTrackId = mvTrackKey(activeTrack, activeTrackId);
   const activeTrackSearchName = activeTrack ? [activeTrack.title, activeTrack.artist || activeTrack.albumArtist].filter(Boolean).join(' ') : '';
   const activeTrackTitle = useMemo(() => {
     return activeTrack ? `${activeTrack.title} - ${activeTrack.artist || activeTrack.albumArtist}` : activeTrackId ? activeTrackId : t('mvSettings.status.noActiveTrack');
@@ -339,20 +373,10 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
       const requestId = mvRequestRef.current + 1;
       mvRequestRef.current = requestId;
-      const effectiveTrackId = isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : trackId;
+      const effectiveTrackId = mvTrackKey(activeTrack, trackId) ?? trackId;
       const nextCandidates =
-        isStreamingTrack(activeTrack) && mvApi.searchNetworkCandidatesForSnapshot
-          ? await mvApi.searchNetworkCandidatesForSnapshot({
-              trackId: effectiveTrackId,
-              title: activeTrack.title,
-              artist: activeTrack.artist || activeTrack.albumArtist || 'Unknown Artist',
-              album: activeTrack.album,
-              albumArtist: activeTrack.albumArtist,
-              durationSeconds: activeTrack.duration,
-              coverThumb: activeTrack.coverThumb,
-              mediaType: 'streaming',
-              query,
-            })
+        activeTrack && shouldUseSnapshotMvSearch(activeTrack) && mvApi.searchNetworkCandidatesForSnapshot
+          ? await mvApi.searchNetworkCandidatesForSnapshot(buildSnapshotSearchRequest(activeTrack, effectiveTrackId, query))
           : await mvApi.searchNetworkCandidates?.(trackId, query);
 
       if (!nextCandidates) {
@@ -598,7 +622,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         return;
       }
 
-      const targetTrackId = isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : trackId;
+      const targetTrackId = mvTrackKey(activeTrack, trackId) ?? trackId;
       const requestId = mvRequestRef.current + 1;
       mvRequestRef.current = requestId;
       setBusyCandidateId(candidateId);
@@ -794,8 +818,8 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     }
 
     void loadSettings();
-    void refreshActiveTrack().then((trackId) => loadCurrentMv(isStreamingTrack(activeTrack) ? streamingTrackKey(activeTrack) : trackId));
-  }, [activeTrack, isOpen, loadCurrentMv, loadSettings, refreshActiveTrack]);
+    void refreshActiveTrack().then((trackId) => loadCurrentMv(activeMvTrackId ?? trackId));
+  }, [activeMvTrackId, isOpen, loadCurrentMv, loadSettings, refreshActiveTrack]);
 
   useEffect(() => {
     if (!isOpen) {

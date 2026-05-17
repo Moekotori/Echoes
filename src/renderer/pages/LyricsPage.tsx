@@ -16,6 +16,7 @@ import type { LibraryTrack } from "../../shared/types/library";
 import type {
   LyricsProviderId,
   LyricsSearchCandidate,
+  LyricsTrackSnapshotRequest,
   TrackLyrics,
 } from "../../shared/types/lyrics";
 import type {
@@ -166,6 +167,9 @@ const isStreamingTrack = (
   isStreamingProviderName(track.provider) &&
   typeof track.providerTrackId === "string" &&
   track.providerTrackId.trim().length > 0;
+
+const isSnapshotLyricsTrack = (track: LibraryTrack | null, trackId: string | null): track is LibraryTrack =>
+  Boolean(track?.isTemporary || trackId?.startsWith("dlna-receiver:"));
 
 const streamingLyricsToState = (
   result: StreamingLyricsResult,
@@ -781,6 +785,28 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const coverUrl = safeCoverUrl(currentTrack);
   const headerCoverUrl = safeOriginalCoverUrl(currentTrack);
   const backgroundCoverUrl = safeOriginalCoverUrl(currentTrack);
+  const lyricsSnapshotRequest = useMemo<LyricsTrackSnapshotRequest | null>(() => {
+    if (!trackId || !isSnapshotLyricsTrack(currentTrack, trackId)) {
+      return null;
+    }
+
+    return {
+      trackId: currentTrack.id,
+      title: currentTrack.title?.trim() || title || "DLNA stream",
+      artist: currentTrack.artist?.trim() || currentTrack.albumArtist?.trim() || artist || "Unknown Artist",
+      album: currentTrack.album?.trim() || null,
+      albumArtist: currentTrack.albumArtist?.trim() || null,
+      durationSeconds: currentTrack.duration > 0 ? currentTrack.duration : null,
+      mediaType: currentTrack.mediaType ?? "remote",
+      sourceId: currentTrack.sourceId ?? null,
+      stableKey: currentTrack.stableKey ?? currentTrack.id,
+    };
+  }, [
+    artist,
+    currentTrack,
+    title,
+    trackId,
+  ]);
   const effectiveLyricsBackgroundMode =
     lyricsDisplaySettings.lyricsBackgroundMode === "customWallpaper" &&
     !lyricsDisplaySettings.lyricsCustomWallpaperPath
@@ -1235,6 +1261,53 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setLyricsMatchPanelActivityToken((token) => (token + 1) % 1000000);
   }, []);
 
+  const getLyricsForActiveTrack = useCallback(async (): Promise<TrackLyrics | null> => {
+    const lyricsApi = window.echo?.lyrics;
+    if (!lyricsApi || !trackId) {
+      return null;
+    }
+
+    if (lyricsSnapshotRequest && lyricsApi.getForSnapshot) {
+      return lyricsApi.getForSnapshot(lyricsSnapshotRequest);
+    }
+
+    return lyricsApi.getForTrack(trackId);
+  }, [lyricsSnapshotRequest, trackId]);
+
+  const searchLyricsCandidatesForProvider = useCallback(
+    async (provider: LyricsProviderId, searchText?: string | null): Promise<LyricsSearchCandidate[]> => {
+      const lyricsApi = window.echo?.lyrics;
+      if (!lyricsApi || !trackId) {
+        return [];
+      }
+
+      if (lyricsSnapshotRequest && lyricsApi.searchCandidatesForSnapshot) {
+        return lyricsApi.searchCandidatesForSnapshot(lyricsSnapshotRequest, searchText ?? undefined, provider);
+      }
+
+      return searchText
+        ? lyricsApi.searchCandidates(trackId, searchText, provider)
+        : lyricsApi.searchCandidates(trackId, undefined, provider);
+    },
+    [lyricsSnapshotRequest, trackId],
+  );
+
+  const applyLyricsCandidateForActiveTrack = useCallback(
+    async (candidateId: string): Promise<TrackLyrics> => {
+      const lyricsApi = window.echo?.lyrics;
+      if (!lyricsApi || !trackId) {
+        throw new Error("Desktop bridge unavailable");
+      }
+
+      if (lyricsSnapshotRequest && lyricsApi.applyCandidateForSnapshot) {
+        return lyricsApi.applyCandidateForSnapshot(lyricsSnapshotRequest, candidateId);
+      }
+
+      return lyricsApi.applyCandidate(trackId, candidateId);
+    },
+    [lyricsSnapshotRequest, trackId],
+  );
+
   useEffect(() => {
     if (
       isLyricsMatchPanelClosed ||
@@ -1281,10 +1354,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
       setApplyingCandidateId(autoCandidate.id);
       try {
-        const trackLyrics = await lyricsApi.applyCandidate(
-          trackId,
-          autoCandidate.id,
-        );
+        const trackLyrics = await applyLyricsCandidateForActiveTrack(autoCandidate.id);
         if (shouldApplyResult && !shouldApplyResult()) {
           return true;
         }
@@ -1308,6 +1378,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       }
     },
     [
+      applyLyricsCandidateForActiveTrack,
       lyricsDisplaySettings.lyricsAutoSearch,
       trackId,
     ],
@@ -1426,8 +1497,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setActiveCandidateSource(readRememberedCandidateSource());
     setIsLyricsMatchPanelRevealed(false);
 
-    void lyricsApi
-      .getForTrack(trackId)
+    void getLyricsForActiveTrack()
       .then(async (trackLyrics) => {
         if (lyricsRequestRef.current !== requestId) {
           return;
@@ -1439,7 +1509,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           const providers: LyricsProviderId[] = activeSearchProviders.length ? activeSearchProviders : ["local"];
           await Promise.allSettled(
             providers.map(async (provider) => {
-              const providerCandidates = await lyricsApi.searchCandidates(trackId, undefined, provider);
+              const providerCandidates = await searchLyricsCandidatesForProvider(provider);
               if (lyricsRequestRef.current !== requestId) {
                 return;
               }
@@ -1494,10 +1564,12 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       });
   }, [
     activeSearchProviders,
+    getLyricsForActiveTrack,
     initialLyrics,
     isLyricsDisplaySettingsReady,
     lyricsDisplaySettings.lyricsAutoSearch,
     lyricsDisplaySettings.lyricsEnabled,
+    searchLyricsCandidatesForProvider,
     streamingTarget,
     trackId,
     tryAutoApplyCandidate,
@@ -1561,9 +1633,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     try {
       await Promise.allSettled(
         providers.map(async (provider) => {
-          const providerCandidates = searchText
-            ? await lyricsApi.searchCandidates(trackId, searchText, provider)
-            : await lyricsApi.searchCandidates(trackId, undefined, provider);
+          const providerCandidates = await searchLyricsCandidatesForProvider(provider, searchText);
           if (lyricsRequestRef.current !== requestId) {
             return;
           }
@@ -1613,6 +1683,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyrics.lines.length,
     lyricsDisplaySettings.lyricsEnabled,
     lyrics.offsetMs,
+    searchLyricsCandidatesForProvider,
     streamingTarget,
     trackId,
     tryAutoApplyCandidate,
@@ -1652,7 +1723,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       await lyricsApi.clearCache(trackId);
       await Promise.allSettled(
         providers.map(async (provider) => {
-          const providerCandidates = await lyricsApi.searchCandidates(trackId, undefined, provider);
+          const providerCandidates = await searchLyricsCandidatesForProvider(provider);
           if (lyricsRequestRef.current !== requestId) {
             return;
           }
@@ -1691,7 +1762,16 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     } finally {
       setIsCandidateLoading(false);
     }
-  }, [activeSearchProviders, handleSearchLyrics, lyrics.offsetMs, lyricsDisplaySettings.lyricsEnabled, streamingTarget, trackId, tryAutoApplyCandidate]);
+  }, [
+    activeSearchProviders,
+    handleSearchLyrics,
+    lyrics.offsetMs,
+    lyricsDisplaySettings.lyricsEnabled,
+    searchLyricsCandidatesForProvider,
+    streamingTarget,
+    trackId,
+    tryAutoApplyCandidate,
+  ]);
 
   useEffect(() => {
     const handleSearchRequested = (event: Event): void => {
@@ -1739,10 +1819,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
       setApplyingCandidateId(candidateId);
       try {
-        const trackLyrics = await window.echo.lyrics.applyCandidate(
-          trackId,
-          candidateId,
-        );
+        const trackLyrics = await applyLyricsCandidateForActiveTrack(candidateId);
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         setCandidates([]);
@@ -1757,7 +1834,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         setApplyingCandidateId(null);
       }
     },
-    [lyricsDisplaySettings.lyricsEnabled, trackId],
+    [applyLyricsCandidateForActiveTrack, lyricsDisplaySettings.lyricsEnabled, trackId],
   );
 
   const applyCustomLyricsFile = useCallback(

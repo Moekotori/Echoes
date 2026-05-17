@@ -230,8 +230,9 @@ class BridgeWritable extends Writable {
   constructor(private readonly target: Writable) {
     super();
 
-    target.on('error', () => {
+    target.on('error', (err) => {
       this.isClosed = true;
+      this.destroy(err);
     });
     target.on('close', () => {
       this.isClosed = true;
@@ -249,13 +250,15 @@ class BridgeWritable extends Writable {
       this.target.write(chunk, (error: Error | null | undefined) => {
         if (error) {
           this.isClosed = true;
+          callback(error);
+          return;
         }
 
         callback();
       });
-    } catch {
+    } catch (error) {
       this.isClosed = true;
-      callback();
+      callback(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -267,9 +270,9 @@ class BridgeWritable extends Writable {
 
     try {
       this.target.end(callback);
-    } catch {
+    } catch (error) {
       this.isClosed = true;
-      callback();
+      callback(error instanceof Error ? error : new Error(String(error)));
     }
   }
 }
@@ -544,6 +547,30 @@ export class NativeOutputBridge extends EventEmitter {
       });
       const spawnedProc = this.proc;
       this.bridgeWritable = new BridgeWritable(this.proc.stdin);
+      this.bridgeWritable.on('error', (error) => {
+        if (this.proc !== spawnedProc && this.pendingGracefulStop?.proc !== spawnedProc) {
+          return;
+        }
+
+        const wasReady = this.ready;
+        const intentional = this.stopRequested;
+        const hostError = createError(
+          `stdin_error:${error instanceof Error ? error.message : String(error)}`,
+        );
+        this.ready = false;
+        this.clearReadyTimer();
+
+        if (intentional || this.ended) {
+          return;
+        }
+
+        if (!wasReady) {
+          settleReject(hostError);
+          return;
+        }
+
+        this.emit('error', hostError);
+      });
 
       const stdout = readline.createInterface({ input: this.proc.stdout });
       stdout.on('line', (line) => {
@@ -558,6 +585,7 @@ export class NativeOutputBridge extends EventEmitter {
 
       this.proc.on('error', (error) => {
         const hostError = createError(`spawn_error:${error.message}`);
+        this.clearReadyTimer();
         settleReject(hostError);
         if (this.ready) {
           this.emit('error', hostError);
@@ -653,6 +681,10 @@ export class NativeOutputBridge extends EventEmitter {
   }
 
   canReuseFor(options: NativeOutputStartOptions): boolean {
+    if (this.pendingGracefulStop) {
+      return false;
+    }
+
     const stdin = this.proc?.stdin;
     if (normalizeOutputMode(options) === 'asio') {
       return false;
@@ -1063,6 +1095,7 @@ export class NativeOutputBridge extends EventEmitter {
 
     const nativeNotification = parseNativeHostNotification(message);
     if (nativeNotification) {
+      if (sourceProc && this.proc !== sourceProc) return;
       this.emit('device-event', nativeNotification);
       return;
     }
@@ -1144,6 +1177,7 @@ export class NativeOutputBridge extends EventEmitter {
           : 'error_event';
       const error = createError?.(nativeReason, nativeMessage) ?? new Error('echo-audio-host error event');
       if (!this.ready) {
+        this.clearReadyTimer();
         rejectReady(error);
         return;
       }

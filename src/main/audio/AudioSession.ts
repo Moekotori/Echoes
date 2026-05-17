@@ -4448,6 +4448,7 @@ export class AudioSession extends EventEmitter {
     positionSeconds: number,
     options: StabilityRecoveryOptions = {},
   ): Promise<void> {
+    const token = options.runToken ?? this.runToken;
     const releaseSharedStabilityRecovery = options.sharedStabilityRecoveryClaimed || !this.sharedStabilityRecovering;
     if (!options.sharedStabilityRecoveryClaimed) {
       if (this.sharedStabilityRecovering) {
@@ -4459,7 +4460,7 @@ export class AudioSession extends EventEmitter {
     let recoveryRunToken: number | null = null;
 
     try {
-      if (!this.isRecoveryRunCurrent(options.runToken)) {
+      if (!this.isRecoveryRunCurrent(token)) {
         this.logger('[AudioSession] exclusive instability fallback skipped after playback run changed');
         return;
       }
@@ -4496,7 +4497,7 @@ export class AudioSession extends EventEmitter {
         nativeTelemetry: this.nativeTelemetry,
       });
 
-      if (!this.isRecoveryRunCurrent(options.runToken)) {
+      if (!this.isRecoveryRunCurrent(token)) {
         this.logger('[AudioSession] exclusive instability fallback aborted before restart after playback run changed');
         return;
       }
@@ -4512,6 +4513,7 @@ export class AudioSession extends EventEmitter {
       });
       if (this.runToken !== recoveryRunToken) {
         this.logger('[AudioSession] exclusive instability fallback was superseded after playback restart');
+        return;
       }
     } catch (error) {
       if (isAudioSessionRunCancelledError(error)) {
@@ -4523,7 +4525,7 @@ export class AudioSession extends EventEmitter {
       if (releaseSharedStabilityRecovery) {
         this.sharedStabilityRecovering = false;
       }
-      if (options.runToken === undefined || this.runToken === options.runToken || this.runToken === recoveryRunToken) {
+      if (this.runToken === token || this.runToken === recoveryRunToken) {
         this.resetWatchdogProgress();
       }
     }
@@ -4534,6 +4536,7 @@ export class AudioSession extends EventEmitter {
     positionSeconds: number,
     options: StabilityRecoveryOptions = {},
   ): Promise<void> {
+    const token = options.runToken ?? this.runToken;
     const releaseSharedStabilityRecovery = options.sharedStabilityRecoveryClaimed || !this.sharedStabilityRecovering;
     if (!options.sharedStabilityRecoveryClaimed) {
       if (this.sharedStabilityRecovering) {
@@ -4545,7 +4548,7 @@ export class AudioSession extends EventEmitter {
     let recoveryRunToken: number | null = null;
 
     try {
-      if (!this.isRecoveryRunCurrent(options.runToken)) {
+      if (!this.isRecoveryRunCurrent(token)) {
         this.logger(`[AudioSession] ${reason}; stability recovery skipped after playback run changed`);
         return;
       }
@@ -4600,7 +4603,7 @@ export class AudioSession extends EventEmitter {
         )} recovery=${recoveryCount}`,
       );
 
-      if (!this.isRecoveryRunCurrent(options.runToken)) {
+      if (!this.isRecoveryRunCurrent(token)) {
         this.logger(`[AudioSession] ${reason}; stability recovery aborted before restart after playback run changed`);
         return;
       }
@@ -4616,6 +4619,7 @@ export class AudioSession extends EventEmitter {
       });
       if (this.runToken !== recoveryRunToken) {
         this.logger(`[AudioSession] ${reason}; stability recovery was superseded after playback restart`);
+        return;
       }
     } catch (error) {
       if (isAudioSessionRunCancelledError(error)) {
@@ -4627,7 +4631,7 @@ export class AudioSession extends EventEmitter {
       if (releaseSharedStabilityRecovery) {
         this.sharedStabilityRecovering = false;
       }
-      if (options.runToken === undefined || this.runToken === options.runToken || this.runToken === recoveryRunToken) {
+      if (this.runToken === token || this.runToken === recoveryRunToken) {
         this.resetWatchdogProgress();
       }
     }
