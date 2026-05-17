@@ -165,6 +165,12 @@ const makeExternalVariant = (url = 'https://www.bilibili.com/video/BV1external')
   rawProviderJson: null,
 });
 
+const makeSqliteCorruptError = (): Error & { code: string } => {
+  const error = new Error('SqliteError: database disk image is malformed') as Error & { code: string };
+  error.code = 'SQLITE_CORRUPT';
+  return error;
+};
+
 afterEach(() => {
   appSettingsMock.current = { ...appSettingsMock.defaultValue };
   for (const root of tempRoots.splice(0)) {
@@ -538,9 +544,7 @@ describe('MvService', () => {
       if (failOnce) {
         failOnce = false;
         return (() => {
-          const error = new Error('SqliteError: database disk image is malformed') as Error & { code: string };
-          error.code = 'SQLITE_CORRUPT';
-          throw error;
+          throw makeSqliteCorruptError();
         }) as never;
       }
 
@@ -552,6 +556,71 @@ describe('MvService', () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ provider: 'bilibili', title: 'Echo Song MV' });
     expect(service.getSelectedVideo(track.id)).toMatchObject({ provider: 'bilibili', selected: true });
+  });
+
+  it('keeps selected MV rows when only the stream cache table is corrupt', () => {
+    const { database, service, track } = createHarness();
+    const video = service.bindUrl(track.id, 'https://www.bilibili.com/video/BV1streamcache');
+    const originalPrepare = database.prepare.bind(database);
+    let failOnce = true;
+
+    vi.spyOn(database, 'prepare').mockImplementation(((sql: string) => {
+      if (failOnce && sql.includes('FROM track_video_streams')) {
+        failOnce = false;
+        throw makeSqliteCorruptError();
+      }
+
+      return originalPrepare(sql) as never;
+    }) as never);
+
+    const selected = service.getSelectedVideo(track.id);
+
+    expect(selected).toMatchObject({ id: video.id, provider: 'bilibili', selected: true });
+    expect(service.getVideoCandidates(track.id)).toHaveLength(1);
+  });
+
+  it('resets corrupt MV stream cache and retries resolveStreams writes', async () => {
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
+    };
+    const { database, service, track } = createHarness([provider]);
+    const video = service.bindUrl(track.id, 'https://www.bilibili.com/video/BV1retry');
+    const originalTransaction = database.transaction.bind(database);
+    let failOnce = true;
+
+    vi.spyOn(database, 'transaction').mockImplementation(((fn: () => unknown) => {
+      if (failOnce) {
+        failOnce = false;
+        return (() => {
+          throw makeSqliteCorruptError();
+        }) as never;
+      }
+
+      return originalTransaction(fn as never) as never;
+    }) as never);
+
+    const resolved = await service.resolveStreams(video.id);
+
+    expect(resolved.variants).toHaveLength(1);
+    expect(resolved.video).toMatchObject({ id: video.id, playableInApp: true });
+    expect(resolved.video.mediaUrl).toContain('echo-mv://stream/');
+  });
+
+  it('rebuilds MV cache and hides raw SQLite errors when resolveStreams cannot read video rows', async () => {
+    const { database, service } = createHarness();
+    const originalPrepare = database.prepare.bind(database);
+
+    vi.spyOn(database, 'prepare').mockImplementation(((sql: string) => {
+      if (sql.includes('FROM track_videos WHERE id')) {
+        throw makeSqliteCorruptError();
+      }
+
+      return originalPrepare(sql) as never;
+    }) as never);
+
+    await expect(service.resolveStreams('broken-video')).rejects.toThrow('MV cache was rebuilt after SQLite corruption');
   });
 
   it('uses the configured auto-apply threshold for network MV candidates', async () => {

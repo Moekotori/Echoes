@@ -3516,14 +3516,14 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleAsioNativeDsdExperimentalToggle()}
                 />
               </SettingRow>
-              <SettingRow title="ASIO unavailable guard" description="Default off. When enabled, ECHO skips the same ASIO device briefly after the driver says No device found, then uses safe shared output.">
+              <SettingRow title={t('audioDrawer.guard.asioUnavailable.title')} description={t('audioDrawer.guard.asioUnavailable.description')}>
                 <ToggleButton
                   active={appSettings?.audioAsioUnavailableFallbackEnabled ?? false}
                   disabled={!appSettings}
                   onClick={() => void handleAsioUnavailableFallbackToggle()}
                 />
               </SettingRow>
-              <SettingRow title="SOXR fallback guard" description="Default on. Shared-mode SOXR resampling falls back to the default FFmpeg resampler if SOXR is missing or fails before PCM starts.">
+              <SettingRow title={t('audioDrawer.guard.soxrFallback.title')} description={t('audioDrawer.guard.soxrFallback.description')}>
                 <ToggleButton
                   active={appSettings?.audioSoxrFallbackEnabled ?? true}
                   disabled={!appSettings}

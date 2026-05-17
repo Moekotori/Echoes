@@ -107,7 +107,7 @@ const isSqliteCorruptionError = (error: unknown): boolean => {
   return code === 'SQLITE_CORRUPT' || /database disk image is malformed|database disk image malformed|SQLITE_CORRUPT/i.test(message);
 };
 
-const mvStorageSql = `
+const mvVideoStorageSql = `
 CREATE TABLE IF NOT EXISTS track_videos (
   id TEXT PRIMARY KEY,
   track_id TEXT NOT NULL,
@@ -134,7 +134,9 @@ CREATE TABLE IF NOT EXISTS track_videos (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+`;
 
+const mvStreamStorageSql = `
 CREATE TABLE IF NOT EXISTS track_video_streams (
   id TEXT PRIMARY KEY,
   video_id TEXT NOT NULL,
@@ -168,6 +170,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_track_videos_one_selected ON track_videos(
 CREATE INDEX IF NOT EXISTS idx_track_video_streams_video_id ON track_video_streams(video_id);
 CREATE INDEX IF NOT EXISTS idx_track_video_streams_provider ON track_video_streams(provider, variant_id);
 `;
+
+const mvStorageSql = `
+${mvVideoStorageSql}
+${mvStreamStorageSql}
+`;
+
+const resetMvStreamStorage = (database: EchoDatabase): void => {
+  database.exec(`
+    DROP TABLE IF EXISTS track_video_streams;
+    ${mvStreamStorageSql}
+  `);
+};
 
 const resetMvStorage = (database: EchoDatabase): void => {
   database.exec(`
@@ -902,6 +916,19 @@ export class MvService {
   }
 
   async resolveStreams(videoId: string): Promise<MvResolvedStreams> {
+    try {
+      return await this.resolveStreamsUnsafe(videoId);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairMvStorage(error);
+      throw new Error('MV cache was rebuilt after SQLite corruption. Retry MV search for this track.');
+    }
+  }
+
+  private async resolveStreamsUnsafe(videoId: string): Promise<MvResolvedStreams> {
     const row = this.requireRow(videoId);
     if (row.provider === 'local') {
       return { video: this.mapRow(row), variants: [] };
@@ -1186,6 +1213,11 @@ export class MvService {
     resetMvStorage(this.database);
   }
 
+  private repairMvStreamStorage(error: unknown): void {
+    console.warn('[mv] SQLite MV stream storage is corrupt; resetting MV stream cache table.', error);
+    resetMvStreamStorage(this.database);
+  }
+
   private upsertNetworkCandidate(track: LibraryTrack, candidate: MvMatchCandidate): MvMatchCandidate {
     const sourceId = sourceIdForCandidate(candidate);
     const existing = this.database
@@ -1257,6 +1289,19 @@ export class MvService {
   }
 
   private cacheResolvedStreams(row: TrackVideoRow, variants: ResolvedMvStreamVariant[]): void {
+    try {
+      this.writeResolvedStreams(row, variants);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairMvStreamStorage(error);
+      this.writeResolvedStreams(row, variants);
+    }
+  }
+
+  private writeResolvedStreams(row: TrackVideoRow, variants: ResolvedMvStreamVariant[]): void {
     const timestamp = nowIso();
     this.database.transaction(() => {
       this.database.prepare('DELETE FROM track_video_streams WHERE video_id = ?').run(row.id);
@@ -1410,13 +1455,22 @@ export class MvService {
   }
 
   private getStreamRows(videoId: string): TrackVideoStreamRow[] {
-    return this.database
-      .prepare<[string], TrackVideoStreamRow>(
-        `SELECT * FROM track_video_streams
-         WHERE video_id = ?
-         ORDER BY playable_in_app DESC, height DESC, fps DESC, updated_at DESC`,
-      )
-      .all(videoId);
+    try {
+      return this.database
+        .prepare<[string], TrackVideoStreamRow>(
+          `SELECT * FROM track_video_streams
+           WHERE video_id = ?
+           ORDER BY playable_in_app DESC, height DESC, fps DESC, updated_at DESC`,
+        )
+        .all(videoId);
+    } catch (error) {
+      if (isSqliteCorruptionError(error)) {
+        this.repairMvStreamStorage(error);
+        return [];
+      }
+
+      throw error;
+    }
   }
 
   private getValidStreamRows(videoId: string): TrackVideoStreamRow[] {
@@ -1424,15 +1478,24 @@ export class MvService {
   }
 
   private getStreamRow(videoId: string, variantId: string): TrackVideoStreamRow | null {
-    return (
-      this.database
-        .prepare<[string, string], TrackVideoStreamRow>(
-          `SELECT * FROM track_video_streams
-           WHERE video_id = ? AND variant_id = ?
-           LIMIT 1`,
-        )
-        .get(videoId, variantId) ?? null
-    );
+    try {
+      return (
+        this.database
+          .prepare<[string, string], TrackVideoStreamRow>(
+            `SELECT * FROM track_video_streams
+             WHERE video_id = ? AND variant_id = ?
+             LIMIT 1`,
+          )
+          .get(videoId, variantId) ?? null
+      );
+    } catch (error) {
+      if (isSqliteCorruptionError(error)) {
+        this.repairMvStreamStorage(error);
+        return null;
+      }
+
+      throw error;
+    }
   }
 
   private isExpired(variant: TrackVideoStreamRow): boolean {
