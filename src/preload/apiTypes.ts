@@ -109,6 +109,7 @@ import type {
   RemoteSourceUpdate,
   RemoteStreamUrlResult,
   RemoteSyncStatus,
+  RemoteVisibleHydrationOptions,
   TestRemoteSourceResult,
 } from '../shared/types/remoteSources';
 import type {
@@ -326,6 +327,7 @@ export type EchoApi = {
     cancelSync: (sourceId: string) => Promise<RemoteSyncStatus>;
     getSyncStatus: (sourceId: string) => Promise<RemoteSyncStatus>;
     createStreamUrl: (input: { trackId?: string; sourceId?: string; remotePath?: string; stableKey?: string }) => Promise<RemoteStreamUrlResult>;
+    hydrateVisibleTracks: (trackIds: string[], options?: RemoteVisibleHydrationOptions) => Promise<LibraryTrack[]>;
     startBackgroundJobs: (sourceId: string, kinds?: RemoteBackgroundJobKind[]) => Promise<RemoteBackgroundJobStatus>;
     pauseBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
     getJobStatus: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;

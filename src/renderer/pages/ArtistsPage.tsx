@@ -439,8 +439,6 @@ export const ArtistsPage = (): JSX.Element => {
         </label>
 
         <div className="artist-control-actions">
-          <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
-
           <button
             className="sort-button artist-avatar-priority-toggle"
             type="button"
@@ -451,6 +449,8 @@ export const ArtistsPage = (): JSX.Element => {
             <ImageIcon className="sort-button-icon" size={16} aria-hidden="true" />
             <span className="sort-button-label">{t('library.artists.avatarPriority')}</span>
           </button>
+
+          <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
 
           <div className="sort-select" ref={sortMenuRef}>
             <button

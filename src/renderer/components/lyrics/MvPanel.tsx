@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent } from 'react';
 import { Film, Music2 } from 'lucide-react';
 import type { AudioPlaybackState } from '../../../shared/types/audio';
-import type { MvSettings, TrackVideo } from '../../../shared/types/mv';
+import type { LibraryTrack } from '../../../shared/types/library';
+import type { MvMatchCandidate, MvSettings, TrackVideo } from '../../../shared/types/mv';
 import type { StreamingMvItem, StreamingProviderName } from '../../../shared/types/streaming';
 import { sampleVideoElement } from './lyricsReadableColor';
 
@@ -16,6 +17,7 @@ export type MvAudioClock = {
 
 type MvPanelProps = {
   trackId: string | null;
+  currentTrack?: LibraryTrack | null;
   streamingTarget?: {
     provider: StreamingProviderName;
     providerTrackId: string;
@@ -80,6 +82,10 @@ const mvEndedBeforeAudioEvent = 'mv:ended-before-audio';
 const lyricsSmartReadableVideoSampleEvent = 'lyrics:smart-readable-video-sample';
 const isReceiverTrackId = (value: string | null | undefined): value is string =>
   Boolean(value?.startsWith('dlna-receiver:') || value?.startsWith('airplay-receiver:'));
+const shouldUseSnapshotMvSearch = (track: LibraryTrack | null | undefined, trackId: string | null | undefined): boolean =>
+  Boolean(track?.isTemporary || track?.mediaType === 'remote' || isReceiverTrackId(trackId));
+const bestMvCandidate = (candidates: MvMatchCandidate[]): MvMatchCandidate | null =>
+  candidates.find((entry) => entry.playableInApp) ?? candidates[0] ?? null;
 const mvSettingsKeys = [
   'enabled',
   'autoSearch',
@@ -280,6 +286,7 @@ export const MvPanel = ({
   artist,
   audioClock,
   coverUrl,
+  currentTrack = null,
   hideFallbackTrackInfo = false,
   isAudioPlaying,
   smartReadableColorsEnabled = false,
@@ -385,27 +392,38 @@ export const MvPanel = ({
     }
   }, []);
 
-  const searchCandidatesForActiveTrack = useCallback(async (): Promise<void> => {
+  const searchCandidatesForActiveTrack = useCallback(async (): Promise<TrackVideo | null> => {
     const mvApi = window.echo?.mv;
     if (!trackId || !mvApi) {
-      return;
+      return null;
     }
 
-    if (isReceiverTrackId(trackId) && mvApi.searchNetworkCandidatesForSnapshot) {
-      await mvApi.searchNetworkCandidatesForSnapshot({
-        trackId,
-        title: title?.trim() || 'DLNA stream',
-        artist: artist?.trim() || 'Unknown Artist',
-        durationSeconds: audioClockRef.current.durationSeconds,
-        coverThumb: coverUrl,
-        mediaType: 'remote',
-        query: [title, artist].filter(Boolean).join(' '),
+    if (shouldUseSnapshotMvSearch(currentTrack, trackId) && mvApi.searchNetworkCandidatesForSnapshot) {
+      const effectiveTrackId = currentTrack?.id ?? trackId;
+      const searchTitle = currentTrack?.title?.trim() || title?.trim() || 'DLNA stream';
+      const searchArtist =
+        currentTrack?.artist?.trim() ||
+        currentTrack?.albumArtist?.trim() ||
+        artist?.trim() ||
+        'Unknown Artist';
+      const candidates = await mvApi.searchNetworkCandidatesForSnapshot({
+        trackId: effectiveTrackId,
+        title: searchTitle,
+        artist: searchArtist,
+        album: currentTrack?.album?.trim() || null,
+        albumArtist: currentTrack?.albumArtist?.trim() || null,
+        durationSeconds: currentTrack?.duration && currentTrack.duration > 0 ? currentTrack.duration : audioClockRef.current.durationSeconds,
+        coverThumb: currentTrack?.coverThumb ?? coverUrl,
+        mediaType: currentTrack?.mediaType ?? 'remote',
+        query: [searchTitle, searchArtist].filter(Boolean).join(' '),
       });
-      return;
+      const candidate = bestMvCandidate(candidates);
+      return candidate && mvApi.selectVideo ? mvApi.selectVideo(effectiveTrackId, candidate.id) : null;
     }
 
     await mvApi.searchNetworkCandidates?.(trackId);
-  }, [artist, coverUrl, title, trackId]);
+    return null;
+  }, [artist, coverUrl, currentTrack, title, trackId]);
 
   const loadSelected = useCallback(async (options: { preserveCurrent?: boolean } = {}): Promise<void> => {
     if (streamingTarget) {
@@ -439,8 +457,7 @@ export const MvPanel = ({
       let video = await window.echo.mv.getSelected(trackId);
       if (!video && nextSettings.autoPreload && isAudioPlayingRef.current && preloadAttemptRef.current !== trackId) {
         preloadAttemptRef.current = trackId;
-        await searchCandidatesForActiveTrack();
-        video = await window.echo.mv.getSelected(trackId);
+        video = (await searchCandidatesForActiveTrack()) ?? (await window.echo.mv.getSelected(trackId));
       }
       let resolvedVideo = await resolveNetworkVideo(video);
       if (
@@ -450,8 +467,7 @@ export const MvPanel = ({
         preloadAttemptRef.current !== trackId
       ) {
         preloadAttemptRef.current = trackId;
-        await searchCandidatesForActiveTrack();
-        video = await window.echo.mv.getSelected(trackId);
+        video = (await searchCandidatesForActiveTrack()) ?? (await window.echo.mv.getSelected(trackId));
         resolvedVideo = await resolveNetworkVideo(video);
       }
       if (requestRef.current !== requestId) {

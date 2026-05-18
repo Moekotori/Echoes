@@ -7,6 +7,7 @@ import type {
   RemoteSourceProvider,
   RemoteSourceSyncMode,
   RemoteSourceUpdate,
+  RemoteVisibleHydrationOptions,
 } from '../../shared/types/remoteSources';
 import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
 
@@ -38,6 +39,27 @@ const normalizeJobKinds = (value: unknown): RemoteBackgroundJobKind[] | undefine
 };
 
 const normalizeBoolean = (value: unknown): boolean => value === true;
+
+const normalizeTrackIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()))).slice(0, 40);
+};
+
+const normalizeVisibleHydrationOptions = (value: unknown): RemoteVisibleHydrationOptions => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    metadata: typeof input.metadata === 'boolean' ? input.metadata : undefined,
+    cover: typeof input.cover === 'boolean' ? input.cover : undefined,
+    priority: typeof input.priority === 'number' && Number.isFinite(input.priority) ? input.priority : undefined,
+  };
+};
 
 const normalizeRuntimeLimits = (value: unknown): RemoteRuntimeLimits => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -171,6 +193,9 @@ export const registerRemoteSourcesIpc = (): void => {
       stableKey: optionalText(request.stableKey) ?? undefined,
     });
   });
+  ipcMain.handle(IpcChannels.RemoteSourcesHydrateVisibleTracks, (_event, trackIds: unknown, options: unknown) =>
+    getRemoteSourceService().hydrateVisibleTracks(normalizeTrackIds(trackIds), normalizeVisibleHydrationOptions(options)),
+  );
   ipcMain.handle(IpcChannels.RemoteSourcesStartBackgroundJobs, (_event, sourceId: unknown, kinds?: unknown) =>
     getRemoteSourceService().startBackgroundJobs(requireText(sourceId, 'sourceId'), normalizeJobKinds(kinds)),
   );

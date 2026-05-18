@@ -1432,6 +1432,8 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     }
   }, [state, trackId]);
 
+  const displayError = formatAudioHostError(error);
+
   const commitSeek = useCallback(
     async (nextPositionSeconds: number): Promise<void> => {
       const playback = window.echo?.playback;
@@ -1491,7 +1493,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   );
 
   return (
-    <footer className="player-bar" aria-label="播放控制">
+    <footer className="player-bar" data-playback-state={visualState} aria-label="播放控制">
       {streamingDownloadNotice ? (
         <div className={`player-download-notice player-download-notice--${streamingDownloadNotice.tone}`} role="status" aria-live="polite">
           <div className="player-download-notice-copy">
@@ -1563,7 +1565,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
         />
-        {error ? <span className="player-error">{error}</span> : null}
+        {displayError ? <span className="player-error">{displayError}</span> : null}
       </div>
 
       <div className="output-status">

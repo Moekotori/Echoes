@@ -7,6 +7,8 @@ export type Rgb = {
 export type ReadableColorSample = {
   averageRgb: Rgb;
   luminance: number;
+  luminanceP10?: number;
+  luminanceP90?: number;
   luminanceDeviation: number;
   saturation: number;
   edgeContrast: number;
@@ -20,6 +22,7 @@ export const readableLyricsCssVarNames = [
   '--lyrics-smart-shadow',
   '--lyrics-smart-stroke',
   '--lyrics-smart-scrim-color',
+  '--lyrics-smart-scrim-background',
   '--lyrics-smart-scrim-opacity',
 ] as const;
 
@@ -40,6 +43,8 @@ type AnalyzePixelsOptions = {
 const sampleCanvasSize = 32;
 const minReadableContrast = 4.5;
 const strongReadableContrast = 7;
+const nearlyBlack = { r: 8, g: 12, b: 18 };
+const pureWhite = { r: 255, g: 255, b: 255 };
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
@@ -164,6 +169,8 @@ const mixRgb = (from: Rgb, to: Rgb, amount: number): Rgb => {
 const fallbackSampleForTheme = (themeMode: 'light' | 'dark'): ReadableColorSample => ({
   averageRgb: themeMode === 'dark' ? { r: 16, g: 21, b: 31 } : { r: 244, g: 247, b: 251 },
   luminance: themeMode === 'dark' ? 0.008 : 0.925,
+  luminanceP10: themeMode === 'dark' ? 0.004 : 0.86,
+  luminanceP90: themeMode === 'dark' ? 0.06 : 0.98,
   luminanceDeviation: 0.08,
   saturation: 0.12,
   edgeContrast: 0.04,
@@ -171,8 +178,50 @@ const fallbackSampleForTheme = (themeMode: 'light' | 'dark'): ReadableColorSampl
   pixelCount: 1,
 });
 
+const getSampleLuminanceRange = (sample: ReadableColorSample): { low: number; high: number; width: number } => {
+  const estimatedSpread = clamp(sample.luminanceDeviation * 1.9 + sample.edgeContrast * 1.15, 0.018, 0.48);
+  const low = clamp(Math.min(sample.luminanceP10 ?? sample.luminance - estimatedSpread, sample.luminance), 0, 1);
+  const high = clamp(Math.max(sample.luminanceP90 ?? sample.luminance + estimatedSpread, sample.luminance), 0, 1);
+
+  return {
+    low,
+    high,
+    width: Math.max(0, high - low),
+  };
+};
+
+const getLocalScrimOpacity = (sample: ReadableColorSample, rangeWidth = getSampleLuminanceRange(sample).width): number =>
+  clamp(0.045 + sample.complexity * 0.28 + rangeWidth * 0.36 + sample.saturation * 0.05, 0.06, 0.48);
+
+const mixLuminance = (from: number, to: number, amount: number): number =>
+  from + (to - from) * clamp(amount, 0, 1);
+
+const assistedContrast = (
+  textLuminance: number,
+  backgroundLuminance: number,
+  textIsLight: boolean,
+  scrimOpacity: number,
+): number => {
+  const scrimLuminance = textIsLight ? 0 : 1;
+  return contrastRatio(textLuminance, mixLuminance(backgroundLuminance, scrimLuminance, scrimOpacity));
+};
+
+const worstRangeContrast = (
+  textLuminance: number,
+  sample: ReadableColorSample,
+  textIsLight: boolean,
+  scrimOpacity: number,
+): number => {
+  const range = getSampleLuminanceRange(sample);
+  return Math.min(
+    assistedContrast(textLuminance, range.low, textIsLight, scrimOpacity),
+    assistedContrast(textLuminance, sample.luminance, textIsLight, scrimOpacity),
+    assistedContrast(textLuminance, range.high, textIsLight, scrimOpacity),
+  );
+};
+
 const ensureContrast = (rgb: Rgb, backgroundLuminance: number, targetContrast: number, preferLight: boolean): Rgb => {
-  const anchor = preferLight ? { r: 255, g: 255, b: 255 } : { r: 8, g: 12, b: 18 };
+  const anchor = preferLight ? pureWhite : nearlyBlack;
   let candidate = rgb;
 
   for (let index = 0; index < 16; index += 1) {
@@ -187,6 +236,55 @@ const ensureContrast = (rgb: Rgb, backgroundLuminance: number, targetContrast: n
     : candidate;
 };
 
+const ensureRangeContrast = (
+  rgb: Rgb,
+  sample: ReadableColorSample,
+  targetContrast: number,
+  preferLight: boolean,
+): Rgb => {
+  const anchor = preferLight ? pureWhite : nearlyBlack;
+  const scrimOpacity = getLocalScrimOpacity(sample);
+  let candidate = rgb;
+  let best = rgb;
+  let bestScore = -Infinity;
+
+  for (let index = 0; index < 18; index += 1) {
+    const luminance = relativeLuminance(candidate);
+    const textIsLight = luminance >= 0.5;
+    const rangeContrast = worstRangeContrast(luminance, sample, textIsLight, scrimOpacity);
+    const meanContrast = contrastRatio(luminance, sample.luminance);
+    const score = rangeContrast * 1.8 + meanContrast * 0.45;
+
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+
+    if (rangeContrast >= targetContrast && meanContrast >= minReadableContrast) {
+      return candidate;
+    }
+
+    candidate = mixRgb(candidate, anchor, 0.16);
+  }
+
+  return best;
+};
+
+const uniqueColors = (colors: Rgb[]): Rgb[] => {
+  const seen = new Set<string>();
+  const result: Rgb[] = [];
+
+  for (const color of colors) {
+    const key = `${roundChannel(color.r)}:${roundChannel(color.g)}:${roundChannel(color.b)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(color);
+    }
+  }
+
+  return result;
+};
+
 const choosePrimaryColor = (
   sample: ReadableColorSample,
   userColor: string | null | undefined,
@@ -194,36 +292,59 @@ const choosePrimaryColor = (
   const userRgb = parseHexColor(userColor) ?? { r: 49, g: 64, b: 84 };
   const userHsl = rgbToHsl(userRgb);
   const tintSaturation = clamp(Math.max(userHsl.s, 0.2), 0.2, 0.62);
-  const darkTint = hslToRgb(userHsl.h, tintSaturation, 0.15);
+  const darkTint = hslToRgb(userHsl.h, tintSaturation, 0.11);
+  const softDarkTint = hslToRgb(userHsl.h, tintSaturation, 0.18);
   const lightTint = hslToRgb(userHsl.h, Math.min(tintSaturation, 0.44), 0.94);
+  const brightTint = hslToRgb(userHsl.h, Math.min(tintSaturation, 0.36), 0.98);
   const backgroundLuminance = sample.luminance;
-  const preferLight = backgroundLuminance < 0.42;
-  const targetContrast = sample.complexity > 0.44 ? strongReadableContrast : minReadableContrast;
-  const candidates = [
+  const range = getSampleLuminanceRange(sample);
+  const scrimOpacity = getLocalScrimOpacity(sample, range.width);
+  const targetContrast = sample.complexity > 0.44 || range.width > 0.34 ? strongReadableContrast : minReadableContrast;
+  const candidates = uniqueColors([
     darkTint,
-    { r: 17, g: 24, b: 39 },
+    softDarkTint,
+    nearlyBlack,
     { r: 36, g: 49, b: 68 },
+    { r: 19, g: 33, b: 51 },
     lightTint,
+    brightTint,
     { r: 247, g: 250, b: 252 },
-    { r: 255, g: 255, b: 255 },
-  ];
+    pureWhite,
+  ]);
 
   const ranked = candidates
     .map((rgb) => {
       const luminance = relativeLuminance(rgb);
-      const candidateIsLight = luminance > backgroundLuminance;
-      const directionBonus = candidateIsLight === preferLight ? 0.28 : 0;
-      const hueBonus = rgb === darkTint || rgb === lightTint ? 0.12 : 0;
+      const candidateIsLight = luminance >= 0.5;
+      const meanContrast = contrastRatio(luminance, backgroundLuminance);
+      const rawRangeContrast = Math.min(contrastRatio(luminance, range.low), contrastRatio(luminance, range.high));
+      const assistedRangeContrast = worstRangeContrast(luminance, sample, candidateIsLight, scrimOpacity);
+      const dominantDirectionBonus =
+        backgroundLuminance < 0.36 && candidateIsLight
+          ? 0.34
+          : backgroundLuminance > 0.56 && !candidateIsLight
+            ? 0.34
+            : 0;
+      const mixedBackgroundBonus = range.width > 0.42 && !candidateIsLight ? 0.38 : 0;
+      const hueBonus = rgb === darkTint || rgb === softDarkTint || rgb === lightTint || rgb === brightTint ? 0.16 : 0;
+      const weakRawPenalty = Math.max(0, minReadableContrast - meanContrast) * 0.18;
       return {
         rgb,
-        score: contrastRatio(luminance, backgroundLuminance) + directionBonus + hueBonus,
-        preferLight: candidateIsLight,
+        score:
+          assistedRangeContrast * 1.85 +
+          meanContrast * 0.48 +
+          rawRangeContrast * 0.28 +
+          dominantDirectionBonus +
+          mixedBackgroundBonus +
+          hueBonus -
+          weakRawPenalty,
+        textIsLight: candidateIsLight,
       };
     })
     .sort((left, right) => right.score - left.score);
 
   const best = ranked[0];
-  return ensureContrast(best.rgb, backgroundLuminance, targetContrast, best.preferLight);
+  return ensureRangeContrast(best.rgb, sample, targetContrast, best.textIsLight);
 };
 
 export const createReadableLyricsColorVars = (options: ReadableColorOptions = {}): ReadableLyricsCssVars => {
@@ -231,17 +352,29 @@ export const createReadableLyricsColorVars = (options: ReadableColorOptions = {}
   const sample = options.sample ?? fallbackSampleForTheme(themeMode);
   const primary = choosePrimaryColor(sample, options.userColor);
   const primaryLuminance = relativeLuminance(primary);
-  const primaryIsLight = primaryLuminance > sample.luminance;
+  const primaryIsLight = primaryLuminance >= 0.5;
+  const range = getSampleLuminanceRange(sample);
+  const targetContrast = sample.complexity > 0.44 || range.width > 0.34 ? strongReadableContrast : minReadableContrast;
   const secondarySeed = mixRgb(primary, sample.averageRgb, sample.complexity > 0.5 ? 0.08 : 0.18);
-  const secondary = ensureContrast(secondarySeed, sample.luminance, minReadableContrast, primaryIsLight);
+  const secondary = ensureRangeContrast(
+    ensureContrast(secondarySeed, sample.luminance, minReadableContrast, primaryIsLight),
+    sample,
+    minReadableContrast,
+    primaryIsLight,
+  );
   const primaryContrast = contrastRatio(primaryLuminance, sample.luminance);
-  const needsAssist = sample.complexity > 0.32 || primaryContrast < strongReadableContrast;
+  const primaryRangeContrast = worstRangeContrast(primaryLuminance, sample, primaryIsLight, getLocalScrimOpacity(sample, range.width));
+  const needsAssist =
+    sample.complexity > 0.24 ||
+    range.width > 0.16 ||
+    primaryContrast < strongReadableContrast ||
+    primaryRangeContrast < targetContrast;
   const scrimOpacity = needsAssist
-    ? clamp(0.03 + sample.complexity * 0.2 + (primaryContrast < strongReadableContrast ? 0.04 : 0), 0.04, 0.28)
+    ? getLocalScrimOpacity(sample, range.width)
     : 0;
-  const shadowStrength = clamp(0.12 + sample.complexity * 0.58 + (primaryContrast < strongReadableContrast ? 0.12 : 0), 0.12, 0.78);
-  const strokeStrength = clamp(0.18 + sample.complexity * 0.5, 0.18, 0.58);
-  const contrastColor = primaryIsLight ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+  const shadowStrength = clamp(0.14 + sample.complexity * 0.44 + range.width * 0.26 + (primaryContrast < strongReadableContrast ? 0.12 : 0), 0.14, 0.82);
+  const strokeStrength = clamp(0.16 + sample.complexity * 0.36 + range.width * 0.22, 0.16, 0.66);
+  const contrastColor = primaryIsLight ? { r: 0, g: 0, b: 0 } : pureWhite;
   const secondaryGlow = primaryIsLight
     ? `0 2px 18px ${rgba(contrastColor, shadowStrength)}, 0 0 2px ${rgba(contrastColor, Math.min(0.9, shadowStrength + 0.18))}`
     : `0 1px 2px ${rgba(contrastColor, Math.min(0.72, shadowStrength + 0.16))}, 0 2px 16px ${rgba({ r: 0, g: 0, b: 0 }, Math.max(0.12, shadowStrength * 0.32))}`;
@@ -252,6 +385,7 @@ export const createReadableLyricsColorVars = (options: ReadableColorOptions = {}
     '--lyrics-smart-shadow': secondaryGlow,
     '--lyrics-smart-stroke': needsAssist ? `0.014em ${rgba(contrastColor, strokeStrength)}` : '0px transparent',
     '--lyrics-smart-scrim-color': primaryIsLight ? 'rgb(0 0 0)' : 'rgb(255 255 255)',
+    '--lyrics-smart-scrim-background': needsAssist ? rgba(contrastColor, scrimOpacity) : 'transparent',
     '--lyrics-smart-scrim-opacity': scrimOpacity.toFixed(2),
   };
 };
@@ -277,6 +411,7 @@ export const analyzePixelBuffer = (
   let weightSum = 0;
   let edgeSum = 0;
   let edgeCount = 0;
+  const luminanceSamples: number[] = [];
 
   for (let pixelIndex = 0; pixelIndex < pixelTotal; pixelIndex += step) {
     const offset = pixelIndex * 4;
@@ -295,6 +430,7 @@ export const analyzePixelBuffer = (
     const delta = luminance - meanLuminance;
     meanLuminance += delta / count;
     m2 += delta * (luminance - meanLuminance);
+    luminanceSamples.push(luminance);
     saturationSum += rgbToHsl(rgb).s;
     rSum += rgb.r * alpha;
     gSum += rgb.g * alpha;
@@ -329,9 +465,13 @@ export const analyzePixelBuffer = (
   }
 
   const luminanceDeviation = Math.sqrt(m2 / Math.max(1, count - 1));
+  luminanceSamples.sort((left, right) => left - right);
+  const luminanceP10 = luminanceSamples[Math.floor((luminanceSamples.length - 1) * 0.1)] ?? meanLuminance;
+  const luminanceP90 = luminanceSamples[Math.ceil((luminanceSamples.length - 1) * 0.9)] ?? meanLuminance;
   const saturation = saturationSum / count;
   const edgeContrast = edgeCount > 0 ? edgeSum / edgeCount : 0;
-  const complexity = clamp(luminanceDeviation * 2.2 + edgeContrast * 1.45 + saturation * 0.24, 0, 1);
+  const luminanceRange = Math.max(0, luminanceP90 - luminanceP10);
+  const complexity = clamp(luminanceDeviation * 1.72 + luminanceRange * 0.78 + edgeContrast * 1.3 + saturation * 0.22, 0, 1);
 
   return {
     averageRgb: {
@@ -340,6 +480,8 @@ export const analyzePixelBuffer = (
       b: bSum / Math.max(weightSum, 1),
     },
     luminance: meanLuminance,
+    luminanceP10,
+    luminanceP90,
     luminanceDeviation,
     saturation,
     edgeContrast,

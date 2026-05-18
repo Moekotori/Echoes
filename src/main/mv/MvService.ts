@@ -5,6 +5,7 @@ import electron, { shell } from 'electron';
 import type { EchoDatabase } from '../database/createDatabase';
 import { createDatabase } from '../database/createDatabase';
 import { getAppSettings, setAppSettings } from '../app/appSettings';
+import { assertProtectedLibraryAvailable } from '../app/dataProtection';
 import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type {
@@ -521,6 +522,10 @@ export class MvService {
     onlineProviders: MainMvOnlineProvider[] = createOnlineMvProviders(),
   ) {
     this.onlineProviderMap = new Map(onlineProviders.map((provider) => [provider.id, provider]));
+  }
+
+  close(): void {
+    this.database.close();
   }
 
   getSettings(): MvSettings {
@@ -1607,6 +1612,7 @@ export class MvService {
 let defaultMvService: MvService | null = null;
 
 export const getMvService = (): MvService => {
+  assertProtectedLibraryAvailable();
   if (!defaultMvService) {
     const electronApp = (electron as unknown as { app?: { getPath: (name: string) => string } }).app;
 
@@ -1623,4 +1629,13 @@ export const getMvService = (): MvService => {
   }
 
   return defaultMvService;
+};
+
+export const closeDefaultMvService = (): void => {
+  if (!defaultMvService) {
+    return;
+  }
+
+  defaultMvService.close();
+  defaultMvService = null;
 };

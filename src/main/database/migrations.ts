@@ -607,6 +607,7 @@ export const migrations: Migration[] = [
           modified_at TEXT,
           etag TEXT,
           cover_id TEXT,
+          cover_status TEXT NOT NULL DEFAULT 'pending',
           metadata_status TEXT NOT NULL DEFAULT 'pending',
           lyrics_status TEXT NOT NULL DEFAULT 'pending',
           mv_status TEXT NOT NULL DEFAULT 'pending',
@@ -626,6 +627,7 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_remote_tracks_album ON remote_tracks(album);
         CREATE INDEX IF NOT EXISTS idx_remote_tracks_stable_key ON remote_tracks(stable_key);
         CREATE INDEX IF NOT EXISTS idx_remote_tracks_remote_url_hash ON remote_tracks(remote_url_hash);
+        CREATE INDEX IF NOT EXISTS idx_remote_tracks_cover_status ON remote_tracks(cover_status);
       `);
     },
   },
@@ -1029,6 +1031,20 @@ export const migrations: Migration[] = [
       addColumnIfMissing(database, 'tracks', 'replay_gain_error', 'replay_gain_error TEXT');
       addColumnIfMissing(database, 'tracks', 'replay_gain_updated_at', 'replay_gain_updated_at TEXT');
       database.exec('CREATE INDEX IF NOT EXISTS idx_tracks_replay_gain_status ON tracks(replay_gain_status)');
+    },
+  },
+  {
+    id: 30,
+    apply: (database) => {
+      addColumnIfMissing(database, 'remote_tracks', 'cover_status', "cover_status TEXT NOT NULL DEFAULT 'pending'");
+      database.exec(`
+        UPDATE remote_tracks
+        SET cover_status = 'ok'
+        WHERE cover_id IS NOT NULL
+          AND cover_status != 'ok';
+
+        CREATE INDEX IF NOT EXISTS idx_remote_tracks_cover_status ON remote_tracks(cover_status);
+      `);
     },
   },
 ];

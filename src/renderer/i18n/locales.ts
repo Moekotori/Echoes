@@ -540,6 +540,8 @@ export type TranslationKey =
   | 'settings.appearance.themePreset.mintCandy.description'
   | 'settings.appearance.themePreset.neonCandy'
   | 'settings.appearance.themePreset.neonCandy.description'
+  | 'settings.appearance.themePreset.nyanCat'
+  | 'settings.appearance.themePreset.nyanCat.description'
   | 'settings.appearance.themePreset.oceanStudio'
   | 'settings.appearance.themePreset.oceanStudio.description'
   | 'settings.appearance.themePreset.peachSoda'
@@ -1526,6 +1528,8 @@ const zhCN: TranslationMap = {
   'settings.appearance.themePreset.caramelPudding.description': '奶油焦糖配草莓光，甜但不发腻。',
   'settings.appearance.themePreset.neonCandy': '霓虹糖果',
   'settings.appearance.themePreset.neonCandy.description': '紫色霓虹、粉色高光和薄荷泡泡。',
+  'settings.appearance.themePreset.nyanCat': 'Nyan Cat',
+  'settings.appearance.themePreset.nyanCat.description': '慢速流动的可爱彩虹渐变，进度条会带着彩虹猫一起跑。',
   'settings.appearance.themePreset.wisteriaBubble': '紫藤泡泡',
   'settings.appearance.themePreset.wisteriaBubble.description': '紫藤花雾配薄荷泡泡，梦幻但清爽。',
   'settings.appearance.themePreset.strawberryCookie': '草莓饼干',
@@ -2572,6 +2576,8 @@ const zhTW: TranslationMap = {
   'settings.appearance.themePreset.caramelPudding.description': '奶油焦糖配草莓光，甜但不膩。',
   'settings.appearance.themePreset.neonCandy': '霓虹糖果',
   'settings.appearance.themePreset.neonCandy.description': '紫色霓虹、粉色高光和薄荷泡泡。',
+  'settings.appearance.themePreset.nyanCat': 'Nyan Cat',
+  'settings.appearance.themePreset.nyanCat.description': '慢速流動的可愛彩虹漸層，進度條會帶著彩虹貓一起跑。',
   'settings.appearance.themePreset.wisteriaBubble': '紫藤泡泡',
   'settings.appearance.themePreset.wisteriaBubble.description': '紫藤花霧配薄荷泡泡，夢幻但清爽。',
   'settings.appearance.themePreset.strawberryCookie': '草莓餅乾',
@@ -3361,6 +3367,8 @@ const jaJP: TranslationMap = {
   'settings.appearance.themePreset.caramelPudding.description': 'Creamy caramel with a strawberry glow, sweet but readable.',
   'settings.appearance.themePreset.neonCandy': 'Neon Candy',
   'settings.appearance.themePreset.neonCandy.description': 'Violet neon, pink highlights, and mint bubbles.',
+  'settings.appearance.themePreset.nyanCat': 'Nyan Cat',
+  'settings.appearance.themePreset.nyanCat.description': 'ゆっくり流れるかわいい虹色グラデーション。進捗バーには虹色の猫が走ります。',
   'settings.appearance.themePreset.wisteriaBubble': 'Wisteria Bubble',
   'settings.appearance.themePreset.wisteriaBubble.description': 'Wisteria mist with mint bubbles, dreamy but fresh.',
   'settings.appearance.themePreset.strawberryCookie': 'Strawberry Cookie',
@@ -4332,6 +4340,8 @@ const enUS: TranslationMap = {
   'settings.appearance.themePreset.caramelPudding.description': 'Creamy caramel with a strawberry glow, sweet but readable.',
   'settings.appearance.themePreset.neonCandy': 'Neon Candy',
   'settings.appearance.themePreset.neonCandy.description': 'Violet neon, pink highlights, and mint bubbles.',
+  'settings.appearance.themePreset.nyanCat': 'Nyan Cat',
+  'settings.appearance.themePreset.nyanCat.description': 'A slow, cute rainbow gradient with a Nyan Cat progress handle.',
   'settings.appearance.themePreset.wisteriaBubble': 'Wisteria Bubble',
   'settings.appearance.themePreset.wisteriaBubble.description': 'Wisteria mist with mint bubbles, dreamy but fresh.',
   'settings.appearance.themePreset.strawberryCookie': 'Strawberry Cookie',

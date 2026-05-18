@@ -22,7 +22,7 @@ const contentTypeFor = (filePath: string): string => {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.flac')) return 'audio/flac';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
-  if (lower.endsWith('.m4a') || lower.endsWith('.mp4')) return 'audio/mp4';
+  if (lower.endsWith('.m4a') || lower.endsWith('.m4p') || lower.endsWith('.mp4')) return 'audio/mp4';
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.ogg') || lower.endsWith('.opus')) return 'audio/ogg';
   if (lower.endsWith('.aac')) return 'audio/aac';

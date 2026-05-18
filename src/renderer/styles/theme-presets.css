@@ -414,6 +414,27 @@ html[data-theme="light"][data-theme-preset="neonCandy"] {
   --preset-on-accent: #ffffff;
 }
 
+html[data-theme="light"][data-theme-preset="nyanCat"] {
+  --preset-app-bg: #fff7fb;
+  --preset-app-bg-2: #d7f3ff;
+  --preset-app-bg-3: #eadcff;
+  --preset-panel-rgb: 255 255 255;
+  --preset-soft-rgb: 238 248 255;
+  --preset-border-rgb: 122 167 217;
+  --preset-shadow-rgb: 79 66 132;
+  --preset-text: #475072;
+  --preset-heading: #2b2f5f;
+  --preset-muted: #697392;
+  --preset-subtle: #8d96b0;
+  --preset-accent: #ff5f93;
+  --preset-accent-strong: #cf3f75;
+  --preset-accent-rgb: 255 95 147;
+  --preset-secondary: #28b8f0;
+  --preset-secondary-rgb: 40 184 240;
+  --preset-success-text: #2c7c70;
+  --preset-on-accent: #ffffff;
+}
+
 html[data-theme="light"][data-theme-preset="wisteriaBubble"] {
   --preset-app-bg: #fbf7ff;
   --preset-app-bg-2: #e8d9ff;
@@ -542,24 +563,24 @@ html[data-theme="light"][data-theme-preset="rosewoodVinyl"] {
 
 /* The Dark Side of the Moon theme, a tribute to Pink Floyd. */
 html[data-theme="light"][data-theme-preset="darkSideMoon"] {
-  --preset-app-bg: #050506;
-  --preset-app-bg-2: #111217;
-  --preset-app-bg-3: #08090c;
-  --preset-panel-rgb: 20 21 25;
-  --preset-soft-rgb: 12 13 16;
-  --preset-border-rgb: 201 209 219;
-  --preset-shadow-rgb: 0 0 0;
-  --preset-text: #e8eaee;
-  --preset-heading: #ffffff;
-  --preset-muted: #b6bbc5;
-  --preset-subtle: #858b97;
-  --preset-accent: #f4f6f8;
-  --preset-accent-strong: #ffffff;
-  --preset-accent-rgb: 244 246 248;
-  --preset-secondary: #f6d93b;
-  --preset-secondary-rgb: 246 217 59;
-  --preset-success-text: #79f078;
-  --preset-on-accent: #08090d;
+  --preset-app-bg: #171722;
+  --preset-app-bg-2: #202638;
+  --preset-app-bg-3: #151827;
+  --preset-panel-rgb: 35 38 53;
+  --preset-soft-rgb: 24 27 40;
+  --preset-border-rgb: 197 210 232;
+  --preset-shadow-rgb: 3 5 14;
+  --preset-text: #eef2fb;
+  --preset-heading: #fff7df;
+  --preset-muted: #cad4e7;
+  --preset-subtle: #9faec8;
+  --preset-accent: #f6f0d8;
+  --preset-accent-strong: #8fdcff;
+  --preset-accent-rgb: 246 240 216;
+  --preset-secondary: #ffd84f;
+  --preset-secondary-rgb: 255 216 79;
+  --preset-success-text: #96f0c6;
+  --preset-on-accent: #121521;
 }
 
 html[data-theme="light"][data-theme-preset="shibuyaNight"] {
@@ -982,6 +1003,27 @@ html[data-theme="dark"][data-theme-preset="neonCandy"] {
   --preset-on-accent: #181033;
 }
 
+html[data-theme="dark"][data-theme-preset="nyanCat"] {
+  --preset-app-bg: #11132d;
+  --preset-app-bg-2: #172959;
+  --preset-app-bg-3: #35164b;
+  --preset-panel-rgb: 29 35 72;
+  --preset-soft-rgb: 22 26 56;
+  --preset-border-rgb: 122 167 255;
+  --preset-shadow-rgb: 0 0 0;
+  --preset-text: #eaf1ff;
+  --preset-heading: #fff6fb;
+  --preset-muted: #bfc9ee;
+  --preset-subtle: #97a3d6;
+  --preset-accent: #ff7fb0;
+  --preset-accent-strong: #ffd1e5;
+  --preset-accent-rgb: 255 127 176;
+  --preset-secondary: #59d9ff;
+  --preset-secondary-rgb: 89 217 255;
+  --preset-success-text: #a4f5e5;
+  --preset-on-accent: #2b0f24;
+}
+
 html[data-theme="dark"][data-theme-preset="wisteriaBubble"] {
   --preset-app-bg: #13101d;
   --preset-app-bg-2: #211a36;
@@ -1110,24 +1152,24 @@ html[data-theme="dark"][data-theme-preset="rosewoodVinyl"] {
 
 /* The Dark Side of the Moon theme, a tribute to Pink Floyd. */
 html[data-theme="dark"][data-theme-preset="darkSideMoon"] {
-  --preset-app-bg: #020203;
-  --preset-app-bg-2: #08090d;
-  --preset-app-bg-3: #11131a;
-  --preset-panel-rgb: 16 17 22;
-  --preset-soft-rgb: 8 9 12;
-  --preset-border-rgb: 227 231 237;
-  --preset-shadow-rgb: 0 0 0;
-  --preset-text: #eceef4;
-  --preset-heading: #ffffff;
-  --preset-muted: #b8bfcc;
-  --preset-subtle: #858d9c;
-  --preset-accent: #f6f7fb;
-  --preset-accent-strong: #ffffff;
-  --preset-accent-rgb: 246 247 251;
-  --preset-secondary: #26a8ed;
-  --preset-secondary-rgb: 38 168 237;
-  --preset-success-text: #80f27d;
-  --preset-on-accent: #050509;
+  --preset-app-bg: #10111a;
+  --preset-app-bg-2: #181d2b;
+  --preset-app-bg-3: #202337;
+  --preset-panel-rgb: 30 33 47;
+  --preset-soft-rgb: 19 22 34;
+  --preset-border-rgb: 205 218 240;
+  --preset-shadow-rgb: 0 0 8;
+  --preset-text: #eef3ff;
+  --preset-heading: #fff8df;
+  --preset-muted: #cbd7ec;
+  --preset-subtle: #a2b0ca;
+  --preset-accent: #f7f1dc;
+  --preset-accent-strong: #93dcff;
+  --preset-accent-rgb: 247 241 220;
+  --preset-secondary: #28b8f0;
+  --preset-secondary-rgb: 40 184 240;
+  --preset-success-text: #9df0c7;
+  --preset-on-accent: #10131d;
 }
 
 html[data-theme="dark"][data-theme-preset="shibuyaNight"] {
@@ -1295,51 +1337,91 @@ html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([
 }
 
 html[data-theme-preset="darkSideMoon"] {
+  --dark-side-page-gradient:
+    radial-gradient(circle at 20% 8%, rgb(143 220 255 / 0.13), transparent 30%),
+    radial-gradient(circle at 78% 4%, rgb(255 216 79 / 0.11), transparent 28%),
+    linear-gradient(106deg, transparent 0 50%, rgb(237 47 59 / 0.07) 50% 54%, rgb(246 142 32 / 0.07) 54% 58%, rgb(255 216 79 / 0.08) 58% 62%, rgb(68 199 101 / 0.07) 62% 66%, rgb(40 184 240 / 0.07) 66% 70%, transparent 70.5%),
+    linear-gradient(180deg, rgb(31 35 51 / 0.96), rgb(19 22 34 / 0.98));
+  --dark-side-panel-gradient:
+    linear-gradient(135deg, rgb(43 47 64 / 0.92), rgb(25 29 42 / 0.9) 58%, rgb(18 21 32 / 0.94));
+  --dark-side-row-gradient:
+    linear-gradient(90deg, rgb(35 39 55 / 0.62), rgb(24 28 41 / 0.54));
+  --dark-side-row-hover-gradient:
+    linear-gradient(90deg, rgb(54 59 77 / 0.86), rgb(32 37 52 / 0.82));
+  --dark-side-row-active-gradient:
+    linear-gradient(90deg, rgb(246 240 216 / 0.18), rgb(40 184 240 / 0.13) 46%, rgb(141 99 199 / 0.12)),
+    rgb(35 39 55 / 0.88);
+  --dark-side-detail-shadow:
+    0 24px 70px rgb(2 4 12 / 0.3),
+    inset 0 1px 0 rgb(246 240 216 / 0.08);
   --theme-page-bg:
+    radial-gradient(circle at 18% 10%, rgb(143 220 255 / 0.12), transparent 29%),
+    radial-gradient(circle at 82% 8%, rgb(255 216 79 / 0.1), transparent 26%),
     linear-gradient(
       106deg,
       transparent 0 28%,
-      rgb(246 247 251 / 0.18) 28.35%,
-      rgb(246 247 251 / 0.02) 30.5%,
+      rgb(246 240 216 / 0.2) 28.35%,
+      rgb(246 240 216 / 0.04) 30.5%,
       transparent 31% 52%,
-      rgb(237 47 59 / 0.16) 52.2% 56%,
-      rgb(246 142 32 / 0.16) 56% 60%,
-      rgb(246 217 59 / 0.16) 60% 64%,
-      rgb(68 199 101 / 0.16) 64% 68%,
-      rgb(38 168 237 / 0.16) 68% 72%,
-      rgb(141 99 199 / 0.16) 72% 76%,
+      rgb(237 47 59 / 0.18) 52.2% 56%,
+      rgb(246 142 32 / 0.18) 56% 60%,
+      rgb(255 216 79 / 0.19) 60% 64%,
+      rgb(68 199 101 / 0.18) 64% 68%,
+      rgb(40 184 240 / 0.18) 68% 72%,
+      rgb(141 99 199 / 0.18) 72% 76%,
       transparent 76.5% 100%
     ),
-    radial-gradient(circle at 44% 25%, rgb(255 255 255 / 0.1), transparent 18%),
+    radial-gradient(circle at 44% 25%, rgb(255 248 223 / 0.12), transparent 18%),
     linear-gradient(135deg, var(--preset-app-bg) 0%, var(--preset-app-bg-2) 54%, var(--preset-app-bg-3) 100%);
   --echo-polish-app-bg-layer:
-    radial-gradient(circle at 42% 18%, rgb(255 255 255 / 0.09), transparent 15%),
+    radial-gradient(circle at 12% 12%, rgb(143 220 255 / 0.13), transparent 28%),
+    radial-gradient(circle at 74% 4%, rgb(255 216 79 / 0.1), transparent 27%),
+    radial-gradient(circle at 42% 18%, rgb(255 248 223 / 0.11), transparent 15%),
     linear-gradient(
       106deg,
       transparent 0 29%,
-      rgb(246 247 251 / 0.18) 29.2%,
+      rgb(246 240 216 / 0.22) 29.2%,
       transparent 31.4% 51.5%,
-      rgb(237 47 59 / 0.15) 51.6% 55.4%,
-      rgb(246 142 32 / 0.15) 55.4% 59.2%,
-      rgb(246 217 59 / 0.15) 59.2% 63%,
-      rgb(68 199 101 / 0.15) 63% 66.8%,
-      rgb(38 168 237 / 0.15) 66.8% 70.6%,
-      rgb(141 99 199 / 0.15) 70.6% 74.4%,
+      rgb(237 47 59 / 0.18) 51.6% 55.4%,
+      rgb(246 142 32 / 0.18) 55.4% 59.2%,
+      rgb(255 216 79 / 0.19) 59.2% 63%,
+      rgb(68 199 101 / 0.18) 63% 66.8%,
+      rgb(40 184 240 / 0.18) 66.8% 70.6%,
+      rgb(141 99 199 / 0.18) 70.6% 74.4%,
       transparent 75%
     ),
     linear-gradient(135deg, var(--preset-app-bg) 0%, var(--preset-app-bg-2) 54%, var(--preset-app-bg-3) 100%);
-  --echo-polish-titlebar-bg: rgb(var(--preset-panel-rgb) / 0.9);
+  --echo-polish-titlebar-bg: rgb(var(--preset-panel-rgb) / 0.88);
   --echo-polish-sidebar-bg:
-    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.9), rgb(var(--preset-soft-rgb) / 0.96));
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.9), rgb(var(--preset-soft-rgb) / 0.94));
   --echo-polish-page-bg:
-    radial-gradient(circle at 42% 16%, rgb(255 255 255 / 0.08), transparent 18%),
-    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.74), rgb(var(--preset-soft-rgb) / 0.92) 58%, var(--preset-app-bg));
+    radial-gradient(circle at 36% 12%, rgb(246 240 216 / 0.09), transparent 20%),
+    linear-gradient(112deg, transparent 0 52%, rgb(237 47 59 / 0.08) 52% 56%, rgb(246 142 32 / 0.08) 56% 60%, rgb(255 216 79 / 0.09) 60% 64%, rgb(68 199 101 / 0.08) 64% 68%, rgb(40 184 240 / 0.08) 68% 72%, transparent 72.5%),
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.82), rgb(var(--preset-soft-rgb) / 0.92) 58%, rgb(var(--preset-panel-rgb) / 0.82));
   --echo-polish-player-bg:
-    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.96), rgb(var(--preset-soft-rgb) / 0.96));
-  --theme-list-row-bg-active: rgb(246 247 251 / 0.12);
-  --theme-accent-bg: rgb(246 247 251 / 0.12);
-  --theme-accent-border: rgb(246 247 251 / 0.28);
-  --theme-focus-ring: rgb(38 168 237 / 0.32);
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.97), rgb(var(--preset-soft-rgb) / 0.96));
+  --theme-panel-bg: rgb(var(--preset-panel-rgb) / 0.82);
+  --theme-panel-bg-strong: rgb(var(--preset-panel-rgb) / 0.96);
+  --theme-list-row-bg: rgb(var(--preset-panel-rgb) / 0.66);
+  --theme-list-row-bg-hover: rgb(var(--preset-panel-rgb) / 0.9);
+  --theme-list-row-bg-active:
+    linear-gradient(90deg, rgb(246 240 216 / 0.18), rgb(40 184 240 / 0.1) 42%, rgb(141 99 199 / 0.08));
+  --theme-list-row-border: rgb(var(--preset-border-rgb) / 0.2);
+  --theme-chip-bg: rgb(var(--preset-panel-rgb) / 0.82);
+  --theme-control-bg: rgb(var(--preset-border-rgb) / 0.15);
+  --theme-control-bg-hover: rgb(var(--preset-border-rgb) / 0.22);
+  --theme-accent-bg: rgb(246 240 216 / 0.16);
+  --theme-accent-bg-strong: rgb(246 240 216 / 0.24);
+  --theme-accent-border: rgb(246 240 216 / 0.34);
+  --theme-focus-ring: rgb(40 184 240 / 0.34);
+  --theme-success-bg: rgb(150 240 198 / 0.14);
+  --theme-success-border: rgb(150 240 198 / 0.24);
+  --theme-warning-bg: rgb(255 216 79 / 0.15);
+  --theme-warning-border: rgb(255 216 79 / 0.26);
+  --theme-warning-text: #ffe59a;
+  --echo-polish-shadow-panel: 0 16px 40px rgb(2 4 12 / 0.34);
+  --echo-polish-shadow-row: 0 12px 28px rgb(2 4 12 / 0.24);
+  --echo-polish-shadow-player: 0 -18px 46px rgb(2 4 12 / 0.28);
 }
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell:not(.app-shell--wallpaper) {
@@ -1548,83 +1630,651 @@ html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([
     inset 0 1px 0 rgb(255 255 255 / 0.1);
 }
 
-html[data-theme-preset="darkSideMoon"] .player-bar .progress-track {
-  height: 6px;
-  border: 1px solid rgb(246 247 251 / 0.16);
+html[data-theme-preset="nyanCat"] {
+  --nyan-cat-thumb: url("../assets/nyancat-thumb.png");
+  --nyan-cat-rainbow: url("../assets/nyancat-rainbow.png");
+  --nyan-rainbow:
+    linear-gradient(
+      90deg,
+      #ff4d6d 0%,
+      #ff9f1c 16%,
+      #ffd84f 32%,
+      #44c765 48%,
+      #28b8f0 64%,
+      #8b5cf6 80%,
+      #ff5f93 100%
+    );
+  --theme-page-bg:
+    radial-gradient(circle at 10% 12%, rgb(255 95 147 / 0.42), transparent 27%),
+    radial-gradient(circle at 52% 0%, rgb(255 216 79 / 0.36), transparent 28%),
+    radial-gradient(circle at 88% 10%, rgb(40 184 240 / 0.38), transparent 30%),
+    linear-gradient(120deg, #fff3fb 0%, #bdeeff 22%, #fff06f 42%, #a6ff9f 62%, #c8b7ff 82%, #ffb6dd 100%);
+  --echo-polish-app-bg-layer: var(--theme-page-bg);
+  --echo-polish-page-bg:
+    radial-gradient(circle at 18% 8%, rgb(255 95 147 / 0.28), transparent 30%),
+    radial-gradient(circle at 82% 10%, rgb(40 184 240 / 0.24), transparent 30%),
+    linear-gradient(120deg, rgb(var(--preset-panel-rgb) / 0.48), rgb(255 246 150 / 0.58) 36%, rgb(166 255 159 / 0.44) 58%, rgb(var(--preset-soft-rgb) / 0.78));
+  --echo-polish-player-bg:
+    linear-gradient(110deg, rgb(var(--preset-panel-rgb) / 0.96), rgb(255 246 180 / 0.78) 34%, rgb(185 242 255 / 0.86) 66%, rgb(var(--preset-panel-rgb) / 0.96));
+}
+
+html[data-theme-preset="nyanCat"] body,
+html[data-theme-preset="nyanCat"] .app-shell,
+html[data-theme-preset="nyanCat"] .page-surface,
+html[data-theme-preset="nyanCat"] .player-bar {
+  background-size: 240% 240%;
+  animation: nyan-cat-gradient-flow 22s ease-in-out infinite alternate;
+}
+
+html[data-theme-preset="nyanCat"] .settings-theme-preset-card[data-preset="nyanCat"] .settings-theme-preset-preview,
+html[data-theme-preset="nyanCat"] .list-filter-chip.active,
+html[data-theme-preset="nyanCat"] .settings-font-option.active {
+  background: var(--nyan-rainbow);
+  background-size: 220% 100%;
+  animation: nyan-cat-rainbow-slide 18s linear infinite;
+}
+
+html[data-theme-preset="nyanCat"] .player-bar .progress-track {
+  height: 18px;
+  border: 1px solid rgb(255 255 255 / 0.74);
   background:
-    linear-gradient(90deg, rgb(246 247 251 / 0.72) 0 18%, rgb(246 247 251 / 0.22) 18% 23%, transparent 23%),
-    rgb(246 247 251 / 0.08);
+    linear-gradient(90deg, rgb(255 255 255 / 0.64), rgb(222 241 255 / 0.62)),
+    rgb(var(--preset-border-rgb) / 0.12);
   box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.28),
-    0 0 18px rgb(38 168 237 / 0.12),
-    inset 0 1px 1px rgb(255 255 255 / 0.1);
+    0 0 0 1px rgb(var(--preset-border-rgb) / 0.18),
+    0 0 18px rgb(var(--preset-accent-rgb) / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.46);
+  image-rendering: pixelated;
+}
+
+html[data-theme-preset="nyanCat"] .player-bar .progress-track::before {
+  content: "";
+  position: absolute;
+  inset: -10px 0;
+  border-radius: 999px;
+  background: rgb(var(--preset-accent-rgb) / 0.16);
+  filter: blur(14px);
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+html[data-theme-preset="nyanCat"] .player-bar .progress-fill {
+  background:
+    var(--nyan-cat-rainbow) left center / auto 100% repeat-x,
+    var(--nyan-rainbow);
+  background-position: 0 50%;
+  box-shadow:
+    0 0 12px rgb(255 216 79 / 0.36),
+    0 0 18px rgb(40 184 240 / 0.28);
+  image-rendering: pixelated;
+}
+
+html[data-theme-preset="nyanCat"] .player-bar[data-playback-state="playing"] .progress-fill {
+  animation: nyan-cat-rainbow-slide 16s linear infinite;
+}
+
+html[data-theme-preset="nyanCat"] .player-bar .progress-thumb {
+  width: 66px;
+  height: 42px;
+  border: 0;
+  border-radius: 0;
+  background: var(--nyan-cat-thumb) center / contain no-repeat;
+  box-shadow:
+    none;
+  filter:
+    drop-shadow(0 0 2px rgb(255 255 255 / 0.95))
+    drop-shadow(0 0 9px rgb(255 95 147 / 0.34))
+    drop-shadow(0 8px 12px rgb(80 54 112 / 0.28));
+  image-rendering: pixelated;
+  opacity: 1;
+  transform: translate(-50%, -61%) scale(1);
+}
+
+html[data-theme-preset="nyanCat"] .player-bar .progress-track:hover .progress-thumb,
+html[data-theme-preset="nyanCat"] .player-bar .progress-track:focus-within .progress-thumb {
+  transform: translate(-50%, -61%) scale(1.08);
+}
+
+@keyframes nyan-cat-gradient-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes nyan-cat-rainbow-slide {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  100% {
+    background-position: 260% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-preset="nyanCat"] body,
+  html[data-theme-preset="nyanCat"] .app-shell,
+  html[data-theme-preset="nyanCat"] .page-surface,
+  html[data-theme-preset="nyanCat"] .player-bar,
+  html[data-theme-preset="nyanCat"] .settings-theme-preset-card[data-preset="nyanCat"] .settings-theme-preset-preview,
+  html[data-theme-preset="nyanCat"] .player-bar .progress-fill {
+    animation: none;
+  }
+}
+
+html[data-theme-preset="darkSideMoon"] .page-surface:has(.album-detail-page),
+html[data-theme-preset="darkSideMoon"] .page-surface:has(.artist-detail-page) {
+  background: var(--dark-side-page-gradient), var(--theme-app-bg);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-page,
+html[data-theme-preset="darkSideMoon"] .artist-detail-page {
+  color: var(--theme-page-text);
+  background: var(--dark-side-page-gradient), var(--theme-app-bg);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-back-button,
+html[data-theme-preset="darkSideMoon"] .artist-detail-back {
+  color: var(--theme-muted-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-back-button:hover,
+html[data-theme-preset="darkSideMoon"] .artist-detail-back:hover {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-copy h1,
+html[data-theme-preset="darkSideMoon"] .artist-hero-copy h1,
+html[data-theme-preset="darkSideMoon"] .artist-section h2,
+html[data-theme-preset="darkSideMoon"] .album-track-copy strong,
+html[data-theme-preset="darkSideMoon"] .artist-album-copy strong,
+html[data-theme-preset="darkSideMoon"] .artist-track-copy strong,
+html[data-theme-preset="darkSideMoon"] .album-fact strong,
+html[data-theme-preset="darkSideMoon"] .artist-stat-grid strong {
+  color: var(--theme-heading-text);
+  text-shadow: 0 2px 18px rgb(2 4 12 / 0.42);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-copy p,
+html[data-theme-preset="darkSideMoon"] .artist-hero-copy p,
+html[data-theme-preset="darkSideMoon"] .album-detail-meta,
+html[data-theme-preset="darkSideMoon"] .artist-hero-meta,
+html[data-theme-preset="darkSideMoon"] .album-detail-kicker,
+html[data-theme-preset="darkSideMoon"] .artist-detail-kicker,
+html[data-theme-preset="darkSideMoon"] .album-detail-facts span,
+html[data-theme-preset="darkSideMoon"] .artist-section header span,
+html[data-theme-preset="darkSideMoon"] .artist-section header small,
+html[data-theme-preset="darkSideMoon"] .artist-stat-grid span,
+html[data-theme-preset="darkSideMoon"] .album-track-toolbar,
+html[data-theme-preset="darkSideMoon"] .album-track-header,
+html[data-theme-preset="darkSideMoon"] .artist-track-header,
+html[data-theme-preset="darkSideMoon"] .album-track-number,
+html[data-theme-preset="darkSideMoon"] .album-track-duration,
+html[data-theme-preset="darkSideMoon"] .artist-track-duration,
+html[data-theme-preset="darkSideMoon"] .album-track-copy small,
+html[data-theme-preset="darkSideMoon"] .artist-album-copy span,
+html[data-theme-preset="darkSideMoon"] .artist-track-copy small,
+html[data-theme-preset="darkSideMoon"] .artist-track-album,
+html[data-theme-preset="darkSideMoon"] .album-track-tags em,
+html[data-theme-preset="darkSideMoon"] .artist-track-tags em,
+html[data-theme-preset="darkSideMoon"] .album-detail-empty,
+html[data-theme-preset="darkSideMoon"] .artist-detail-empty,
+html[data-theme-preset="darkSideMoon"] .artist-detail-loading,
+html[data-theme-preset="darkSideMoon"] .artist-detail-status {
+  color: var(--theme-muted-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-facts {
+  border-left-color: rgb(246 240 216 / 0.16);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-track-console,
+html[data-theme-preset="darkSideMoon"] .album-detail-tabs {
+  border-color: rgb(246 240 216 / 0.12);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-tab {
+  color: var(--theme-muted-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-tab[aria-current='page'] {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-tab[aria-current='page']::after {
+  background: linear-gradient(90deg, #f6f0d8, #ed2f3b, #ffd84f, #28b8f0);
+  box-shadow: 0 0 16px rgb(40 184 240 / 0.26);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-cover,
+html[data-theme-preset="darkSideMoon"] .artist-hero-avatar,
+html[data-theme-preset="darkSideMoon"] .artist-album-cover,
+html[data-theme-preset="darkSideMoon"] .artist-track-cover {
+  color: var(--theme-muted-text);
+  border-color: rgb(246 240 216 / 0.2);
+  background:
+    radial-gradient(circle at 42% 22%, rgb(246 240 216 / 0.13), transparent 32%),
+    linear-gradient(145deg, rgb(47 51 68 / 0.92), rgb(17 20 31 / 0.96));
+  box-shadow:
+    0 26px 62px rgb(2 4 12 / 0.38),
+    0 0 0 1px rgb(143 220 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .artist-hero,
+html[data-theme-preset="darkSideMoon"] .artist-stat-grid div,
+html[data-theme-preset="darkSideMoon"] .artist-detail-missing {
+  border-color: rgb(246 240 216 / 0.16);
+  background: var(--dark-side-panel-gradient);
+  box-shadow: var(--dark-side-detail-shadow);
+}
+
+html[data-theme-preset="darkSideMoon"] .artist-hero::before {
+  opacity: 0.45;
+}
+
+html[data-theme-preset="darkSideMoon"] .album-primary-action,
+html[data-theme-preset="darkSideMoon"] .artist-primary-action {
+  color: #10131d;
+  border-color: rgb(246 240 216 / 0.34);
+  background:
+    linear-gradient(106deg, #f6f0d8 0 45%, #ed2f3b 48%, #f68e20 58%, #ffd84f 68%, #44c765 78%, #28b8f0 88%, #8d63c7 100%);
+  box-shadow:
+    0 14px 30px rgb(40 184 240 / 0.18),
+    0 0 0 1px rgb(246 240 216 / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.36);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-icon-action,
+html[data-theme-preset="darkSideMoon"] .album-load-more,
+html[data-theme-preset="darkSideMoon"] .artist-secondary-action,
+html[data-theme-preset="darkSideMoon"] .artist-load-more,
+html[data-theme-preset="darkSideMoon"] .artist-track-actions button {
+  color: var(--theme-page-text);
+  border-color: rgb(246 240 216 / 0.16);
+  background: rgb(32 36 51 / 0.82);
+  box-shadow: inset 0 1px 0 rgb(246 240 216 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-icon-action:hover,
+html[data-theme-preset="darkSideMoon"] .album-load-more:hover,
+html[data-theme-preset="darkSideMoon"] .artist-secondary-action:not(:disabled):hover,
+html[data-theme-preset="darkSideMoon"] .artist-load-more:not(:disabled):hover,
+html[data-theme-preset="darkSideMoon"] .artist-track-actions button:hover {
+  color: var(--theme-heading-text);
+  border-color: rgb(246 240 216 / 0.28);
+  background: rgb(246 240 216 / 0.12);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-track-row,
+html[data-theme-preset="darkSideMoon"] .artist-track-row,
+html[data-theme-preset="darkSideMoon"] .artist-album-card {
+  color: var(--theme-page-text);
+  border-color: rgb(246 240 216 / 0.1);
+  background: var(--dark-side-row-gradient);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-track-row:hover,
+html[data-theme-preset="darkSideMoon"] .artist-track-row:hover,
+html[data-theme-preset="darkSideMoon"] .artist-album-card:hover,
+html[data-theme-preset="darkSideMoon"] .artist-album-card:focus-visible {
+  border-color: rgb(246 240 216 / 0.22);
+  background: var(--dark-side-row-hover-gradient);
+  box-shadow:
+    0 14px 32px rgb(2 4 12 / 0.28),
+    inset 0 1px 0 rgb(246 240 216 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-track-row[data-playing='true'],
+html[data-theme-preset="darkSideMoon"] .artist-track-row[data-playing="true"] {
+  color: var(--theme-heading-text);
+  border-color: rgb(246 240 216 / 0.32);
+  background: var(--dark-side-row-active-gradient);
+}
+
+html[data-theme-preset="darkSideMoon"] .album-track-row-play,
+html[data-theme-preset="darkSideMoon"] .artist-track-play {
+  color: #f6f0d8;
+  filter: drop-shadow(0 0 8px rgb(40 184 240 / 0.34));
+}
+
+html[data-theme-preset="darkSideMoon"] .album-detail-error,
+html[data-theme-preset="darkSideMoon"] .artist-detail-error {
+  color: #ffb3ad;
+}
+
+html[data-theme-preset="darkSideMoon"] .track-row {
+  border-color: rgb(var(--preset-border-rgb) / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .track-row:hover {
+  border-color: rgb(var(--preset-border-rgb) / 0.22);
+  background: linear-gradient(90deg, rgb(var(--preset-panel-rgb) / 0.9), rgb(var(--preset-soft-rgb) / 0.82));
+  box-shadow:
+    0 12px 28px rgb(2 4 12 / 0.26),
+    inset 0 1px 0 rgb(246 240 216 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .track-row[data-playing="true"] {
+  border-color: rgb(246 240 216 / 0.3);
+  background:
+    linear-gradient(90deg, rgb(246 240 216 / 0.14), rgb(40 184 240 / 0.11) 46%, rgb(141 99 199 / 0.1)),
+    rgb(var(--preset-panel-rgb) / 0.82);
+  box-shadow:
+    0 14px 34px rgb(2 4 12 / 0.3),
+    inset 0 1px 0 rgb(246 240 216 / 0.12);
+}
+
+html[data-theme-preset="darkSideMoon"] .track-title,
+html[data-theme-preset="darkSideMoon"] .track-duration {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .track-subtitle,
+html[data-theme-preset="darkSideMoon"] .track-subtitle-link,
+html[data-theme-preset="darkSideMoon"] .track-subtitle-separator {
+  color: var(--theme-muted-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .playing-dot {
+  background: #f6f0d8;
+  box-shadow:
+    0 0 0 3px rgb(246 240 216 / 0.14),
+    0 0 18px rgb(40 184 240 / 0.28);
+}
+
+html[data-theme-preset="darkSideMoon"] .playing-pill,
+html[data-theme-preset="darkSideMoon"] .duplicate-version-badge {
+  color: var(--theme-heading-text);
+  border-color: rgb(246 240 216 / 0.25);
+  background: rgb(var(--preset-panel-rgb) / 0.86);
+}
+
+html[data-theme-preset="darkSideMoon"] .row-action {
+  color: var(--theme-muted-text);
+  border-color: rgb(var(--preset-border-rgb) / 0.14);
+  background: rgb(var(--preset-panel-rgb) / 0.78);
+  box-shadow: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .row-action:hover {
+  color: var(--theme-heading-text);
+  border-color: rgb(246 240 216 / 0.28);
+  background: rgb(246 240 216 / 0.12);
+}
+
+html[data-theme-preset="darkSideMoon"] .hifi-tag {
+  color: #e9f1ff;
+  border-color: rgb(var(--preset-border-rgb) / 0.18);
+  background: rgb(var(--preset-panel-rgb) / 0.86);
+}
+
+html[data-theme-preset="darkSideMoon"] .tag-flac,
+html[data-theme-preset="darkSideMoon"] .tag-lossless,
+html[data-theme-preset="darkSideMoon"] .tag-streaming {
+  color: #99e9ff;
+  border-color: rgb(40 184 240 / 0.28);
+  background: rgb(40 184 240 / 0.13);
+}
+
+html[data-theme-preset="darkSideMoon"] .tag-hires {
+  color: #ffe59a;
+  border-color: rgb(255 216 79 / 0.32);
+  background: rgb(255 216 79 / 0.13);
+}
+
+html[data-theme-preset="darkSideMoon"] .tag-bpm,
+html[data-theme-preset="darkSideMoon"] .tag-depth,
+html[data-theme-preset="darkSideMoon"] .tag-bitrate,
+html[data-theme-preset="darkSideMoon"] .tag-channel {
+  color: #d9e2f6;
+  border-color: rgb(246 240 216 / 0.2);
+  background: rgb(246 240 216 / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .tag-airplay {
+  color: #d7c8ff;
+  border-color: rgb(141 99 199 / 0.3);
+  background: rgb(141 99 199 / 0.14);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-range-field span {
+  color: var(--theme-heading-text);
+  border-color: rgb(246 240 216 / 0.22);
+  background: rgb(var(--preset-panel-rgb) / 0.86);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-range-field input[type="range"],
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider input[type="range"],
+html[data-theme-preset="darkSideMoon"] .lyrics-drawer-range input[type="range"] {
+  height: 22px;
+  accent-color: #ffd84f;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-range-field input[type="range"]::-webkit-slider-runnable-track,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider input[type="range"]::-webkit-slider-runnable-track,
+html[data-theme-preset="darkSideMoon"] .lyrics-drawer-range input[type="range"]::-webkit-slider-runnable-track {
+  height: 7px;
+  border: 1px solid rgb(246 240 216 / 0.14);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, #f6f0d8 0 18%, #ed2f3b 24%, #f68e20 38%, #ffd84f 52%, #44c765 66%, #28b8f0 80%, #8d63c7 100%),
+    rgb(var(--preset-soft-rgb) / 0.92);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.35);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-range-field input[type="range"]::-webkit-slider-thumb,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider input[type="range"]::-webkit-slider-thumb,
+html[data-theme-preset="darkSideMoon"] .lyrics-drawer-range input[type="range"]::-webkit-slider-thumb {
+  width: 17px;
+  height: 17px;
+  margin-top: -6px;
+  border: 2px solid #f6f0d8;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 35%, #ffffff, transparent 26%),
+    linear-gradient(135deg, #141827, #28b8f0 48%, #8d63c7);
+  box-shadow:
+    0 0 0 3px rgb(246 240 216 / 0.13),
+    0 0 18px rgb(40 184 240 / 0.28);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-section,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-panel,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-color-card,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-gradient-card,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-sliders {
+  border-color: rgb(var(--preset-border-rgb) / 0.15);
+  background: rgb(var(--preset-panel-rgb) / 0.78);
+  box-shadow:
+    0 18px 42px rgb(2 4 12 / 0.28),
+    inset 0 1px 0 rgb(246 240 216 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop {
+  background:
+    radial-gradient(circle at 18% 12%, rgb(143 220 255 / 0.14), transparent 30%),
+    radial-gradient(circle at 82% 78%, rgb(141 99 199 / 0.16), transparent 36%),
+    linear-gradient(135deg, var(--preset-app-bg) 0%, var(--preset-app-bg-2) 54%, var(--preset-app-bg-3) 100%);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop::before {
+  background:
+    linear-gradient(112deg, transparent 0 52%, rgb(237 47 59 / 0.08) 52% 56%, rgb(246 142 32 / 0.08) 56% 60%, rgb(255 216 79 / 0.09) 60% 64%, rgb(68 199 101 / 0.08) 64% 68%, rgb(40 184 240 / 0.08) 68% 72%, transparent 72.5%),
+    linear-gradient(180deg, rgb(16 17 26 / 0.02), rgb(16 17 26 / 0.3) 70%, rgb(16 17 26 / 0.66));
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-header {
+  border-top-color: rgb(246 240 216 / 0.14);
+  background:
+    linear-gradient(106deg, transparent 0 50%, rgb(237 47 59 / 0.08) 50% 54%, rgb(246 142 32 / 0.08) 54% 58%, rgb(255 216 79 / 0.09) 58% 62%, rgb(68 199 101 / 0.08) 62% 66%, rgb(40 184 240 / 0.08) 66% 70%, transparent 70.5%),
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.96), rgb(var(--preset-soft-rgb) / 0.98));
+  box-shadow:
+    0 -24px 54px rgb(2 4 12 / 0.34),
+    inset 0 1px 0 rgb(246 240 216 / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-header {
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-cover {
+  border-color: rgb(246 240 216 / 0.9);
+  background: rgb(var(--preset-panel-rgb) / 0.92);
+  box-shadow:
+    0 28px 62px rgb(2 4 12 / 0.42),
+    0 0 0 1px rgb(143 220 255 / 0.16),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy h1 {
+  color: var(--theme-heading-text);
+  text-shadow: 0 3px 18px rgb(2 4 12 / 0.46);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy p,
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-album,
+html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-artist {
+  color: var(--theme-muted-text);
+  text-shadow: 0 2px 12px rgb(2 4 12 / 0.34);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track {
+  height: 26px;
+  min-width: 0;
+  border: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 4% 50%, rgb(255 255 255 / 0.4), transparent 8%),
+    radial-gradient(circle at 14% 50%, rgb(255 255 255 / 0.18), transparent 12%),
+    linear-gradient(90deg, rgb(255 255 255 / 0.16), transparent 18%),
+    linear-gradient(180deg, transparent, transparent);
+  box-shadow:
+    none;
+  isolation: isolate;
 }
 
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-track::before {
   content: "";
   position: absolute;
-  inset: -8px 22% -8px 36%;
+  top: 50%;
+  left: 0;
+  z-index: 1;
+  width: var(--progress-percent, 0%);
+  height: 2px;
   background:
     linear-gradient(
       90deg,
-      rgb(237 47 59 / 0.12),
-      rgb(246 142 32 / 0.12),
-      rgb(246 217 59 / 0.12),
-      rgb(68 199 101 / 0.12),
-      rgb(38 168 237 / 0.12),
-      rgb(141 99 199 / 0.12)
+      rgb(255 255 255 / 0.14),
+      rgb(255 255 255 / 0.78) 14%,
+      rgb(255 255 255 / 0.98) 82%,
+      rgb(255 255 255 / 0.5)
     );
-  filter: blur(10px);
-  opacity: 0.78;
+  border-radius: 999px;
+  box-shadow:
+    0 0 9px rgb(246 240 216 / 0.62),
+    0 0 18px rgb(255 255 255 / 0.22);
+  opacity: 0.92;
   pointer-events: none;
+  transform: translateY(-50%);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: var(--progress-percent, 0%);
+  z-index: 1;
+  width: max(0px, calc(100% - var(--progress-percent, 0%)));
+  height: 11px;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(237 47 59 / 0.94) 0 15%,
+      rgb(246 142 32 / 0.94) 16% 30%,
+      rgb(246 217 59 / 0.96) 31% 45%,
+      rgb(68 199 101 / 0.94) 46% 60%,
+      rgb(38 168 237 / 0.92) 61% 75%,
+      rgb(141 99 199 / 0.9) 76% 100%
+    );
+  border-radius: 999px;
+  box-shadow:
+    0 0 10px rgb(237 47 59 / 0.18),
+    0 0 16px rgb(38 168 237 / 0.16);
+  opacity: 0.96;
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-fill {
-  background:
-    linear-gradient(
-      90deg,
-      #f7f8fb 0 18%,
-      #ed2f3b 22%,
-      #f68e20 36%,
-      #f6d93b 50%,
-      #44c765 64%,
-      #26a8ed 78%,
-      #8d63c7 100%
-    );
-  box-shadow:
-    0 0 12px rgb(246 217 59 / 0.22),
-    0 0 18px rgb(38 168 237 / 0.16);
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  height: 2px;
+  max-width: var(--progress-percent, 0%);
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-50%);
 }
 
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb {
-  width: 21px;
-  height: 18px;
+  z-index: 3;
+  width: 38px;
+  height: 33px;
   border: 0;
   border-radius: 0;
-  background:
-    linear-gradient(116deg, transparent 0 43%, rgb(255 255 255 / 0.9) 44% 48%, transparent 49%),
-    linear-gradient(244deg, transparent 0 43%, rgb(255 255 255 / 0.72) 44% 48%, transparent 49%),
-    radial-gradient(circle at 50% 82%, rgb(246 247 251 / 0.95), transparent 24%),
-    linear-gradient(135deg, #020203 0%, #11131a 42%, #d9e0e8 55%, #020203 76%);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 88'%3E%3Cdefs%3E%3ClinearGradient id='fill' x1='50' y1='4' x2='50' y2='84' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f5fbff' stop-opacity='.82'/%3E%3Cstop offset='.16' stop-color='%23323b45' stop-opacity='.78'/%3E%3Cstop offset='.52' stop-color='%23000000'/%3E%3Cstop offset='.86' stop-color='%23000000'/%3E%3Cstop offset='1' stop-color='%238ca2ad' stop-opacity='.8'/%3E%3C/linearGradient%3E%3ClinearGradient id='edge' x1='16' y1='78' x2='84' y2='78' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23ddecf4' stop-opacity='.9'/%3E%3Cstop offset='.5' stop-color='%236b7f8a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ddecf4' stop-opacity='.78'/%3E%3C/linearGradient%3E%3Cfilter id='glow' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='1.3' result='b'/%3E%3CfeMerge%3E%3CfeMergeNode in='b'/%3E%3CfeMergeNode in='SourceGraphic'/%3E%3C/feMerge%3E%3C/filter%3E%3C/defs%3E%3Cpolygon points='50,4 88,82 12,82' fill='url(%23fill)' stroke='url(%23edge)' stroke-width='5' stroke-linejoin='round' filter='url(%23glow)'/%3E%3Cpolygon points='50,17 77,78 23,78' fill='%23000000' opacity='.92'/%3E%3Cpath d='M50 6 L88 82' stroke='%23edf7ff' stroke-opacity='.74' stroke-width='2.8'/%3E%3Cpath d='M50 6 L12 82' stroke='%23edf7ff' stroke-opacity='.62' stroke-width='2.5'/%3E%3Cpath d='M21 78 H79' stroke='%23dceff7' stroke-opacity='.56' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  clip-path: none;
   filter:
-    drop-shadow(0 0 7px rgb(246 247 251 / 0.42))
-    drop-shadow(0 7px 10px rgb(0 0 0 / 0.45));
+    drop-shadow(0 0 8px rgb(237 246 255 / 0.38))
+    drop-shadow(0 8px 10px rgb(0 0 0 / 0.38));
   opacity: 1;
-  transform: translate(-50%, -58%) scale(1);
+  transform: translate(-50%, -50%) scale(1);
 }
 
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb::before {
-  content: "";
-  position: absolute;
-  inset: 5px 5px 3px;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.18), rgb(0 0 0 / 0.72));
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  content: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb::after {
+  content: none;
 }
 
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-track:hover .progress-thumb,
 html[data-theme-preset="darkSideMoon"] .player-bar .progress-track:focus-within .progress-thumb {
-  transform: translate(-50%, -58%) scale(1.12);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+@media (max-width: 760px) {
+  html[data-theme-preset="darkSideMoon"] .player-bar .progress-track {
+    height: 22px;
+  }
+
+  html[data-theme-preset="darkSideMoon"] .player-bar .progress-track::before {
+    left: 0;
+    width: var(--progress-percent, 0%);
+  }
+
+  html[data-theme-preset="darkSideMoon"] .player-bar .progress-track::after {
+    width: max(0px, calc(100% - var(--progress-percent, 0%)));
+    height: 9px;
+  }
+
+  html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb {
+    width: 31px;
+    height: 27px;
+  }
 }
 
 .setting-row--theme-presets {

@@ -1,6 +1,12 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { app } from 'electron';
+import Database from 'better-sqlite3';
+import {
+  checkDatabaseHealth,
+  checkpointWal,
+  type DatabaseHealthResult,
+} from '../database/health';
 
 type DataProtectionReason = 'startup' | 'update-install';
 type ProtectedEntryKind = 'file' | 'directory';
@@ -14,6 +20,8 @@ type SnapshotResult = {
   snapshotPath: string;
   copied: string[];
   skipped: string[];
+  libraryHealth: DatabaseHealthResult;
+  libraryBackupMethod: 'none' | 'sqlite-backup' | 'file-copy';
 };
 
 type RestoreResult = {
@@ -26,6 +34,33 @@ type LegacyMigrationResult = {
   migrated: string[];
   skipped: string[];
 };
+
+export type LibraryRecoveryResult = {
+  action: 'none' | 'restored' | 'quarantined' | 'failed';
+  sourceSnapshotPath?: string;
+  archivePath?: string;
+  health: DatabaseHealthResult;
+};
+
+export type DataProtectionResult = {
+  userDataPath: string;
+  migration: LegacyMigrationResult;
+  snapshot: SnapshotResult;
+  restore: RestoreResult;
+  libraryHealth: DatabaseHealthResult;
+  recovery: LibraryRecoveryResult;
+};
+
+export class LibraryDatabaseUnavailableError extends Error {
+  constructor(readonly recovery: LibraryRecoveryResult | null = lastDataProtectionResult?.recovery ?? null) {
+    super(
+      recovery?.action === 'quarantined' || recovery?.action === 'failed'
+        ? '音乐库数据库需要修复。ECHO Next 已保留原始库文件,请导出诊断或重新扫描曲库。'
+        : '音乐库数据库暂时不可用。请稍后重试或导出诊断。',
+    );
+    this.name = 'LibraryDatabaseUnavailableError';
+  }
+}
 
 type UserDataScore = {
   path: string;
@@ -48,8 +83,13 @@ const protectedUserDataFolderName = 'ECHO NEXT';
 const legacyUserDataFolderNames = ['echo-next', 'ECHO Next', 'ECHO'];
 const dataProtectionDirectoryName = 'data-protection';
 const snapshotDirectoryName = 'snapshots';
+const corruptArchivesDirectoryName = 'corrupt-archives';
 const manifestFileName = 'echo-data-protection.json';
 const maxSnapshots = 5;
+const libraryFileName = 'echo-library.sqlite';
+const libraryWalFileName = `${libraryFileName}-wal`;
+const libraryShmFileName = `${libraryFileName}-shm`;
+const libraryEntryNames = new Set([libraryFileName, libraryWalFileName, libraryShmFileName]);
 
 export const protectedDataEntries: ProtectedEntry[] = [
   { name: 'echo-settings.json', kind: 'file' },
@@ -92,6 +132,7 @@ export const initializeProtectedUserDataPath = (electronApp: ElectronAppLike = a
 
 const getDataProtectionPath = (userDataPath: string): string => join(userDataPath, dataProtectionDirectoryName);
 const getSnapshotsPath = (userDataPath: string): string => join(getDataProtectionPath(userDataPath), snapshotDirectoryName);
+const getCorruptArchivesPath = (userDataPath: string): string => join(getDataProtectionPath(userDataPath), corruptArchivesDirectoryName);
 const getLegacyUserDataPaths = (electronApp: ElectronAppLike = app): string[] => {
   const appDataPath = electronApp.getPath('appData');
   const protectedPath = getProtectedUserDataPath(electronApp).toLocaleLowerCase();
@@ -133,6 +174,79 @@ const pruneOldSnapshots = (userDataPath: string): void => {
   for (const snapshotPath of listSnapshotPaths(userDataPath).slice(maxSnapshots)) {
     rmSync(snapshotPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
+};
+
+const libraryPathFor = (rootPath: string): string => join(rootPath, libraryFileName);
+const libraryWalPathFor = (rootPath: string): string => join(rootPath, libraryWalFileName);
+const libraryShmPathFor = (rootPath: string): string => join(rootPath, libraryShmFileName);
+
+const copyLibraryTriplet = (sourceRoot: string, targetRoot: string): string[] => {
+  const copied: string[] = [];
+  for (const name of [libraryFileName, libraryWalFileName, libraryShmFileName]) {
+    const sourcePath = join(sourceRoot, name);
+    if (!existsSync(sourcePath)) {
+      continue;
+    }
+    try {
+      copyProtectedEntry(sourcePath, join(targetRoot, name), 'file');
+      copied.push(name);
+    } catch {
+      // A failed archive/snapshot copy should not block the rest of startup.
+    }
+  }
+  return copied;
+};
+
+const removeLibraryTriplet = (rootPath: string): void => {
+  for (const name of [libraryFileName, libraryWalFileName, libraryShmFileName]) {
+    rmSync(join(rootPath, name), { force: true, maxRetries: 3, retryDelay: 50 });
+  }
+};
+
+const sqliteBackup = async (sourcePath: string, targetPath: string): Promise<void> => {
+  mkdirSync(dirname(targetPath), { recursive: true });
+  rmSync(targetPath, { force: true, maxRetries: 3, retryDelay: 50 });
+  const database = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  try {
+    await database.backup(targetPath);
+  } finally {
+    database.close();
+  }
+};
+
+const readSnapshotManifest = (snapshotPath: string): { libraryHealth?: DatabaseHealthResult } | null =>
+  safeReadJson<{ libraryHealth?: DatabaseHealthResult }>(join(snapshotPath, 'snapshot.json'));
+
+const snapshotHasHealthyLibrary = (snapshotPath: string): boolean => {
+  if (!existsSync(libraryPathFor(snapshotPath))) {
+    return false;
+  }
+
+  const manifestHealth = readSnapshotManifest(snapshotPath)?.libraryHealth;
+  if (manifestHealth && manifestHealth.status !== 'ok') {
+    return false;
+  }
+
+  return checkDatabaseHealth(libraryPathFor(snapshotPath)).status === 'ok';
+};
+
+const findHealthyLibrarySnapshot = (userDataPath: string): string | null =>
+  listSnapshotPaths(userDataPath).find(snapshotHasHealthyLibrary) ?? null;
+
+const archiveLibraryTriplet = (userDataPath: string, reason: string, date = new Date()): string | null => {
+  if (!existsSync(libraryPathFor(userDataPath)) && !existsSync(libraryWalPathFor(userDataPath)) && !existsSync(libraryShmPathFor(userDataPath))) {
+    return null;
+  }
+
+  const archivePath = join(getCorruptArchivesPath(userDataPath), `${timestampForPath(date)}-${reason}`);
+  mkdirSync(archivePath, { recursive: true });
+  const copied = copyLibraryTriplet(userDataPath, archivePath);
+  writeFileSync(
+    join(archivePath, 'archive.json'),
+    `${JSON.stringify({ formatVersion: 1, reason, createdAt: date.toISOString(), copied }, null, 2)}\n`,
+    'utf8',
+  );
+  return archivePath;
 };
 
 const fileSize = (path: string): number => {
@@ -208,10 +322,10 @@ const findBestLegacyUserDataPath = (targetUserDataPath: string, legacyUserDataPa
   return best.path;
 };
 
-export const migrateLegacyProtectedData = (
+export const migrateLegacyProtectedData = async (
   targetUserDataPath = app.getPath('userData'),
   legacyUserDataPaths = getLegacyUserDataPaths(),
-): LegacyMigrationResult => {
+): Promise<LegacyMigrationResult> => {
   const sourcePath = findBestLegacyUserDataPath(targetUserDataPath, legacyUserDataPaths);
   const migrated: string[] = [];
   const skipped: string[] = [];
@@ -220,7 +334,7 @@ export const migrateLegacyProtectedData = (
     return { sourcePath: null, migrated, skipped: protectedDataEntries.map((entry) => entry.name) };
   }
 
-  createDataProtectionSnapshot('startup', targetUserDataPath);
+  await createDataProtectionSnapshot('startup', targetUserDataPath);
 
   for (const entry of protectedDataEntries) {
     const sourceEntryPath = join(sourcePath, entry.name);
@@ -240,19 +354,60 @@ export const migrateLegacyProtectedData = (
   return { sourcePath, migrated, skipped };
 };
 
-export const createDataProtectionSnapshot = (
+export const createDataProtectionSnapshot = async (
   reason: DataProtectionReason,
   userDataPath = app.getPath('userData'),
   date = new Date(),
-): SnapshotResult => {
+): Promise<SnapshotResult> => {
   const snapshotsPath = getSnapshotsPath(userDataPath);
   const snapshotPath = join(snapshotsPath, `${timestampForPath(date)}-${reason}`);
   const copied: string[] = [];
   const skipped: string[] = [];
+  let libraryBackupMethod: SnapshotResult['libraryBackupMethod'] = 'none';
+  let libraryHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
 
   mkdirSync(snapshotPath, { recursive: true });
 
+  if (existsSync(libraryPathFor(userDataPath))) {
+    const snapshotLibraryPath = libraryPathFor(snapshotPath);
+    if (libraryHealth.status === 'ok') {
+      try {
+        await sqliteBackup(libraryPathFor(userDataPath), snapshotLibraryPath);
+        const snapshotHealth = checkDatabaseHealth(snapshotLibraryPath);
+        if (snapshotHealth.status === 'ok') {
+          copied.push(libraryFileName);
+          skipped.push(libraryWalFileName, libraryShmFileName);
+          libraryBackupMethod = 'sqlite-backup';
+          libraryHealth = snapshotHealth;
+        } else {
+          rmSync(snapshotLibraryPath, { force: true, maxRetries: 3, retryDelay: 50 });
+          libraryHealth = snapshotHealth;
+        }
+      } catch {
+        rmSync(snapshotLibraryPath, { force: true, maxRetries: 3, retryDelay: 50 });
+      }
+    }
+
+    if (libraryBackupMethod !== 'sqlite-backup') {
+      const copiedLibraryEntries = copyLibraryTriplet(userDataPath, snapshotPath);
+      copied.push(...copiedLibraryEntries);
+      for (const name of [libraryFileName, libraryWalFileName, libraryShmFileName]) {
+        if (!copiedLibraryEntries.includes(name)) {
+          skipped.push(name);
+        }
+      }
+      libraryBackupMethod = copiedLibraryEntries.length > 0 ? 'file-copy' : 'none';
+      libraryHealth = checkDatabaseHealth(libraryPathFor(snapshotPath));
+    }
+  } else {
+    skipped.push(libraryFileName, libraryWalFileName, libraryShmFileName);
+  }
+
   for (const entry of protectedDataEntries) {
+    if (libraryEntryNames.has(entry.name)) {
+      continue;
+    }
+
     const sourcePath = join(userDataPath, entry.name);
     if (!existsSync(sourcePath)) {
       skipped.push(entry.name);
@@ -269,12 +424,24 @@ export const createDataProtectionSnapshot = (
 
   writeFileSync(
     join(snapshotPath, 'snapshot.json'),
-    `${JSON.stringify({ formatVersion: 1, reason, createdAt: date.toISOString(), copied, skipped }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        formatVersion: 1,
+        reason,
+        createdAt: date.toISOString(),
+        copied,
+        skipped,
+        libraryHealth,
+        libraryBackupMethod,
+      },
+      null,
+      2,
+    )}\n`,
     'utf8',
   );
   pruneOldSnapshots(userDataPath);
 
-  return { snapshotPath, copied, skipped };
+  return { snapshotPath, copied, skipped, libraryHealth, libraryBackupMethod };
 };
 
 export const restoreMissingProtectedData = (userDataPath = app.getPath('userData')): RestoreResult => {
@@ -331,20 +498,120 @@ export const writeDataProtectionManifest = (userDataPath = app.getPath('userData
   );
 };
 
-export const ensureDataProtection = (reason: DataProtectionReason = 'startup'): { userDataPath: string; migration: LegacyMigrationResult; snapshot: SnapshotResult; restore: RestoreResult } => {
-  const userDataPath = initializeProtectedUserDataPath();
-  const migration = migrateLegacyProtectedData(userDataPath);
-  const restore = restoreMissingProtectedData(userDataPath);
-  writeDataProtectionManifest(userDataPath);
-  const snapshot = createDataProtectionSnapshot(reason, userDataPath);
-
-  if (migration.migrated.length > 0) {
-    console.info(`[data-protection] migrated protected data from ${migration.sourcePath}: ${migration.migrated.map((entry) => basename(entry)).join(', ')}`);
+const restoreLibraryFromSnapshot = (userDataPath: string, snapshotPath: string): void => {
+  removeLibraryTriplet(userDataPath);
+  copyProtectedEntry(libraryPathFor(snapshotPath), libraryPathFor(userDataPath), 'file');
+  if (existsSync(libraryWalPathFor(snapshotPath))) {
+    copyProtectedEntry(libraryWalPathFor(snapshotPath), libraryWalPathFor(userDataPath), 'file');
   }
-
-  if (restore.restored.length > 0) {
-    console.info(`[data-protection] restored protected data: ${restore.restored.map((entry) => basename(entry)).join(', ')}`);
+  if (existsSync(libraryShmPathFor(snapshotPath))) {
+    copyProtectedEntry(libraryShmPathFor(snapshotPath), libraryShmPathFor(userDataPath), 'file');
   }
-
-  return { userDataPath, migration, snapshot, restore };
 };
+
+const recoverLibraryFromSnapshots = (userDataPath: string, currentHealth: DatabaseHealthResult): LibraryRecoveryResult => {
+  if (currentHealth.status === 'ok') {
+    return { action: 'none', health: currentHealth };
+  }
+
+  const archivePath = archiveLibraryTriplet(userDataPath, 'startup-corrupt-library') ?? undefined;
+  const snapshotPath = findHealthyLibrarySnapshot(userDataPath);
+
+  if (!snapshotPath) {
+    return { action: 'quarantined', archivePath, health: currentHealth };
+  }
+
+  try {
+    restoreLibraryFromSnapshot(userDataPath, snapshotPath);
+    const restoredHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
+    if (restoredHealth.status === 'ok') {
+      return { action: 'restored', archivePath, sourceSnapshotPath: snapshotPath, health: restoredHealth };
+    }
+    return { action: 'failed', archivePath, sourceSnapshotPath: snapshotPath, health: restoredHealth };
+  } catch (error) {
+    return {
+      action: 'failed',
+      archivePath,
+      sourceSnapshotPath: snapshotPath,
+      health: {
+        status: 'unreadable',
+        databasePath: libraryPathFor(userDataPath),
+        checkedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+};
+
+let lastDataProtectionResult: DataProtectionResult | null = null;
+
+export const getLastDataProtectionResult = (): DataProtectionResult | null => lastDataProtectionResult;
+
+export const isProtectedLibraryAvailable = (): boolean => !lastDataProtectionResult || lastDataProtectionResult.libraryHealth.status === 'ok';
+
+export const assertProtectedLibraryAvailable = (): void => {
+  if (!isProtectedLibraryAvailable()) {
+    throw new LibraryDatabaseUnavailableError(lastDataProtectionResult?.recovery ?? null);
+  }
+};
+
+export const ensureDataProtection = async (
+  reason: DataProtectionReason = 'startup',
+  explicitUserDataPath?: string,
+): Promise<DataProtectionResult> => {
+  const userDataPath = explicitUserDataPath ?? initializeProtectedUserDataPath();
+  try {
+    const migration = await migrateLegacyProtectedData(userDataPath);
+    const restore = restoreMissingProtectedData(userDataPath);
+    writeDataProtectionManifest(userDataPath);
+    const initialHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
+    const recovery = recoverLibraryFromSnapshots(userDataPath, initialHealth);
+    const libraryHealth = recovery.action === 'restored' ? recovery.health : checkDatabaseHealth(libraryPathFor(userDataPath));
+    const snapshot = await createDataProtectionSnapshot(reason, userDataPath);
+
+    if (migration.migrated.length > 0) {
+      console.info(`[data-protection] migrated protected data from ${migration.sourcePath}: ${migration.migrated.map((entry) => basename(entry)).join(', ')}`);
+    }
+
+    if (restore.restored.length > 0) {
+      console.info(`[data-protection] restored protected data: ${restore.restored.map((entry) => basename(entry)).join(', ')}`);
+    }
+
+    if (recovery.action === 'restored') {
+      console.info(`[data-protection] restored library database from snapshot ${recovery.sourceSnapshotPath}`);
+    } else if (recovery.action === 'quarantined' || recovery.action === 'failed') {
+      console.warn(`[data-protection] library database recovery ${recovery.action}: ${recovery.health.message ?? recovery.health.status}`);
+    }
+
+    lastDataProtectionResult = { userDataPath, migration, snapshot, restore, libraryHealth, recovery };
+    return lastDataProtectionResult;
+  } catch (error) {
+    const health: DatabaseHealthResult = {
+      status: 'unreadable',
+      databasePath: libraryPathFor(userDataPath),
+      checkedAt: new Date().toISOString(),
+      message: error instanceof Error ? error.message : String(error),
+    };
+    const recovery: LibraryRecoveryResult = { action: 'failed', health };
+    const emptySnapshot: SnapshotResult = {
+      snapshotPath: '',
+      copied: [],
+      skipped: protectedDataEntries.map((entry) => entry.name),
+      libraryHealth: health,
+      libraryBackupMethod: 'none',
+    };
+    lastDataProtectionResult = {
+      userDataPath,
+      migration: { sourcePath: null, migrated: [], skipped: protectedDataEntries.map((entry) => entry.name) },
+      restore: { restored: [], skipped: protectedDataEntries.map((entry) => entry.name) },
+      snapshot: emptySnapshot,
+      libraryHealth: health,
+      recovery,
+    };
+    console.warn(`[data-protection] startup protection failed: ${health.message ?? health.status}`);
+    return lastDataProtectionResult;
+  }
+};
+
+export const checkpointProtectedLibrary = (userDataPath = app.getPath('userData')): DatabaseHealthResult =>
+  checkpointWal(libraryPathFor(userDataPath));

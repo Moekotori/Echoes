@@ -3,6 +3,7 @@ const audioExtensionValues = [
   '.flac',
   '.wav',
   '.m4a',
+  '.m4p',
   '.aac',
   '.ogg',
   '.opus',

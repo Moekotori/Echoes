@@ -74,6 +74,7 @@ const makeTrack = (): RemoteLibraryTrack => ({
   etag: '"abc"',
   coverId: null,
   coverThumb: null,
+  coverStatus: 'pending',
   metadataStatus: 'pending',
   lyricsStatus: 'pending',
   mvStatus: 'pending',
@@ -131,7 +132,7 @@ describe('RemoteBackgroundJobQueue', () => {
     const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata } as never));
 
     const initial = queue.enqueueSource(source.id, ['metadata']);
-    expect(initial.pending.metadata).toBe(1);
+    expect(initial.pending.metadata).toBe(0);
 
     await waitFor(() => queue.getStatus(source.id).completed.metadata === 1);
 
@@ -168,13 +169,55 @@ describe('RemoteBackgroundJobQueue', () => {
     const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata } as never));
 
     const initial = queue.enqueueSource(source.id, ['metadata', 'duration-backfill']);
-    expect(initial.pending.metadata).toBe(1);
+    expect(initial.pending.metadata).toBe(0);
     expect(initial.pending['duration-backfill']).toBe(0);
 
     await waitFor(() => queue.getStatus(source.id).completed.metadata === 1);
 
     expect(readMetadata).toHaveBeenCalledTimes(1);
     expect(queue.getStatus(source.id).completed['duration-backfill']).toBe(0);
+  });
+
+  it('does not start cover follow-up work after a metadata-only source job', async () => {
+    const source = { ...makeSource(), provider: 'subsonic' as const };
+    const track = {
+      ...makeTrack(),
+      provider: 'subsonic' as const,
+    };
+    const readMetadata = vi.fn().mockResolvedValue({
+      ...makeMetadata(),
+      status: 'ok',
+      fieldSources: { coverArt: 'server-cover-1' },
+    } satisfies RemoteMetadataResult);
+    const readCover = vi.fn();
+    const coverService = {
+      ensureCover: vi.fn(),
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+      updateTrackJobStatus: vi.fn((_trackId: string, kind: string, status: string) => {
+        if (kind === 'metadata' || kind === 'duration-backfill') {
+          track.metadataStatus = status as RemoteLibraryTrack['metadataStatus'];
+        }
+      }),
+      updateTrackMetadata: vi.fn((_trackId: string, update: Partial<RemoteLibraryTrack>) => {
+        Object.assign(track, update);
+        return track;
+      }),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata, readCover } as never), coverService as never);
+
+    queue.enqueueSource(source.id, ['metadata']);
+
+    await waitFor(() => queue.getStatus(source.id).completed.metadata === 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(readCover).not.toHaveBeenCalled();
+    expect(coverService.ensureCover).not.toHaveBeenCalled();
+    expect(queue.getStatus(source.id).pending.cover).toBe(0);
   });
 
   it('honors global pause and playback-aware concurrency limits', async () => {
@@ -196,7 +239,7 @@ describe('RemoteBackgroundJobQueue', () => {
 
     queue.setPlaybackActive(true);
     expect(queue.getStatus(source.id).concurrency.metadata).toBe(1);
-    expect(queue.getStatus(source.id).concurrency.cover).toBe(0);
+    expect(queue.getStatus(source.id).concurrency.cover).toBe(1);
     queue.setPlaybackActive(false);
     expect(queue.getStatus(source.id).concurrency.cover).toBe(2);
     expect(queue.getStatus(source.id).concurrency.metadata).toBe(4);
@@ -204,7 +247,7 @@ describe('RemoteBackgroundJobQueue', () => {
 
     queue.setGlobalPaused(true);
     queue.enqueueSource(source.id, ['metadata']);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitFor(() => queue.getStatus(source.id).pending.metadata === 1);
     expect(readMetadata).not.toHaveBeenCalled();
     expect(queue.getStatus(source.id).pending.metadata).toBe(1);
 
@@ -214,12 +257,10 @@ describe('RemoteBackgroundJobQueue', () => {
   });
 
   it('keeps cover jobs queued while playback or source sync is active', async () => {
-    const source = { ...makeSource(), provider: 'subsonic' as const };
+    const source = makeSource();
     const track = {
       ...makeTrack(),
-      provider: 'subsonic' as const,
       metadataStatus: 'ok' as const,
-      fieldSources: { coverArt: 'cover-1' },
     };
     const readCover = vi.fn().mockResolvedValue({
       status: 'ok',
@@ -237,8 +278,14 @@ describe('RemoteBackgroundJobQueue', () => {
       getTrack: vi.fn(() => track),
       getSource: vi.fn(() => source),
       getSourceWithSecret: vi.fn(() => source),
+      updateTrackJobStatus: vi.fn((_trackId: string, kind: string, status: string) => {
+        if (kind === 'cover') {
+          (track as RemoteLibraryTrack).coverStatus = status as RemoteLibraryTrack['coverStatus'];
+        }
+      }),
       updateTrackCover: vi.fn((_trackId: string, coverId: string | null) => {
         (track as RemoteLibraryTrack).coverId = coverId;
+        (track as RemoteLibraryTrack).coverStatus = coverId ? 'ok' : 'pending';
         return track;
       }),
       updateTrackCoversByCoverArt: vi.fn(),
@@ -247,8 +294,7 @@ describe('RemoteBackgroundJobQueue', () => {
 
     queue.setPlaybackActive(true);
     queue.enqueueSource(source.id, ['cover']);
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(queue.getStatus(source.id).pending.cover).toBe(1);
+    await waitFor(() => queue.getStatus(source.id).pending.cover === 1);
     expect(readCover).not.toHaveBeenCalled();
 
     queue.setPlaybackActive(false);
@@ -308,7 +354,7 @@ describe('RemoteBackgroundJobQueue', () => {
     expect(maxActiveReads).toBeLessThanOrEqual(4);
   });
 
-  it('runs lyrics and MV jobs only after metadata is matchable', async () => {
+  it('runs lyrics but not MV jobs after metadata is matchable', async () => {
     const source = makeSource();
     const track = makeTrack();
     const metadata = {
@@ -347,12 +393,15 @@ describe('RemoteBackgroundJobQueue', () => {
     queue.enqueueSource(source.id, ['metadata']);
 
     await waitFor(() => queue.getStatus(source.id).completed.metadata === 1);
-    await waitFor(() => queue.getStatus(source.id).completed.lyrics === 1 && queue.getStatus(source.id).completed.mv === 1);
+    await waitFor(() => queue.getStatus(source.id).completed.lyrics === 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(serviceMocks.getLyricsForTrack).toHaveBeenCalledWith(track.id);
-    expect(serviceMocks.searchNetworkCandidates).toHaveBeenCalledWith(track.id);
+    expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
     expect(track.lyricsStatus).toBe('ok');
-    expect(track.mvStatus).toBe('ok');
+    expect(track.mvStatus).toBe('pending');
+    expect(queue.getStatus(source.id).completed.mv).toBe(0);
+    expect(queue.getStatus(source.id).pending.mv).toBe(0);
   });
 
   it('does not enqueue lyrics or MV matching for filename-only fallback metadata', async () => {
@@ -375,6 +424,73 @@ describe('RemoteBackgroundJobQueue', () => {
     expect(status.pending.mv).toBe(0);
     expect(serviceMocks.getLyricsForTrack).not.toHaveBeenCalled();
     expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('ignores explicit remote MV background jobs', async () => {
+    const source = makeSource();
+    const track = {
+      ...makeTrack(),
+      title: 'Echo Song',
+      artist: 'Echo Artist',
+      album: 'Echo Album',
+      metadataStatus: 'ok' as const,
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+      updateTrackJobStatus: vi.fn(),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    const status = queue.enqueueSource(source.id, ['mv']);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(status.pending.mv).toBe(0);
+    expect(queue.getStatus(source.id).pending.mv).toBe(0);
+    expect(queue.getStatus(source.id).completed.mv).toBe(0);
+    expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('uses a small source batch when enqueueing cover-only work', async () => {
+    const source = makeSource();
+    const getTrackIdsForBackgroundJobs = vi.fn().mockReturnValue([]);
+    const store = {
+      getTrackIdsForBackgroundJobs,
+      getTracksByIds: vi.fn().mockReturnValue([]),
+      getTrack: vi.fn(),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    queue.enqueueSource(source.id, ['cover']);
+
+    await waitFor(() => getTrackIdsForBackgroundJobs.mock.calls.length > 0);
+    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['cover'], { failedOnly: undefined, limit: 500 });
+  });
+
+  it('does not enqueue cover jobs that were already marked not found', async () => {
+    const source = makeSource();
+    const track = {
+      ...makeTrack(),
+      metadataStatus: 'ok' as const,
+      coverStatus: 'not_found' as const,
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    const status = queue.enqueueSource(source.id, ['cover']);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(status.pending.cover).toBe(0);
+    expect(queue.getStatus(source.id).pending.cover).toBe(0);
   });
 
   it('skips media-server cover jobs when the track has no server cover id', async () => {
@@ -400,9 +516,12 @@ describe('RemoteBackgroundJobQueue', () => {
     };
     const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
 
+    queue.setGlobalPaused(true);
     const status = queue.enqueueSource(source.id, ['cover']);
+    await waitFor(() => queue.getStatus(source.id).pending.cover === 1);
 
-    expect(status.pending.cover).toBe(1);
+    expect(status.pending.cover).toBe(0);
+    expect(queue.getStatus(source.id).pending.cover).toBe(1);
   });
 
   it('queues only one cover job per shared remote cover id', async () => {
@@ -430,9 +549,12 @@ describe('RemoteBackgroundJobQueue', () => {
     };
     const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
 
+    queue.setGlobalPaused(true);
     const status = queue.enqueueSource(source.id, ['cover']);
+    await waitFor(() => queue.getStatus(source.id).pending.cover === 1);
 
-    expect(status.pending.cover).toBe(1);
+    expect(status.pending.cover).toBe(0);
+    expect(queue.getStatus(source.id).pending.cover).toBe(1);
     expect(queue.getStatus(source.id).skipped.cover).toBe(1);
   });
 });

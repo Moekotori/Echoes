@@ -4,6 +4,7 @@ import electron from 'electron';
 import type { EchoDatabase } from '../database/createDatabase';
 import { createDatabase } from '../database/createDatabase';
 import { defaultSettings, getAppSettings } from '../app/appSettings';
+import { assertProtectedLibraryAvailable } from '../app/dataProtection';
 import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
@@ -569,6 +570,10 @@ export class LyricsService {
       new StubLyricsProvider('musixmatch', 'Musixmatch', 500),
       new StubLyricsProvider('genius', 'Genius', 450),
     ] satisfies LyricsProvider[]);
+  }
+
+  close(): void {
+    this.database.close();
   }
 
   async getLyricsForTrack(trackId: string): Promise<TrackLyrics | null> {
@@ -1402,6 +1407,7 @@ export class LyricsService {
 let defaultLyricsService: LyricsService | null = null;
 
 export const getLyricsService = (): LyricsService => {
+  assertProtectedLibraryAvailable();
   if (!defaultLyricsService) {
     const electronApp = (electron as unknown as { app?: { getPath: (name: string) => string } }).app;
 
@@ -1418,4 +1424,13 @@ export const getLyricsService = (): LyricsService => {
   }
 
   return defaultLyricsService;
+};
+
+export const closeDefaultLyricsService = (): void => {
+  if (!defaultLyricsService) {
+    return;
+  }
+
+  defaultLyricsService.close();
+  defaultLyricsService = null;
 };

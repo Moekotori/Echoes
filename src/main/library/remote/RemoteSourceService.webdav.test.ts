@@ -191,6 +191,10 @@ describe('RemoteSourceService WebDAV integration', () => {
       title: '会魔法的老人',
     }));
 
+    expect(service.hydrateVisibleTracks(['local-track-id', tracks.items[0].id], { metadata: false, cover: false })).toEqual([
+      expect.objectContaining({ id: tracks.items[0].id, mediaType: 'remote' }),
+    ]);
+
     const stream = await service.createStreamUrl({ trackId: tracks.items[0].id });
     expect(stream.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/remote-stream\//u);
     expect(stream.url).not.toContain(username);

@@ -43,6 +43,7 @@ describe('TsFileScanner', () => {
       'track.mka',
       'track.mkv',
       'track.mp4',
+      'track.m4p',
     ];
 
     for (const fileName of ['album.cue', ...supported]) {

@@ -212,10 +212,42 @@ export class RemoteLibraryStore {
     return row ? this.mapTrack(row) : null;
   }
 
-  getTracksForBackgroundJobs(sourceId: string, kinds: RemoteBackgroundJobKind[], options: { failedOnly?: boolean } = {}): RemoteLibraryTrack[] {
+  getTrackIdsForBackgroundJobs(sourceId: string, kinds: RemoteBackgroundJobKind[], options: { failedOnly?: boolean; limit?: number } = {}): string[] {
+    return this.queryTracksForBackgroundJobs(sourceId, kinds, options, 'id').map((row) => String(row.id));
+  }
+
+  getTracksByIds(trackIds: string[]): RemoteLibraryTrack[] {
+    if (trackIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = trackIds.map(() => '?').join(', ');
+    return this.database
+      .prepare<unknown[], DbRow>(
+        `SELECT * FROM remote_tracks
+         WHERE id IN (${placeholders})
+         ORDER BY updated_at ASC`,
+      )
+      .all(...trackIds)
+      .map((row) => this.mapTrack(row));
+  }
+
+  getTracksForBackgroundJobs(sourceId: string, kinds: RemoteBackgroundJobKind[], options: { failedOnly?: boolean; limit?: number } = {}): RemoteLibraryTrack[] {
+    return this.queryTracksForBackgroundJobs(sourceId, kinds, options, '*').map((row) => this.mapTrack(row));
+  }
+
+  private queryTracksForBackgroundJobs(
+    sourceId: string,
+    kinds: RemoteBackgroundJobKind[],
+    options: { failedOnly?: boolean; limit?: number },
+    columns: 'id' | '*',
+  ): DbRow[] {
     const clauses = ['source_id = ?', "availability != 'missing'"];
     const params: unknown[] = [sourceId];
     const statusClauses: string[] = [];
+    const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
+      ? Math.max(1, Math.min(5000, Math.round(options.limit)))
+      : 5000;
 
     if (kinds.includes('metadata') || kinds.includes('duration-backfill')) {
       statusClauses.push(options.failedOnly ? "metadata_status = 'error'" : "metadata_status IN ('pending', 'partial', 'error')");
@@ -229,19 +261,32 @@ export class RemoteLibraryStore {
       statusClauses.push(options.failedOnly ? "mv_status = 'error'" : "mv_status IN ('pending', 'not_found', 'error')");
     }
 
+    if (kinds.includes('cover')) {
+      statusClauses.push(
+        `(
+          cover_id IS NULL
+          AND cover_status IN (${options.failedOnly ? "'error'" : "'pending', 'error'"})
+          AND metadata_status != 'error'
+          AND (
+            provider NOT IN ('jellyfin', 'emby', 'subsonic')
+            OR json_extract(field_sources_json, '$.coverArt') IS NOT NULL
+          )
+        )`,
+      );
+    }
+
     if (statusClauses.length > 0) {
       clauses.push(`(${statusClauses.join(' OR ')})`);
     }
 
     return this.database
       .prepare<unknown[], DbRow>(
-        `SELECT * FROM remote_tracks
+        `SELECT ${columns} FROM remote_tracks
          WHERE ${clauses.join(' AND ')}
          ORDER BY updated_at ASC
-         LIMIT 5000`,
+         LIMIT ?`,
       )
-      .all(...params)
-      .map((row) => this.mapTrack(row));
+      .all(...params, limit);
   }
 
   getComparableFingerprint(sourceId: string, remotePath: string): { etag: string | null; modifiedAt: string | null; sizeBytes: number | null; coverId: string | null } | null {
@@ -287,8 +332,8 @@ export class RemoteLibraryStore {
         id, source_id, provider, remote_path, remote_url_hash, stable_key,
         title, artist, album, album_artist, track_no, disc_no, year, genre, duration,
         codec, sample_rate, bit_depth, bitrate, size_bytes, modified_at, etag, cover_id,
-        metadata_status, lyrics_status, mv_status, availability, field_sources_json, search_terms, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cover_status, metadata_status, lyrics_status, mv_status, availability, field_sources_json, search_terms, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source_id, remote_path) DO UPDATE SET
         remote_url_hash = excluded.remote_url_hash,
         stable_key = excluded.stable_key,
@@ -309,6 +354,11 @@ export class RemoteLibraryStore {
         modified_at = excluded.modified_at,
         etag = excluded.etag,
         cover_id = COALESCE(excluded.cover_id, remote_tracks.cover_id),
+        cover_status = CASE
+          WHEN excluded.cover_id IS NOT NULL OR remote_tracks.cover_id IS NOT NULL THEN 'ok'
+          WHEN remote_tracks.cover_status IN ('searching', 'not_found', 'error') THEN remote_tracks.cover_status
+          ELSE excluded.cover_status
+        END,
         metadata_status = excluded.metadata_status,
         availability = excluded.availability,
         field_sources_json = excluded.field_sources_json,
@@ -352,6 +402,7 @@ export class RemoteLibraryStore {
           track.modifiedAt,
           track.etag,
           track.coverId,
+          track.coverId ? 'ok' : track.coverStatus,
           track.metadataStatus,
           track.lyricsStatus,
           track.mvStatus,
@@ -450,7 +501,9 @@ export class RemoteLibraryStore {
   }
 
   updateTrackCover(trackId: string, coverId: string | null): RemoteLibraryTrack | null {
-    this.database.prepare('UPDATE remote_tracks SET cover_id = ?, updated_at = ? WHERE id = ?').run(coverId, nowIso(), trackId);
+    this.database
+      .prepare('UPDATE remote_tracks SET cover_id = ?, cover_status = ?, updated_at = ? WHERE id = ?')
+      .run(coverId, coverId ? 'ok' : 'pending', nowIso(), trackId);
     return this.getTrack(trackId);
   }
 
@@ -458,7 +511,7 @@ export class RemoteLibraryStore {
     return this.database
       .prepare(
         `UPDATE remote_tracks
-         SET cover_id = ?, updated_at = ?
+         SET cover_id = ?, cover_status = 'ok', updated_at = ?
          WHERE source_id = ?
            AND cover_id IS NULL
            AND json_extract(field_sources_json, '$.coverArt') = ?`,
@@ -467,7 +520,7 @@ export class RemoteLibraryStore {
   }
 
   updateTrackJobStatus(trackId: string, kind: RemoteBackgroundJobKind, status: RemoteLibraryTrack['metadataStatus']): void {
-    const column = kind === 'lyrics' ? 'lyrics_status' : kind === 'mv' ? 'mv_status' : 'metadata_status';
+    const column = kind === 'cover' ? 'cover_status' : kind === 'lyrics' ? 'lyrics_status' : kind === 'mv' ? 'mv_status' : 'metadata_status';
     this.database.prepare(`UPDATE remote_tracks SET ${column} = ?, updated_at = ? WHERE id = ?`).run(status, nowIso(), trackId);
   }
 
@@ -517,6 +570,7 @@ export class RemoteLibraryStore {
       coverId: track.coverId,
       coverThumb: track.coverThumb,
       metadataStatus: track.metadataStatus,
+      embeddedCoverStatus: track.coverStatus === 'ok' ? 'present' : track.coverStatus === 'searching' ? 'reading' : track.coverStatus === 'error' ? 'error' : track.coverStatus === 'pending' ? 'pending' : 'missing',
       fieldSources: track.fieldSources,
       unavailable: track.availability === 'missing',
     };
@@ -574,6 +628,7 @@ export class RemoteLibraryStore {
       etag: textOrNull(row.etag),
       coverId,
       coverThumb: coverId ? `echo-cover://thumb/${encodeURIComponent(coverId)}` : null,
+      coverStatus: remoteTrackStatusOrPending(row.cover_status),
       metadataStatus: remoteTrackStatusOrPending(row.metadata_status),
       lyricsStatus: remoteTrackStatusOrPending(row.lyrics_status),
       mvStatus: remoteTrackStatusOrPending(row.mv_status),

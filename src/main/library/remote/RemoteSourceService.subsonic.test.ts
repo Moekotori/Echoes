@@ -90,7 +90,7 @@ const waitForCoverJob = async (service: RemoteSourceService, sourceId: string): 
 const waitForMatchJobs = async (service: RemoteSourceService, sourceId: string): Promise<void> => {
   for (let index = 0; index < 100; index += 1) {
     const status = service.getJobStatus(sourceId);
-    if (status.completed.lyrics === 1 && status.completed.mv === 1) {
+    if (status.completed.lyrics === 1) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -119,7 +119,7 @@ describe('RemoteSourceService Subsonic integration', () => {
     }
   });
 
-  it('indexes Subsonic tracks, exposes remote albums/artists, and leaves lyrics/MV for manual matching', async () => {
+  it('indexes Subsonic tracks, exposes remote albums/artists, and keeps MV out of remote background matching', async () => {
     serviceMocks.getLyricsForTrack.mockResolvedValue({ id: 'lyrics-1' });
     serviceMocks.searchNetworkCandidates.mockResolvedValue([{ id: 'mv-1' }]);
     const server = createServer((request, response) => {
@@ -193,9 +193,11 @@ describe('RemoteSourceService Subsonic integration', () => {
 
     service.syncSource(source.id);
     await waitForSync(service, source.id);
-    await waitForCoverJob(service, source.id);
 
     const trackId = remoteTrackIdFor(source.id, 'song-1');
+    service.hydrateVisibleTracks([trackId], { metadata: false, cover: true });
+    await waitForCoverJob(service, source.id);
+
     const track = service.getTrackAsLibraryTrack(trackId);
     expect(track).toEqual(expect.objectContaining({
       title: 'Echo Song',
@@ -243,6 +245,7 @@ describe('RemoteSourceService Subsonic integration', () => {
     service.startBackgroundJobs(source.id, ['lyrics', 'mv']);
     await waitForMatchJobs(service, source.id);
     expect(serviceMocks.getLyricsForTrack).toHaveBeenCalledWith(trackId);
-    expect(serviceMocks.searchNetworkCandidates).toHaveBeenCalledWith(trackId);
+    expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
+    expect(service.getJobStatus(source.id).completed.mv).toBe(0);
   });
 });

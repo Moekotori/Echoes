@@ -196,6 +196,7 @@ export class RemoteLibrarySyncService {
           modifiedAt: item.modifiedAt,
           etag: item.etag,
           coverId: null,
+          coverStatus: 'pending',
           metadataStatus: metadata.status,
           lyricsStatus: 'pending',
           mvStatus: 'pending',

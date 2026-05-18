@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { LibraryTrack } from '../../../shared/types/library';
 import type { MvSettings, TrackVideo } from '../../../shared/types/mv';
 import { MvPanel, type MvAudioClock } from './MvPanel';
 
@@ -54,6 +55,38 @@ const makeAudioClock = (
   playbackRate,
   durationSeconds: 180,
   state: 'playing',
+  ...overrides,
+});
+
+const makeRemoteTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
+  id: 'remote-track-1',
+  mediaType: 'remote',
+  path: 'remote://source-1/music/Test Song.flac',
+  sourceId: 'source-1',
+  provider: 'webdav',
+  providerTrackId: null,
+  remotePath: '/music/Test Song.flac',
+  stableKey: 'remote-stable-key',
+  title: 'Remote Song',
+  artist: 'Remote Artist',
+  album: 'Remote Album',
+  albumArtist: 'Remote Artist',
+  trackNo: null,
+  discNo: null,
+  year: null,
+  genre: null,
+  duration: 180,
+  codec: 'flac',
+  sampleRate: 192000,
+  bitDepth: 24,
+  bitrate: 5868000,
+  coverId: 'remote-cover',
+  coverThumb: 'echo-cover://thumb/remote-cover',
+  fieldSources: {
+    title: 'embedded',
+    artist: 'embedded',
+    album: 'embedded',
+  },
   ...overrides,
 });
 
@@ -237,6 +270,81 @@ describe('MvPanel', () => {
 
     await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1'));
     await waitFor(() => expect(container.querySelector('video')?.getAttribute('src')).toBe('echo-video://mv/video-1'));
+  });
+
+  it('searches and selects remote track MVs from snapshot metadata', async () => {
+    const remoteTrack = makeRemoteTrack();
+    const selectedAfterSearch = makeVideo({
+      id: 'remote-video-1',
+      trackId: remoteTrack.id,
+      provider: 'bilibili',
+      mediaUrl: 'echo-video://mv/remote-video-1',
+    });
+    window.echo = {
+      playback: {
+        seek: vi.fn(),
+      },
+      mv: {
+        getSelected: vi.fn().mockResolvedValue(null),
+        getSettings: vi.fn().mockResolvedValue(defaultMvSettings),
+        setSettings: vi.fn(),
+        findLocalCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidatesForSnapshot: vi.fn().mockResolvedValue([
+          {
+            id: 'bilibili:BVremote',
+            provider: 'bilibili',
+            sourceType: 'search_candidate',
+            title: 'Remote Song MV',
+            artist: 'Remote Artist',
+            filePath: null,
+            url: 'https://www.bilibili.com/video/BVremote',
+            providerUrl: 'https://www.bilibili.com/video/BVremote',
+            thumbnailUrl: 'https://example.test/remote-mv.jpg',
+            uploader: 'Remote Channel',
+            availableQualities: [],
+            durationSeconds: 180,
+            score: 0.93,
+            playableInApp: true,
+            reasons: ['Bilibili search'],
+          },
+        ]),
+        getCandidates: vi.fn().mockResolvedValue([]),
+        resolveStreams: vi.fn().mockResolvedValue({ video: selectedAfterSearch, variants: [] }),
+        setQuality: vi.fn(),
+        chooseLocalVideo: vi.fn().mockResolvedValue(null),
+        bindLocalVideo: vi.fn(),
+        selectVideo: vi.fn().mockResolvedValue(selectedAfterSearch),
+        clearSelected: vi.fn(),
+        openExternal: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <MvPanel
+        trackId={remoteTrack.id}
+        currentTrack={remoteTrack}
+        title={remoteTrack.title}
+        artist={remoteTrack.artist}
+        coverUrl={remoteTrack.coverThumb}
+        isAudioPlaying
+        audioClock={makeAudioClock(0)}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(window.echo.mv.searchNetworkCandidatesForSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trackId: remoteTrack.id,
+          title: 'Remote Song',
+          artist: 'Remote Artist',
+          mediaType: 'remote',
+          query: 'Remote Song Remote Artist',
+        }),
+      ),
+    );
+    await waitFor(() => expect(window.echo.mv.selectVideo).toHaveBeenCalledWith(remoteTrack.id, 'bilibili:BVremote'));
+    await waitFor(() => expect(container.querySelector('video')?.getAttribute('src')).toBe('echo-video://mv/remote-video-1'));
   });
 
   it('shows a video for playable selected MV', async () => {

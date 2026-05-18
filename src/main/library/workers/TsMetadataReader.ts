@@ -26,6 +26,7 @@ const tagLibPreferredExtensions = new Set([
   '.mkv',
   '.m4a',
   '.m4b',
+  '.m4p',
   '.mp4',
   '.mov',
   '.webm',

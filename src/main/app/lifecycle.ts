@@ -12,7 +12,7 @@ import { savePlaybackMemoryNow } from '../ipc/playbackIpc';
 import { dispatchLocalAudioFilesOpened, parseLocalAudioFileArguments } from './localFileOpen';
 import { initializeAutoUpdater } from './autoUpdater';
 import { getAppSettings } from './appSettings';
-import { ensureDataProtection } from './dataProtection';
+import { checkpointProtectedLibrary, ensureDataProtection } from './dataProtection';
 import { disposeBackgroundPlaybackShortcuts, initializeBackgroundPlaybackShortcuts } from './backgroundPlaybackShortcuts';
 import { getAccountService } from '../accounts/AccountService';
 import { disposeAirPlayReceiverSpikeService } from '../connect/AirPlayReceiverSpikeService';
@@ -20,6 +20,12 @@ import { disposeConnectReceiverService } from '../connect/ConnectReceiverService
 import { disposeConnectService } from '../connect/ConnectService';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AccountStatus } from '../../shared/types/accounts';
+import { closeDefaultLibraryService } from '../library/LibraryService';
+import { closeDefaultRemoteSourceService } from '../library/remote/RemoteSourceService';
+import { closeDefaultLyricsService } from '../lyrics/LyricsService';
+import { closeDefaultMvService } from '../mv/MvService';
+import { closeDefaultStreamingService } from '../streaming/StreamingService';
+import { disposeDefaultAudioSessionGracefully } from '../audio/AudioSession';
 
 const sendAccountStatusesChanged = (statuses: AccountStatus[]): void => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -72,14 +78,21 @@ export const registerAppLifecycle = (): void => {
     dispatchLocalAudioFilesOpened(parseLocalAudioFileArguments(argv));
   });
 
-  app.whenReady().then(() => {
-    ensureDataProtection('startup');
+  app.whenReady().then(async () => {
     getCrashReportService().initialize();
+    const dataProtection = await ensureDataProtection('startup');
     registerCoverProtocolHandler();
     registerVideoProtocolHandler();
-    void initializeSmtcIntegration();
-    void initializeDiscordPresenceIntegration();
-    initializeLastFmIntegration();
+    if (dataProtection.libraryHealth.status === 'ok') {
+      void initializeSmtcIntegration();
+      initializeLastFmIntegration();
+      void initializeDiscordPresenceIntegration();
+    } else {
+      getCrashReportService().getLogger()?.warn('main', '[Lifecycle] library database is unhealthy; starting without library-backed integrations', {
+        status: dataProtection.libraryHealth.status,
+        error: dataProtection.libraryHealth.message,
+      });
+    }
     createMainWindow();
     initializeBackgroundPlaybackShortcuts();
     const appSettings = getAppSettings();
@@ -94,6 +107,11 @@ export const registerAppLifecycle = (): void => {
         createMainWindow();
       }
     });
+  }).catch((error) => {
+    getCrashReportService().getLogger()?.warn('main', '[Lifecycle] startup failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    createMainWindow();
   });
 
   let gracefulQuitInProgress = false;
@@ -107,9 +125,45 @@ export const registerAppLifecycle = (): void => {
     await disposeConnectReceiverService();
     await disposeConnectService();
     await disposeSmtcIntegration();
+    await disposeDefaultAudioSessionGracefully('app-quit');
     disposeBackgroundPlaybackShortcuts();
+    closeDefaultLyricsService();
+    closeDefaultMvService();
+    closeDefaultStreamingService();
+    closeDefaultRemoteSourceService();
+    closeDefaultLibraryService();
+    const checkpoint = checkpointProtectedLibrary();
+    if (checkpoint.status !== 'ok') {
+      getCrashReportService().getLogger()?.warn('main', '[Lifecycle] library WAL checkpoint failed during shutdown', {
+        status: checkpoint.status,
+        error: checkpoint.message,
+      });
+    }
     getCrashReportService().closeSession();
     requestAppQuit();
+  };
+
+  const cleanupBeforeQuitWithTimeout = async (): Promise<void> => {
+    let timeout: NodeJS.Timeout | null = null;
+    let timedOut = false;
+    try {
+      await Promise.race([
+        cleanupBeforeQuit(),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, 2000);
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (timedOut) {
+        getCrashReportService().getLogger()?.warn('main', '[Lifecycle] graceful shutdown cleanup timed out');
+      }
+    }
   };
 
   app.on('before-quit', (event) => {
@@ -123,7 +177,7 @@ export const registerAppLifecycle = (): void => {
     }
 
     gracefulQuitInProgress = true;
-    void cleanupBeforeQuit()
+    void cleanupBeforeQuitWithTimeout()
       .catch((error) => {
         getCrashReportService().getLogger()?.warn('main', '[Lifecycle] graceful shutdown cleanup failed', {
           error: error instanceof Error ? error.message : String(error),

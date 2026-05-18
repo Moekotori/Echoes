@@ -217,23 +217,25 @@ export const initializeAutoUpdater = (enabled: boolean): void => {
 
   autoUpdater.on('update-downloaded', (updateInfo) => {
     applyUpdateInfo(updateInfo);
-    try {
-      writeDataProtectionManifest();
-      createDataProtectionSnapshot('update-install');
-    } catch (error) {
-      console.warn('[data-protection] failed to snapshot protected data before update install', error);
-    }
-    updateStatus = {
-      ...updateStatus,
-      state: 'downloaded',
-      downloadPercent: 100,
-      transferredBytes: updateStatus.totalBytes,
-      error: null,
-    };
-    emitUpdateStatus();
-    setTimeout(() => {
-      autoUpdater.quitAndInstall();
-    }, 1000);
+    void (async () => {
+      try {
+        writeDataProtectionManifest();
+        await createDataProtectionSnapshot('update-install');
+      } catch (error) {
+        console.warn('[data-protection] failed to snapshot protected data before update install', error);
+      }
+      updateStatus = {
+        ...updateStatus,
+        state: 'downloaded',
+        downloadPercent: 100,
+        transferredBytes: updateStatus.totalBytes,
+        error: null,
+      };
+      emitUpdateStatus();
+      setTimeout(() => {
+        autoUpdater.quitAndInstall();
+      }, 1000);
+    })();
   });
 
   if (!app.isPackaged) {

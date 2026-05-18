@@ -8,6 +8,7 @@ describe('audio extension constants', () => {
       '.mp3',
       '.wav',
       '.m4a',
+      '.m4p',
       '.alac',
       '.opus',
       '.aiff',

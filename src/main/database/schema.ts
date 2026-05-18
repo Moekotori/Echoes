@@ -534,6 +534,7 @@ CREATE TABLE IF NOT EXISTS remote_tracks (
   modified_at TEXT,
   etag TEXT,
   cover_id TEXT,
+  cover_status TEXT NOT NULL DEFAULT 'pending',
   metadata_status TEXT NOT NULL DEFAULT 'pending',
   lyrics_status TEXT NOT NULL DEFAULT 'pending',
   mv_status TEXT NOT NULL DEFAULT 'pending',
@@ -671,6 +672,7 @@ CREATE INDEX IF NOT EXISTS idx_remote_tracks_artist ON remote_tracks(artist);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_album ON remote_tracks(album);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_stable_key ON remote_tracks(stable_key);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_remote_url_hash ON remote_tracks(remote_url_hash);
+CREATE INDEX IF NOT EXISTS idx_remote_tracks_cover_status ON remote_tracks(cover_status);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_provider ON streaming_tracks(provider);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_title ON streaming_tracks(title);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_artist ON streaming_tracks(artist);

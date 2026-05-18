@@ -162,6 +162,48 @@ const run = (command, args, options = {}) => {
   }
 };
 
+const quotePowerShellString = (value) => `'${String(value).replace(/'/g, "''")}'`;
+
+const stopRunningTargetBinary = (filePath) => {
+  if (!isWindows || !existsSync(filePath)) {
+    return;
+  }
+
+  const escapedPath = quotePowerShellString(resolve(filePath));
+  const command = [
+    `$target = ${escapedPath}`,
+    '$processes = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $target }',
+    'foreach ($process in $processes) {',
+    '  Write-Output ("[build:audio-host] Stopping locked target process PID " + $process.ProcessId + ": " + $target)',
+    '  Stop-Process -Id $process.ProcessId -Force',
+    '}',
+  ].join('; ');
+
+  const result = spawnSync('powershell', ['-NoProfile', '-Command', command], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    shell: false,
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  if (output) {
+    console.log(output);
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`Failed to stop locked target process for ${filePath}`);
+  }
+};
+
+const copyBuiltHost = (source, destination) => {
+  stopRunningTargetBinary(destination);
+  copyFileSync(source, destination);
+};
+
 const findBuiltHost = () => {
   const exe = process.platform === 'win32' ? 'echo-audio-host.exe' : 'echo-audio-host';
   const candidates = [
@@ -200,7 +242,7 @@ try {
   }
 
   mkdirSync(targetDir, { recursive: true });
-  copyFileSync(builtHost, targetExe);
+  copyBuiltHost(builtHost, targetExe);
   if (!isWindows) {
     chmodSync(targetExe, 0o755);
   }
@@ -208,7 +250,7 @@ try {
   console.log(`[build:audio-host]      -> ${targetExe}`);
 
   if (existsSync(packagedResourceExe)) {
-    copyFileSync(builtHost, packagedResourceExe);
+    copyBuiltHost(builtHost, packagedResourceExe);
     console.log(`[build:audio-host]      -> ${packagedResourceExe}`);
   }
 } catch (error) {

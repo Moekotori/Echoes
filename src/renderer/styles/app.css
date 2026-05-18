@@ -2816,7 +2816,7 @@
   width: 100%;
   max-width: 620px;
   min-width: 0;
-  gap: 6px;
+  gap: 8px;
   align-self: center;
   justify-self: center;
 }
@@ -8619,6 +8619,54 @@ html[data-theme="dark"] .history-play-count {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.remote-scan-progress {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+.remote-scan-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-scan-progress-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-scan-progress-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.remote-scan-progress-track span {
+  display: block;
+  min-width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 45%, var(--color-green)));
+  transition: width 180ms ease;
+}
+
+.remote-scan-progress--active .remote-scan-progress-track span {
+  min-width: 18px;
 }
 
 .remote-source-coming-soon {

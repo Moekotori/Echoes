@@ -1,0 +1,227 @@
+{
+  "appMemoryVersion": 2,
+  "locale": "zh-CN",
+  "appearanceTheme": "dark",
+  "appearancePreferences": {
+    "mainFontFamily": "PingFang SC",
+    "mainFontFilePath": null,
+    "chineseFontFamily": "PingFang SC",
+    "chineseFontFilePath": null,
+    "baseFontSize": 18,
+    "lineHeight": 1.8,
+    "textDepth": 100
+  },
+  "songsSort": "createdAsc",
+  "rememberedAudioOutput": {
+    "enabled": false,
+    "outputMode": "shared",
+    "sharedBackend": "auto",
+    "latencyProfile": {
+      "basename": "balanced",
+      "pathHash": "c0905088ba5b8067"
+    }
+  },
+  "hiddenAudioDeviceKeys": [],
+  "audioUseJuceOutput": true,
+  "audioUseJuceDecode": false,
+  "audioDsdOutputMode": "pcm",
+  "audioAsioNativeDsdExperimentalEnabled": false,
+  "audioAsioUnavailableFallbackEnabled": false,
+  "audioSoxrFallbackEnabled": true,
+  "audioReleaseExclusiveOnPauseExperimentalEnabled": false,
+  "albumMergeStrategy": "sameTitleAndCover",
+  "chineseCrossScriptSearchEnabled": true,
+  "artistWallAlbumArtwork": false,
+  "artistWallAlbumFallbackForMissingAvatars": false,
+  "autoFetchArtistImages": false,
+  "artistImageFetchPaused": false,
+  "autoUpdateEnabled": true,
+  "autoAccountCheckOnStartup": true,
+  "spotifyAutoLaunchOfficialPlayer": true,
+  "playlistBackupsEnabled": true,
+  "coverCacheDir": null,
+  "hideToTrayOnClose": false,
+  "rememberWindowSizeEnabled": true,
+  "rememberedWindowSize": {
+    "width": 1319,
+    "height": 932
+  },
+  "appCustomWallpaperPath": {
+    "basename": "49d2bd27-b651-4424-9b4e-5a745986faa2.jpg",
+    "pathHash": "db81c78d77f8c787"
+  },
+  "appWallpaperScalePercent": 113,
+  "appWallpaperBlurPx": 1,
+  "appWallpaperBrightnessPercent": 110,
+  "appWallpaperUiOpacityPercent": 15,
+  "appWallpaperVisualProtectionEnabled": false,
+  "appWallpaperUnifiedOpacityEnabled": true,
+  "networkMetadataEnabled": false,
+  "networkMetadataProviders": [
+    "netease-cloud-music",
+    "qq-music"
+  ],
+  "audioAnalysisEnabled": true,
+  "lyricsNetworkEnabled": true,
+  "lyricsPreferredProvider": "lrclib",
+  "lyricsEnabledProviders": [
+    "local",
+    "lrclib",
+    "netease",
+    "qqmusic"
+  ],
+  "lyricsProviderOrder": [
+    "local",
+    "lrclib",
+    "netease",
+    "qqmusic"
+  ],
+  "lyricsProviderTimeoutMs": 4500,
+  "lyricsTotalMatchTimeoutMs": 6000,
+  "lyricsCoverAutoAcceptScore": 0.97,
+  "lyricsDeepSearchEnabled": true,
+  "lyricsAutoSearch": true,
+  "lyricsAutoAcceptScore": 0.5,
+  "lyricsDefaultOffsetMs": 0,
+  "lyricsGlobalSyncOffsetMs": 0,
+  "lyricsOffsetControlsEnabled": false,
+  "lyricsEnabled": true,
+  "lyricsHeaderHidden": false,
+  "lyricsMvAutoShowTrackInfoDisabled": false,
+  "lyricsEmptyStateHidden": true,
+  "lyricsPlayerBarDrawerEnabled": false,
+  "lyricsPlayerBarDrawerOpacityPercent": 78,
+  "lyricsPlayerBarDrawerColorMode": "cover",
+  "lyricsPlayerBarDrawerColor": "#232120",
+  "lyricsRomanizationEnabled": true,
+  "lyricsTranslationEnabled": true,
+  "lyricsWordHighlightEnabled": true,
+  "lyricsFontSizePx": 40,
+  "lyricsSecondaryFontSizePx": 22,
+  "lyricsLineSpacingPercent": 110,
+  "lyricsContextOpacityPercent": 49,
+  "lyricsColor": "#FFFFFF",
+  "lyricsSmartReadableColorsEnabled": false,
+  "lyricsHighResolutionNetworkCoverEnabled": true,
+  "lyricsBackgroundMode": "cover",
+  "lyricsCustomWallpaperPath": null,
+  "lyricsCoverOpacityPercent": 100,
+  "lyricsCoverBlurPx": 10,
+  "lyricsCoverBrightnessPercent": 100,
+  "lyricsBackgroundScalePercent": 100,
+  "mvEnabled": false,
+  "mvEnabledProviders": [
+    "bilibili",
+    "youtube"
+  ],
+  "mvProviderOrder": [
+    "bilibili",
+    "youtube"
+  ],
+  "mvAutoSearch": true,
+  "mvAutoPreload": true,
+  "mvAutoApplyThreshold": 0.7,
+  "mvImmersiveBackground": false,
+  "mvImmersiveBackgroundScalePercent": 115,
+  "mvImmersiveBackgroundOffsetXPercent": 50,
+  "mvImmersiveBackgroundOffsetYPercent": 50,
+  "mvImmersiveBackgroundBlurPx": 2,
+  "mvImmersiveBackgroundBrightnessPercent": 100,
+  "mvImmersiveBackgroundOverlayOpacityPercent": 0,
+  "mvLyricsReadabilityEnhanced": true,
+  "mvRestartAudioOnLoad": true,
+  "mvReplayAudioOnChange": true,
+  "mvMaxQuality": "max",
+  "mvAllow60fps": true,
+  "channelBalance": {
+    "enabled": false,
+    "balance": 0,
+    "leftGainDb": 0,
+    "rightGainDb": 0,
+    "swapLeftRight": false,
+    "monoMode": "off",
+    "invertLeft": false,
+    "invertRight": false,
+    "constantPower": true
+  },
+  "playerVolume": 1,
+  "backgroundSpacePauseEnabled": false,
+  "globalShortcuts": {
+    "playPause": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "previousTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "nextTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "stop": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "volumeUp": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "volumeDown": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "seekBackward": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "seekForward": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "showMainWindow": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "bossKey": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "speedUp": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "speedDown": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openAudioSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openMvSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openLyricsSettings": {
+      "enabled": false,
+      "accelerator": null
+    }
+  },
+  "playbackFollowCurrentTrack": false,
+  "playbackSpeed": 1,
+  "playbackSpeedMode": "nightcore",
+  "scanPerformanceMode": "balanced",
+  "duplicateTracksEnabled": true,
+  "duplicateTracksMode": "strict",
+  "duplicateTracksAutoRebuildAfterScan": false,
+  "discordRichPresenceEnabled": false,
+  "lastFmEnabled": false,
+  "lastFmUsername": null,
+  "lastFmSessionKey": "[redacted]",
+  "lastFmScrobbleEnabled": true,
+  "lastFmNowPlayingEnabled": true,
+  "lastFmMinScrobbleSeconds": 30,
+  "lastFmAuthToken": "[redacted]",
+  "smtcEnabled": true
+}

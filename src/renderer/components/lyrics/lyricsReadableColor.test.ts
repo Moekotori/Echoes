@@ -77,6 +77,38 @@ describe('lyricsReadableColor', () => {
     expect(complexVars['--lyrics-smart-shadow']).toContain('rgba');
   });
 
+  it('prefers dark text with a local light scrim on mixed bright and dark backgrounds', () => {
+    const mixedSample = sampleFromRgb(
+      { r: 128, g: 132, b: 138 },
+      {
+        luminance: 0.42,
+        luminanceP10: 0.02,
+        luminanceP90: 0.94,
+        luminanceDeviation: 0.38,
+        saturation: 0.34,
+        edgeContrast: 0.36,
+        complexity: 0.88,
+      },
+    );
+
+    const vars = createReadableLyricsColorVars({
+      sample: mixedSample,
+      userColor: '#FFFFFF',
+      themeMode: 'dark',
+    });
+    const primary = rgbFromCss(vars['--lyrics-smart-primary-color']);
+    const primaryLuminance = relativeLuminance(primary);
+    const scrimOpacity = Number(vars['--lyrics-smart-scrim-opacity']);
+
+    expect(primaryLuminance).toBeLessThan(0.12);
+    expect(vars['--lyrics-smart-scrim-background']).toMatch(/^rgba\(255, 255, 255,/u);
+    expect(scrimOpacity).toBeGreaterThanOrEqual(0.4);
+
+    const darkRegionAfterScrim = mixedSample.luminanceP10! + (1 - mixedSample.luminanceP10!) * scrimOpacity;
+    expect(contrastRatio(primaryLuminance, darkRegionAfterScrim)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(primaryLuminance, mixedSample.luminanceP90!)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('returns a stable fallback when sampling fails or color input is invalid', () => {
     const vars = createReadableLyricsColorVars({ sample: null, userColor: 'not-a-color', themeMode: 'light' });
     const primary = rgbFromCss(vars['--lyrics-smart-primary-color']);

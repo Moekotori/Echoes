@@ -2731,7 +2731,7 @@ describe('Library Core', () => {
     const metadataReader = new FakeMetadataReader(metadataResult({ title: 'Downloaded Song', artist: 'Download Artist' }));
     const coverExtractor = new FakeCoverExtractor();
     const harness = createHarness({ metadataReader, coverExtractor });
-    const filePath = writeAudioFile(harness.folder, 'Downloaded Song.m4a');
+    const filePath = writeAudioFile(harness.folder, 'Downloaded Song.m4p');
 
     const track = await harness.service.importAudioFile(filePath);
 

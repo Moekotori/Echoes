@@ -164,7 +164,12 @@ export const resolveLocalAudioFiles = async (paths: string[]): Promise<LocalFile
       continue;
     }
 
-    const libraryTrack = getLibraryService().getTrackByPath(filePath);
+    let libraryTrack: LibraryTrack | null = null;
+    try {
+      libraryTrack = getLibraryService().getTrackByPath(filePath);
+    } catch {
+      libraryTrack = null;
+    }
     if (libraryTrack) {
       tracks.push({ ...libraryTrack, mediaType: libraryTrack.mediaType ?? 'local' });
       continue;

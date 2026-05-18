@@ -5386,6 +5386,10 @@ export class AudioSession extends EventEmitter {
   }
 
   private getGracefulStopTimeoutMs(reason: string): number | undefined {
+    if (reason === 'app-quit') {
+      return 1500;
+    }
+
     const outputMode =
       reason === 'replace-output'
         ? this.currentBridgeOutputMode
@@ -5406,6 +5410,7 @@ export class AudioSession extends EventEmitter {
 
   private getGracefulStopWaitForExit(reason: string): boolean {
     return (
+      reason === 'app-quit' ||
       reason === 'replace-output' ||
       reason === 'reset-audio-engine' ||
       reason === 'force-restart' ||
@@ -5944,4 +5949,14 @@ let defaultAudioSession: AudioSession | null = null;
 export const getAudioSession = (): AudioSession => {
   defaultAudioSession ??= new AudioSession();
   return defaultAudioSession;
+};
+
+export const disposeDefaultAudioSessionGracefully = async (reason = 'app-quit'): Promise<void> => {
+  if (!defaultAudioSession) {
+    return;
+  }
+
+  const session = defaultAudioSession;
+  defaultAudioSession = null;
+  await session.disposeGracefully(reason);
 };

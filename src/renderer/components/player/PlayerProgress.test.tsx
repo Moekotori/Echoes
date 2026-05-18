@@ -38,6 +38,12 @@ describe('PlayerProgress', () => {
     expect(css).toContain('html[data-theme-preset="darkSideMoon"] .player-bar .progress-track');
     expect(css).toContain('html[data-theme-preset="darkSideMoon"] .player-bar .progress-fill');
     expect(css).toContain('html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb');
+    expect(css).toContain('--preset-app-bg: #10111a;');
+    expect(css).toContain('html[data-theme-preset="darkSideMoon"] .settings-range-field input[type="range"]::-webkit-slider-runnable-track');
+    expect(css).toContain('html[data-theme-preset="darkSideMoon"] .album-detail-page');
+    expect(css).toContain('html[data-theme-preset="darkSideMoon"] .artist-detail-page');
+    expect(css).toContain('html[data-theme-preset="darkSideMoon"] .artist-stat-grid div');
+    expect(css).toContain('html[data-theme-preset="darkSideMoon"] .album-track-row[data-playing');
     expect(css).toContain('#ed2f3b');
     expect(css).toContain('#f6d93b');
     expect(css).toContain('#26a8ed');

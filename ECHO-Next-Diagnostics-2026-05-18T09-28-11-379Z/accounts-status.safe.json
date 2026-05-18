@@ -1,0 +1,74 @@
+{
+  "storagePath": {
+    "basename": "accounts.json",
+    "pathHash": "9c9fa1050f605c21"
+  },
+  "statuses": [
+    {
+      "provider": "netease",
+      "connected": true,
+      "username": null,
+      "displayName": null,
+      "avatarUrl": null,
+      "lastLoginAt": "2026-05-14T09:55:03.297Z",
+      "lastCheckedAt": "2026-05-18T09:28:06.379Z",
+      "expiresAt": null,
+      "error": null
+    },
+    {
+      "provider": "qqmusic",
+      "connected": true,
+      "username": null,
+      "displayName": null,
+      "avatarUrl": null,
+      "lastLoginAt": "2026-05-14T09:55:44.705Z",
+      "lastCheckedAt": "2026-05-18T09:28:06.379Z",
+      "expiresAt": null,
+      "error": null
+    },
+    {
+      "provider": "bilibili",
+      "connected": true,
+      "username": "清海可音",
+      "displayName": "清海可音",
+      "avatarUrl": "https://i1.hdslb.com/bfs/face/2ce657c5a00ace47ce616032efb0b9d0aee21ebb.webp",
+      "lastLoginAt": "2026-05-14T09:57:01.927Z",
+      "lastCheckedAt": "2026-05-18T09:28:06.379Z",
+      "expiresAt": null,
+      "error": null
+    },
+    {
+      "provider": "youtube",
+      "connected": false,
+      "username": null,
+      "displayName": null,
+      "avatarUrl": null,
+      "lastLoginAt": null,
+      "lastCheckedAt": null,
+      "expiresAt": null,
+      "error": null
+    },
+    {
+      "provider": "soundcloud",
+      "connected": false,
+      "username": null,
+      "displayName": null,
+      "avatarUrl": null,
+      "lastLoginAt": null,
+      "lastCheckedAt": null,
+      "expiresAt": null,
+      "error": null
+    },
+    {
+      "provider": "spotify",
+      "connected": false,
+      "username": null,
+      "displayName": null,
+      "avatarUrl": null,
+      "lastLoginAt": null,
+      "lastCheckedAt": null,
+      "expiresAt": null,
+      "error": null
+    }
+  ]
+}

@@ -282,6 +282,9 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
       listDevices: vi.fn(),
       setOutput: vi.fn(),
     },
+    remoteSources: {
+      hydrateVisibleTracks: vi.fn().mockResolvedValue([]),
+    },
   } as unknown as Window['echo'];
 
   return { playLocalFile };
@@ -614,6 +617,62 @@ describe('SongsPage', () => {
 
     await waitFor(() => expect(window.echo.library.getDuplicateHiddenCounts).toHaveBeenCalledWith(['track-1', 'track-2'], 'strict'));
     expect(window.echo.library.getDuplicateTrackVersions).not.toHaveBeenCalled();
+  });
+
+  it('hydrates only visible remote rows in remote source mode', async () => {
+    window.localStorage.setItem('echo-next.library.source-mode', 'remote');
+    const tracks = [
+      makeTrack({
+        id: 'remote-track-1',
+        mediaType: 'remote',
+        path: 'remote://source-1/music/one.flac',
+        sourceId: 'source-1',
+        provider: 'webdav',
+        remotePath: '/music/one.flac',
+        stableKey: 'stable-1',
+        title: 'Remote One',
+      }),
+      makeTrack({
+        id: 'remote-track-2',
+        mediaType: 'remote',
+        path: 'remote://source-1/music/two.flac',
+        sourceId: 'source-1',
+        provider: 'webdav',
+        remotePath: '/music/two.flac',
+        stableKey: 'stable-2',
+        title: 'Remote Two',
+      }),
+    ];
+    installEcho(tracks);
+    vi.mocked(window.echo.remoteSources.hydrateVisibleTracks).mockResolvedValue([
+      { ...tracks[0], coverId: 'cover-1', coverThumb: 'echo-cover://thumb/cover-1' },
+    ]);
+
+    await renderSongsPage();
+    await screen.findByText('Remote One');
+    fireEvent.click(screen.getByRole('button', { name: 'mock-visible' }));
+
+    await waitFor(() =>
+      expect(window.echo.remoteSources.hydrateVisibleTracks).toHaveBeenCalledWith(
+        ['remote-track-1', 'remote-track-2'],
+        { metadata: true, cover: true, priority: 12 },
+      ),
+    );
+  });
+
+  it('does not hydrate visible rows while the local source mode is active', async () => {
+    const tracks = [
+      makeTrack({ id: 'track-1', title: 'Song One' }),
+      makeTrack({ id: 'track-2', title: 'Song Two' }),
+    ];
+    installEcho(tracks);
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+    fireEvent.click(screen.getByRole('button', { name: 'mock-visible' }));
+    await new Promise((resolve) => setTimeout(resolve, 260));
+
+    expect(window.echo.remoteSources.hydrateVisibleTracks).not.toHaveBeenCalled();
   });
 
   it('keeps TrackList totalCount stable when appending the second song page', async () => {

@@ -2421,6 +2421,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       {lyricsViewMode === "mv" ? (
         <MvPanel
           trackId={trackId ?? null}
+          currentTrack={currentTrack}
           streamingTarget={streamingTarget}
           title={title}
           artist={artist}

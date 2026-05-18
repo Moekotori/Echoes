@@ -246,6 +246,35 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
   });
 
+  it('keeps the cover button on demand instead of starting a source-wide cover scan', async () => {
+    sources = [remoteSource()];
+    render(<RemoteSourcesPanel />);
+
+    await screen.findByText('Mock AList');
+    expect(remoteApiMocks.list).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /加载封面/u }));
+
+    await screen.findByText('\u5c01\u9762\u5df2\u6539\u4e3a\u6309\u9700\u52a0\u8f7d\uff1a\u56de\u5230\u7f51\u76d8\u6b4c\u66f2\u5217\u8868\uff0c\u6eda\u5230\u54ea\u91cc\u5c31\u4f4e\u8d1f\u8f7d\u8865\u54ea\u91cc\u3002');
+    expect(remoteApiMocks.startBackgroundJobs).not.toHaveBeenCalledWith('source-1', ['cover']);
+    expect(remoteApiMocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps remote matching and retry actions lightweight', async () => {
+    sources = [remoteSource()];
+    render(<RemoteSourcesPanel />);
+
+    await screen.findByText('Mock AList');
+
+    fireEvent.click(screen.getByRole('button', { name: /\u5339\u914d\u6b4c\u8bcd/u }));
+    await waitFor(() => expect(remoteApiMocks.startBackgroundJobs).toHaveBeenCalledWith('source-1', ['lyrics']));
+    expect(remoteApiMocks.startBackgroundJobs).not.toHaveBeenCalledWith('source-1', ['lyrics', 'mv']);
+
+    fireEvent.click(screen.getByRole('button', { name: /\u4ec5\u91cd\u8bd5\u5931\u8d25\u5143\u6570\u636e/u }));
+    await waitFor(() => expect(remoteApiMocks.retryFailedJobs).toHaveBeenCalledWith('source-1', ['metadata', 'duration-backfill']));
+    expect(remoteApiMocks.retryFailedJobs).not.toHaveBeenCalledWith('source-1', ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill']);
+  });
+
   it('removes a deleted source from local state even if the refresh fails', async () => {
     sources = [remoteSource()];
     remoteApiMocks.list

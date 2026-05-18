@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import electron from 'electron';
 import { createDatabase, type EchoDatabase } from '../database/createDatabase';
 import { getAppSettings } from '../app/appSettings';
+import { assertProtectedLibraryAvailable } from '../app/dataProtection';
 import { BPM_CONFIDENCE_THRESHOLD } from '../../shared/constants/audioAnalysis';
 import type { BpmAnalysisResult } from '../../shared/types/library';
 import type {
@@ -782,6 +783,7 @@ let defaultStreamingService: StreamingService | null = null;
 let defaultStreamingDatabase: EchoDatabase | null = null;
 
 export const getStreamingService = (): StreamingService => {
+  assertProtectedLibraryAvailable();
   if (!defaultStreamingService) {
     const electronApp = (electron as unknown as { app?: { getPath: (name: string) => string } }).app;
     if (!electronApp) {
@@ -793,4 +795,14 @@ export const getStreamingService = (): StreamingService => {
   }
 
   return defaultStreamingService;
+};
+
+export const closeDefaultStreamingService = (): void => {
+  defaultStreamingService = null;
+  if (!defaultStreamingDatabase) {
+    return;
+  }
+
+  defaultStreamingDatabase.close();
+  defaultStreamingDatabase = null;
 };

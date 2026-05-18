@@ -1,0 +1,1 @@
+Diagnostics are generated locally. This package intentionally excludes music files, cover image binaries, lyric contents, tokens, cookies, and authentication secrets.

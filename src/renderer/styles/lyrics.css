@@ -3142,6 +3142,7 @@ html[data-theme="dark"] .lyrics-candidate-badges .lyrics-reason-badge,
   --lyrics-smart-shadow: none;
   --lyrics-smart-stroke: 0px transparent;
   --lyrics-smart-scrim-color: var(--theme-panel-bg);
+  --lyrics-smart-scrim-background: transparent;
   --lyrics-smart-scrim-opacity: 0;
 }
 
@@ -3153,12 +3154,22 @@ html[data-theme="dark"] .lyrics-candidate-badges .lyrics-reason-badge,
 
 .lyrics-page[data-smart-readable="true"] .lyrics-line span {
   -webkit-text-stroke: var(--lyrics-smart-stroke);
+  background: var(--lyrics-smart-scrim-background);
+  border-radius: 0.14em;
+  box-decoration-break: clone;
+  box-shadow: 0 0 0 0.08em var(--lyrics-smart-scrim-background);
+  -webkit-box-decoration-break: clone;
   paint-order: stroke fill;
 }
 
 .lyrics-page[data-smart-readable="true"] .lyrics-line small,
 .lyrics-page[data-smart-readable="true"] .lyrics-line em {
   color: var(--lyrics-smart-secondary-color);
+  background: var(--lyrics-smart-scrim-background);
+  border-radius: 0.14em;
+  box-decoration-break: clone;
+  box-shadow: 0 0 0 0.07em var(--lyrics-smart-scrim-background);
+  -webkit-box-decoration-break: clone;
   text-shadow: var(--lyrics-smart-shadow);
 }
 

@@ -9,6 +9,12 @@ export type RemoteTrackStatus = 'pending' | 'searching' | 'partial' | 'ok' | 'no
 export type RemoteTrackAvailability = 'available' | 'missing' | 'unknown';
 export type RemoteBackgroundJobKind = 'metadata' | 'cover' | 'lyrics' | 'mv' | 'duration-backfill';
 
+export type RemoteVisibleHydrationOptions = {
+  metadata?: boolean;
+  cover?: boolean;
+  priority?: number;
+};
+
 export type RemoteRuntimeLimits = {
   scanConcurrency?: number;
   metadataConcurrency?: number;
@@ -75,6 +81,7 @@ export type RemoteLibraryTrack = {
   etag: string | null;
   coverId: string | null;
   coverThumb: string | null;
+  coverStatus: RemoteTrackStatus;
   metadataStatus: RemoteTrackStatus;
   lyricsStatus: RemoteTrackStatus;
   mvStatus: RemoteTrackStatus;

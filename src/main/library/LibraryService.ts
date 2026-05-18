@@ -93,6 +93,7 @@ import { TsCoverExtractor } from './workers/TsCoverExtractor';
 import { TsFileScanner } from './workers/TsFileScanner';
 import { TsMetadataReader } from './workers/TsMetadataReader';
 import { getRemoteSourceService } from './remote/RemoteSourceService';
+import { assertProtectedLibraryAvailable } from '../app/dataProtection';
 import { writeEmbeddedTrackTags } from './TagWriter';
 import { backupPlaylistIfEnabled, type PlaylistBackupReason } from './PlaylistBackup';
 import { NETWORK_AUTO_APPLY_THRESHOLD } from './network/matchScore';
@@ -1682,6 +1683,7 @@ export const createLibraryService = (
 let defaultLibraryService: LibraryService | null = null;
 
 export const getLibraryService = (): LibraryService => {
+  assertProtectedLibraryAvailable();
   if (!defaultLibraryService) {
     const electronApp = (electron as unknown as { app?: { getPath: (name: string) => string } }).app;
 
@@ -1693,6 +1695,15 @@ export const getLibraryService = (): LibraryService => {
   }
 
   return defaultLibraryService;
+};
+
+export const closeDefaultLibraryService = (): void => {
+  if (!defaultLibraryService) {
+    return;
+  }
+
+  defaultLibraryService.close();
+  defaultLibraryService = null;
 };
 
 const pathSize = (targetPath: string): number | null => {

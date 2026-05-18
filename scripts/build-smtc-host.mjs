@@ -28,6 +28,48 @@ const run = (command, args) => {
   }
 };
 
+const quotePowerShellString = (value) => `'${String(value).replace(/'/g, "''")}'`;
+
+const stopRunningTargetBinary = (filePath) => {
+  if (process.platform !== 'win32' || !existsSync(filePath)) {
+    return;
+  }
+
+  const escapedPath = quotePowerShellString(resolve(filePath));
+  const command = [
+    `$target = ${escapedPath}`,
+    '$processes = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $target }',
+    'foreach ($process in $processes) {',
+    '  Write-Output ("[build:smtc-host] Stopping locked target process PID " + $process.ProcessId + ": " + $target)',
+    '  Stop-Process -Id $process.ProcessId -Force',
+    '}',
+  ].join('; ');
+
+  const result = spawnSync('powershell', ['-NoProfile', '-Command', command], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    shell: false,
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  if (output) {
+    console.log(output);
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`Failed to stop locked target process for ${filePath}`);
+  }
+};
+
+const copyBuiltHost = (source, destination) => {
+  stopRunningTargetBinary(destination);
+  copyFileSync(source, destination);
+};
+
 const findBuiltHost = () => {
   const candidates = [
     join(buildDir, config, 'echo-smtc-host.exe'),
@@ -61,12 +103,12 @@ try {
   }
 
   mkdirSync(targetDir, { recursive: true });
-  copyFileSync(builtHost, targetExe);
+  copyBuiltHost(builtHost, targetExe);
   console.log(`[build:smtc-host] Copied ${builtHost}`);
   console.log(`[build:smtc-host]      -> ${targetExe}`);
 
   if (existsSync(packagedResourceExe)) {
-    copyFileSync(builtHost, packagedResourceExe);
+    copyBuiltHost(builtHost, packagedResourceExe);
     console.log(`[build:smtc-host]      -> ${packagedResourceExe}`);
   }
 } catch (error) {

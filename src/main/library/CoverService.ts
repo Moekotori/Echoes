@@ -72,7 +72,7 @@ const writeIfMissing = async (filePath, data) => {
   const originalRef = join(coverDirectory, 'original' + extensionForMimeType(workerData.mimeType));
   const metaPath = join(coverDirectory, 'meta.json');
 
-  sharp.concurrency(Math.max(2, Math.min(8, workerData.sharpConcurrency || 4)));
+  sharp.concurrency(Math.max(1, Math.min(2, workerData.sharpConcurrency || 1)));
   await mkdir(coverDirectory, { recursive: true });
   await writeIfMissing(originalRef, data);
 
@@ -155,7 +155,7 @@ export class CoverService {
           mimeType: metadata.embeddedCover?.mimeType ?? null,
           warnings: metadata.warnings,
           errors: metadata.errors,
-          sharpConcurrency: 4,
+          sharpConcurrency: 1,
         },
       });
 

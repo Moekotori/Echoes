@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import electron from 'electron';
 import { getAppSettings } from '../../app/appSettings';
+import { assertProtectedLibraryAvailable } from '../../app/dataProtection';
 import { createDatabase } from '../../database/createDatabase';
 import type { EchoDatabase } from '../../database/createDatabase';
 import type { LibraryTrack } from '../../../shared/types/library';
@@ -17,6 +18,7 @@ import type {
   RemoteSourceUpdate,
   RemoteStreamUrlResult,
   RemoteSyncStatus,
+  RemoteVisibleHydrationOptions,
   TestRemoteSourceResult,
 } from '../../../shared/types/remoteSources';
 import { RemoteLibraryStore } from './RemoteLibraryStore';
@@ -61,7 +63,7 @@ export class RemoteSourceService {
       coverCacheDir ? new CoverService(database, coverCacheDir) : null,
     );
     this.syncService = new RemoteLibrarySyncService(this.store, (provider) => this.getAdapter(provider), (_sourceId, tracks) => {
-      this.backgroundQueue.enqueueTrackWrites(tracks, ['metadata', 'duration-backfill', 'cover']);
+      this.backgroundQueue.enqueueTrackWrites(tracks, ['metadata', 'duration-backfill']);
     }, (sourceId) => {
       this.backgroundQueue.setSourceSyncActive(sourceId, false);
     });
@@ -192,6 +194,28 @@ export class RemoteSourceService {
     return track ? this.store.toLibraryTrack(track) : null;
   }
 
+  hydrateVisibleTracks(trackIds: string[], options: RemoteVisibleHydrationOptions = {}): LibraryTrack[] {
+    const uniqueTrackIds = Array.from(new Set(trackIds.filter((trackId) => typeof trackId === 'string' && trackId.length > 0))).slice(0, 40);
+    const tracks = this.store.getTracksByIds(uniqueTrackIds);
+    const kinds: RemoteBackgroundJobKind[] = [];
+
+    if (options.metadata !== false) {
+      kinds.push('metadata', 'duration-backfill');
+    }
+    if (options.cover !== false) {
+      kinds.push('cover');
+    }
+
+    if (kinds.length > 0) {
+      const priority = typeof options.priority === 'number' && Number.isFinite(options.priority) ? Math.round(options.priority) : 10;
+      for (const track of tracks) {
+        this.backgroundQueue.enqueueTrack(track, kinds, priority);
+      }
+    }
+
+    return tracks.map((track) => this.store.toLibraryTrack(track));
+  }
+
   toLibraryTrack(track: RemoteLibraryTrack): LibraryTrack {
     return this.store.toLibraryTrack(track);
   }
@@ -271,6 +295,7 @@ const getAppSettingsSafe = () => {
 let defaultRemoteSourceService: RemoteSourceService | null = null;
 
 export const getRemoteSourceService = (): RemoteSourceService => {
+  assertProtectedLibraryAvailable();
   if (!defaultRemoteSourceService) {
     const electronApp = (electron as unknown as { app?: { getPath: (name: string) => string } }).app;
 
@@ -282,4 +307,13 @@ export const getRemoteSourceService = (): RemoteSourceService => {
   }
 
   return defaultRemoteSourceService;
+};
+
+export const closeDefaultRemoteSourceService = (): void => {
+  if (!defaultRemoteSourceService) {
+    return;
+  }
+
+  defaultRemoteSourceService.close();
+  defaultRemoteSourceService = null;
 };

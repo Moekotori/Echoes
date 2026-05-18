@@ -1035,7 +1035,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         ref={fileInputRef}
         className="browser-preview-picker"
         type="file"
-        accept=".flac,.mp3,.wav,.m4a,.aac,.ogg,.opus,.wma,.alac,.aiff,.aif,.ape,.wv,.tta,.tak,.caf,.dsf,.dff,.mka,.mkv,.mp4,.mov,.webm,.mp2,.mp1,.mpc,.ofr,.ofs,.spx,.amr,.ac3,.dts,audio/*"
+        accept=".flac,.mp3,.wav,.m4a,.m4p,.aac,.ogg,.opus,.wma,.alac,.aiff,.aif,.ape,.wv,.tta,.tak,.caf,.dsf,.dff,.mka,.mkv,.mp4,.mov,.webm,.mp2,.mp1,.mpc,.ofr,.ofs,.spx,.amr,.ac3,.dts,audio/*"
         aria-hidden="true"
         tabIndex={-1}
         onChange={(event) => handleBrowserFilePicked(event.target.files)}

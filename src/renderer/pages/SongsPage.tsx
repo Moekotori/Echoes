@@ -198,6 +198,9 @@ export const SongsPage = (): JSX.Element => {
   const locateRequestIdRef = useRef(0);
   const likedRequestIdRef = useRef(0);
   const duplicateRequestIdRef = useRef(0);
+  const visibleRemoteHydrationRequestIdRef = useRef(0);
+  const visibleRemoteHydrationSeenAtRef = useRef<Record<string, number>>({});
+  const visibleRemoteHydrationTimersRef = useRef<number[]>([]);
   const isLoadingRef = useRef(false);
   const likedTrackIdsRef = useRef<Record<string, boolean>>({});
   const duplicateHiddenCountsRef = useRef<Record<string, number>>({});
@@ -236,6 +239,22 @@ export const SongsPage = (): JSX.Element => {
     duplicateHiddenCountsRef.current = {};
     setLikedTrackIds({});
     setDuplicateHiddenCounts({});
+  }, []);
+
+  const clearVisibleRemoteHydrationTimers = useCallback((): void => {
+    for (const timer of visibleRemoteHydrationTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    visibleRemoteHydrationTimersRef.current = [];
+  }, []);
+
+  const mergeHydratedRemoteTracks = useCallback((updatedTracks: LibraryTrack[]): void => {
+    const updates = new Map(updatedTracks.filter((track) => track.mediaType === 'remote').map((track) => [track.id, track]));
+    if (updates.size === 0) {
+      return;
+    }
+
+    setTracks((current) => current.map((track) => updates.get(track.id) ?? track));
   }, []);
 
   const setSourceMode = useCallback((mode: LibrarySourceMode): void => {
@@ -403,6 +422,22 @@ export const SongsPage = (): JSX.Element => {
   useEffect(() => {
     void loadTracks(1, 'replace');
   }, [loadTracks]);
+
+  useEffect(() => {
+    return () => {
+      clearVisibleRemoteHydrationTimers();
+    };
+  }, [clearVisibleRemoteHydrationTimers]);
+
+  useEffect(() => {
+    if (sourceMode === 'remote') {
+      return;
+    }
+
+    visibleRemoteHydrationRequestIdRef.current += 1;
+    visibleRemoteHydrationSeenAtRef.current = {};
+    clearVisibleRemoteHydrationTimers();
+  }, [clearVisibleRemoteHydrationTimers, sourceMode]);
 
   useEffect(() => {
     writeStoredSort(sort);
@@ -742,6 +777,72 @@ export const SongsPage = (): JSX.Element => {
 
     void loadVisibleDuplicateBadges();
   }, [mergeDuplicateHiddenCounts, visibleTrackIds, visibleTrackIdsKey]);
+
+  useEffect(() => {
+    if (sourceMode !== 'remote') {
+      return undefined;
+    }
+
+    const remoteApi = window.echo?.remoteSources;
+    if (!remoteApi?.hydrateVisibleTracks) {
+      return undefined;
+    }
+
+    const visibleIds = new Set(uniqueIds(visibleTrackIds));
+    const visibleRemoteIds = tracks
+      .filter((track) => visibleIds.has(track.id) && track.mediaType === 'remote')
+      .map((track) => track.id);
+    const now = Date.now();
+    const trackIds = uniqueIds(visibleRemoteIds)
+      .filter((trackId) => now - (visibleRemoteHydrationSeenAtRef.current[trackId] ?? 0) > 30_000)
+      .slice(0, 24);
+
+    if (trackIds.length === 0) {
+      return undefined;
+    }
+
+    for (const trackId of trackIds) {
+      visibleRemoteHydrationSeenAtRef.current[trackId] = now;
+    }
+
+    const requestId = visibleRemoteHydrationRequestIdRef.current + 1;
+    visibleRemoteHydrationRequestIdRef.current = requestId;
+
+    const refreshVisibleTracks = (delayMs: number): void => {
+      const timer = window.setTimeout(() => {
+        const library = window.echo?.library;
+        if (!library || visibleRemoteHydrationRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        void Promise.all(trackIds.map((trackId) => library.getTrack(trackId).catch(() => null))).then((updatedTracks) => {
+          if (visibleRemoteHydrationRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          mergeHydratedRemoteTracks(updatedTracks.filter((track): track is LibraryTrack => Boolean(track)));
+        });
+      }, delayMs);
+      visibleRemoteHydrationTimersRef.current.push(timer);
+    };
+
+    const timer = window.setTimeout(() => {
+      void remoteApi
+        .hydrateVisibleTracks(trackIds, { metadata: true, cover: true, priority: 12 })
+        .then((updatedTracks) => {
+          if (visibleRemoteHydrationRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          mergeHydratedRemoteTracks(updatedTracks);
+          refreshVisibleTracks(900);
+          refreshVisibleTracks(2400);
+        })
+        .catch(() => undefined);
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [mergeHydratedRemoteTracks, sourceMode, tracks, visibleTrackIds, visibleTrackIdsKey]);
 
   useEffect(() => {
     const loadLoadedTrackLikedStates = async (): Promise<void> => {

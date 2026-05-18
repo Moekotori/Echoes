@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
+import type { CSSProperties, ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
 import { formatTime } from './playerFormat';
 
 type PlayerProgressProps = {
@@ -21,6 +21,9 @@ export const PlayerProgress = ({
     durationSeconds > 0 ? Math.min(durationSeconds, Math.max(0, displayedPositionSeconds)) : 0;
   const progressPercent =
     durationSeconds > 0 ? Math.min(100, Math.max(0, (boundedPositionSeconds / durationSeconds) * 100)) : 0;
+  const progressStyle = {
+    '--progress-percent': `${progressPercent}%`,
+  } as CSSProperties;
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setDragPositionSeconds(Number(event.currentTarget.value));
@@ -45,7 +48,7 @@ export const PlayerProgress = ({
   return (
     <div className="progress-row" aria-label="Playback position">
       <span>{formatTime(boundedPositionSeconds)}</span>
-      <div className="progress-track">
+      <div className="progress-track" style={progressStyle}>
         <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
         <div className="progress-thumb" style={{ left: `${progressPercent}%` }} />
         <input

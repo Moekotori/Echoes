@@ -91,6 +91,35 @@ const emptyGlobalStatus = (): RemoteBackgroundGlobalStatus => ({
   updatedAt: null,
 });
 
+const phaseLabels: Record<RemoteSyncStatus['phase'], string> = {
+  idle: '\u7a7a\u95f2',
+  testing: '\u6d4b\u8bd5\u8fde\u63a5',
+  scanning: '\u626b\u63cf\u6587\u4ef6',
+  reading_metadata: '\u89e3\u6790\u5143\u6570\u636e',
+  writing_database: '\u5199\u5165\u7d22\u5f15',
+  marking_missing: '\u6807\u8bb0\u7f3a\u5931',
+  finished: '\u5df2\u5b8c\u6210',
+  cancelled: '\u5df2\u53d6\u6d88',
+  failed: '\u5931\u8d25',
+};
+
+const clampPercent = (value: number): number => Math.max(0, Math.min(100, value));
+
+const syncProgressFor = (status: RemoteSyncStatus): { processed: number; total: number; percent: number; active: boolean; label: string } => {
+  const total = Math.max(0, status.discoveredCount);
+  const processed = Math.min(total, Math.max(0, status.writtenCount + status.skippedCount + status.missingCount + status.failedCount));
+  const active = status.status === 'running';
+  const percent = total > 0 ? clampPercent(Math.round((processed / total) * 100)) : 0;
+  const phase = phaseLabels[status.phase] ?? status.phase;
+  const label = total > 0
+    ? `${phase} · ${processed}/${total} · ${percent}%`
+    : active
+      ? `${phase} · \u6b63\u5728\u53d1\u73b0\u97f3\u4e50`
+      : phase;
+
+  return { processed, total, percent, active, label };
+};
+
 const formatDate = (value: string | null): string => (value ? new Date(value).toLocaleString() : '尚未执行');
 const sumKinds = (values: Record<RemoteBackgroundJobKind, number>): number => jobKinds.reduce((total, kind) => total + values[kind], 0);
 
@@ -294,7 +323,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
 
   const runSourceAction = async (
     source: RemoteSource,
-    action: 'test' | 'sync' | 'metadata' | 'match' | 'retryFailed' | 'pauseJobs' | 'toggle' | 'delete' | 'cancel' | 'browse',
+    action: 'test' | 'sync' | 'metadata' | 'cover' | 'match' | 'retryFailed' | 'pauseJobs' | 'toggle' | 'delete' | 'cancel' | 'browse',
   ): Promise<void> => {
     if (!remoteApi) {
       return;
@@ -311,14 +340,18 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         await remoteApi.sync(source.id);
         setMessage('已开始同步。');
       } else if (action === 'metadata') {
-        await remoteApi.startBackgroundJobs(source.id, ['metadata', 'cover', 'duration-backfill']);
+        await remoteApi.startBackgroundJobs(source.id, ['metadata', 'duration-backfill']);
         setMessage('已加入元数据补齐任务。');
+      } else if (action === 'cover') {
+        setMessage('\u5c01\u9762\u5df2\u6539\u4e3a\u6309\u9700\u52a0\u8f7d\uff1a\u56de\u5230\u7f51\u76d8\u6b4c\u66f2\u5217\u8868\uff0c\u6eda\u5230\u54ea\u91cc\u5c31\u4f4e\u8d1f\u8f7d\u8865\u54ea\u91cc\u3002');
+        await refreshStatuses([source.id]);
+        return;
       } else if (action === 'match') {
-        await remoteApi.startBackgroundJobs(source.id, ['lyrics', 'mv']);
-        setMessage('已加入歌词和 MV 匹配任务。');
+        await remoteApi.startBackgroundJobs(source.id, ['lyrics']);
+        setMessage('\u5df2\u52a0\u5165\u6b4c\u8bcd\u5339\u914d\u4efb\u52a1\uff1b\u7f51\u76d8\u6765\u6e90\u4e0d\u518d\u6279\u91cf\u5339\u914d MV\u3002');
       } else if (action === 'retryFailed') {
-        await remoteApi.retryFailedJobs(source.id, ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill']);
-        setMessage('已重新加入失败任务。');
+        await remoteApi.retryFailedJobs(source.id, ['metadata', 'duration-backfill']);
+        setMessage('\u5df2\u91cd\u8bd5\u5931\u8d25\u7684\u5143\u6570\u636e\u4efb\u52a1\uff1b\u4e0d\u518d\u91cd\u8bd5\u7f51\u76d8\u5c01\u9762\u6216 MV \u6279\u91cf\u5339\u914d\u3002');
       } else if (action === 'pauseJobs') {
         await remoteApi.pauseBackgroundJobs(source.id);
         setMessage('已暂停该来源后台任务。');
@@ -472,6 +505,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           const jobStatus = jobStatuses[source.id] ?? emptyJobStatus(source.id);
           const browsePreview = browsePreviews[source.id] ?? [];
           const running = syncStatus.status === 'running';
+          const syncProgress = syncProgressFor(syncStatus);
 
           return (
             <article className="remote-source-card" key={source.id}>
@@ -495,6 +529,22 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <span>成功写入：<strong>{syncStatus.writtenCount}</strong></span>
                 <span>跳过：<strong>{syncStatus.skippedCount}</strong></span>
                 <span>失败：<strong>{syncStatus.failedCount}</strong></span>
+              </div>
+              <div
+                className={`remote-scan-progress${syncProgress.active ? ' remote-scan-progress--active' : ''}`}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={syncProgress.total || 100}
+                aria-valuenow={syncProgress.total > 0 ? syncProgress.processed : undefined}
+                aria-label={`${source.displayName} \u626b\u63cf\u8fdb\u5ea6`}
+              >
+                <div className="remote-scan-progress-head">
+                  <span>{'\u626b\u63cf\u8fdb\u5ea6'}</span>
+                  <strong>{syncProgress.label}</strong>
+                </div>
+                <div className="remote-scan-progress-track">
+                  <span style={{ width: `${syncProgress.total > 0 ? syncProgress.percent : syncProgress.active ? 18 : 0}%` }} />
+                </div>
               </div>
               <div className="remote-job-grid">
                 {jobKinds.map((kind) => (
@@ -525,11 +575,14 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <button type="button" disabled={busy === `metadata:${source.id}`} onClick={() => void runSourceAction(source, 'metadata')}>
                   <RefreshCw size={15} />补齐元数据
                 </button>
+                <button type="button" disabled={busy === `cover:${source.id}`} onClick={() => void runSourceAction(source, 'cover')}>
+                  <RefreshCw size={15} />加载封面
+                </button>
                 <button type="button" disabled={busy === `match:${source.id}`} onClick={() => void runSourceAction(source, 'match')}>
-                  <Play size={15} />匹配歌词/MV
+                  <Play size={15} />{'\u5339\u914d\u6b4c\u8bcd'}
                 </button>
                 <button type="button" disabled={busy === `retryFailed:${source.id}`} onClick={() => void runSourceAction(source, 'retryFailed')}>
-                  <RotateCcw size={15} />仅重新匹配失败项
+                  <RotateCcw size={15} />{'\u4ec5\u91cd\u8bd5\u5931\u8d25\u5143\u6570\u636e'}
                 </button>
                 <button type="button" disabled={busy === `pauseJobs:${source.id}`} onClick={() => void runSourceAction(source, 'pauseJobs')}>
                   <PauseCircle size={15} />暂停后台任务

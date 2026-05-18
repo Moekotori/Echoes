@@ -9,7 +9,7 @@ export type TagLibAudioTechnicalMetadata = {
   durationSeconds: number | null;
 };
 
-const alacContainerExtensions = new Set(['.m4a', '.m4b', '.mp4', '.mov']);
+const alacContainerExtensions = new Set(['.m4a', '.m4b', '.m4p', '.mp4', '.mov']);
 
 const normalizePositiveInteger = (value: unknown): number | null => {
   const parsed = Number(value);

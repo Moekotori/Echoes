@@ -180,6 +180,7 @@ export const IpcChannels = {
   RemoteSourcesCancelSync: 'remoteSources:cancelSync',
   RemoteSourcesGetSyncStatus: 'remoteSources:getSyncStatus',
   RemoteSourcesCreateStreamUrl: 'remoteSources:createStreamUrl',
+  RemoteSourcesHydrateVisibleTracks: 'remoteSources:hydrateVisibleTracks',
   RemoteSourcesStartBackgroundJobs: 'remoteSources:startBackgroundJobs',
   RemoteSourcesPauseBackgroundJobs: 'remoteSources:pauseBackgroundJobs',
   RemoteSourcesGetJobStatus: 'remoteSources:getJobStatus',

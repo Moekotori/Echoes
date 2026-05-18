@@ -448,7 +448,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 620px) minmax(0, 1fr);
   align-items: center;
   gap: 16px;
-  padding: 8px 26px;
+  padding: 12px 26px 14px;
   min-width: 0;
   overflow: visible;
   border-width: 1px 0 0;
@@ -643,7 +643,7 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
 @media (max-width: 640px) {
   .app-shell {
     --mobile-nav-height: 66px;
-    --player-height: 132px;
+    --player-height: 146px;
     grid-template-rows: var(--titlebar-height) minmax(0, 1fr) var(--mobile-nav-height) var(--player-height);
     grid-template-columns: minmax(0, 1fr);
   }
@@ -750,9 +750,9 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-content: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
-    padding: 8px 12px 10px;
+    padding: 12px 12px 14px;
     overflow: hidden;
   }
 

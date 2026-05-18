@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createDataProtectionSnapshot,
+  ensureDataProtection,
   getProtectedUserDataPath,
   initializeProtectedUserDataPath,
   migrateLegacyProtectedData,
@@ -21,6 +23,13 @@ vi.mock('electron', () => ({
 }));
 
 const readText = (path: string): string => readFileSync(path, 'utf8');
+
+const createHealthyLibrary = (path: string): void => {
+  const database = new Database(path);
+  database.exec('CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT)');
+  database.prepare('INSERT INTO tracks (id, title) VALUES (?, ?)').run('track-1', 'Song');
+  database.close();
+};
 
 describe('dataProtection', () => {
   let tempDir: string;
@@ -45,13 +54,13 @@ describe('dataProtection', () => {
     expect(calls).toEqual([['userData', join(tempDir, 'ECHO NEXT')]]);
   });
 
-  it('restores missing settings and library files from the latest snapshot without overwriting existing data', () => {
+  it('restores missing settings and library files from the latest snapshot without overwriting existing data', async () => {
     const settingsPath = join(tempDir, 'echo-settings.json');
     const libraryPath = join(tempDir, 'echo-library.sqlite');
     writeFileSync(settingsPath, '{"theme":"dark"}\n', 'utf8');
     writeFileSync(libraryPath, 'library-v1', 'utf8');
 
-    const snapshot = createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-16T00:00:00.000Z'));
+    const snapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-16T00:00:00.000Z'));
     expect(snapshot.copied).toEqual(expect.arrayContaining(['echo-settings.json', 'echo-library.sqlite']));
 
     writeFileSync(settingsPath, '{"theme":"light"}\n', 'utf8');
@@ -64,7 +73,7 @@ describe('dataProtection', () => {
     expect(readText(libraryPath)).toBe('library-v1');
   });
 
-  it('migrates stronger legacy echo-next data over a fresh protected directory', () => {
+  it('migrates stronger legacy echo-next data over a fresh protected directory', async () => {
     const targetDir = join(tempDir, 'ECHO NEXT');
     const legacyDir = join(tempDir, 'echo-next');
     const targetLibraryPath = join(targetDir, 'echo-library.sqlite');
@@ -77,7 +86,7 @@ describe('dataProtection', () => {
     writeFileSync(join(legacyDir, 'echo-settings.json'), '{"theme":"old"}\n', { encoding: 'utf8', flag: 'w' });
     writeFileSync(legacyLibraryPath, Buffer.alloc(2 * 1024 * 1024));
 
-    const migration = migrateLegacyProtectedData(targetDir, [legacyDir]);
+    const migration = await migrateLegacyProtectedData(targetDir, [legacyDir]);
 
     expect(migration.sourcePath).toBe(legacyDir);
     expect(migration.migrated).toEqual(expect.arrayContaining(['echo-settings.json', 'echo-library.sqlite']));
@@ -86,7 +95,7 @@ describe('dataProtection', () => {
     expect(existsSync(join(targetDir, 'data-protection', 'snapshots'))).toBe(true);
   });
 
-  it('migrates legacy settings and account data even when the old library is small', () => {
+  it('migrates legacy settings and account data even when the old library is small', async () => {
     const targetDir = join(tempDir, 'ECHO NEXT');
     const legacyDir = join(tempDir, 'echo-next');
 
@@ -99,7 +108,7 @@ describe('dataProtection', () => {
     writeFileSync(join(legacyDir, 'accounts.json'), '{"providers":["spotify"]}\n', 'utf8');
     writeFileSync(join(legacyDir, 'eq-presets.json'), '{"presets":["my-eq"]}\n', 'utf8');
 
-    const migration = migrateLegacyProtectedData(targetDir, [legacyDir]);
+    const migration = await migrateLegacyProtectedData(targetDir, [legacyDir]);
 
     expect(migration.sourcePath).toBe(legacyDir);
     expect(migration.migrated).toEqual(expect.arrayContaining(['echo-settings.json', 'accounts.json', 'eq-presets.json']));
@@ -107,7 +116,7 @@ describe('dataProtection', () => {
     expect(readText(join(targetDir, 'accounts.json'))).toContain('spotify');
   });
 
-  it('does not replace an actively used protected directory with weaker legacy data', () => {
+  it('does not replace an actively used protected directory with weaker legacy data', async () => {
     const targetDir = join(tempDir, 'ECHO NEXT');
     const legacyDir = join(tempDir, 'echo-next');
 
@@ -119,7 +128,7 @@ describe('dataProtection', () => {
     writeFileSync(join(legacyDir, 'echo-settings.json'), '{"theme":"old"}\n', 'utf8');
     writeFileSync(join(legacyDir, 'echo-library.sqlite'), Buffer.alloc(256 * 1024));
 
-    const migration = migrateLegacyProtectedData(targetDir, [legacyDir]);
+    const migration = await migrateLegacyProtectedData(targetDir, [legacyDir]);
 
     expect(migration.sourcePath).toBeNull();
     expect(readText(join(targetDir, 'echo-settings.json'))).toBe('{"theme":"current"}\n');
@@ -143,6 +152,58 @@ describe('dataProtection', () => {
         expect.objectContaining({ name: 'echo-library.sqlite', path: settingsPathFor(tempDir, 'echo-library.sqlite') }),
       ]),
     );
+  });
+
+  it('creates a SQLite-backed healthy snapshot manifest', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+
+    const snapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    const manifest = JSON.parse(readText(join(snapshot.snapshotPath, 'snapshot.json'))) as {
+      libraryHealth: { status: string };
+      libraryBackupMethod: string;
+    };
+
+    expect(snapshot.libraryHealth.status).toBe('ok');
+    expect(snapshot.libraryBackupMethod).toBe('sqlite-backup');
+    expect(manifest.libraryHealth.status).toBe('ok');
+    expect(manifest.libraryBackupMethod).toBe('sqlite-backup');
+  });
+
+  it('archives a corrupt library and restores the latest healthy snapshot', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const healthySnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    writeFileSync(join(tempDir, 'echo-library.sqlite'), 'not sqlite', 'utf8');
+
+    const result = await ensureDataProtection('startup', tempDir);
+
+    expect(result.recovery.action).toBe('restored');
+    expect(result.recovery.sourceSnapshotPath).toBe(healthySnapshot.snapshotPath);
+    expect(result.libraryHealth.status).toBe('ok');
+    expect(existsSync(join(tempDir, 'data-protection', 'corrupt-archives'))).toBe(true);
+  });
+
+  it('skips corrupt snapshots and restores an older healthy snapshot', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const healthySnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad newer snapshot', 'utf8');
+    const corruptSnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-18T00:00:00.000Z'));
+    writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad current database', 'utf8');
+
+    const result = await ensureDataProtection('startup', tempDir);
+
+    expect(result.recovery.action).toBe('restored');
+    expect(result.recovery.sourceSnapshotPath).toBe(healthySnapshot.snapshotPath);
+    expect(result.recovery.sourceSnapshotPath).not.toBe(corruptSnapshot.snapshotPath);
+  });
+
+  it('quarantines a corrupt library when no healthy snapshot exists', async () => {
+    writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad current database', 'utf8');
+
+    const result = await ensureDataProtection('startup', tempDir);
+
+    expect(result.recovery.action).toBe('quarantined');
+    expect(result.libraryHealth.status).not.toBe('ok');
+    expect(readText(join(tempDir, 'echo-library.sqlite'))).toBe('bad current database');
   });
 });
 

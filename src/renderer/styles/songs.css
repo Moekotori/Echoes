@@ -122,10 +122,11 @@
 
 .songs-control-row {
   display: grid;
-  grid-template-columns: minmax(260px, 520px) max-content max-content;
+  grid-template-columns: minmax(260px, 1fr) max-content max-content;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: stretch;
+  column-gap: 14px;
+  row-gap: 12px;
 }
 
 .songs-import-hint {
@@ -203,13 +204,13 @@
 
 .sort-select {
   position: relative;
-  justify-self: end;
+  justify-self: start;
 }
 
 .library-source-switch {
   display: inline-flex;
   align-items: center;
-  justify-self: end;
+  justify-self: start;
   gap: 3px;
   min-height: 34px;
   padding: 3px;
@@ -255,7 +256,7 @@
   min-width: 0;
   align-items: center;
   justify-self: end;
-  gap: 8px;
+  gap: 14px;
 }
 
 .artist-avatar-priority-toggle {
@@ -903,7 +904,7 @@
   gap: 16px;
   overflow: hidden;
   padding-right: 18px;
-  border-right: 1px solid rgba(33, 49, 70, 0.08);
+  border-right: 0;
 }
 
 .playlist-sidebar-header {
