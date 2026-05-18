@@ -31,6 +31,7 @@ export type AppThemePreset =
   | 'amberNoir'
   | 'oceanStudio'
   | 'rosewoodVinyl'
+  | 'darkSideMoon'
   | 'shibuyaNight'
   | 'kyotoKurenai'
   | 'ukiyoIndigo'
@@ -149,6 +150,7 @@ export type AppSettings = {
   lyricsEnabled: boolean;
   lyricsHeaderHidden: boolean;
   lyricsMvAutoShowTrackInfoDisabled?: boolean;
+  lyricsCandidatePanelAutoOpenEnabled?: boolean;
   lyricsEmptyStateHidden: boolean;
   lyricsPlayerBarDrawerEnabled?: boolean;
   lyricsPlayerBarDrawerOpacityPercent?: number;
@@ -196,6 +198,8 @@ export type AppSettings = {
   replayGainTargetLufs?: number;
   replayGainPreampDb?: number;
   replayGainPreventClipping?: boolean;
+  replayGainAnalyzeOnPlay?: boolean;
+  replayGainAnalyzeMissingOnScanOptIn?: boolean;
   replayGainAnalyzeMissingOnScan?: boolean;
   backgroundSpacePauseEnabled?: boolean;
   globalShortcuts?: GlobalShortcutSettings;

@@ -6,13 +6,14 @@ import { AlbumContextMenu } from '../components/album/AlbumContextMenu';
 import type { AlbumMenuAction } from '../components/album/AlbumContextMenu';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
 import { AlbumTagEditorDrawer } from '../components/album/AlbumTagEditorDrawer';
+import { LibrarySourceSwitch } from '../components/library/LibrarySourceSwitch';
 import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
-import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
 import { likedAlbumsChangedEvent, likedChangedEvent } from '../hooks/useLikedMedia';
 import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { albumDetailNavigationEvent, consumePendingAlbumDetailNavigation, type DetailReturnTarget } from '../utils/albumNavigation';
+import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
 const pageSize = 60;
 const albumSortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
@@ -35,6 +36,11 @@ type AlbumMenuState = {
   position: { x: number; y: number };
 };
 
+const readAlbumWallScrollTop = (element: Element | null): number => {
+  const pageSurface = element?.closest('.page-surface') as HTMLElement | null;
+  return Math.max(readPageScrollTop(element), pageSurface?.scrollTop ?? 0);
+};
+
 export const AlbumsPage = (): JSX.Element => {
   const { t } = useI18n();
   const { appendTracksToQueue, playTrack, replaceQueue } = usePlaybackQueue();
@@ -43,6 +49,7 @@ export const AlbumsPage = (): JSX.Element => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('default');
+  const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => readStoredLibrarySourceMode());
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -64,14 +71,6 @@ export const AlbumsPage = (): JSX.Element => {
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
-  const { wallRef: albumWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLElement>({
-    itemCount: albums.length,
-    totalCount: total,
-    minColumnWidth: 164,
-    columnGap: 14,
-    rowGap: 14,
-    estimatedItemHeight: 214,
-  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -125,6 +124,7 @@ export const AlbumsPage = (): JSX.Element => {
           pageSize,
           search,
           sort,
+          sourceProvider: sourceMode,
         });
 
         if (requestIdRef.current !== requestId) {
@@ -149,8 +149,13 @@ export const AlbumsPage = (): JSX.Element => {
         }
       }
     },
-    [search, sort, t],
+    [search, sort, sourceMode, t],
   );
+
+  const setSourceMode = useCallback((mode: LibrarySourceMode): void => {
+    setSourceModeState(mode);
+    writeStoredLibrarySourceMode(mode);
+  }, []);
 
   useEffect(() => {
     void loadAlbums(1, 'replace');
@@ -158,6 +163,10 @@ export const AlbumsPage = (): JSX.Element => {
 
   useEffect(() => {
     const handleLibraryChanged = (): void => {
+      if (readAlbumWallScrollTop(pageRootRef.current) > 80) {
+        return;
+      }
+
       writePageScrollTop(pageRootRef.current, 0);
       void loadAlbums(1, 'replace');
     };
@@ -193,7 +202,7 @@ export const AlbumsPage = (): JSX.Element => {
 
   useLayoutEffect(() => {
     writePageScrollTop(pageRootRef.current, 0);
-  }, [search, sort]);
+  }, [search, sort, sourceMode]);
 
   useLayoutEffect(() => {
     if (selectedAlbum || !shouldRestorePageScrollRef.current) {
@@ -205,7 +214,7 @@ export const AlbumsPage = (): JSX.Element => {
   }, [selectedAlbum]);
 
   const openAlbumDetail = useCallback((album: LibraryAlbum, returnTo: DetailReturnTarget | null = null): void => {
-    pageScrollTopRef.current = readPageScrollTop(pageRootRef.current);
+    pageScrollTopRef.current = readAlbumWallScrollTop(pageRootRef.current);
     shouldRestorePageScrollRef.current = !returnTo;
     setSelectedAlbumReturnTo(returnTo);
     setSelectedAlbum(album);
@@ -467,6 +476,8 @@ export const AlbumsPage = (): JSX.Element => {
           />
         </label>
 
+        <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
+
         <div className="sort-select" ref={sortMenuRef}>
           <button
             className="sort-button"
@@ -503,7 +514,7 @@ export const AlbumsPage = (): JSX.Element => {
       </div>
 
       <div ref={pageRootRef} className="media-wall-scroll-shell page-scroll-container">
-        <section ref={albumWallRef} className="album-wall" aria-label={t('library.albums.listAria')}>
+        <section className="album-wall" aria-label={t('library.albums.listAria')}>
           {albums.map((album) => {
             const shouldShowCover = Boolean(album.coverThumb && failedCoverUrls[album.id] !== album.coverThumb);
 
@@ -550,7 +561,6 @@ export const AlbumsPage = (): JSX.Element => {
             <span>{error ?? t('library.albums.loading')}</span>
           </div>
         ) : null}
-        <MediaWallScrollSpacer height={spacerHeight} />
       </div>
       {albumMenu ? (
         <AlbumContextMenu

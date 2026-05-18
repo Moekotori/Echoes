@@ -33,6 +33,7 @@ const validThemePresets: AppThemePreset[] = [
   'amberNoir',
   'oceanStudio',
   'rosewoodVinyl',
+  'darkSideMoon',
   'shibuyaNight',
   'kyotoKurenai',
   'ukiyoIndigo',

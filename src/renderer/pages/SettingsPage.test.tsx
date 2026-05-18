@@ -105,6 +105,8 @@ const audioRestartWindowsAudioServiceMock = vi.fn();
 const validateGlobalShortcutMock = vi.fn();
 const kickoffArtistImageBackfillMock = vi.fn();
 const getArtistImageJobStatusMock = vi.fn();
+const startReplayGainAnalysisMock = vi.fn();
+const getReplayGainAnalysisStatusMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -239,6 +241,8 @@ vi.mock('../utils/echoBridge', () => ({
       updatedAt: '',
     }),
     refreshAlbumGrouping: vi.fn().mockResolvedValue({ songCount: 0, albumCount: 0, artistCount: 0, folderCount: 0, totalDuration: 0, lastScanAt: null }),
+    startReplayGainAnalysis: startReplayGainAnalysisMock,
+    getReplayGainAnalysisStatus: getReplayGainAnalysisStatusMock,
   }),
 }));
 
@@ -314,6 +318,22 @@ beforeEach(() => {
       rateLimited: 0,
     },
   });
+  startReplayGainAnalysisMock.mockResolvedValue({
+    id: 'replay-gain-job',
+    status: 'completed',
+    totalTracks: 0,
+    processedTracks: 0,
+    updatedTracks: 0,
+    errorCount: 0,
+  });
+  getReplayGainAnalysisStatusMock.mockResolvedValue({
+    id: 'replay-gain-job',
+    status: 'completed',
+    totalTracks: 0,
+    processedTracks: 0,
+    updatedTracks: 0,
+    errorCount: 0,
+  });
   window.echo = {
     app: {
       getSettings: getSettingsMock,
@@ -335,6 +355,8 @@ afterEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.theme;
   delete document.documentElement.dataset.themeMode;
+  delete document.documentElement.dataset.themePreset;
+  delete document.documentElement.dataset.themeCustom;
   delete (window as { echo?: Window['echo'] }).echo;
 });
 
@@ -411,6 +433,23 @@ describe('SettingsPage', () => {
     expect(row.getAttribute('data-search-highlight')).toBe('true');
   });
 
+  it('finds lyrics settings when searching for translation', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    const searchInput = screen.getByPlaceholderText('settings.header.searchPlaceholder') as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: '翻译' } });
+    fireEvent.click(screen.getByRole('option', { name: /route\.lyricsSettings\.label/ }));
+
+    expect(searchInput.value).toBe('');
+    expect(screen.getByText('显示中文翻译')).toBeTruthy();
+  });
+
   it('saves the dark theme from Settings and marks the selected chip', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -448,6 +487,25 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appearanceTheme: 'system' }));
     expect(systemButton.className).toContain('active');
     expect(document.documentElement.dataset.themeMode).toBe('system');
+  });
+
+  it('saves The Dark Side of the Moon theme preset from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
+    const presetButton = screen.getByText('settings.appearance.themePreset.darkSideMoon').closest('button') as HTMLButtonElement;
+    fireEvent.click(presetButton);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appearanceThemePreset: 'darkSideMoon' }));
+    expect(presetButton.className).toContain('active');
+    expect(document.documentElement.dataset.themePreset).toBe('darkSideMoon');
   });
 
   it('saves the artist wall album artwork setting and announces settings changes', async () => {
@@ -621,6 +679,56 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ playbackFollowCurrentTrack: true }));
+  });
+
+  it('shows ReplayGain playback controls and starts missing loudness analysis', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({
+      ...settings,
+      replayGainEnabled: false,
+      replayGainMode: 'track',
+      replayGainTargetLufs: -18,
+      replayGainPreampDb: 0,
+      replayGainPreventClipping: true,
+      replayGainAnalyzeOnPlay: true,
+      replayGainAnalyzeMissingOnScan: false,
+    });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+    startReplayGainAnalysisMock.mockResolvedValue({
+      id: 'replay-gain-job',
+      status: 'running',
+      totalTracks: 2,
+      processedTracks: 0,
+      updatedTracks: 0,
+      errorCount: 0,
+    });
+    getReplayGainAnalysisStatusMock.mockResolvedValue({
+      id: 'replay-gain-job',
+      status: 'completed',
+      totalTracks: 2,
+      processedTracks: 2,
+      updatedTracks: 2,
+      errorCount: 0,
+    });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+
+    const row = screen.getByText('ReplayGain 响度标准化').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByText('启用 ReplayGain').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
+    fireEvent.click(within(row).getByText('播放时分析缺失响度').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
+    fireEvent.click(within(row).getByRole('button', { name: 'Album' }));
+    fireEvent.click(within(row).getByRole('button', { name: '分析缺失响度' }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainEnabled: true }));
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainAnalyzeOnPlay: false }));
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainMode: 'album' }));
+    await waitFor(() => expect(startReplayGainAnalysisMock).toHaveBeenCalledWith({ limit: 500 }));
+    expect(await within(row).findByText('2/2')).toBeTruthy();
   });
 
   it('does not start audio device/status work when first entering Settings', async () => {

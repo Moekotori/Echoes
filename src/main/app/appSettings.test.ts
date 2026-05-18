@@ -131,6 +131,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ appearanceThemePreset: 'amberNoir' }).appearanceThemePreset).toBe('amberNoir');
     expect(normalizeSettings({ appearanceThemePreset: 'oceanStudio' }).appearanceThemePreset).toBe('oceanStudio');
     expect(normalizeSettings({ appearanceThemePreset: 'rosewoodVinyl' }).appearanceThemePreset).toBe('rosewoodVinyl');
+    expect(normalizeSettings({ appearanceThemePreset: 'darkSideMoon' }).appearanceThemePreset).toBe('darkSideMoon');
+    expect(normalizeSettings({ appearanceThemePreset: 'shibuyaNight' }).appearanceThemePreset).toBe('shibuyaNight');
+    expect(normalizeSettings({ appearanceThemePreset: 'kyotoKurenai' }).appearanceThemePreset).toBe('kyotoKurenai');
+    expect(normalizeSettings({ appearanceThemePreset: 'ukiyoIndigo' }).appearanceThemePreset).toBe('ukiyoIndigo');
+    expect(normalizeSettings({ appearanceThemePreset: 'fujiSnow' }).appearanceThemePreset).toBe('fujiSnow');
+    expect(normalizeSettings({ appearanceThemePreset: 'matsuriLantern' }).appearanceThemePreset).toBe('matsuriLantern');
+    expect(normalizeSettings({ appearanceThemePreset: 'ginzaNoir' }).appearanceThemePreset).toBe('ginzaNoir');
+    expect(normalizeSettings({ appearanceThemePreset: 'frostJazz' }).appearanceThemePreset).toBe('frostJazz');
     expect(normalizeSettings({ appearanceThemePreset: 'midnight' as never }).appearanceThemePreset).toBe('classic');
   });
 
@@ -564,6 +572,20 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ audioAnalysisEnabled: false }).audioAnalysisEnabled).toBe(false);
     expect(normalizeSettings({ audioAnalysisEnabled: true }).audioAnalysisEnabled).toBe(true);
     expect(normalizeSettings({ audioAnalysisEnabled: 'yes' as never }).audioAnalysisEnabled).toBe(true);
+  });
+
+  it('keeps ReplayGain analysis lazy by default', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).replayGainAnalyzeOnPlay).toBe(true);
+    expect(normalizeSettings({}).replayGainAnalyzeMissingOnScan).toBe(false);
+    expect(normalizeSettings({ replayGainAnalyzeOnPlay: false }).replayGainAnalyzeOnPlay).toBe(false);
+    expect(normalizeSettings({ replayGainAnalyzeMissingOnScan: true }).replayGainAnalyzeMissingOnScan).toBe(false);
+    expect(normalizeSettings({
+      replayGainAnalyzeMissingOnScan: true,
+      replayGainAnalyzeMissingOnScanOptIn: true,
+    }).replayGainAnalyzeMissingOnScan).toBe(true);
+    expect(normalizeSettings({ replayGainAnalyzeMissingOnScan: 'yes' as never }).replayGainAnalyzeMissingOnScan).toBe(false);
   });
 
   it('normalizes duplicate track settings conservatively', async () => {

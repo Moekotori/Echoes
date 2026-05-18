@@ -265,7 +265,7 @@ describe('WebDavRemoteSourceAdapter', () => {
     const adapter = new WebDavRemoteSourceAdapter();
     const scanned = [];
     for await (const track of adapter.scan({
-      source: makeSource(port, { scanConcurrency: 3 }),
+      source: makeSource(port, { scanConcurrency: 8 }),
       onError: (path, error) => errors.push(`${path}: ${error.message}`),
     })) {
       scanned.push(track.path);
@@ -274,6 +274,7 @@ describe('WebDavRemoteSourceAdapter', () => {
     expect(scanned.sort()).toEqual(['/a/one.mp3', '/b/two.flac']);
     expect(errors[0]).toContain('/fail/');
     expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(4);
   });
 
   it('uses filename fallback when a backend ignores Range for large files', async () => {

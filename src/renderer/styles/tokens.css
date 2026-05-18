@@ -147,7 +147,7 @@
   --shadow-panel: 0 8px 24px rgba(0, 0, 0, 0.045);
   --titlebar-height: 44px;
   --sidebar-width: 220px;
-  --player-height: 124px;
+  --player-height: 96px;
 
   --echo-polish-app-bg: #eef3f7;
   --echo-polish-app-bg-layer: linear-gradient(180deg, #f8fbfd 0%, #eef3f7 44%, #e6edf4 100%);

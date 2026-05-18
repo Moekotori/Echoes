@@ -53,9 +53,11 @@ describe('MediaServerRemoteSourceAdapter', () => {
 
   it('authenticates, scans server metadata, and proxies streams without leaking credentials', async () => {
     const audio = Buffer.from('jellyfin-audio');
+    let authRequests = 0;
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       if (request.method === 'POST' && url.pathname === '/Users/AuthenticateByName') {
+        authRequests += 1;
         response.setHeader('Content-Type', 'application/json');
         response.end(JSON.stringify({ AccessToken: 'server-token', User: { Id: 'user-1' } }));
         return;
@@ -132,7 +134,64 @@ describe('MediaServerRemoteSourceAdapter', () => {
     const proxied = await fetch(stream.url);
     expect(proxied.status).toBe(200);
     expect(Buffer.from(await proxied.arrayBuffer()).equals(audio)).toBe(true);
+    expect(authRequests).toBe(1);
     await proxy.close();
+  });
+
+  it('coalesces login and caps concurrent cover requests for media servers', async () => {
+    let authRequests = 0;
+    let activeCoverRequests = 0;
+    let maxActiveCoverRequests = 0;
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (request.method === 'POST' && url.pathname === '/Users/AuthenticateByName') {
+        authRequests += 1;
+        setTimeout(() => {
+          response.setHeader('Content-Type', 'application/json');
+          response.end(JSON.stringify({ AccessToken: 'server-token', User: { Id: 'user-1' } }));
+        }, 5);
+        return;
+      }
+      if (url.pathname.startsWith('/Items/song-') && url.pathname.endsWith('/Images/Primary')) {
+        activeCoverRequests += 1;
+        maxActiveCoverRequests = Math.max(maxActiveCoverRequests, activeCoverRequests);
+        setTimeout(() => {
+          activeCoverRequests -= 1;
+          response.writeHead(200, { 'Content-Type': 'image/jpeg' });
+          response.end(Buffer.from([1, 2, 3]));
+        }, 10);
+        return;
+      }
+      response.writeHead(404);
+      response.end();
+    });
+    servers.push(server);
+    const port = await listen(server);
+    const adapter = new JellyfinRemoteSourceAdapter();
+    const remoteSource = source(port);
+
+    await Promise.all(Array.from({ length: 12 }, (_value, index) =>
+      adapter.readCover({
+        source: remoteSource,
+        item: {
+          sourceId: remoteSource.id,
+          provider: 'jellyfin',
+          path: `jellyfin:item:song-${index}`,
+          name: `song-${index}`,
+          kind: 'file',
+          sizeBytes: null,
+          modifiedAt: null,
+          etag: null,
+          contentType: null,
+          audio: true,
+          remoteUrlHash: '',
+          stableKey: `song-${index}`,
+        },
+      }),
+    ));
+
+    expect(authRequests).toBe(1);
+    expect(maxActiveCoverRequests).toBeLessThanOrEqual(6);
   });
 
   it('supports API key authentication without username/password login', async () => {

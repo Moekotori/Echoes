@@ -16,6 +16,7 @@ import { createDsfDopStream, createDsfNativeDsdStream, readDsfDopInfo } from './
 import { AutomixAnalyzer } from './AutomixAnalyzer';
 import { getAppSettings } from '../app/appSettings';
 import { calculateReplayGain, dbToLinearGain, type ReplayGainCalculation, type ReplayGainTrackData } from '../../shared/utils/replayGain';
+import type { ReplayGainMode } from '../../shared/types/appSettings';
 import {
   createEstimatedAutomixAnalysis,
   planAutomixTransition,
@@ -211,6 +212,33 @@ const nativeHostNotificationEvents = new Set<NativeHostNotificationEvent['event'
   'audio_session_disconnected',
 ]);
 const inactiveDeviceReasons = new Set(['disabled', 'not_present', 'unplugged', 'removed']);
+type ReplayGainAudioSettings = {
+  replayGainEnabled: boolean;
+  replayGainMode: ReplayGainMode;
+  replayGainPreampDb: number;
+  replayGainPreventClipping: boolean;
+};
+
+const defaultReplayGainAudioSettings: ReplayGainAudioSettings = {
+  replayGainEnabled: false,
+  replayGainMode: 'track',
+  replayGainPreampDb: 0,
+  replayGainPreventClipping: true,
+};
+
+const getReplayGainAudioSettings = (): ReplayGainAudioSettings => {
+  try {
+    const settings = getAppSettings();
+    return {
+      replayGainEnabled: settings.replayGainEnabled === true,
+      replayGainMode: settings.replayGainMode ?? 'track',
+      replayGainPreampDb: settings.replayGainPreampDb ?? 0,
+      replayGainPreventClipping: settings.replayGainPreventClipping !== false,
+    };
+  } catch {
+    return defaultReplayGainAudioSettings;
+  }
+};
 
 const isNativeHostNotificationEvent = (event: unknown): event is NativeHostNotificationEvent => {
   if (!event || typeof event !== 'object' || Array.isArray(event)) {
@@ -2206,6 +2234,14 @@ export class AudioSession extends EventEmitter {
     this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
     this.currentProbe = null;
     this.currentTrackId = null;
+    this.currentReplayGain = null;
+    this.currentReplayGainCalculation = {
+      appliedDb: 0,
+      selectedGainDb: null,
+      selectedPeak: null,
+      preventedClipping: false,
+      active: false,
+    };
     this.currentFilePath = null;
     this.currentInputHeaders = null;
     this.currentPlan = null;
@@ -2279,6 +2315,14 @@ export class AudioSession extends EventEmitter {
     this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
     this.currentProbe = null;
     this.currentTrackId = null;
+    this.currentReplayGain = null;
+    this.currentReplayGainCalculation = {
+      appliedDb: 0,
+      selectedGainDb: null,
+      selectedPeak: null,
+      preventedClipping: false,
+      active: false,
+    };
     this.currentFilePath = null;
     this.currentInputHeaders = null;
     this.currentPlan = null;
@@ -2441,7 +2485,7 @@ export class AudioSession extends EventEmitter {
     const realtimeLevelClippingRisk = audioLevels.estimatedOutputPeakDb !== null && audioLevels.estimatedOutputPeakDb >= 0;
     const realtimeLevelClipped = audioLevels.clipCount > 0;
     const automixActive = this.activeAutomix !== null;
-    const settings = getAppSettings();
+    const settings = getReplayGainAudioSettings();
     const replayGainCalculation = this.currentReplayGainCalculation;
     const replayGainActive = replayGainCalculation.active && Math.abs(replayGainCalculation.appliedDb) >= 0.001;
     const dspActive = eqState.enabled || channelBalanceState.enabled || automixActive || replayGainActive;
@@ -3163,16 +3207,7 @@ export class AudioSession extends EventEmitter {
       plan,
       outputSettings,
     );
-    {
-      const settings = getAppSettings();
-      nextDecodeRequest.replayGainDb = calculateReplayGain({
-        ...(firstCandidate.track.replayGain ?? {}),
-        enabled: settings.replayGainEnabled === true,
-        mode: settings.replayGainMode ?? 'track',
-        preampDb: settings.replayGainPreampDb ?? 0,
-        preventClipping: settings.replayGainPreventClipping !== false,
-      }).appliedDb;
-    }
+    nextDecodeRequest.replayGainDb = this.calculateReplayGainForTrack(firstCandidate.track.replayGain).appliedDb;
     const followingDecodeRequests = resolvedCandidates.slice(1, transitionPlans.length).map((candidate, index) => ({
       track: {
         ...this.createDecodeRequest(
@@ -3184,13 +3219,7 @@ export class AudioSession extends EventEmitter {
           outputSettings,
         ),
         durationSeconds: candidate.probe.durationSeconds,
-        replayGainDb: calculateReplayGain({
-          ...(candidate.track.replayGain ?? {}),
-          enabled: getAppSettings().replayGainEnabled === true,
-          mode: getAppSettings().replayGainMode ?? 'track',
-          preampDb: getAppSettings().replayGainPreampDb ?? 0,
-          preventClipping: getAppSettings().replayGainPreventClipping !== false,
-        }).appliedDb,
+        replayGainDb: this.calculateReplayGainForTrack(candidate.track.replayGain).appliedDb,
       },
       plan: transitionPlans[index + 1],
     }));
@@ -4590,7 +4619,6 @@ export class AudioSession extends EventEmitter {
   }
 
   private calculateCurrentReplayGain(): ReplayGainCalculation {
-    const settings = getAppSettings();
     if (this.currentActiveDsdOutputMode === 'dop' || this.currentActiveDsdOutputMode === 'native') {
       return {
         appliedDb: 0,
@@ -4601,12 +4629,17 @@ export class AudioSession extends EventEmitter {
       };
     }
 
+    return this.calculateReplayGainForTrack(this.currentReplayGain);
+  }
+
+  private calculateReplayGainForTrack(replayGain: ReplayGainTrackData | null | undefined): ReplayGainCalculation {
+    const settings = getReplayGainAudioSettings();
     return calculateReplayGain({
-      ...(this.currentReplayGain ?? {}),
-      enabled: settings.replayGainEnabled === true,
-      mode: settings.replayGainMode ?? 'track',
-      preampDb: settings.replayGainPreampDb ?? 0,
-      preventClipping: settings.replayGainPreventClipping !== false,
+      ...(replayGain ?? {}),
+      enabled: settings.replayGainEnabled,
+      mode: settings.replayGainMode,
+      preampDb: settings.replayGainPreampDb,
+      preventClipping: settings.replayGainPreventClipping,
     });
   }
 
@@ -4628,14 +4661,7 @@ export class AudioSession extends EventEmitter {
     const volume = this.currentOutputSettings?.volume ?? this.outputSettings.volume;
     const nativeVolumeControl = typeof this.bridge?.setVolume === 'function';
     const currentReplayGainCalculation = this.calculateCurrentReplayGain();
-    const settings = getAppSettings();
-    const nextReplayGainCalculation = calculateReplayGain({
-      ...(this.activeAutomix?.nextReplayGain ?? {}),
-      enabled: settings.replayGainEnabled === true,
-      mode: settings.replayGainMode ?? 'track',
-      preampDb: settings.replayGainPreampDb ?? 0,
-      preventClipping: settings.replayGainPreventClipping !== false,
-    });
+    const nextReplayGainCalculation = this.calculateReplayGainForTrack(this.activeAutomix?.nextReplayGain);
     const currentGainTransform = new PcmVolumeTransform(nativeVolumeControl ? 1 : volume);
     const nextGainTransform = new PcmVolumeTransform(nativeVolumeControl ? 1 : volume);
     const currentReplayGainTransform = new PcmVolumeTransform(this.replayGainLinearGain(currentReplayGainCalculation), 16);

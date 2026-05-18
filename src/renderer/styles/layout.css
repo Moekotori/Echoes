@@ -278,7 +278,7 @@ html[data-theme="dark"] .app-shell--lyrics .window-control:hover {
   bottom: clamp(8px, 1.6vh, 16px);
   left: 50%;
   z-index: 20;
-  width: min(720px, calc(100vw - 96px));
+  width: min(820px, calc(100vw - 96px));
   pointer-events: auto;
   transform: translateX(-50%);
 }
@@ -447,8 +447,8 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
   grid-column: 1 / 3;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 620px) minmax(0, 1fr);
   align-items: center;
-  gap: 18px;
-  padding: 14px 28px;
+  gap: 16px;
+  padding: 8px 26px;
   min-width: 0;
   overflow: visible;
   border-width: 1px 0 0;

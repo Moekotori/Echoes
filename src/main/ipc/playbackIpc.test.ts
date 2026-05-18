@@ -156,6 +156,83 @@ describe('playback media prepare IPC', () => {
     }));
   });
 
+  it('queues ReplayGain analysis only for the local track that starts playback', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const playLocalFile = vi.fn().mockResolvedValue(undefined);
+    const startReplayGainAnalysis = vi.fn();
+
+    vi.doMock('electron', () => ({
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../app/appSettings', () => ({
+      getAppSettings: () => ({ replayGainAnalyzeOnPlay: true }),
+    }));
+    vi.doMock('../library/LibraryService', () => ({
+      getLibraryService: () => ({ startReplayGainAnalysis }),
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => ({
+        getStatus: () => ({
+          state: 'playing',
+          currentTrackId: 'local-track',
+          positionSeconds: 0,
+          durationSeconds: 180,
+          currentFilePath: 'D:\\Music\\song.flac',
+        }),
+        on: vi.fn(),
+        restorePlaybackMemory: vi.fn(),
+        playLocalFile,
+      }),
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback: vi.fn(),
+        invalidatePlayback: vi.fn(),
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    await handlers.get(IpcChannels.PlaybackPlayMediaItem)?.({}, {
+      item: {
+        mediaType: 'local',
+        trackId: 'local-track',
+        path: 'D:\\Music\\song.flac',
+        title: 'Song',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 180,
+      },
+    });
+
+    await expect.poll(() => startReplayGainAnalysis.mock.calls.length).toBe(1);
+    expect(startReplayGainAnalysis).toHaveBeenCalledWith({ trackIds: ['local-track'], limit: 1, force: false });
+  });
+
   it('does not let a stale streaming resolve interrupt a newer local playback request', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     let status = {

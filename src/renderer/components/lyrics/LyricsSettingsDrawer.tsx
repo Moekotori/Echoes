@@ -51,6 +51,7 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsEnabled'
   | 'lyricsHeaderHidden'
   | 'lyricsMvAutoShowTrackInfoDisabled'
+  | 'lyricsCandidatePanelAutoOpenEnabled'
   | 'lyricsEmptyStateHidden'
   | 'lyricsPlayerBarDrawerEnabled'
   | 'lyricsPlayerBarDrawerOpacityPercent'
@@ -89,6 +90,7 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsEnabled: true,
   lyricsHeaderHidden: false,
   lyricsMvAutoShowTrackInfoDisabled: true,
+  lyricsCandidatePanelAutoOpenEnabled: true,
   lyricsEmptyStateHidden: true,
   lyricsPlayerBarDrawerEnabled: false,
   lyricsPlayerBarDrawerOpacityPercent: 78,
@@ -252,6 +254,7 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsEnabled: settings.lyricsEnabled,
   lyricsHeaderHidden: settings.lyricsHeaderHidden,
   lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
+  lyricsCandidatePanelAutoOpenEnabled: settings.lyricsCandidatePanelAutoOpenEnabled !== false,
   lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
   lyricsPlayerBarDrawerOpacityPercent: settings.lyricsPlayerBarDrawerOpacityPercent ?? fallbackSettings.lyricsPlayerBarDrawerOpacityPercent,
@@ -1110,6 +1113,18 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               />
             </label>
           ) : null}
+          <label className="audio-toggle-row">
+            <span>
+              <Captions size={17} />
+              <strong>自动弹出歌词选择栏</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsCandidatePanelAutoOpenEnabled !== false}
+              disabled={isBusy}
+              onChange={(event) => void patchSettings({ lyricsCandidatePanelAutoOpenEnabled: event.currentTarget.checked })}
+            />
+          </label>
           <label className="audio-toggle-row">
             <span>
               <EyeOff size={17} />

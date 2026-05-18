@@ -421,10 +421,11 @@ describe("LyricsPage", () => {
     expect(css).toContain("--lyrics-word-accent-color: color-mix(in srgb, var(--color-accent-strong) 72%, var(--theme-heading-text) 28%);");
     expect(css).toMatch(/html\[data-theme="dark"\] \.lyrics-mv-background::after \{\s*opacity: max\(var\(--mv-immersive-overlay-opacity\), 0\.42\);/);
     expect(css).toContain("--lyrics-word-fill-color: var(--lyrics-word-accent-color);");
-    expect(css).toContain("var(--lyrics-word-fill-color) 0 calc(var(--lyrics-word-progress) * 100%)");
-    expect(css).toContain("var(--lyrics-word-upcoming-color) calc(var(--lyrics-word-progress) * 100%) 100%");
+    expect(css).toContain("var(--lyrics-word-fill-color) 0 calc((var(--lyrics-word-progress) * 100%) - 0.12em)");
+    expect(css).toContain("color-mix(in srgb, var(--lyrics-word-fill-color) 72%, var(--lyrics-word-upcoming-color) 28%) calc(var(--lyrics-word-progress) * 100%)");
     expect(css).toContain('.lyrics-line[data-active="true"][data-word-highlight="true"] .lyrics-word[data-word-state="current"]');
-    expect(css).toContain('transform: translate3d(0, -0.03em, 0) scale(1.045);');
+    expect(css).not.toContain('scale(1.045)');
+    expect(css).not.toContain('.lyrics-word[data-word-state="current"]::after');
     expect(css).toContain('.lyrics-page:has(.lyrics-mv-panel[data-lyrics-readability="true"]) .lyrics-line span');
     expect(css).toContain('.lyrics-page:has(.lyrics-mv-panel[data-lyrics-readability="true"]) .lyrics-line[data-word-highlight="true"] .lyrics-word');
     expect(css).not.toMatch(/\.lyrics-page:has\(\.lyrics-mv-background\) \.lyrics-line(?:\[data-active="true"\])? \{\s*color: var\(--lyrics-color\);/);
@@ -477,9 +478,10 @@ describe("LyricsPage", () => {
     const css = readFileSync("src/renderer/styles/lyrics.css", "utf8");
     const layoutCss = readFileSync("src/renderer/styles/layout.css", "utf8");
     const polishCss = readFileSync("src/renderer/styles/ui-polish.css", "utf8");
+    const themePresetsCss = readFileSync("src/renderer/styles/theme-presets.css", "utf8");
 
     expect(layoutCss).toMatch(/\.app-shell--lyrics-player-drawer \{[\s\S]*?grid-template-rows: var\(--titlebar-height\) minmax\(0, 1fr\) 0;/);
-    expect(layoutCss).toMatch(/\.lyrics-player-drawer-host \{[\s\S]*?position: fixed;[\s\S]*?width: min\(720px, calc\(100vw - 96px\)\);/);
+    expect(layoutCss).toMatch(/\.lyrics-player-drawer-host \{[\s\S]*?position: fixed;[\s\S]*?width: min\(820px, calc\(100vw - 96px\)\);/);
     expect(css).toMatch(/\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.player-bar \{[\s\S]*?grid-template-columns: auto auto;[\s\S]*?justify-content: center;[\s\S]*?min-height: 54px;[\s\S]*?border-radius: 999px;[\s\S]*?background: var\(--lyrics-mini-player-background, rgba\(35, 33, 32, 0\.78\)\);/);
     expect(css).toMatch(/\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.player-center \{[\s\S]*?grid-template-columns: auto auto;[\s\S]*?justify-content: center;/);
     expect(css).toMatch(/\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.progress-row \{[\s\S]*?width: clamp\(230px, 21vw, 286px\);/);
@@ -494,6 +496,12 @@ describe("LyricsPage", () => {
     expect(css).toMatch(/@media \(max-width: 720px\) \{[\s\S]*?\.app-shell--lyrics-player-drawer \.lyrics-page:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.lyrics-left-panel \{\s*grid-template-rows: 58px minmax\(0, 1fr\);/);
     expect(css).toMatch(/@media \(max-width: 720px\) \{[\s\S]*?\.app-shell--lyrics-player-drawer \.lyrics-page:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.lyrics-track-header \{[\s\S]*?top: 66px;[\s\S]*?grid-template-columns: 64px minmax\(0, 1fr\);/);
     expect(polishCss).toMatch(/\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.player-bar \{[\s\S]*?background: var\(--lyrics-mini-player-background, rgba\(35, 33, 32, 0\.78\)\);[\s\S]*?backdrop-filter: blur\(22px\) saturate\(1\.18\);/);
+    expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar');
+    expect(themePresetsCss).toContain('--lyrics-mini-readable-text: var(--theme-heading-text);');
+    expect(themePresetsCss).toContain('--lyrics-mini-readable-muted: color-mix');
+    expect(themePresetsCss).toContain('var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.9))');
+    expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button');
+    expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill');
     expect(css).not.toMatch(/\.app-shell:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.player-bar \{/);
     expect(polishCss).not.toMatch(/\.app-shell:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.player-bar \{/);
   });

@@ -4,12 +4,14 @@ import { Check, ChevronDown, Image as ImageIcon, ListFilter, Play, RefreshCw, Se
 import type { LibraryArtist, LibrarySort } from '../../shared/types/library';
 import { ArtistDetailView } from '../components/artist/ArtistDetailView';
 import { artistMark } from '../components/artist/artistVisual';
+import { LibrarySourceSwitch } from '../components/library/LibrarySourceSwitch';
 import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
 import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
 import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import type { DetailReturnTarget } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent, consumePendingArtistDetailNavigation } from '../utils/artistNavigation';
+import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
 const pageSize = 96;
 const artistSortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
@@ -48,6 +50,7 @@ export const ArtistsPage = (): JSX.Element => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('default');
+  const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => readStoredLibrarySourceMode());
   const [prioritizeArtistAvatars, setPrioritizeArtistAvatars] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -129,6 +132,7 @@ export const ArtistsPage = (): JSX.Element => {
           pageSize,
           search,
           sort,
+          sourceProvider: sourceMode,
           ...(prioritizeArtistAvatars ? { prioritizeArtistAvatars: true } : {}),
         });
 
@@ -154,8 +158,13 @@ export const ArtistsPage = (): JSX.Element => {
         }
       }
     },
-    [prioritizeArtistAvatars, search, sort, t],
+    [prioritizeArtistAvatars, search, sort, sourceMode, t],
   );
+
+  const setSourceMode = useCallback((mode: LibrarySourceMode): void => {
+    setSourceModeState(mode);
+    writeStoredLibrarySourceMode(mode);
+  }, []);
 
   useEffect(() => {
     void loadArtists(1, 'replace');
@@ -173,7 +182,7 @@ export const ArtistsPage = (): JSX.Element => {
 
   useLayoutEffect(() => {
     writePageScrollTop(pageRootRef.current, 0);
-  }, [prioritizeArtistAvatars, search, sort]);
+  }, [prioritizeArtistAvatars, search, sort, sourceMode]);
 
   useLayoutEffect(() => {
     if (selectedArtist || !shouldRestorePageScrollRef.current) {
@@ -430,6 +439,8 @@ export const ArtistsPage = (): JSX.Element => {
         </label>
 
         <div className="artist-control-actions">
+          <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
+
           <button
             className="sort-button artist-avatar-priority-toggle"
             type="button"

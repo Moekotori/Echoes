@@ -196,10 +196,10 @@ describe('RemoteBackgroundJobQueue', () => {
 
     queue.setPlaybackActive(true);
     expect(queue.getStatus(source.id).concurrency.metadata).toBe(1);
-    expect(queue.getStatus(source.id).concurrency.cover).toBe(1);
+    expect(queue.getStatus(source.id).concurrency.cover).toBe(0);
     queue.setPlaybackActive(false);
-    expect(queue.getStatus(source.id).concurrency.cover).toBe(8);
-    expect(queue.getStatus(source.id).concurrency.metadata).toBe(8);
+    expect(queue.getStatus(source.id).concurrency.cover).toBe(2);
+    expect(queue.getStatus(source.id).concurrency.metadata).toBe(4);
     queue.setPlaybackActive(true);
 
     queue.setGlobalPaused(true);
@@ -211,6 +211,101 @@ describe('RemoteBackgroundJobQueue', () => {
     queue.setGlobalPaused(false);
     await waitFor(() => queue.getStatus(source.id).completed.metadata === 1);
     expect(readMetadata).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cover jobs queued while playback or source sync is active', async () => {
+    const source = { ...makeSource(), provider: 'subsonic' as const };
+    const track = {
+      ...makeTrack(),
+      provider: 'subsonic' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: { coverArt: 'cover-1' },
+    };
+    const readCover = vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: new Uint8Array([1, 2, 3]),
+      mimeType: 'image/jpeg',
+      fieldSources: { cover: 'subsonic' },
+      warnings: [],
+      errors: [],
+    });
+    const coverService = {
+      ensureCover: vi.fn().mockResolvedValue('cached-cover-1'),
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+      updateTrackCover: vi.fn((_trackId: string, coverId: string | null) => {
+        (track as RemoteLibraryTrack).coverId = coverId;
+        return track;
+      }),
+      updateTrackCoversByCoverArt: vi.fn(),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readCover } as never), coverService as never);
+
+    queue.setPlaybackActive(true);
+    queue.enqueueSource(source.id, ['cover']);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(queue.getStatus(source.id).pending.cover).toBe(1);
+    expect(readCover).not.toHaveBeenCalled();
+
+    queue.setPlaybackActive(false);
+    queue.setSourceSyncActive(source.id, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(queue.getStatus(source.id).pending.cover).toBe(1);
+    expect(readCover).not.toHaveBeenCalled();
+
+    queue.setSourceSyncActive(source.id, false);
+    await waitFor(() => queue.getStatus(source.id).completed.cover === 1);
+    expect(readCover).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps remote background metadata work globally even when several sources request high concurrency', async () => {
+    const sources = [
+      { ...makeSource(), id: 'source-1', config: { metadataConcurrency: 8 } },
+      { ...makeSource(), id: 'source-2', config: { metadataConcurrency: 8 } },
+    ];
+    const tracks = Array.from({ length: 12 }, (_value, index) => ({
+      ...makeTrack(),
+      id: `remote-track-${index}`,
+      sourceId: index < 6 ? 'source-1' : 'source-2',
+      remotePath: `/music/track-${index}.flac`,
+      stableKey: `stable-${index}`,
+    }));
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const readMetadata = vi.fn(async () => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeReads -= 1;
+      return makeMetadata();
+    });
+    const store = {
+      getTracksForBackgroundJobs: vi.fn((sourceId: string) => tracks.filter((track) => track.sourceId === sourceId)),
+      getTrack: vi.fn((trackId: string) => tracks.find((track) => track.id === trackId) ?? null),
+      getSource: vi.fn((sourceId: string) => sources.find((source) => source.id === sourceId) ?? null),
+      getSourceWithSecret: vi.fn((sourceId: string) => sources.find((source) => source.id === sourceId) ?? null),
+      updateTrackJobStatus: vi.fn((_trackId: string, _kind: string, _status: string) => undefined),
+      updateTrackMetadata: vi.fn((trackId: string, update: Partial<RemoteLibraryTrack>) => {
+        const track = tracks.find((candidate) => candidate.id === trackId);
+        if (track) {
+          Object.assign(track, update);
+        }
+        return track ?? null;
+      }),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata } as never));
+
+    queue.enqueueSource('source-1', ['metadata']);
+    queue.enqueueSource('source-2', ['metadata']);
+
+    await waitFor(() => queue.getStatus('source-1').completed.metadata + queue.getStatus('source-2').completed.metadata === tracks.length);
+
+    expect(readMetadata).toHaveBeenCalledTimes(tracks.length);
+    expect(maxActiveReads).toBeLessThanOrEqual(4);
   });
 
   it('runs lyrics and MV jobs only after metadata is matchable', async () => {
@@ -280,5 +375,64 @@ describe('RemoteBackgroundJobQueue', () => {
     expect(status.pending.mv).toBe(0);
     expect(serviceMocks.getLyricsForTrack).not.toHaveBeenCalled();
     expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('skips media-server cover jobs when the track has no server cover id', async () => {
+    const source = { ...makeSource(), provider: 'jellyfin' as const };
+    const withoutCoverArt = {
+      ...makeTrack(),
+      provider: 'jellyfin' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: {},
+    };
+    const withCoverArt = {
+      ...makeTrack(),
+      id: 'remote-track-2',
+      provider: 'jellyfin' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: { coverArt: 'primary-cover' },
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([withoutCoverArt, withCoverArt]),
+      getTrack: vi.fn((trackId: string) => trackId === withCoverArt.id ? withCoverArt : withoutCoverArt),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    const status = queue.enqueueSource(source.id, ['cover']);
+
+    expect(status.pending.cover).toBe(1);
+  });
+
+  it('queues only one cover job per shared remote cover id', async () => {
+    const source = { ...makeSource(), provider: 'subsonic' as const };
+    const firstTrack = {
+      ...makeTrack(),
+      provider: 'subsonic' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: { coverArt: 'album-cover-1' },
+    };
+    const secondTrack = {
+      ...makeTrack(),
+      id: 'remote-track-2',
+      remotePath: '/music/track-2.flac',
+      stableKey: 'stable-2',
+      provider: 'subsonic' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: { coverArt: 'album-cover-1' },
+    };
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([firstTrack, secondTrack]),
+      getTrack: vi.fn((trackId: string) => trackId === secondTrack.id ? secondTrack : firstTrack),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    const status = queue.enqueueSource(source.id, ['cover']);
+
+    expect(status.pending.cover).toBe(1);
+    expect(queue.getStatus(source.id).skipped.cover).toBe(1);
   });
 });

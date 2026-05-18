@@ -122,10 +122,10 @@
 
 .songs-control-row {
   display: grid;
-  grid-template-columns: minmax(260px, 520px) max-content;
+  grid-template-columns: minmax(260px, 520px) max-content max-content;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
 }
 
 .songs-import-hint {
@@ -204,6 +204,50 @@
 .sort-select {
   position: relative;
   justify-self: end;
+}
+
+.library-source-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 3px;
+  min-height: 34px;
+  padding: 3px;
+  border: 1px solid var(--theme-panel-border);
+  border-radius: 10px;
+  background: var(--theme-control-bg);
+}
+
+.library-source-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 62px;
+  min-height: 28px;
+  padding: 0 9px;
+  color: var(--theme-muted-text);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.library-source-switch button[aria-pressed="true"] {
+  color: var(--theme-heading-text);
+  background: var(--theme-panel-bg-strong);
+  box-shadow: 0 6px 14px rgba(43, 69, 96, 0.1);
+}
+
+.library-source-switch svg {
+  flex: 0 0 auto;
 }
 
 .artist-control-actions {
@@ -2724,6 +2768,10 @@
   overflow: hidden;
 }
 
+.page-surface:has(.albums-page) {
+  overflow: hidden;
+}
+
 .artists-page {
   display: grid;
   height: 100%;
@@ -2741,6 +2789,11 @@
   overflow: auto;
   scrollbar-color: var(--theme-scrollbar-thumb) transparent;
   scrollbar-width: thin;
+}
+
+.albums-page .media-wall-scroll-shell,
+.albums-page .infinite-scroll-sentinel {
+  overflow-anchor: none;
 }
 
 .media-wall-scroll-shell::-webkit-scrollbar {
@@ -3042,6 +3095,7 @@
   }
 
   .sort-select,
+  .library-source-switch,
   .artist-control-actions,
   .sort-button {
     justify-self: start;
@@ -3169,6 +3223,17 @@ html[data-theme="dark"] .sort-button {
   color: var(--color-muted);
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .library-source-switch {
+  border-color: var(--color-border);
+  background: rgba(27, 33, 42, 0.78);
+}
+
+html[data-theme="dark"] .library-source-switch button[aria-pressed="true"] {
+  color: var(--echo-heading-text);
+  background: rgba(232, 238, 247, 0.08);
   box-shadow: none;
 }
 

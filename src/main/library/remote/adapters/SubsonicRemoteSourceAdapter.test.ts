@@ -213,7 +213,7 @@ describe('SubsonicRemoteSourceAdapter', () => {
     const adapter = new SubsonicRemoteSourceAdapter();
     const scanSource = {
       ...source(port),
-      config: { ...source(port).config, scanConcurrency: 3 },
+      config: { ...source(port).config, scanConcurrency: 8 },
     };
 
     const scanned = [];
@@ -228,6 +228,65 @@ describe('SubsonicRemoteSourceAdapter', () => {
     expect(scanned.map((item) => item.stableKey).sort()).toEqual(['song-album-1', 'song-album-3', 'song-album-4']);
     expect(errors).toEqual([expect.objectContaining({ path: 'subsonic:album:album-2' })]);
     expect(maxActiveAlbumRequests).toBeGreaterThan(1);
-    expect(maxActiveAlbumRequests).toBeLessThanOrEqual(3);
+    expect(maxActiveAlbumRequests).toBeLessThanOrEqual(4);
+  });
+
+  it('requests compressed cover art from Subsonic servers', async () => {
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname === '/rest/getCoverArt.view') {
+        expect(url.searchParams.get('id')).toBe('cover-1');
+        expect(url.searchParams.get('size')).toBe('512');
+        response.writeHead(200, { 'Content-Type': 'image/jpeg' });
+        response.end(Buffer.from([1, 2, 3]));
+        return;
+      }
+
+      response.writeHead(404);
+      response.end();
+    });
+    servers.push(server);
+    const port = await listen(server);
+    const adapter = new SubsonicRemoteSourceAdapter();
+
+    const result = await adapter.readCover({
+      source: source(port),
+      item: {
+        sourceId: 'source-subsonic',
+        provider: 'subsonic',
+        path: 'subsonic:song:song-1',
+        name: 'song-1',
+        kind: 'file',
+        sizeBytes: null,
+        modifiedAt: null,
+        etag: null,
+        contentType: null,
+        audio: true,
+        remoteUrlHash: 'hash',
+        stableKey: 'song-1',
+        metadata: {
+          status: 'ok',
+          title: 'Song',
+          artist: 'Artist',
+          album: 'Album',
+          albumArtist: 'Artist',
+          trackNo: null,
+          discNo: null,
+          year: null,
+          genre: null,
+          duration: 120,
+          codec: null,
+          sampleRate: null,
+          bitDepth: null,
+          bitrate: null,
+          fieldSources: { coverArt: 'cover-1' },
+          warnings: [],
+          errors: [],
+        },
+      },
+    });
+
+    expect(result.status).toBe('ok');
+    expect(Array.from(result.data ?? [])).toEqual([1, 2, 3]);
   });
 });

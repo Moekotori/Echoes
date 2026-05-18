@@ -59,6 +59,7 @@ type LyricsDisplaySettings = Pick<
   | "lyricsProviderOrder"
   | "lyricsHeaderHidden"
   | "lyricsMvAutoShowTrackInfoDisabled"
+  | "lyricsCandidatePanelAutoOpenEnabled"
   | "lyricsEmptyStateHidden"
   | "lyricsFontSizePx"
   | "lyricsColor"
@@ -100,6 +101,7 @@ const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsProviderOrder: ["local", "lrclib", "netease", "qqmusic"],
   lyricsHeaderHidden: false,
   lyricsMvAutoShowTrackInfoDisabled: true,
+  lyricsCandidatePanelAutoOpenEnabled: true,
   lyricsEmptyStateHidden: true,
   lyricsFontSizePx: 40,
   lyricsColor: "#314054",
@@ -472,6 +474,7 @@ const selectLyricsDisplaySettings = (
     : fallbackLyricsDisplaySettings.lyricsProviderOrder,
   lyricsHeaderHidden: settings.lyricsHeaderHidden,
   lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
+  lyricsCandidatePanelAutoOpenEnabled: settings.lyricsCandidatePanelAutoOpenEnabled !== false,
   lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsColor: settings.lyricsColor,
@@ -517,6 +520,7 @@ const lyricsDisplaySettingsKeys = [
   "lyricsProviderOrder",
   "lyricsHeaderHidden",
   "lyricsMvAutoShowTrackInfoDisabled",
+  "lyricsCandidatePanelAutoOpenEnabled",
   "lyricsEmptyStateHidden",
   "lyricsFontSizePx",
   "lyricsColor",
@@ -1303,6 +1307,48 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       };
   }, [loadLyricsDisplaySettings]);
 
+  const setLyricsCandidatePanelAutoOpenEnabled = useCallback(
+    (enabled: boolean): void => {
+      const patch: Partial<AppSettings> = {
+        lyricsCandidatePanelAutoOpenEnabled: enabled,
+      };
+      const app = window.echo?.app;
+
+      setLyricsDisplaySettings((current) => ({
+        ...current,
+        lyricsCandidatePanelAutoOpenEnabled: enabled,
+      }));
+      window.dispatchEvent(new CustomEvent("lyrics:display-settings-changed", { detail: patch }));
+
+      if (!app?.setSettings) {
+        setError("Desktop bridge unavailable");
+        return;
+      }
+
+      void app
+        .setSettings(patch)
+        .then((nextSettings) => {
+          const savedValue = selectLyricsDisplaySettings(nextSettings)
+            .lyricsCandidatePanelAutoOpenEnabled !== false;
+          const savedPatch: Partial<AppSettings> = {
+            lyricsCandidatePanelAutoOpenEnabled: savedValue,
+          };
+          setLyricsDisplaySettings((current) => ({
+            ...current,
+            lyricsCandidatePanelAutoOpenEnabled: savedValue,
+          }));
+          window.dispatchEvent(new CustomEvent("settings:changed", { detail: savedPatch }));
+          window.dispatchEvent(new CustomEvent("lyrics:display-settings-changed", { detail: savedPatch }));
+          setError(null);
+        })
+        .catch((settingsError) => {
+          setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+          void loadLyricsDisplaySettings();
+        });
+    },
+    [loadLyricsDisplaySettings],
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -1604,7 +1650,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
           setCandidates(nextCandidates);
           setActiveCandidateSource(readRememberedCandidateSource());
-          setIsLyricsMatchPanelRevealed(nextCandidates.length > 0);
+          setIsLyricsMatchPanelRevealed(
+            nextCandidates.length > 0 &&
+              lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled !== false,
+          );
           setLyricsStatus(nextCandidates.length ? null : "No lyrics found");
           return;
         }
@@ -1639,6 +1688,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     initialLyrics,
     isLyricsDisplaySettingsReady,
     lyricsDisplaySettings.lyricsAutoSearch,
+    lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled,
     lyricsDisplaySettings.lyricsEnabled,
     searchLyricsCandidatesForProvider,
     streamingTarget,
@@ -2137,7 +2187,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       return null;
     }
 
-    if (!isLyricsMatchPanelRevealed && candidates.length === 0) {
+    if (!isLyricsMatchPanelRevealed) {
       return null;
     }
 
@@ -2153,15 +2203,25 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       >
         <div className="lyrics-match-panel__bar">
           {statusText ? <p className="lyrics-match-status">{statusText}</p> : <span />}
-          <button
-            className="lyrics-match-close"
-            type="button"
-            aria-label="Close lyrics candidates"
-            title="Close lyrics candidates"
-            onClick={() => setIsLyricsMatchPanelClosed(true)}
-          >
-            <X size={14} />
-          </button>
+          <div className="lyrics-match-panel__actions">
+            <label className="lyrics-match-auto-open">
+              <input
+                type="checkbox"
+                checked={lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled !== false}
+                onChange={(event) => setLyricsCandidatePanelAutoOpenEnabled(event.currentTarget.checked)}
+              />
+              <span>自动弹出</span>
+            </label>
+            <button
+              className="lyrics-match-close"
+              type="button"
+              aria-label="Close lyrics candidates"
+              title="Close lyrics candidates"
+              onClick={() => setIsLyricsMatchPanelClosed(true)}
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
         {candidates.length ? (
           <>
@@ -2243,6 +2303,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyricsStatus,
     noteLyricsMatchPanelActivity,
     selectCandidateSource,
+    setLyricsCandidatePanelAutoOpenEnabled,
     trackId,
     visibleCandidates,
   ]);

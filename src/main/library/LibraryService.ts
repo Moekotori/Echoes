@@ -185,16 +185,9 @@ export class LibraryService {
     }
 
     const job = this.scanJobQueue.scanFolder(folder, options);
-    if (this.readAppSettings().audioAnalysisEnabled) {
+    if (this.readAppSettings().replayGainAnalyzeMissingOnScan === true) {
       void this.scanJobQueue.waitForIdle(job.id).then(() => {
-        if (this.readAppSettings().audioAnalysisEnabled) {
-          this.startBpmAnalysis({ limit: 500 });
-        }
-      }).catch(() => undefined);
-    }
-    if (this.readAppSettings().replayGainAnalyzeMissingOnScan) {
-      void this.scanJobQueue.waitForIdle(job.id).then(() => {
-        if (this.readAppSettings().replayGainAnalyzeMissingOnScan) {
+        if (this.readAppSettings().replayGainAnalyzeMissingOnScan === true) {
           this.startReplayGainAnalysis({ limit: 500 });
         }
       }).catch(() => undefined);
@@ -704,10 +697,7 @@ export class LibraryService {
         throw new Error(`Failed to import audio file: ${normalizedPath}`);
       }
 
-      if (this.readAppSettings().audioAnalysisEnabled) {
-        this.startBpmAnalysis({ trackIds: [track.id], force: true });
-      }
-      if (this.readAppSettings().replayGainAnalyzeMissingOnScan) {
+      if (this.readAppSettings().replayGainAnalyzeMissingOnScan === true) {
         this.startReplayGainAnalysis({ trackIds: [track.id], force: false });
       }
 

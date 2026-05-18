@@ -61,9 +61,9 @@ export class RemoteSourceService {
       coverCacheDir ? new CoverService(database, coverCacheDir) : null,
     );
     this.syncService = new RemoteLibrarySyncService(this.store, (provider) => this.getAdapter(provider), (_sourceId, tracks) => {
-      for (const indexed of tracks) {
-        this.backgroundQueue.enqueueTrackWrite(indexed, ['metadata', 'duration-backfill', 'cover']);
-      }
+      this.backgroundQueue.enqueueTrackWrites(tracks, ['metadata', 'duration-backfill', 'cover']);
+    }, (sourceId) => {
+      this.backgroundQueue.setSourceSyncActive(sourceId, false);
     });
   }
 
@@ -104,10 +104,12 @@ export class RemoteSourceService {
   }
 
   syncSource(sourceId: string): RemoteSyncStatus {
+    this.backgroundQueue.setSourceSyncActive(sourceId, true);
     return this.syncService.syncSource(sourceId);
   }
 
   cancelSync(sourceId: string): RemoteSyncStatus {
+    this.backgroundQueue.setSourceSyncActive(sourceId, false);
     return this.syncService.cancelSync(sourceId);
   }
 

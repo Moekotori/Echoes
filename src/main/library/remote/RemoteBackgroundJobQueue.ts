@@ -18,6 +18,7 @@ type QueueJob = {
   trackId: string;
   priority: number;
   retry: boolean;
+  groupKey?: string;
 };
 
 type RunningJob = QueueJob & {
@@ -65,6 +66,15 @@ const defaultConcurrency: Record<RemoteBackgroundJobKind, number> = {
   mv: 1,
   'duration-backfill': 1,
 };
+const maxConcurrentByKind: Record<RemoteBackgroundJobKind, number> = {
+  metadata: 4,
+  cover: 2,
+  lyrics: 2,
+  mv: 2,
+  'duration-backfill': 2,
+};
+const maxTotalRunningJobs = 8;
+const maxJobsStartedPerDrain = 8;
 
 const limitKeys: Record<RemoteBackgroundJobKind, keyof RemoteRuntimeLimits> = {
   metadata: 'metadataConcurrency',
@@ -103,6 +113,7 @@ export class RemoteBackgroundJobQueue {
   private readonly lastErrors = new Map<string, string>();
   private readonly queuedKeys = new Set<string>();
   private readonly runtimeLimits = new Map<string, RemoteRuntimeLimits>();
+  private readonly syncingSources = new Set<string>();
   private readonly coverIdsByKey = new Map<string, string | null>();
   private readonly coverPromisesByKey = new Map<string, Promise<string | null>>();
   private globalPaused = false;
@@ -122,7 +133,14 @@ export class RemoteBackgroundJobQueue {
 
     for (const track of tracks) {
       for (const kind of this.kindsForTrack(track, normalizedKinds, options.failedOnly === true)) {
-        this.enqueue({ sourceId, kind, trackId: track.id, priority: options.priority ?? 0, retry: options.failedOnly === true });
+        this.enqueue({
+          sourceId,
+          kind,
+          trackId: track.id,
+          priority: options.priority ?? 0,
+          retry: options.failedOnly === true,
+          groupKey: this.jobGroupKey(track, kind),
+        });
       }
     }
 
@@ -133,7 +151,7 @@ export class RemoteBackgroundJobQueue {
 
   enqueueTrack(track: QueueableTrack, kinds: RemoteBackgroundJobKind[] = ['metadata'], priority = 0): void {
     for (const kind of this.kindsForTrack(track, this.normalizeKinds(kinds), false)) {
-      this.enqueue({ sourceId: track.sourceId, kind, trackId: track.id, priority, retry: false });
+      this.enqueue({ sourceId: track.sourceId, kind, trackId: track.id, priority, retry: false, groupKey: this.jobGroupKey(track, kind) });
     }
 
     this.schedule();
@@ -141,6 +159,17 @@ export class RemoteBackgroundJobQueue {
 
   enqueueTrackWrite(track: RemoteTrackWrite, kinds: RemoteBackgroundJobKind[] = ['metadata'], priority = 0): void {
     this.enqueueTrack(track, kinds, priority);
+  }
+
+  enqueueTrackWrites(tracks: RemoteTrackWrite[], kinds: RemoteBackgroundJobKind[] = ['metadata'], priority = 0): void {
+    const normalizedKinds = this.normalizeKinds(kinds);
+    for (const track of tracks) {
+      for (const kind of this.kindsForTrack(track, normalizedKinds, false)) {
+        this.enqueue({ sourceId: track.sourceId, kind, trackId: track.id, priority, retry: false, groupKey: this.jobGroupKey(track, kind) });
+      }
+    }
+
+    this.schedule();
   }
 
   pause(sourceId: string): RemoteBackgroundJobStatus {
@@ -165,6 +194,19 @@ export class RemoteBackgroundJobQueue {
       this.schedule();
     }
     return this.getGlobalStatus();
+  }
+
+  setSourceSyncActive(sourceId: string, active: boolean): RemoteBackgroundJobStatus {
+    if (active) {
+      this.syncingSources.add(sourceId);
+    } else {
+      this.syncingSources.delete(sourceId);
+    }
+    this.touch();
+    if (!active) {
+      this.schedule();
+    }
+    return this.getStatus(sourceId);
   }
 
   updateRuntimeLimits(sourceId: string, limits: RemoteRuntimeLimits): RemoteBackgroundJobStatus {
@@ -253,7 +295,7 @@ export class RemoteBackgroundJobQueue {
     }
 
     this.scheduling = true;
-    queueMicrotask(() => {
+    setImmediate(() => {
       this.scheduling = false;
       this.drain();
     });
@@ -264,11 +306,11 @@ export class RemoteBackgroundJobQueue {
       return;
     }
 
-    let started = false;
+    let startedCount = 0;
 
     for (const kind of jobKinds) {
       const pending = this.pendingByKind[kind];
-      while (pending.length > 0) {
+      while (pending.length > 0 && startedCount < maxJobsStartedPerDrain) {
         const index = pending.findIndex((job) => this.canStart(job));
         if (index < 0) {
           break;
@@ -297,12 +339,20 @@ export class RemoteBackgroundJobQueue {
           this.touch();
           this.schedule();
         });
-        started = true;
+        startedCount += 1;
+      }
+
+      if (startedCount >= maxJobsStartedPerDrain) {
+        break;
       }
     }
 
-    if (started) {
+    if (startedCount > 0) {
       this.touch();
+    }
+
+    if (startedCount >= maxJobsStartedPerDrain && this.hasStartablePendingJob()) {
+      this.schedule();
     }
   }
 
@@ -477,7 +527,7 @@ export class RemoteBackgroundJobQueue {
     return coverId;
   }
 
-  private coverCacheKey(track: RemoteLibraryTrack): string | null {
+  private coverCacheKey(track: Pick<RemoteLibraryTrack, 'sourceId' | 'fieldSources'>): string | null {
     const coverArt = track.fieldSources.coverArt;
     return coverArt ? `${track.sourceId}:${coverArt}` : null;
   }
@@ -546,7 +596,7 @@ export class RemoteBackgroundJobQueue {
         return failedOnly ? track.metadataStatus === 'error' : (!track.duration || track.duration <= 0 || track.metadataStatus === 'pending') && track.metadataStatus !== 'error';
       }
       if (kind === 'cover') {
-        return !track.coverId && track.metadataStatus !== 'error';
+        return !track.coverId && track.metadataStatus !== 'error' && this.canAttemptCover(track);
       }
       if (kind === 'lyrics') {
         return this.hasMatchableMetadata(track) && (failedOnly ? track.lyricsStatus === 'error' : track.lyricsStatus === 'pending' || track.lyricsStatus === 'not_found' || track.lyricsStatus === 'error');
@@ -562,6 +612,14 @@ export class RemoteBackgroundJobQueue {
     return Boolean(track.title.trim() && track.artist.trim() && track.artist !== 'Unknown Artist');
   }
 
+  private canAttemptCover(track: QueueableTrack): boolean {
+    if (track.provider === 'jellyfin' || track.provider === 'emby' || track.provider === 'subsonic') {
+      return Boolean(track.fieldSources.coverArt);
+    }
+
+    return true;
+  }
+
   private normalizeKinds(kinds: RemoteBackgroundJobKind[]): RemoteBackgroundJobKind[] {
     const unique = new Set<RemoteBackgroundJobKind>();
     for (const kind of kinds) {
@@ -573,12 +631,28 @@ export class RemoteBackgroundJobQueue {
     return unique.size > 0 ? Array.from(unique) : ['metadata', 'lyrics', 'mv'];
   }
 
-  private jobKey(job: Pick<QueueJob, 'sourceId' | 'trackId' | 'kind'>): string {
-    return `${job.sourceId}:${job.trackId}:${job.kind}`;
+  private jobKey(job: Pick<QueueJob, 'sourceId' | 'trackId' | 'kind' | 'groupKey'>): string {
+    return `${job.sourceId}:${job.kind}:${job.groupKey ?? job.trackId}`;
+  }
+
+  private jobGroupKey(track: QueueableTrack, kind: RemoteBackgroundJobKind): string | undefined {
+    if (kind !== 'cover') {
+      return undefined;
+    }
+
+    return this.coverCacheKey(track) ?? undefined;
   }
 
   private canStart(job: QueueJob): boolean {
     if (this.globalPaused || this.pausedSources.has(job.sourceId)) {
+      return false;
+    }
+
+    if (job.kind === 'cover' && (this.playbackActive || this.syncingSources.has(job.sourceId))) {
+      return false;
+    }
+
+    if (this.running.size >= maxTotalRunningJobs || this.runningCountForKind(job.kind) >= maxConcurrentByKind[job.kind]) {
       return false;
     }
 
@@ -599,13 +673,17 @@ export class RemoteBackgroundJobQueue {
           ? sourceConfig?.metadataConcurrency
           : sourceConfig?.[configKey];
       const runtime = runtimeLimits?.[configKey];
-      const max = kind === 'metadata' || kind === 'cover' ? 8 : 6;
+      const max = maxConcurrentByKind[kind];
       concurrency[kind] = this.clampLimit(runtime ?? configured, concurrency[kind], 1, max);
+    }
+
+    if (sourceId && this.syncingSources.has(sourceId)) {
+      concurrency.cover = 0;
     }
 
     if (this.playbackActive) {
       concurrency.metadata = Math.min(concurrency.metadata, 1);
-      concurrency.cover = Math.min(concurrency.cover, 1);
+      concurrency.cover = 0;
     }
 
     return concurrency;
@@ -614,11 +692,25 @@ export class RemoteBackgroundJobQueue {
   private normalizeRuntimeLimits(limits: RemoteRuntimeLimits): RemoteRuntimeLimits {
     return {
       scanConcurrency: limits.scanConcurrency === undefined ? undefined : this.clampLimit(limits.scanConcurrency, 3, 1, 8),
-      metadataConcurrency: limits.metadataConcurrency === undefined ? undefined : this.clampLimit(limits.metadataConcurrency, defaultConcurrency.metadata, 1, 8),
-      coverConcurrency: limits.coverConcurrency === undefined ? undefined : this.clampLimit(limits.coverConcurrency, defaultConcurrency.cover, 1, 8),
-      lyricsConcurrency: limits.lyricsConcurrency === undefined ? undefined : this.clampLimit(limits.lyricsConcurrency, defaultConcurrency.lyrics),
-      mvConcurrency: limits.mvConcurrency === undefined ? undefined : this.clampLimit(limits.mvConcurrency, defaultConcurrency.mv),
+      metadataConcurrency: limits.metadataConcurrency === undefined ? undefined : this.clampLimit(limits.metadataConcurrency, defaultConcurrency.metadata, 1, maxConcurrentByKind.metadata),
+      coverConcurrency: limits.coverConcurrency === undefined ? undefined : this.clampLimit(limits.coverConcurrency, defaultConcurrency.cover, 1, maxConcurrentByKind.cover),
+      lyricsConcurrency: limits.lyricsConcurrency === undefined ? undefined : this.clampLimit(limits.lyricsConcurrency, defaultConcurrency.lyrics, 1, maxConcurrentByKind.lyrics),
+      mvConcurrency: limits.mvConcurrency === undefined ? undefined : this.clampLimit(limits.mvConcurrency, defaultConcurrency.mv, 1, maxConcurrentByKind.mv),
     };
+  }
+
+  private hasStartablePendingJob(): boolean {
+    return jobKinds.some((kind) => this.pendingByKind[kind].some((job) => this.canStart(job)));
+  }
+
+  private runningCountForKind(kind: RemoteBackgroundJobKind): number {
+    let count = 0;
+    for (const job of this.running.values()) {
+      if (job.kind === kind) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private clampLimit(value: unknown, fallback: number, min = 1, max = 6): number {

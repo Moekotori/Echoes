@@ -54,10 +54,82 @@ type SubsonicAlbum = {
   song?: SubsonicSong[];
 };
 
+type QueuedRequest<T> = {
+  run: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  queued: boolean;
+  onAbort: () => void;
+};
+
 const nowIso = (): string => new Date().toISOString();
 const provider: RemoteSourceProvider = 'subsonic';
 const defaultApiVersion = '1.16.1';
 const defaultClientName = 'ECHO-Next';
+const subsonicRequestLimiter = new class {
+  private active = 0;
+  private readonly queue: Array<QueuedRequest<unknown>> = [];
+  private readonly maxConcurrent = 6;
+
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      return Promise.reject(this.abortError());
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const queued: QueuedRequest<T> = {
+        run: task,
+        resolve,
+        reject,
+        signal,
+        queued: true,
+        onAbort: () => {
+          if (!queued.queued) {
+            return;
+          }
+          const index = this.queue.indexOf(queued as QueuedRequest<unknown>);
+          if (index >= 0) {
+            this.queue.splice(index, 1);
+          }
+          queued.queued = false;
+          reject(this.abortError());
+        },
+      };
+
+      signal?.addEventListener('abort', queued.onAbort, { once: true });
+      this.queue.push(queued as QueuedRequest<unknown>);
+      this.drain();
+    });
+  }
+
+  private drain(): void {
+    while (this.active < this.maxConcurrent && this.queue.length > 0) {
+      const request = this.queue.shift()!;
+      request.queued = false;
+      request.signal?.removeEventListener('abort', request.onAbort);
+      if (request.signal?.aborted) {
+        request.reject(this.abortError());
+        continue;
+      }
+
+      this.active += 1;
+      void request.run()
+        .then(request.resolve)
+        .catch(request.reject)
+        .finally(() => {
+          this.active -= 1;
+          setImmediate(() => this.drain());
+        });
+    }
+  }
+
+  private abortError(): Error {
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    return error;
+  }
+}();
 
 const cleanText = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 const cleanNumber = (value: unknown): number | null => {
@@ -147,7 +219,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
     const configuredFolderIds = Array.isArray(input.source.config.musicFolderIds)
       ? input.source.config.musicFolderIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : [undefined];
-    const concurrency = clampInt(input.source.config.scanConcurrency, 3, 1, 8);
+    const concurrency = clampInt(input.source.config.scanConcurrency, 3, 1, 4);
 
     for (const folderId of configuredFolderIds.length ? configuredFolderIds : [undefined]) {
       let offset = 0;
@@ -202,10 +274,8 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
 
   async readCover(input: RemoteReadCoverInput): Promise<RemoteCoverResult> {
     const id = input.item.metadata?.fieldSources.coverArt ?? parseSongId(input.item.path);
-    const url = this.buildUrl(input, '/rest/getCoverArt.view', { id });
-    const response = await fetch(url, {
-      signal: timeoutSignal(8000, input.signal),
-    });
+    const url = this.buildUrl(input, '/rest/getCoverArt.view', { id, size: '512' });
+    const response = await this.fetch(input, url, 8000);
     if (response.status === 404) {
       return this.emptyCover('cover_not_found');
     }
@@ -262,9 +332,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
   }
 
   private async request<T>(input: RemoteAdapterInput, path: string, params: Record<string, string> = {}): Promise<T> {
-    const response = await fetch(this.buildUrl(input, path, params), {
-      signal: timeoutSignal(12000, input.signal),
-    });
+    const response = await this.fetch(input, this.buildUrl(input, path, params), 12000);
     if (!response.ok) {
       throw new Error(`Subsonic 请求失败：HTTP ${response.status}`);
     }
@@ -278,6 +346,13 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
       throw new Error(envelope.error?.message ?? 'Subsonic 请求失败。');
     }
     return envelope as T;
+  }
+
+  private fetch(input: RemoteAdapterInput, url: string, timeoutMs: number): Promise<Response> {
+    return subsonicRequestLimiter.run(() =>
+      fetch(url, {
+        signal: timeoutSignal(timeoutMs, input.signal),
+      }), input.signal);
   }
 
   private buildUrl(input: Pick<RemoteAdapterInput, 'source'>, path: string, params: Record<string, string> = {}): string {

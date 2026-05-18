@@ -24,6 +24,7 @@ const maxSnapshotItems = 100;
 
 type SnapshotQuery = Pick<LibraryPageQuery, 'search' | 'sort' | 'hideDuplicates' | 'duplicateMode'> & {
   pageSize: number;
+  sourceProvider?: 'local' | 'remote';
 };
 
 const nowIso = (): string => new Date().toISOString();
@@ -62,6 +63,7 @@ export const createSongsFirstPageSnapshotQueryKey = (query: SnapshotQuery): stri
     pageSize: Math.min(maxSnapshotItems, Math.max(1, Math.floor(query.pageSize))),
     search: query.search?.trim() ?? '',
     sort: query.sort ?? 'default',
+    sourceProvider: query.sourceProvider === 'remote' ? 'remote' : 'local',
     hideDuplicates: query.hideDuplicates === true,
     duplicateMode: query.duplicateMode === 'strict' ? 'strict' : 'strict',
   });

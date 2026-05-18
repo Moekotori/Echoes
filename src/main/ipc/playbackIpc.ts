@@ -19,6 +19,7 @@ import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
+import { getAppSettings } from '../app/appSettings';
 import { resolveLocalAudioFiles } from '../app/localFileOpen';
 import { getStreamingService } from '../streaming/StreamingService';
 import { enqueueAudioCommand, isAudioCommandTimeoutError } from './audioCommandQueue';
@@ -517,12 +518,47 @@ const createProbeHintForMediaItem = (item: PlayableTrack, hint?: PlaybackProbeHi
   return Object.keys(probe).length > 0 ? probe : undefined;
 };
 
-const createReplayGainHintForMediaItem = (item: PlayableTrack) => ({
-  trackGainDb: item.replayGainTrackGainDb ?? null,
-  albumGainDb: item.replayGainAlbumGainDb ?? null,
-  trackPeak: item.replayGainTrackPeak ?? null,
-  albumPeak: item.replayGainAlbumPeak ?? null,
-});
+const createReplayGainHintForMediaItem = (item: PlayableTrack) => {
+  const replayGain = item as Partial<{
+    replayGainTrackGainDb: number | null;
+    replayGainAlbumGainDb: number | null;
+    replayGainTrackPeak: number | null;
+    replayGainAlbumPeak: number | null;
+  }>;
+  return {
+    trackGainDb: replayGain.replayGainTrackGainDb ?? null,
+    albumGainDb: replayGain.replayGainAlbumGainDb ?? null,
+    trackPeak: replayGain.replayGainTrackPeak ?? null,
+    albumPeak: replayGain.replayGainAlbumPeak ?? null,
+  };
+};
+
+const hasReplayGainHint = (item: PlayableTrack): boolean => {
+  const replayGain = item as Partial<{
+    replayGainTrackGainDb: number | null;
+    replayGainAlbumGainDb: number | null;
+  }>;
+  return Number.isFinite(replayGain.replayGainTrackGainDb) || Number.isFinite(replayGain.replayGainAlbumGainDb);
+};
+
+const scheduleReplayGainAnalysisForPlayback = (trackId: string | null | undefined, item?: PlayableTrack): void => {
+  if (!trackId || item?.mediaType === 'streaming' || item?.mediaType === 'remote' || (item && hasReplayGainHint(item))) {
+    return;
+  }
+
+  try {
+    if (getAppSettings().replayGainAnalyzeOnPlay === false) {
+      return;
+    }
+    void import('../library/LibraryService').then(({ getLibraryService }) => {
+      getLibraryService().startReplayGainAnalysis({ trackIds: [trackId], limit: 1, force: false });
+    }).catch((error) => {
+      console.warn(`[playback] ReplayGain on-play analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  } catch (error) {
+    console.warn(`[playback] ReplayGain on-play analysis skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
 
 const resolveAutomixRequest = async (
   automix: PlaybackStartRequest['automix'] | undefined,
@@ -700,6 +736,7 @@ const recoverActiveMediaPlaybackFromExpiredUrl = async (
       output: request.output,
       probe: prepared.probe,
     });
+    scheduleReplayGainAnalysisForPlayback(request.item.trackId, request.item);
     savePlaybackMemoryNow();
     const recoveredStatus = toPlaybackStatus();
     if (request.item.mediaType === 'remote' && recoveredStatus.durationMs > 0) {
@@ -804,6 +841,7 @@ export const registerPlaybackIpc = (): void => {
         automix: await resolveAutomixRequest(normalized.automix),
       });
       assertPlaybackStartRunCurrent(playbackRun);
+      scheduleReplayGainAnalysisForPlayback(normalized.trackId);
       savePlaybackMemoryNow();
       void syncSmtcStatus();
       return toPlaybackStatus();
@@ -861,6 +899,7 @@ export const registerPlaybackIpc = (): void => {
           automix: await resolveAutomixRequest(request.automix),
         });
         assertPlaybackStartRunCurrent(playbackRun);
+        scheduleReplayGainAnalysisForPlayback(item.trackId, item);
         savePlaybackMemoryNow();
         const status = toPlaybackStatus();
         if (item.mediaType === 'remote' && status.durationMs > 0) {
@@ -898,6 +937,7 @@ export const registerPlaybackIpc = (): void => {
             automix: await resolveAutomixRequest(request.automix),
           });
           assertPlaybackStartRunCurrent(playbackRun);
+          scheduleReplayGainAnalysisForPlayback(item.trackId, item);
           savePlaybackMemoryNow();
           const status = toPlaybackStatus();
           if (item.mediaType === 'remote' && status.durationMs > 0) {

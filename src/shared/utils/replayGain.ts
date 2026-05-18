@@ -34,6 +34,9 @@ export const linearPeakToDb = (peak: number): number | null => {
 };
 
 const finiteNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 };
@@ -85,4 +88,3 @@ export const calculateReplayGain = (input: ReplayGainCalculationInput): ReplayGa
     active: true,
   };
 };
-

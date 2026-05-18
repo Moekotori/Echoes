@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import type {
   RemoteCoverResult,
   RemoteDirectoryItem,
@@ -24,6 +25,20 @@ type MediaServerProvider = Extract<RemoteSourceProvider, 'jellyfin' | 'emby'>;
 type AuthContext = {
   headers: Record<string, string>;
   userId: string | null;
+};
+
+type AuthCacheEntry = {
+  auth: AuthContext;
+  expiresAt: number;
+};
+
+type QueuedRequest<T> = {
+  run: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  queued: boolean;
+  onAbort: () => void;
 };
 
 type MediaServerItem = {
@@ -61,6 +76,70 @@ type MediaServerItem = {
 };
 
 const nowIso = (): string => new Date().toISOString();
+const authCacheTtlMs = 30 * 60 * 1000;
+const mediaServerRequestLimiter = new class {
+  private active = 0;
+  private readonly queue: Array<QueuedRequest<unknown>> = [];
+  private readonly maxConcurrent = 6;
+
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      return Promise.reject(this.abortError());
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const queued: QueuedRequest<T> = {
+        run: task,
+        resolve,
+        reject,
+        signal,
+        queued: true,
+        onAbort: () => {
+          if (!queued.queued) {
+            return;
+          }
+          const index = this.queue.indexOf(queued as QueuedRequest<unknown>);
+          if (index >= 0) {
+            this.queue.splice(index, 1);
+          }
+          queued.queued = false;
+          reject(this.abortError());
+        },
+      };
+
+      signal?.addEventListener('abort', queued.onAbort, { once: true });
+      this.queue.push(queued as QueuedRequest<unknown>);
+      this.drain();
+    });
+  }
+
+  private drain(): void {
+    while (this.active < this.maxConcurrent && this.queue.length > 0) {
+      const request = this.queue.shift()!;
+      request.queued = false;
+      request.signal?.removeEventListener('abort', request.onAbort);
+      if (request.signal?.aborted) {
+        request.reject(this.abortError());
+        continue;
+      }
+
+      this.active += 1;
+      void request.run()
+        .then(request.resolve)
+        .catch(request.reject)
+        .finally(() => {
+          this.active -= 1;
+          setImmediate(() => this.drain());
+        });
+    }
+  }
+
+  private abortError(): Error {
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    return error;
+  }
+}();
 const cleanText = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 const cleanNumber = (value: unknown): number | null => {
   const parsed = Number(value);
@@ -122,6 +201,8 @@ const jsonOrError = async <T>(response: Response, provider: MediaServerProvider)
 
 export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
   private streamUrlResolver: ((input: RemoteStreamInput) => Promise<RemoteStreamUrlResult>) | null = null;
+  private readonly authCache = new Map<string, AuthCacheEntry>();
+  private readonly pendingAuth = new Map<string, Promise<AuthContext>>();
 
   constructor(readonly provider: MediaServerProvider) {}
 
@@ -133,10 +214,9 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
     const testedAt = nowIso();
     try {
       const auth = await this.authenticate(input);
-      const response = await fetch(`${baseUrlFor(input.source.baseUrl)}/System/Info`, {
+      const response = await this.fetch(input, `${baseUrlFor(input.source.baseUrl)}/System/Info`, {
         headers: auth.headers,
-        signal: timeoutSignal(8000, input.signal),
-      });
+      }, 8000);
       if (!response.ok) {
         return { ok: false, status: 'error', message: friendlyStatus(this.provider, response.status), testedAt };
       }
@@ -194,6 +274,8 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
         if (startIndex >= Number(page.TotalRecordCount ?? 0) || (page.Items ?? []).length === 0) {
           break;
         }
+
+        await yieldToMainLoop();
       }
     }
   }
@@ -212,10 +294,9 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
   async readCover(input: RemoteReadCoverInput): Promise<RemoteCoverResult> {
     const itemId = parseItemId(this.provider, input.item.path);
     const auth = await this.authenticate(input);
-    const response = await fetch(`${baseUrlFor(input.source.baseUrl)}/Items/${encodeURIComponent(itemId)}/Images/Primary?maxWidth=512&quality=80`, {
+    const response = await this.fetch(input, `${baseUrlFor(input.source.baseUrl)}/Items/${encodeURIComponent(itemId)}/Images/Primary?maxWidth=512&quality=80`, {
       headers: auth.headers,
-      signal: timeoutSignal(8000, input.signal),
-    });
+    }, 8000);
 
     if (response.status === 404) {
       return this.emptyCover('cover_not_found');
@@ -252,6 +333,30 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
   }
 
   private async authenticate(input: RemoteAdapterInput): Promise<AuthContext> {
+    const cacheKey = this.authCacheKey(input);
+    const cached = this.authCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return this.cloneAuth(cached.auth);
+    }
+
+    const pending = this.pendingAuth.get(cacheKey);
+    if (pending) {
+      return this.cloneAuth(await pending);
+    }
+
+    const promise = this.authenticateFresh(input)
+      .then((auth) => {
+        this.authCache.set(cacheKey, { auth: this.cloneAuth(auth), expiresAt: Date.now() + authCacheTtlMs });
+        return auth;
+      })
+      .finally(() => {
+        this.pendingAuth.delete(cacheKey);
+      });
+    this.pendingAuth.set(cacheKey, promise);
+    return this.cloneAuth(await promise);
+  }
+
+  private async authenticateFresh(input: RemoteAdapterInput): Promise<AuthContext> {
     if ((input.source.authType === 'apiKey' || input.source.authType === 'token') && input.source.secret) {
       return { headers: this.createTokenHeaders(input), userId: cleanText(input.source.config.userId) };
     }
@@ -260,7 +365,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
       return { headers: this.createBaseAuthorizationHeaders(), userId: cleanText(input.source.config.userId) };
     }
 
-    const response = await fetch(`${baseUrlFor(input.source.baseUrl)}/Users/AuthenticateByName`, {
+    const response = await this.fetch(input, `${baseUrlFor(input.source.baseUrl)}/Users/AuthenticateByName`, {
       method: 'POST',
       headers: {
         ...this.createBaseAuthorizationHeaders(),
@@ -270,8 +375,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
         Username: input.source.username,
         Pw: input.source.secret,
       }),
-      signal: timeoutSignal(8000, input.signal),
-    });
+    }, 8000);
     const json = await jsonOrError<{ AccessToken?: string; User?: { Id?: string } }>(response, this.provider);
     const token = cleanText(json.AccessToken);
     return {
@@ -301,11 +405,38 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
     return { 'X-Emby-Authorization': value };
   }
 
+  private fetch(input: RemoteAdapterInput, url: string | URL, options: RequestInit = {}, timeoutMs = 8000): Promise<Response> {
+    return mediaServerRequestLimiter.run(() =>
+      fetch(url, {
+        ...options,
+        signal: timeoutSignal(timeoutMs, input.signal),
+      }), input.signal);
+  }
+
+  private authCacheKey(input: RemoteAdapterInput): string {
+    return sha1({
+      provider: this.provider,
+      sourceId: input.source.id,
+      baseUrl: baseUrlFor(input.source.baseUrl),
+      username: input.source.username,
+      authType: input.source.authType,
+      secret: input.source.secret,
+      userId: input.source.config.userId,
+    });
+  }
+
+  private cloneAuth(auth: AuthContext): AuthContext {
+    return {
+      headers: { ...auth.headers },
+      userId: auth.userId,
+    };
+  }
+
   private async fetchLibraries(input: RemoteAdapterInput, auth: AuthContext): Promise<MediaServerItem[]> {
     const userPath = auth.userId ? `/Users/${encodeURIComponent(auth.userId)}/Views` : '/Items';
     const url = new URL(`${baseUrlFor(input.source.baseUrl)}${userPath}`);
     const json = await jsonOrError<{ Items?: MediaServerItem[] }>(
-      await fetch(url, { headers: auth.headers, signal: timeoutSignal(8000, input.signal) }),
+      await this.fetch(input, url, { headers: auth.headers }, 8000),
       this.provider,
     );
     return (json.Items ?? []).filter((item) => item.CollectionType === 'music' || item.Type === 'CollectionFolder' || item.Type === 'Folder');
@@ -328,7 +459,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
     url.searchParams.set('Limit', String(limit));
 
     return jsonOrError<{ Items?: MediaServerItem[]; TotalRecordCount?: number }>(
-      await fetch(url, { headers: auth.headers, signal: timeoutSignal(12000, input.signal) }),
+      await this.fetch(input, url, { headers: auth.headers }, 12000),
       this.provider,
     );
   }
@@ -336,7 +467,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
   private async fetchItem(input: RemoteAdapterInput, auth: AuthContext, itemId: string): Promise<MediaServerItem> {
     const basePath = auth.userId ? `/Users/${encodeURIComponent(auth.userId)}/Items/${encodeURIComponent(itemId)}` : `/Items/${encodeURIComponent(itemId)}`;
     return jsonOrError<MediaServerItem>(
-      await fetch(`${baseUrlFor(input.source.baseUrl)}${basePath}`, { headers: auth.headers, signal: timeoutSignal(8000, input.signal) }),
+      await this.fetch(input, `${baseUrlFor(input.source.baseUrl)}${basePath}`, { headers: auth.headers }, 8000),
       this.provider,
     );
   }
@@ -402,6 +533,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
         album: item.Album ? this.provider : 'missing',
         albumArtist: albumArtist === 'Unknown Artist' ? 'filename_fallback' : this.provider,
         duration: duration ? this.provider : 'unknown',
+        ...(item.ImageTags?.Primary ? { coverArt: item.ImageTags.Primary } : {}),
       },
       warnings: duration ? [] : ['duration_unavailable'],
       errors: [],

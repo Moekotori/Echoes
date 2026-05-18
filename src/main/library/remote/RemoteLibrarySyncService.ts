@@ -4,9 +4,10 @@ import type { RemoteLibraryStore } from './RemoteLibraryStore';
 import type { RemoteSourceAdapter, RemoteTrackWrite } from './remoteTypes';
 import { remoteTrackIdFor } from './remoteIdentity';
 
-const batchSize = 500;
+const batchSize = 150;
 const statusFlushIntervalMs = 300;
 const statusFlushItemDelta = 64;
+const scanYieldItemDelta = 100;
 const nowIso = (): string => new Date().toISOString();
 
 const initialStatus = (sourceId: string): RemoteSyncStatus => ({
@@ -33,6 +34,7 @@ export class RemoteLibrarySyncService {
     private readonly store: RemoteLibraryStore,
     private readonly getAdapter: (provider: string) => RemoteSourceAdapter,
     private readonly onTracksIndexed: (sourceId: string, tracks: RemoteTrackWrite[]) => void = () => undefined,
+    private readonly onSyncSettled: (sourceId: string) => void = () => undefined,
   ) {}
 
   syncSource(sourceId: string): RemoteSyncStatus {
@@ -93,6 +95,7 @@ export class RemoteLibrarySyncService {
     let lastStatusFlushAt = 0;
     let lastDiscoveredCount = 0;
     let lastWrittenCount = 0;
+    let itemsSinceYield = 0;
 
     const publishProgress = (force = false, patch: Partial<RemoteSyncStatus> = {}): void => {
       const now = Date.now();
@@ -147,6 +150,7 @@ export class RemoteLibrarySyncService {
 
         seenPaths.add(item.path);
         discoveredCount += 1;
+        itemsSinceYield += 1;
         publishProgress(false, { currentPath: item.path });
 
         const existing = fingerprints.get(item.path);
@@ -159,6 +163,10 @@ export class RemoteLibrarySyncService {
         if (unchanged && existing.coverId) {
           skippedCount += 1;
           publishProgress();
+          if (itemsSinceYield >= scanYieldItemDelta) {
+            await yieldToMainLoop();
+            itemsSinceYield = 0;
+          }
           continue;
         }
 
@@ -201,6 +209,10 @@ export class RemoteLibrarySyncService {
           batch = [];
           publishProgress(true, { phase: 'scanning' });
           await yieldToMainLoop();
+          itemsSinceYield = 0;
+        } else if (itemsSinceYield >= scanYieldItemDelta) {
+          await yieldToMainLoop();
+          itemsSinceYield = 0;
         }
       }
 
@@ -224,6 +236,7 @@ export class RemoteLibrarySyncService {
         finishedAt,
       });
       this.store.updateSourceSyncResult(sourceId, failedCount === 0, errors[0] ?? null, finishedAt);
+      this.notifySyncSettled(sourceId);
     } catch (error) {
       if (controller.signal.aborted) {
         this.cancelled(sourceId);
@@ -298,6 +311,7 @@ export class RemoteLibrarySyncService {
       finishedAt,
     });
     this.store.updateSourceSyncResult(sourceId, false, message, finishedAt);
+    this.notifySyncSettled(sourceId);
   }
 
   private cancelled(sourceId: string): void {
@@ -307,6 +321,15 @@ export class RemoteLibrarySyncService {
       currentPath: null,
       finishedAt: nowIso(),
     });
+    this.notifySyncSettled(sourceId);
+  }
+
+  private notifySyncSettled(sourceId: string): void {
+    try {
+      this.onSyncSettled(sourceId);
+    } catch {
+      // Status cleanup is best-effort; sync completion itself has already been recorded.
+    }
   }
 
   private patchStatus(sourceId: string, patch: Partial<RemoteSyncStatus>): void {

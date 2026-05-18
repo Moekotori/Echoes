@@ -68,6 +68,16 @@ describe('theme preferences', () => {
 
     expect(readThemePreset()).toBe('amberNoir');
     expect(document.documentElement.dataset.themePreset).toBe('amberNoir');
+
+    updateThemePreset('shibuyaNight');
+
+    expect(readThemePreset()).toBe('shibuyaNight');
+    expect(document.documentElement.dataset.themePreset).toBe('shibuyaNight');
+
+    updateThemePreset('darkSideMoon');
+
+    expect(readThemePreset()).toBe('darkSideMoon');
+    expect(document.documentElement.dataset.themePreset).toBe('darkSideMoon');
   });
 
   it('applies and caches theme preset overrides', () => {

@@ -543,7 +543,32 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     '当前播放',
   ],
   shortcuts: ['shortcuts', 'hotkeys', 'keyboard', 'global shortcut', 'record shortcut', '快捷键', '热键', '键盘', '全局快捷键'],
-  lyrics: ['lyrics', 'lrc', 'karaoke', 'offset', 'provider', 'romaji', '歌词', '逐字', '偏移', '音译', '罗马音', '歌词源'],
+  lyrics: [
+    'lyrics',
+    'lrc',
+    'karaoke',
+    'offset',
+    'provider',
+    'romaji',
+    'translation',
+    'translate',
+    'translated lyrics',
+    'bilingual lyrics',
+    '歌词',
+    '逐字',
+    '偏移',
+    '音译',
+    '罗马音',
+    '歌词源',
+    '翻译',
+    '译文',
+    '中文翻译',
+    '双语歌词',
+    '歌詞',
+    '翻譯',
+    '譯文',
+    '雙語歌詞',
+  ],
   mv: ['mv', 'music video', 'video', 'bilibili', 'youtube', 'auto search', 'preload', 'quality', 'immersive', 'background'],
   integrations: [
     'integrations',
@@ -1037,53 +1062,60 @@ const themePresetOptions: Array<{
     swatches: ['#fbf3ee', '#8f4d48', '#6d4f2c'],
   },
   {
+    preset: 'darkSideMoon',
+    labelKey: 'settings.appearance.themePreset.darkSideMoon',
+    descriptionKey: 'settings.appearance.themePreset.darkSideMoon.description',
+    preview: 'linear-gradient(135deg, #020203 0%, #101217 44%, #20242d 55%, #ed2f3b 56%, #f58f20 63%, #f6d93b 70%, #44c765 77%, #26a8ed 84%, #8d63c7 100%)',
+    swatches: ['#020203', '#f4f6f8', '#ed2f3b', '#f6d93b', '#26a8ed'],
+  },
+  {
     preset: 'shibuyaNight',
     labelKey: 'settings.appearance.themePreset.shibuyaNight',
     descriptionKey: 'settings.appearance.themePreset.shibuyaNight.description',
-    preview: 'linear-gradient(135deg, #0e0b18 0%, #19112c 46%, #111d2a 100%)',
-    swatches: ['#0e0b18', '#ff4fa3', '#37d4e4'],
+    preview: 'linear-gradient(135deg, #1b0d2b 0%, #3a185e 46%, #073449 100%)',
+    swatches: ['#1b0d2b', '#ff3b9d', '#23d0ee'],
   },
   {
     preset: 'kyotoKurenai',
     labelKey: 'settings.appearance.themePreset.kyotoKurenai',
     descriptionKey: 'settings.appearance.themePreset.kyotoKurenai.description',
-    preview: 'linear-gradient(135deg, #fff7ed 0%, #f1d9c8 48%, #f8e9d0 100%)',
-    swatches: ['#fff7ed', '#b54034', '#b8913a'],
+    preview: 'linear-gradient(135deg, #fff1df 0%, #e8b99b 48%, #f7d989 100%)',
+    swatches: ['#fff1df', '#a92f26', '#c08a1e'],
   },
   {
     preset: 'ukiyoIndigo',
     labelKey: 'settings.appearance.themePreset.ukiyoIndigo',
     descriptionKey: 'settings.appearance.themePreset.ukiyoIndigo.description',
-    preview: 'linear-gradient(135deg, #f3f7f7 0%, #d9e5ea 48%, #e7dccb 100%)',
-    swatches: ['#f3f7f7', '#2f5f87', '#a7783b'],
+    preview: 'linear-gradient(135deg, #eaf1ed 0%, #9fbccb 48%, #d8c094 100%)',
+    swatches: ['#eaf1ed', '#174f7f', '#b06d1f'],
   },
   {
     preset: 'fujiSnow',
     labelKey: 'settings.appearance.themePreset.fujiSnow',
     descriptionKey: 'settings.appearance.themePreset.fujiSnow.description',
-    preview: 'linear-gradient(135deg, #f8fbff 0%, #dfeeff 48%, #fff0f5 100%)',
-    swatches: ['#f8fbff', '#4978c9', '#d76e9e'],
+    preview: 'linear-gradient(135deg, #edf8ff 0%, #badcff 48%, #f5d1e6 100%)',
+    swatches: ['#edf8ff', '#246fc8', '#c74786'],
   },
   {
     preset: 'matsuriLantern',
     labelKey: 'settings.appearance.themePreset.matsuriLantern',
     descriptionKey: 'settings.appearance.themePreset.matsuriLantern.description',
-    preview: 'linear-gradient(135deg, #fff5e8 0%, #f5d9b5 48%, #ffe8d1 100%)',
-    swatches: ['#fff5e8', '#c94f3d', '#d39b2e'],
+    preview: 'linear-gradient(135deg, #fff0d8 0%, #efae67 48%, #ffd35f 100%)',
+    swatches: ['#fff0d8', '#c23c28', '#d88409'],
   },
   {
     preset: 'ginzaNoir',
     labelKey: 'settings.appearance.themePreset.ginzaNoir',
     descriptionKey: 'settings.appearance.themePreset.ginzaNoir.description',
-    preview: 'linear-gradient(135deg, #0f1013 0%, #18191f 48%, #201b18 100%)',
-    swatches: ['#0f1013', '#d3af5a', '#7aa6c7'],
+    preview: 'linear-gradient(135deg, #090a0d 0%, #111219 48%, #1b1712 100%)',
+    swatches: ['#090a0d', '#d6b158', '#66a8d4'],
   },
   {
     preset: 'frostJazz',
     labelKey: 'settings.appearance.themePreset.frostJazz',
     descriptionKey: 'settings.appearance.themePreset.frostJazz.description',
-    preview: 'linear-gradient(135deg, #f4f7fb 0%, #dce7f5 48%, #ece2f2 100%)',
-    swatches: ['#f4f7fb', '#446aa6', '#9a5f85'],
+    preview: 'linear-gradient(135deg, #eaf2fb 0%, #aac2df 48%, #d4c0dc 100%)',
+    swatches: ['#eaf2fb', '#245f9e', '#7f3e70'],
   },
 ];
 
@@ -1863,81 +1895,121 @@ const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, ThemeEditorD
       shadowPercent: 100,
     },
   },
-  shibuyaNight: {
+  darkSideMoon: {
     light: {
-      appBg: '#f6f0ff',
-      appBg2: '#dfd4ff',
-      appBg3: '#ffd6e9',
-      panel: '#fffaff',
-      panelSoft: '#eee4ff',
-      accent: '#d93486',
-      accentStrong: '#9d1f60',
-      secondary: '#1c8fa0',
-      heading: '#261b3b',
-      text: '#453a58',
-      muted: '#6c607e',
-      border: '#8d70b8',
-      onAccent: '#ffffff',
-      buttonText: '#453a58',
-      panelOpacityPercent: 76,
-      glassPercent: 22,
-      shadowPercent: 88,
+      appBg: '#050506',
+      appBg2: '#111217',
+      appBg3: '#08090c',
+      panel: '#141519',
+      panelSoft: '#0c0d10',
+      accent: '#f4f6f8',
+      accentStrong: '#ffffff',
+      secondary: '#f6d93b',
+      heading: '#ffffff',
+      text: '#e8eaee',
+      muted: '#b6bbc5',
+      border: '#c9d1db',
+      onAccent: '#08090d',
+      buttonText: '#e8eaee',
+      panelOpacityPercent: 88,
+      glassPercent: 24,
+      shadowPercent: 100,
     },
     dark: {
-      appBg: '#0e0b18',
-      appBg2: '#19112c',
-      appBg3: '#111d2a',
-      panel: '#211a33',
-      panelSoft: '#171226',
-      accent: '#ff4fa3',
-      accentStrong: '#ffd0eb',
-      secondary: '#37d4e4',
+      appBg: '#020203',
+      appBg2: '#08090d',
+      appBg3: '#11131a',
+      panel: '#101116',
+      panelSoft: '#08090c',
+      accent: '#f6f7fb',
+      accentStrong: '#ffffff',
+      secondary: '#26a8ed',
+      heading: '#ffffff',
+      text: '#eceef4',
+      muted: '#b8bfcc',
+      border: '#e3e7ed',
+      onAccent: '#050509',
+      buttonText: '#eceef4',
+      panelOpacityPercent: 92,
+      glassPercent: 28,
+      shadowPercent: 100,
+    },
+  },
+  shibuyaNight: {
+    light: {
+      appBg: '#1b0d2b',
+      appBg2: '#3a185e',
+      appBg3: '#073449',
+      panel: '#2a1f3a',
+      panelSoft: '#1d142d',
+      accent: '#ff3b9d',
+      accentStrong: '#ffd4ee',
+      secondary: '#23d0ee',
       heading: '#fff6ff',
-      text: '#eadff8',
-      muted: '#c5b6da',
-      border: '#db67b5',
-      onAccent: '#2a0920',
-      buttonText: '#eadff8',
-      panelOpacityPercent: 88,
-      glassPercent: 26,
+      text: '#f1e8ff',
+      muted: '#cdbde8',
+      border: '#da3796',
+      onAccent: '#26001a',
+      buttonText: '#f1e8ff',
+      panelOpacityPercent: 90,
+      glassPercent: 30,
+      shadowPercent: 100,
+    },
+    dark: {
+      appBg: '#070411',
+      appBg2: '#120824',
+      appBg3: '#061a24',
+      panel: '#170f26',
+      panelSoft: '#10091c',
+      accent: '#ff2f98',
+      accentStrong: '#ffd3ed',
+      secondary: '#18d5f4',
+      heading: '#fff4ff',
+      text: '#f0e5ff',
+      muted: '#c7b5e4',
+      border: '#f03aa4',
+      onAccent: '#240018',
+      buttonText: '#f0e5ff',
+      panelOpacityPercent: 92,
+      glassPercent: 30,
       shadowPercent: 100,
     },
   },
   kyotoKurenai: {
     light: {
-      appBg: '#fff7ed',
-      appBg2: '#f1d9c8',
-      appBg3: '#f8e9d0',
-      panel: '#fffaf2',
-      panelSoft: '#f2dfcc',
-      accent: '#b54034',
-      accentStrong: '#7e281f',
-      secondary: '#b8913a',
-      heading: '#342016',
-      text: '#55392b',
-      muted: '#765c4d',
-      border: '#aa6a55',
+      appBg: '#fff1df',
+      appBg2: '#e8b99b',
+      appBg3: '#f7d989',
+      panel: '#fff8ed',
+      panelSoft: '#f0d5b7',
+      accent: '#a92f26',
+      accentStrong: '#6e1d17',
+      secondary: '#c08a1e',
+      heading: '#30170f',
+      text: '#543124',
+      muted: '#755040',
+      border: '#a64d36',
       onAccent: '#ffffff',
-      buttonText: '#55392b',
+      buttonText: '#543124',
       panelOpacityPercent: 76,
       glassPercent: 16,
       shadowPercent: 90,
     },
     dark: {
-      appBg: '#160f0c',
-      appBg2: '#281713',
-      appBg3: '#241b10',
-      panel: '#2e211b',
-      panelSoft: '#211713',
-      accent: '#e26354',
-      accentStrong: '#ffc8bd',
-      secondary: '#d6b15d',
-      heading: '#fff3e8',
-      text: '#f0d8c7',
-      muted: '#d0b29d',
-      border: '#d46f5e',
-      onAccent: '#2e0e09',
-      buttonText: '#f0d8c7',
+      appBg: '#120807',
+      appBg2: '#27100d',
+      appBg3: '#241806',
+      panel: '#2a1914',
+      panelSoft: '#1d100d',
+      accent: '#ff5f4a',
+      accentStrong: '#ffd2c4',
+      secondary: '#e3b23c',
+      heading: '#fff4e8',
+      text: '#f4d8c6',
+      muted: '#d5b39b',
+      border: '#e6644f',
+      onAccent: '#310b06',
+      buttonText: '#f4d8c6',
       panelOpacityPercent: 88,
       glassPercent: 22,
       shadowPercent: 100,
@@ -1945,38 +2017,38 @@ const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, ThemeEditorD
   },
   ukiyoIndigo: {
     light: {
-      appBg: '#f3f7f7',
-      appBg2: '#d9e5ea',
-      appBg3: '#e7dccb',
-      panel: '#fbfcfa',
-      panelSoft: '#e2e9ea',
-      accent: '#2f5f87',
-      accentStrong: '#1c4262',
-      secondary: '#a7783b',
-      heading: '#182a38',
-      text: '#364a59',
-      muted: '#5b6f7a',
-      border: '#68879a',
+      appBg: '#eaf1ed',
+      appBg2: '#9fbccb',
+      appBg3: '#d8c094',
+      panel: '#fbfbf3',
+      panelSoft: '#d6e1df',
+      accent: '#174f7f',
+      accentStrong: '#0d3659',
+      secondary: '#b06d1f',
+      heading: '#10283a',
+      text: '#314655',
+      muted: '#536b78',
+      border: '#4f7893',
       onAccent: '#ffffff',
-      buttonText: '#364a59',
+      buttonText: '#314655',
       panelOpacityPercent: 78,
       glassPercent: 18,
       shadowPercent: 82,
     },
     dark: {
-      appBg: '#0c1219',
-      appBg2: '#102034',
-      appBg3: '#1c1b18',
-      panel: '#192638',
-      panelSoft: '#111b29',
-      accent: '#6aa7d7',
+      appBg: '#07101a',
+      appBg2: '#0a2540',
+      appBg3: '#211d15',
+      panel: '#172b40',
+      panelSoft: '#0d1d2e',
+      accent: '#4aa6dd',
       accentStrong: '#c5e7ff',
-      secondary: '#d0a45e',
+      secondary: '#d59b43',
       heading: '#edf8ff',
       text: '#d8e8f4',
       muted: '#abc1d1',
-      border: '#669fc8',
-      onAccent: '#071f34',
+      border: '#5eb3e2',
+      onAccent: '#041b2f',
       buttonText: '#d8e8f4',
       panelOpacityPercent: 88,
       glassPercent: 22,
@@ -1985,39 +2057,39 @@ const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, ThemeEditorD
   },
   fujiSnow: {
     light: {
-      appBg: '#f8fbff',
-      appBg2: '#dfeeff',
-      appBg3: '#fff0f5',
-      panel: '#ffffff',
-      panelSoft: '#e7f1ff',
-      accent: '#4978c9',
-      accentStrong: '#2c5599',
-      secondary: '#d76e9e',
-      heading: '#1f2b43',
-      text: '#3a4862',
-      muted: '#5f6f88',
-      border: '#7695c9',
+      appBg: '#edf8ff',
+      appBg2: '#badcff',
+      appBg3: '#f5d1e6',
+      panel: '#fbfdff',
+      panelSoft: '#d8ecff',
+      accent: '#246fc8',
+      accentStrong: '#174b90',
+      secondary: '#c74786',
+      heading: '#12233d',
+      text: '#344860',
+      muted: '#536983',
+      border: '#5b89d0',
       onAccent: '#ffffff',
-      buttonText: '#3a4862',
+      buttonText: '#344860',
       panelOpacityPercent: 76,
       glassPercent: 20,
       shadowPercent: 82,
     },
     dark: {
-      appBg: '#0e121b',
-      appBg2: '#15213a',
-      appBg3: '#211625',
-      panel: '#1d2738',
-      panelSoft: '#151d2c',
-      accent: '#7fa7f5',
-      accentStrong: '#d7e5ff',
-      secondary: '#ee90bd',
-      heading: '#f5f9ff',
-      text: '#dde8fb',
-      muted: '#b6c5dc',
-      border: '#7ea3e4',
-      onAccent: '#0d1d39',
-      buttonText: '#dde8fb',
+      appBg: '#08111f',
+      appBg2: '#10244a',
+      appBg3: '#2a1430',
+      panel: '#182438',
+      panelSoft: '#0f192b',
+      accent: '#6b9beb',
+      accentStrong: '#d7e7ff',
+      secondary: '#f07db7',
+      heading: '#f8fbff',
+      text: '#e2ecff',
+      muted: '#b7c9e6',
+      border: '#6b9beb',
+      onAccent: '#071936',
+      buttonText: '#e2ecff',
       panelOpacityPercent: 88,
       glassPercent: 24,
       shadowPercent: 100,
@@ -2025,39 +2097,39 @@ const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, ThemeEditorD
   },
   matsuriLantern: {
     light: {
-      appBg: '#fff5e8',
-      appBg2: '#f5d9b5',
-      appBg3: '#ffe8d1',
-      panel: '#fffaf2',
-      panelSoft: '#f4dfc2',
-      accent: '#c94f3d',
-      accentStrong: '#8d2e23',
-      secondary: '#b87b12',
-      heading: '#3a2117',
-      text: '#58392b',
-      muted: '#795b49',
-      border: '#b86e55',
+      appBg: '#fff0d8',
+      appBg2: '#efae67',
+      appBg3: '#ffd35f',
+      panel: '#fff7e9',
+      panelSoft: '#f2d4a7',
+      accent: '#c23c28',
+      accentStrong: '#842116',
+      secondary: '#d88409',
+      heading: '#35180d',
+      text: '#553323',
+      muted: '#77513d',
+      border: '#b75a2f',
       onAccent: '#ffffff',
-      buttonText: '#58392b',
+      buttonText: '#553323',
       panelOpacityPercent: 76,
       glassPercent: 16,
       shadowPercent: 94,
     },
     dark: {
-      appBg: '#140d0c',
-      appBg2: '#291512',
-      appBg3: '#231b0f',
-      panel: '#30201b',
-      panelSoft: '#211511',
-      accent: '#f06b58',
-      accentStrong: '#ffd0c5',
-      secondary: '#f0bd55',
-      heading: '#fff0e6',
-      text: '#f1d6c8',
-      muted: '#d3b29c',
-      border: '#e17560',
-      onAccent: '#320f09',
-      buttonText: '#f1d6c8',
+      appBg: '#120706',
+      appBg2: '#2d100b',
+      appBg3: '#2a1a05',
+      panel: '#311c15',
+      panelSoft: '#21100c',
+      accent: '#ff5a3c',
+      accentStrong: '#ffd0bf',
+      secondary: '#ffb72e',
+      heading: '#fff1e2',
+      text: '#f5d5c2',
+      muted: '#d8ad91',
+      border: '#f67c48',
+      onAccent: '#340c05',
+      buttonText: '#f5d5c2',
       panelOpacityPercent: 88,
       glassPercent: 22,
       shadowPercent: 100,
@@ -2065,79 +2137,79 @@ const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, ThemeEditorD
   },
   ginzaNoir: {
     light: {
-      appBg: '#f5f3ef',
-      appBg2: '#e6e0d6',
-      appBg3: '#d8dde6',
-      panel: '#fbfaf7',
-      panelSoft: '#ebe6dd',
-      accent: '#80621f',
-      accentStrong: '#594113',
-      secondary: '#3f6484',
-      heading: '#232324',
-      text: '#45413b',
-      muted: '#6c665d',
-      border: '#8d7b5f',
+      appBg: '#ebe5da',
+      appBg2: '#c7bca8',
+      appBg3: '#c2cbd5',
+      panel: '#faf7ef',
+      panelSoft: '#e0d8c7',
+      accent: '#72530e',
+      accentStrong: '#4a3507',
+      secondary: '#2f668e',
+      heading: '#1c1c1d',
+      text: '#413b33',
+      muted: '#665d50',
+      border: '#8a7650',
       onAccent: '#ffffff',
-      buttonText: '#45413b',
+      buttonText: '#413b33',
       panelOpacityPercent: 78,
       glassPercent: 20,
       shadowPercent: 86,
     },
     dark: {
-      appBg: '#0f1013',
-      appBg2: '#18191f',
-      appBg3: '#201b18',
-      panel: '#24242b',
-      panelSoft: '#18191f',
-      accent: '#d3af5a',
-      accentStrong: '#f6dc98',
-      secondary: '#7aa6c7',
-      heading: '#f6f1e7',
-      text: '#e2dacd',
-      muted: '#bdb2a3',
-      border: '#c3a45c',
-      onAccent: '#221805',
-      buttonText: '#e2dacd',
-      panelOpacityPercent: 88,
-      glassPercent: 26,
+      appBg: '#090a0d',
+      appBg2: '#111219',
+      appBg3: '#1b1712',
+      panel: '#1d1d24',
+      panelSoft: '#111218',
+      accent: '#d6b158',
+      accentStrong: '#ffe1a0',
+      secondary: '#66a8d4',
+      heading: '#fff5e5',
+      text: '#e8dfce',
+      muted: '#c2b5a1',
+      border: '#d6b158',
+      onAccent: '#1f1604',
+      buttonText: '#e8dfce',
+      panelOpacityPercent: 92,
+      glassPercent: 30,
       shadowPercent: 100,
     },
   },
   frostJazz: {
     light: {
-      appBg: '#f4f7fb',
-      appBg2: '#dce7f5',
-      appBg3: '#ece2f2',
+      appBg: '#eaf2fb',
+      appBg2: '#aac2df',
+      appBg3: '#d4c0dc',
       panel: '#fbfdff',
-      panelSoft: '#e5edf6',
-      accent: '#446aa6',
-      accentStrong: '#294a7e',
-      secondary: '#9a5f85',
-      heading: '#1f2938',
-      text: '#3c4c62',
-      muted: '#627286',
-      border: '#758cab',
+      panelSoft: '#d9e5f2',
+      accent: '#245f9e',
+      accentStrong: '#163f70',
+      secondary: '#7f3e70',
+      heading: '#142234',
+      text: '#34495f',
+      muted: '#546a80',
+      border: '#5c7da9',
       onAccent: '#ffffff',
-      buttonText: '#3c4c62',
+      buttonText: '#34495f',
       panelOpacityPercent: 78,
       glassPercent: 20,
       shadowPercent: 82,
     },
     dark: {
-      appBg: '#0d1118',
-      appBg2: '#151d2b',
-      appBg3: '#1f1725',
-      panel: '#1d2735',
-      panelSoft: '#141b27',
-      accent: '#78a6e8',
-      accentStrong: '#d1e3ff',
-      secondary: '#d083ad',
-      heading: '#f3f7ff',
-      text: '#dce7f5',
-      muted: '#b5c3d5',
-      border: '#769dd5',
-      onAccent: '#0c1b31',
-      buttonText: '#dce7f5',
+      appBg: '#080d15',
+      appBg2: '#101b2c',
+      appBg3: '#201426',
+      panel: '#182434',
+      panelSoft: '#0e1724',
+      accent: '#5c8fd3',
+      accentStrong: '#d1e4ff',
+      secondary: '#c06a9e',
+      heading: '#f5f9ff',
+      text: '#deebfb',
+      muted: '#b1c4dc',
+      border: '#5c8fd3',
+      onAccent: '#07182d',
+      buttonText: '#deebfb',
       panelOpacityPercent: 88,
       glassPercent: 24,
       shadowPercent: 100,
@@ -4952,6 +5024,63 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const pollReplayGainAnalysisJob = async (jobId: string): Promise<void> => {
+    const library = getLibraryBridge();
+    if (!library) {
+      return;
+    }
+
+    for (;;) {
+      const status = await library.getReplayGainAnalysisStatus(jobId);
+      setReplayGainAnalysisJob(status);
+      setReplayGainAnalysisMessage(
+        status.status === 'completed'
+          ? `ReplayGain 分析完成：${status.updatedTracks}/${status.totalTracks} 首已更新`
+          : `ReplayGain 分析中：${status.processedTracks}/${status.totalTracks}`,
+      );
+
+      if (status.status === 'completed' || status.status === 'failed') {
+        setReplayGainAnalysisBusy(false);
+        window.dispatchEvent(new Event('library:changed'));
+        return;
+      }
+
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 700);
+      });
+    }
+  };
+
+  const handleStartReplayGainAnalysis = async (): Promise<void> => {
+    const library = getLibraryBridge();
+
+    if (!library) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to analyze ReplayGain.');
+      return;
+    }
+
+    try {
+      setReplayGainAnalysisBusy(true);
+      setReplayGainAnalysisMessage(null);
+      setError(null);
+      const job = await library.startReplayGainAnalysis({ limit: 500 });
+      setReplayGainAnalysisJob(job);
+      setReplayGainAnalysisMessage(job.totalTracks > 0 ? `ReplayGain 分析已开始：0/${job.totalTracks}` : '没有需要分析响度的歌曲');
+      if (job.totalTracks === 0) {
+        setReplayGainAnalysisBusy(false);
+        return;
+      }
+      void pollReplayGainAnalysisJob(job.id).catch((analysisError) => {
+        setReplayGainAnalysisBusy(false);
+        setError(analysisError instanceof Error ? analysisError.message : String(analysisError));
+      });
+    } catch (analysisError) {
+      setReplayGainAnalysisBusy(false);
+      setReplayGainAnalysisMessage(null);
+      setError(analysisError instanceof Error ? analysisError.message : String(analysisError));
+    }
+  };
+
   const toggleNetworkProvider = (provider: AppSettings['networkMetadataProviders'][number]): void => {
     const current = (appSettings?.networkMetadataProviders ?? defaultNetworkMetadataProviders).filter((item) =>
       visibleNetworkMetadataProviders.includes(item),
@@ -5390,6 +5519,118 @@ export const SettingsPage = (): JSX.Element => {
                     </StatusText>
                   ) : null}
                   <ToggleButton active={playbackQueue.automixEnabled} onClick={() => playbackQueue.setAutomixEnabled(!playbackQueue.automixEnabled)} />
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title="ReplayGain 响度标准化"
+                description="读取已有 ReplayGain/R128 标签；缺失时只分析并写入 ECHO 数据库，不修改你的音乐文件。"
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>启用 ReplayGain</span>
+                      <ToggleButton
+                        active={appSettings?.replayGainEnabled ?? false}
+                        disabled={!appSettings}
+                        onClick={() => patchAppSettings({ replayGainEnabled: !(appSettings?.replayGainEnabled ?? false) })}
+                      />
+                    </div>
+                    <div className="settings-inline-toggle">
+                      <span>防削波</span>
+                      <ToggleButton
+                        active={appSettings?.replayGainPreventClipping ?? true}
+                        disabled={!appSettings}
+                        onClick={() => patchAppSettings({ replayGainPreventClipping: !(appSettings?.replayGainPreventClipping ?? true) })}
+                      />
+                    </div>
+                    <div className="settings-inline-toggle">
+                      <span>扫描后分析缺失响度</span>
+                      <ToggleButton
+                        active={appSettings?.replayGainAnalyzeMissingOnScan ?? false}
+                        disabled={!appSettings}
+                        onClick={() => {
+                          const nextAnalyzeOnScan = !(appSettings?.replayGainAnalyzeMissingOnScan ?? false);
+                          patchAppSettings({
+                            replayGainAnalyzeMissingOnScan: nextAnalyzeOnScan,
+                            replayGainAnalyzeMissingOnScanOptIn: nextAnalyzeOnScan,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="settings-inline-toggle">
+                      <span>播放时分析缺失响度</span>
+                      <ToggleButton
+                        active={appSettings?.replayGainAnalyzeOnPlay ?? true}
+                        disabled={!appSettings}
+                        onClick={() => patchAppSettings({ replayGainAnalyzeOnPlay: !(appSettings?.replayGainAnalyzeOnPlay ?? true) })}
+                      />
+                    </div>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={replayGainAnalysisBusy}
+                      onClick={() => void handleStartReplayGainAnalysis()}
+                    >
+                      <RotateCw className={replayGainAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
+                      {replayGainAnalysisBusy ? '分析中...' : '分析缺失响度'}
+                    </button>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    {(['track', 'album', 'off'] as const).map((mode) => (
+                      <ChipButton
+                        active={(appSettings?.replayGainMode ?? 'track') === mode}
+                        key={mode}
+                        onClick={() => patchAppSettings({ replayGainMode: mode })}
+                      >
+                        {mode === 'track' ? 'Track' : mode === 'album' ? 'Album' : 'Off'}
+                      </ChipButton>
+                    ))}
+                  </div>
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>目标响度</em>
+                      <strong>{appSettings?.replayGainTargetLufs ?? -18} LUFS</strong>
+                    </span>
+                    <span>
+                      <em>前级增益</em>
+                      <strong>{appSettings?.replayGainPreampDb ?? 0} dB</strong>
+                    </span>
+                    <span>
+                      <em>播放应用</em>
+                      <strong>{status?.replayGainAppliedDb ? `${status.replayGainAppliedDb} dB` : '0 dB'}</strong>
+                    </span>
+                    <span>
+                      <em>进度</em>
+                      <strong>{replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : '尚未运行'}</strong>
+                    </span>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <label className="settings-number-field">
+                      <span>目标 LUFS</span>
+                      <input
+                        type="number"
+                        min={-24}
+                        max={-12}
+                        step={0.5}
+                        value={appSettings?.replayGainTargetLufs ?? -18}
+                        onChange={(event) => patchAppSettings({ replayGainTargetLufs: Number(event.currentTarget.value) })}
+                      />
+                    </label>
+                    <label className="settings-number-field">
+                      <span>Preamp dB</span>
+                      <input
+                        type="number"
+                        min={-12}
+                        max={12}
+                        step={0.5}
+                        value={appSettings?.replayGainPreampDb ?? 0}
+                        onChange={(event) => patchAppSettings({ replayGainPreampDb: Number(event.currentTarget.value) })}
+                      />
+                    </label>
+                  </div>
+                  {replayGainAnalysisMessage ? <p className="settings-inline-note">{replayGainAnalysisMessage}</p> : null}
+                  {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">ReplayGain 分析错误 {replayGainAnalysisJob.errorCount} 个，已跳过问题文件。</p> : null}
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.playback.wireless.title')} description={t('settings.playback.wireless.description')}>
@@ -6615,7 +6856,7 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 title="BPM / Offset 分析"
-                description="默认开启。开启后会在扫描结束和播放歌曲时低优先级分析缺失 BPM，并把检测到的 BPM 写入歌曲标签。"
+                description="默认开启。开启后只会在播放当前歌曲时低优先级分析缺失 BPM，并把检测到的 BPM 写入歌曲标签；手动按钮仍可一次性补齐缺失 BPM。"
               >
                 <div className="settings-cache-panel">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">

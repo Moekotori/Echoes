@@ -188,7 +188,7 @@ describe('AlbumsPage', () => {
     renderAlbumsPage();
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
-    expect(getAlbums).toHaveBeenCalledWith({ page: 1, pageSize: 60, search: '', sort: 'default' });
+    expect(getAlbums).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 60, search: '', sort: 'default' }));
     expect(getTracks).not.toHaveBeenCalled();
   });
 
@@ -232,7 +232,7 @@ describe('AlbumsPage', () => {
     fireEvent.scroll(pageSurface);
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 60, search: '', sort: 'default' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, expect.objectContaining({ page: 2, pageSize: 60, search: '', sort: 'default' }));
     expect(screen.getByText('Album 1')).toBeTruthy();
     expect(screen.getByText('Album 2')).toBeTruthy();
   });
@@ -251,12 +251,12 @@ describe('AlbumsPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Search albums / artists'), { target: { value: 'search' } });
     await new Promise((resolve) => window.setTimeout(resolve, 275));
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: 'search', sort: 'default' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, expect.objectContaining({ page: 1, pageSize: 60, search: 'search', sort: 'default' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Default' }));
     fireEvent.click(screen.getByRole('option', { name: 'Artist' }));
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(3));
-    expect(getAlbums).toHaveBeenNthCalledWith(3, { page: 1, pageSize: 60, search: 'search', sort: 'artist' });
+    expect(getAlbums).toHaveBeenNthCalledWith(3, expect.objectContaining({ page: 1, pageSize: 60, search: 'search', sort: 'artist' }));
   });
 
   it('search and sort reset the album wall scroll position', async () => {
@@ -299,7 +299,46 @@ describe('AlbumsPage', () => {
     window.dispatchEvent(new Event('library:changed'));
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: '', sort: 'default' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, expect.objectContaining({ page: 1, pageSize: 60, search: '', sort: 'default' }));
+  });
+
+  it('library:changed does not pull a scrolled album wall back to the top', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')], { page: 1, total: 120, hasMore: true }));
+    installLibrary(getAlbums);
+
+    const { container } = renderAlbumsPage();
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
+
+    const pageSurface = container.querySelector('.media-wall-scroll-shell') as HTMLElement;
+    setScrollablePageSurface(pageSurface);
+    pageSurface.scrollTop = 640;
+
+    window.dispatchEvent(new Event('library:changed'));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(getAlbums).toHaveBeenCalledTimes(1);
+    expect(pageSurface.scrollTop).toBe(640);
+  });
+
+  it('library:changed does not reload when the outer page surface is the scrolled element', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')], { page: 1, total: 120, hasMore: true }));
+    installLibrary(getAlbums);
+
+    const { container } = renderAlbumsPage();
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
+
+    const outerPageSurface = container.querySelector('.page-surface') as HTMLElement;
+    const albumWall = container.querySelector('.media-wall-scroll-shell') as HTMLElement;
+    setScrollablePageSurface(outerPageSurface);
+    setScrollablePageSurface(albumWall);
+    outerPageSurface.scrollTop = 640;
+    albumWall.scrollTop = 0;
+
+    window.dispatchEvent(new Event('library:changed'));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(getAlbums).toHaveBeenCalledTimes(1);
+    expect(outerPageSurface.scrollTop).toBe(640);
   });
 
   it('renders album coverThumb as a lazy image and stops rendering it after error', async () => {

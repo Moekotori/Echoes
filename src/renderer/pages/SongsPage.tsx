@@ -3,6 +3,7 @@ import { Check, ChevronDown, Download, FolderPlus, ListFilter, Play, RotateCw, S
 import type { DuplicateTrackIndexSummary, DuplicateTrackMember, EditableTrackTags, LibraryScanStatus, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
+import { LibrarySourceSwitch } from '../components/library/LibrarySourceSwitch';
 import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
 import { TrackList } from '../components/library/TrackList';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
@@ -21,6 +22,7 @@ import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/Playbac
 import { usePlaybackFollowCurrentTrack } from '../hooks/usePlaybackFollowCurrentTrack';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
 import { openArtistDetailForTrack } from '../utils/artistNavigation';
+import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
 const pageSize = 100;
 const sortOptions: Array<{ value: LibrarySort; label: string }> = [
@@ -121,15 +123,18 @@ type InitialSongsState = {
   hideDuplicates: boolean;
   snapshot: SongsFirstPageSnapshot | null;
   sort: LibrarySort;
+  sourceMode: LibrarySourceMode;
 };
 
 const readInitialSongsState = (): InitialSongsState => {
   const sort = readStoredSort();
   const hideDuplicates = readStoredHideDuplicates();
+  const sourceMode = readStoredLibrarySourceMode();
   const query = {
     pageSize,
     search: '',
     sort,
+    sourceProvider: sourceMode,
     hideDuplicates,
     duplicateMode: 'strict' as const,
   };
@@ -137,6 +142,7 @@ const readInitialSongsState = (): InitialSongsState => {
 
   return {
     hideDuplicates,
+    sourceMode,
     sort,
     snapshot: canUseSongsFirstPageSnapshot(query) ? readSongsFirstPageSnapshot(queryKey) : null,
   };
@@ -163,6 +169,7 @@ export const SongsPage = (): JSX.Element => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>(() => initialSongsState.sort);
+  const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => initialSongsState.sourceMode);
   const [isLoading, setIsLoading] = useState(false);
   const [isMaintainingLibrary, setIsMaintainingLibrary] = useState(false);
   const [hideDuplicates, setHideDuplicates] = useState(() => initialSongsState.hideDuplicates);
@@ -202,8 +209,8 @@ export const SongsPage = (): JSX.Element => {
   const visibleTrackIdsKey = useMemo(() => visibleTrackIds.join('\0'), [visibleTrackIds]);
   const loadedTrackIdsKey = useMemo(() => uniqueIds(tracks.map((track) => track.id)).join('\0'), [tracks]);
   const queueSource = useMemo(
-    () => ({ type: 'songs' as const, label: '歌曲列表', search: search || undefined, sort, hideDuplicates }),
-    [hideDuplicates, search, sort],
+    () => ({ type: 'songs' as const, label: sourceMode === 'remote' ? '网盘歌曲' : '歌曲列表', search: search || undefined, sort, hideDuplicates }),
+    [hideDuplicates, search, sort, sourceMode],
   );
   const currentTrackLoadedIndex = useMemo(
     () => (currentTrackId ? tracks.findIndex((track) => track.id === currentTrackId) : -1),
@@ -229,6 +236,12 @@ export const SongsPage = (): JSX.Element => {
     duplicateHiddenCountsRef.current = {};
     setLikedTrackIds({});
     setDuplicateHiddenCounts({});
+  }, []);
+
+  const setSourceMode = useCallback((mode: LibrarySourceMode): void => {
+    setSourceModeState(mode);
+    writeStoredLibrarySourceMode(mode);
+    clearSongsFirstPageSnapshot();
   }, []);
 
   useEffect(() => {
@@ -332,6 +345,7 @@ export const SongsPage = (): JSX.Element => {
           pageSize,
           search,
           sort,
+          sourceProvider: sourceMode,
           hideDuplicates,
           duplicateMode: 'strict',
         } as const;
@@ -383,7 +397,7 @@ export const SongsPage = (): JSX.Element => {
         }
       }
     },
-    [clearListMetadataCache, hideDuplicates, search, sort],
+    [clearListMetadataCache, hideDuplicates, search, sort, sourceMode],
   );
 
   useEffect(() => {
@@ -493,6 +507,7 @@ export const SongsPage = (): JSX.Element => {
         pageSize,
         search,
         sort,
+        sourceProvider: sourceMode,
         hideDuplicates,
         duplicateMode: 'strict',
       })
@@ -542,6 +557,7 @@ export const SongsPage = (): JSX.Element => {
     hideDuplicates,
     loadedStartIndex,
     search,
+    sourceMode,
     sort,
   ]);
 
@@ -1026,7 +1042,7 @@ export const SongsPage = (): JSX.Element => {
         setError(actionError instanceof Error ? actionError.message : String(actionError));
       }
     },
-    [appendToQueue, editingTrack, handleAddTrackToPlaylist, handleToggleLiked, playTrackNext, queueSource, removeTrackFromQueue],
+    [appendToQueue, editingTrack, handleAddTrackToPlaylist, handleToggleLiked, playTrackNext, queueSource, removeTrackFromQueue, total, tracks.length],
   );
 
   const closeTagEditor = useCallback((): void => {
@@ -1134,6 +1150,8 @@ export const SongsPage = (): JSX.Element => {
             onChange={(event) => setSearchInput(event.target.value)}
           />
         </label>
+
+        <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
 
         <div className="sort-select" ref={sortMenuRef}>
           <button

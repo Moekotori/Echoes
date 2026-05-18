@@ -200,6 +200,9 @@ export type TranslationKey =
   | 'library.sort.fileModifiedDesc'
   | 'library.sort.random'
   | 'library.sort.recent'
+  | 'library.source.aria'
+  | 'library.source.local'
+  | 'library.source.remote'
   | 'trackMenu.action.addToPlaylist'
   | 'trackMenu.action.playNext'
   | 'trackMenu.action.addToQueue'
@@ -520,6 +523,8 @@ export type TranslationKey =
   | 'settings.appearance.themePreset.caramelPudding.description'
   | 'settings.appearance.themePreset.cottonCloud'
   | 'settings.appearance.themePreset.cottonCloud.description'
+  | 'settings.appearance.themePreset.darkSideMoon'
+  | 'settings.appearance.themePreset.darkSideMoon.description'
   | 'settings.appearance.themePreset.description'
   | 'settings.appearance.themePreset.echoTwilight'
   | 'settings.appearance.themePreset.echoTwilight.description'
@@ -1180,6 +1185,9 @@ const zhCN: TranslationMap = {
   'library.sort.fileModifiedDesc': '文件修改最新',
   'library.sort.random': '随机',
   'library.sort.recent': '最近',
+  'library.source.aria': '曲库来源',
+  'library.source.local': '本地',
+  'library.source.remote': '网盘',
   'trackMenu.action.addToPlaylist': '加入歌单...',
   'trackMenu.action.playNext': '下一首播放',
   'trackMenu.action.addToQueue': '加入队列',
@@ -1530,6 +1538,8 @@ const zhCN: TranslationMap = {
   'settings.appearance.themePreset.oceanStudio.description': '冷蓝灰和海雾蓝，干净专业。',
   'settings.appearance.themePreset.rosewoodVinyl': '玫瑰木黑胶',
   'settings.appearance.themePreset.rosewoodVinyl.description': '木质暖红与黑胶暗调，更沉稳复古。',
+  'settings.appearance.themePreset.darkSideMoon': 'The Dark Side of the Moon',
+  'settings.appearance.themePreset.darkSideMoon.description': '致敬 Pink Floyd：黑月、白色棱镜与彩虹光谱。',
   'settings.appearance.themePreset.shibuyaNight': '涩谷夜色',
   'settings.appearance.themePreset.shibuyaNight.description': '东京霓虹、夜紫街口和青色招牌光。',
   'settings.appearance.themePreset.kyotoKurenai': '京都朱印',
@@ -2002,6 +2012,9 @@ const zhTW: TranslationMap = {
   'library.sort.fileModifiedDesc': '檔案修改最新',
   'library.sort.random': '隨機',
   'library.sort.recent': '最近',
+  'library.source.aria': '媒體庫來源',
+  'library.source.local': '本機',
+  'library.source.remote': '網路硬碟',
   'audioDrawer.action.close': '關閉音訊設定',
   'audioDrawer.action.copiedDiagnostics': '已複製播放診斷資訊',
   'audioDrawer.action.copyDiagnostics': '複製播放診斷資訊',
@@ -2571,6 +2584,8 @@ const zhTW: TranslationMap = {
   'settings.appearance.themePreset.oceanStudio.description': '冷藍灰和海霧藍，乾淨專業。',
   'settings.appearance.themePreset.rosewoodVinyl': '玫瑰木黑膠',
   'settings.appearance.themePreset.rosewoodVinyl.description': '木質暖紅與黑膠暗調，更沉穩復古。',
+  'settings.appearance.themePreset.darkSideMoon': 'The Dark Side of the Moon',
+  'settings.appearance.themePreset.darkSideMoon.description': '致敬 Pink Floyd：黑月、白色稜鏡與彩虹光譜。',
   'settings.appearance.themePreset.shibuyaNight': '澀谷夜色',
   'settings.appearance.themePreset.shibuyaNight.description': '東京霓虹、夜紫街口和青色招牌光。',
   'settings.appearance.themePreset.kyotoKurenai': '京都朱印',
@@ -2705,6 +2720,9 @@ const jaJP: TranslationMap = {
   'library.sort.fileModifiedDesc': 'ファイル更新が新しい順',
   'library.sort.random': 'ランダム',
   'library.sort.recent': '最近',
+  'library.source.aria': 'ライブラリソース',
+  'library.source.local': 'ローカル',
+  'library.source.remote': 'クラウド',
   'app.navigation.main': 'メインナビゲーション',
   'app.navigation.utility': 'ユーティリティナビゲーション',
   'app.toolbar.quickActions': 'クイック操作',
@@ -3355,20 +3373,22 @@ const jaJP: TranslationMap = {
   'settings.appearance.themePreset.oceanStudio.description': 'Cool blue-gray and sea mist for a clean studio feel.',
   'settings.appearance.themePreset.rosewoodVinyl': 'Rosewood Vinyl',
   'settings.appearance.themePreset.rosewoodVinyl.description': 'Warm rosewood reds with a grounded vinyl mood.',
-  'settings.appearance.themePreset.shibuyaNight': 'Shibuya Night',
-  'settings.appearance.themePreset.shibuyaNight.description': 'Tokyo neon, night violet streets, and cyan signage glow.',
-  'settings.appearance.themePreset.kyotoKurenai': 'Kyoto Kurenai',
-  'settings.appearance.themePreset.kyotoKurenai.description': 'Torii red, warm washi paper, and omamori gold.',
-  'settings.appearance.themePreset.ukiyoIndigo': 'Ukiyo Indigo',
-  'settings.appearance.themePreset.ukiyoIndigo.description': 'Ukiyo-e wave indigo with paper warmth and antique gold.',
-  'settings.appearance.themePreset.fujiSnow': 'Fuji First Snow',
-  'settings.appearance.themePreset.fujiSnow.description': 'Snow white, Fuji blue, and a pale sakura highlight.',
-  'settings.appearance.themePreset.matsuriLantern': 'Matsuri Lantern',
-  'settings.appearance.themePreset.matsuriLantern.description': 'Summer festival lantern red, market gold, and warm paper.',
-  'settings.appearance.themePreset.ginzaNoir': 'Ginza Noir',
-  'settings.appearance.themePreset.ginzaNoir.description': 'Obsidian, champagne gold, and boutique-window blue.',
-  'settings.appearance.themePreset.frostJazz': 'Frost Jazz',
-  'settings.appearance.themePreset.frostJazz.description': 'Cool blue jazz tones with a plum stage-light accent.',
+  'settings.appearance.themePreset.darkSideMoon': 'The Dark Side of the Moon',
+  'settings.appearance.themePreset.darkSideMoon.description': 'Pink Floyd へのトリビュート。黒い月面、白いプリズム、虹色のスペクトル。',
+  'settings.appearance.themePreset.shibuyaNight': '渋谷ナイト',
+  'settings.appearance.themePreset.shibuyaNight.description': '東京ネオン、夜紫の交差点、シアンの看板光。',
+  'settings.appearance.themePreset.kyotoKurenai': '京都くれない',
+  'settings.appearance.themePreset.kyotoKurenai.description': '鳥居の朱、和紙の温かさ、お守りの金色。',
+  'settings.appearance.themePreset.ukiyoIndigo': '浮世インディゴ',
+  'settings.appearance.themePreset.ukiyoIndigo.description': '浮世絵の波を思わせる藍、紙色、古金。',
+  'settings.appearance.themePreset.fujiSnow': '富士初雪',
+  'settings.appearance.themePreset.fujiSnow.description': '雪白、富士ブルー、淡い桜のハイライト。',
+  'settings.appearance.themePreset.matsuriLantern': '祭り提灯',
+  'settings.appearance.themePreset.matsuriLantern.description': '夏祭りの提灯赤、夜店の金、温かな紙色。',
+  'settings.appearance.themePreset.ginzaNoir': '銀座ノワール',
+  'settings.appearance.themePreset.ginzaNoir.description': '黒曜石、シャンパンゴールド、ショーウィンドウの青。',
+  'settings.appearance.themePreset.frostJazz': 'フロストジャズ',
+  'settings.appearance.themePreset.frostJazz.description': '冷たいブルージャズに梅紫のステージライト。',
   'settings.appearance.themeCustom.title': 'Customize Current Theme',
   'settings.appearance.themeCustom.description': 'Choose a theme first, then tune colors. Each theme keeps its own custom colors.',
   'settings.appearance.themeCustom.action.autoFix': 'Auto-fix Text',
@@ -3492,6 +3512,9 @@ const enUS: TranslationMap = {
   'library.sort.fileModifiedDesc': 'File Modified Newest',
   'library.sort.random': 'Random',
   'library.sort.recent': 'Recent',
+  'library.source.aria': 'Library source',
+  'library.source.local': 'Local',
+  'library.source.remote': 'Cloud',
   'app.navigation.main': 'Main navigation',
   'app.navigation.utility': 'Utility navigation',
   'app.toolbar.quickActions': 'Quick actions',
@@ -4321,6 +4344,22 @@ const enUS: TranslationMap = {
   'settings.appearance.themePreset.oceanStudio.description': 'Cool blue-gray and sea mist for a clean studio feel.',
   'settings.appearance.themePreset.rosewoodVinyl': 'Rosewood Vinyl',
   'settings.appearance.themePreset.rosewoodVinyl.description': 'Warm rosewood reds with a grounded vinyl mood.',
+  'settings.appearance.themePreset.darkSideMoon': 'The Dark Side of the Moon',
+  'settings.appearance.themePreset.darkSideMoon.description': 'A Pink Floyd tribute: black lunar glass, white prism, and spectral color.',
+  'settings.appearance.themePreset.shibuyaNight': 'Shibuya Night',
+  'settings.appearance.themePreset.shibuyaNight.description': 'Tokyo neon, night violet streets, and cyan signage glow.',
+  'settings.appearance.themePreset.kyotoKurenai': 'Kyoto Kurenai',
+  'settings.appearance.themePreset.kyotoKurenai.description': 'Torii red, warm washi paper, and omamori gold.',
+  'settings.appearance.themePreset.ukiyoIndigo': 'Ukiyo Indigo',
+  'settings.appearance.themePreset.ukiyoIndigo.description': 'Ukiyo-e wave indigo with paper warmth and antique gold.',
+  'settings.appearance.themePreset.fujiSnow': 'Fuji First Snow',
+  'settings.appearance.themePreset.fujiSnow.description': 'Snow white, Fuji blue, and a pale sakura highlight.',
+  'settings.appearance.themePreset.matsuriLantern': 'Matsuri Lantern',
+  'settings.appearance.themePreset.matsuriLantern.description': 'Summer festival lantern red, market gold, and warm paper.',
+  'settings.appearance.themePreset.ginzaNoir': 'Ginza Noir',
+  'settings.appearance.themePreset.ginzaNoir.description': 'Obsidian, champagne gold, and boutique-window blue.',
+  'settings.appearance.themePreset.frostJazz': 'Frost Jazz',
+  'settings.appearance.themePreset.frostJazz.description': 'Cool blue jazz tones with a plum stage-light accent.',
   'settings.appearance.themeCustom.title': 'Customize Current Theme',
   'settings.appearance.themeCustom.description': 'Choose a theme first, then tune colors. Each theme keeps its own custom colors.',
   'settings.appearance.themeCustom.action.autoFix': 'Auto-fix Text',

@@ -540,150 +540,172 @@ html[data-theme="light"][data-theme-preset="rosewoodVinyl"] {
   --preset-on-accent: #ffffff;
 }
 
+/* The Dark Side of the Moon theme, a tribute to Pink Floyd. */
+html[data-theme="light"][data-theme-preset="darkSideMoon"] {
+  --preset-app-bg: #050506;
+  --preset-app-bg-2: #111217;
+  --preset-app-bg-3: #08090c;
+  --preset-panel-rgb: 20 21 25;
+  --preset-soft-rgb: 12 13 16;
+  --preset-border-rgb: 201 209 219;
+  --preset-shadow-rgb: 0 0 0;
+  --preset-text: #e8eaee;
+  --preset-heading: #ffffff;
+  --preset-muted: #b6bbc5;
+  --preset-subtle: #858b97;
+  --preset-accent: #f4f6f8;
+  --preset-accent-strong: #ffffff;
+  --preset-accent-rgb: 244 246 248;
+  --preset-secondary: #f6d93b;
+  --preset-secondary-rgb: 246 217 59;
+  --preset-success-text: #79f078;
+  --preset-on-accent: #08090d;
+}
+
 html[data-theme="light"][data-theme-preset="shibuyaNight"] {
-  --preset-app-bg: #f6f0ff;
-  --preset-app-bg-2: #dfd4ff;
-  --preset-app-bg-3: #ffd6e9;
-  --preset-panel-rgb: 255 250 255;
-  --preset-soft-rgb: 238 228 255;
-  --preset-border-rgb: 141 112 184;
-  --preset-shadow-rgb: 55 35 88;
-  --preset-text: #453a58;
-  --preset-heading: #261b3b;
-  --preset-muted: #6c607e;
-  --preset-subtle: #8f82a4;
-  --preset-accent: #d93486;
-  --preset-accent-strong: #9d1f60;
-  --preset-accent-rgb: 217 52 134;
-  --preset-secondary: #1c8fa0;
-  --preset-secondary-rgb: 36 182 199;
-  --preset-success-text: #1c6f7b;
-  --preset-on-accent: #ffffff;
+  --preset-app-bg: #1b0d2b;
+  --preset-app-bg-2: #3a185e;
+  --preset-app-bg-3: #073449;
+  --preset-panel-rgb: 42 31 58;
+  --preset-soft-rgb: 29 20 45;
+  --preset-border-rgb: 218 55 150;
+  --preset-shadow-rgb: 7 3 14;
+  --preset-text: #f1e8ff;
+  --preset-heading: #fff6ff;
+  --preset-muted: #cdbde8;
+  --preset-subtle: #a58cc3;
+  --preset-accent: #ff3b9d;
+  --preset-accent-strong: #ffd4ee;
+  --preset-accent-rgb: 255 59 157;
+  --preset-secondary: #23d0ee;
+  --preset-secondary-rgb: 35 208 238;
+  --preset-success-text: #b9f8ff;
+  --preset-on-accent: #26001a;
 }
 
 html[data-theme="light"][data-theme-preset="kyotoKurenai"] {
-  --preset-app-bg: #fff7ed;
-  --preset-app-bg-2: #f1d9c8;
-  --preset-app-bg-3: #f8e9d0;
-  --preset-panel-rgb: 255 250 242;
-  --preset-soft-rgb: 242 223 204;
-  --preset-border-rgb: 170 106 85;
-  --preset-shadow-rgb: 82 47 32;
-  --preset-text: #55392b;
-  --preset-heading: #342016;
-  --preset-muted: #765c4d;
-  --preset-subtle: #987b69;
-  --preset-accent: #b54034;
-  --preset-accent-strong: #7e281f;
-  --preset-accent-rgb: 181 64 52;
-  --preset-secondary: #b8913a;
-  --preset-secondary-rgb: 184 145 58;
-  --preset-success-text: #7e5f17;
+  --preset-app-bg: #fff1df;
+  --preset-app-bg-2: #e8b99b;
+  --preset-app-bg-3: #f7d989;
+  --preset-panel-rgb: 255 248 237;
+  --preset-soft-rgb: 240 213 183;
+  --preset-border-rgb: 166 77 54;
+  --preset-shadow-rgb: 95 45 32;
+  --preset-text: #543124;
+  --preset-heading: #30170f;
+  --preset-muted: #755040;
+  --preset-subtle: #966e5b;
+  --preset-accent: #a92f26;
+  --preset-accent-strong: #6e1d17;
+  --preset-accent-rgb: 169 47 38;
+  --preset-secondary: #c08a1e;
+  --preset-secondary-rgb: 192 138 30;
+  --preset-success-text: #76520f;
   --preset-on-accent: #ffffff;
 }
 
 html[data-theme="light"][data-theme-preset="ukiyoIndigo"] {
-  --preset-app-bg: #f3f7f7;
-  --preset-app-bg-2: #d9e5ea;
-  --preset-app-bg-3: #e7dccb;
-  --preset-panel-rgb: 251 252 250;
-  --preset-soft-rgb: 226 233 234;
-  --preset-border-rgb: 104 135 154;
-  --preset-shadow-rgb: 36 58 72;
-  --preset-text: #364a59;
-  --preset-heading: #182a38;
-  --preset-muted: #5b6f7a;
-  --preset-subtle: #7d8f98;
-  --preset-accent: #2f5f87;
-  --preset-accent-strong: #1c4262;
-  --preset-accent-rgb: 47 95 135;
-  --preset-secondary: #a7783b;
-  --preset-secondary-rgb: 167 120 59;
-  --preset-success-text: #1c4262;
+  --preset-app-bg: #eaf1ed;
+  --preset-app-bg-2: #9fbccb;
+  --preset-app-bg-3: #d8c094;
+  --preset-panel-rgb: 251 251 243;
+  --preset-soft-rgb: 214 225 223;
+  --preset-border-rgb: 79 120 147;
+  --preset-shadow-rgb: 28 52 69;
+  --preset-text: #314655;
+  --preset-heading: #10283a;
+  --preset-muted: #536b78;
+  --preset-subtle: #768996;
+  --preset-accent: #174f7f;
+  --preset-accent-strong: #0d3659;
+  --preset-accent-rgb: 23 79 127;
+  --preset-secondary: #b06d1f;
+  --preset-secondary-rgb: 176 109 31;
+  --preset-success-text: #0d3659;
   --preset-on-accent: #ffffff;
 }
 
 html[data-theme="light"][data-theme-preset="fujiSnow"] {
-  --preset-app-bg: #f8fbff;
-  --preset-app-bg-2: #dfeeff;
-  --preset-app-bg-3: #fff0f5;
-  --preset-panel-rgb: 255 255 255;
-  --preset-soft-rgb: 231 241 255;
-  --preset-border-rgb: 118 149 201;
-  --preset-shadow-rgb: 46 68 108;
-  --preset-text: #3a4862;
-  --preset-heading: #1f2b43;
-  --preset-muted: #5f6f88;
-  --preset-subtle: #8190a8;
-  --preset-accent: #4978c9;
-  --preset-accent-strong: #2c5599;
-  --preset-accent-rgb: 73 120 201;
-  --preset-secondary: #d76e9e;
-  --preset-secondary-rgb: 215 110 158;
-  --preset-success-text: #2c5599;
+  --preset-app-bg: #edf8ff;
+  --preset-app-bg-2: #badcff;
+  --preset-app-bg-3: #f5d1e6;
+  --preset-panel-rgb: 251 253 255;
+  --preset-soft-rgb: 216 236 255;
+  --preset-border-rgb: 91 137 208;
+  --preset-shadow-rgb: 35 64 105;
+  --preset-text: #344860;
+  --preset-heading: #12233d;
+  --preset-muted: #536983;
+  --preset-subtle: #758aa4;
+  --preset-accent: #246fc8;
+  --preset-accent-strong: #174b90;
+  --preset-accent-rgb: 36 111 200;
+  --preset-secondary: #c74786;
+  --preset-secondary-rgb: 199 71 134;
+  --preset-success-text: #174b90;
   --preset-on-accent: #ffffff;
 }
 
 html[data-theme="light"][data-theme-preset="matsuriLantern"] {
-  --preset-app-bg: #fff5e8;
-  --preset-app-bg-2: #f5d9b5;
-  --preset-app-bg-3: #ffe8d1;
-  --preset-panel-rgb: 255 250 242;
-  --preset-soft-rgb: 244 223 194;
-  --preset-border-rgb: 184 110 85;
-  --preset-shadow-rgb: 88 49 35;
-  --preset-text: #58392b;
-  --preset-heading: #3a2117;
-  --preset-muted: #795b49;
-  --preset-subtle: #9d7a64;
-  --preset-accent: #c94f3d;
-  --preset-accent-strong: #8d2e23;
-  --preset-accent-rgb: 201 79 61;
-  --preset-secondary: #b87b12;
-  --preset-secondary-rgb: 211 155 46;
-  --preset-success-text: #7c540e;
+  --preset-app-bg: #fff0d8;
+  --preset-app-bg-2: #efae67;
+  --preset-app-bg-3: #ffd35f;
+  --preset-panel-rgb: 255 247 233;
+  --preset-soft-rgb: 242 212 167;
+  --preset-border-rgb: 183 90 47;
+  --preset-shadow-rgb: 101 51 28;
+  --preset-text: #553323;
+  --preset-heading: #35180d;
+  --preset-muted: #77513d;
+  --preset-subtle: #9a7159;
+  --preset-accent: #c23c28;
+  --preset-accent-strong: #842116;
+  --preset-accent-rgb: 194 60 40;
+  --preset-secondary: #d88409;
+  --preset-secondary-rgb: 216 132 9;
+  --preset-success-text: #7c4a05;
   --preset-on-accent: #ffffff;
 }
 
 html[data-theme="light"][data-theme-preset="ginzaNoir"] {
-  --preset-app-bg: #f5f3ef;
-  --preset-app-bg-2: #e6e0d6;
-  --preset-app-bg-3: #d8dde6;
-  --preset-panel-rgb: 251 250 247;
-  --preset-soft-rgb: 235 230 221;
-  --preset-border-rgb: 141 123 95;
-  --preset-shadow-rgb: 48 45 41;
-  --preset-text: #45413b;
-  --preset-heading: #232324;
-  --preset-muted: #6c665d;
-  --preset-subtle: #8d867b;
-  --preset-accent: #80621f;
-  --preset-accent-strong: #594113;
-  --preset-accent-rgb: 128 98 31;
-  --preset-secondary: #3f6484;
-  --preset-secondary-rgb: 63 100 132;
-  --preset-success-text: #4e5f20;
+  --preset-app-bg: #ebe5da;
+  --preset-app-bg-2: #c7bca8;
+  --preset-app-bg-3: #c2cbd5;
+  --preset-panel-rgb: 250 247 239;
+  --preset-soft-rgb: 224 216 199;
+  --preset-border-rgb: 138 118 80;
+  --preset-shadow-rgb: 47 43 37;
+  --preset-text: #413b33;
+  --preset-heading: #1c1c1d;
+  --preset-muted: #665d50;
+  --preset-subtle: #867c6c;
+  --preset-accent: #72530e;
+  --preset-accent-strong: #4a3507;
+  --preset-accent-rgb: 114 83 14;
+  --preset-secondary: #2f668e;
+  --preset-secondary-rgb: 47 102 142;
+  --preset-success-text: #4a3507;
   --preset-on-accent: #ffffff;
 }
 
 html[data-theme="light"][data-theme-preset="frostJazz"] {
-  --preset-app-bg: #f4f7fb;
-  --preset-app-bg-2: #dce7f5;
-  --preset-app-bg-3: #ece2f2;
+  --preset-app-bg: #eaf2fb;
+  --preset-app-bg-2: #aac2df;
+  --preset-app-bg-3: #d4c0dc;
   --preset-panel-rgb: 251 253 255;
-  --preset-soft-rgb: 229 237 246;
-  --preset-border-rgb: 117 140 171;
-  --preset-shadow-rgb: 42 57 82;
-  --preset-text: #3c4c62;
-  --preset-heading: #1f2938;
-  --preset-muted: #627286;
-  --preset-subtle: #8391a4;
-  --preset-accent: #446aa6;
-  --preset-accent-strong: #294a7e;
-  --preset-accent-rgb: 68 106 166;
-  --preset-secondary: #9a5f85;
-  --preset-secondary-rgb: 154 95 133;
-  --preset-success-text: #294a7e;
+  --preset-soft-rgb: 217 229 242;
+  --preset-border-rgb: 92 125 169;
+  --preset-shadow-rgb: 34 52 79;
+  --preset-text: #34495f;
+  --preset-heading: #142234;
+  --preset-muted: #546a80;
+  --preset-subtle: #778a9f;
+  --preset-accent: #245f9e;
+  --preset-accent-strong: #163f70;
+  --preset-accent-rgb: 36 95 158;
+  --preset-secondary: #7f3e70;
+  --preset-secondary-rgb: 127 62 112;
+  --preset-success-text: #163f70;
   --preset-on-accent: #ffffff;
 }
 
@@ -1086,151 +1108,173 @@ html[data-theme="dark"][data-theme-preset="rosewoodVinyl"] {
   --preset-on-accent: #2f1210;
 }
 
-html[data-theme="dark"][data-theme-preset="shibuyaNight"] {
-  --preset-app-bg: #0e0b18;
-  --preset-app-bg-2: #19112c;
-  --preset-app-bg-3: #111d2a;
-  --preset-panel-rgb: 33 26 51;
-  --preset-soft-rgb: 23 18 38;
-  --preset-border-rgb: 219 103 181;
+/* The Dark Side of the Moon theme, a tribute to Pink Floyd. */
+html[data-theme="dark"][data-theme-preset="darkSideMoon"] {
+  --preset-app-bg: #020203;
+  --preset-app-bg-2: #08090d;
+  --preset-app-bg-3: #11131a;
+  --preset-panel-rgb: 16 17 22;
+  --preset-soft-rgb: 8 9 12;
+  --preset-border-rgb: 227 231 237;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #eadff8;
-  --preset-heading: #fff6ff;
-  --preset-muted: #c5b6da;
-  --preset-subtle: #9d8dbd;
-  --preset-accent: #ff4fa3;
-  --preset-accent-strong: #ffd0eb;
-  --preset-accent-rgb: 255 79 163;
-  --preset-secondary: #37d4e4;
-  --preset-secondary-rgb: 55 212 228;
-  --preset-success-text: #b9f4fb;
-  --preset-on-accent: #2a0920;
+  --preset-text: #eceef4;
+  --preset-heading: #ffffff;
+  --preset-muted: #b8bfcc;
+  --preset-subtle: #858d9c;
+  --preset-accent: #f6f7fb;
+  --preset-accent-strong: #ffffff;
+  --preset-accent-rgb: 246 247 251;
+  --preset-secondary: #26a8ed;
+  --preset-secondary-rgb: 38 168 237;
+  --preset-success-text: #80f27d;
+  --preset-on-accent: #050509;
+}
+
+html[data-theme="dark"][data-theme-preset="shibuyaNight"] {
+  --preset-app-bg: #070411;
+  --preset-app-bg-2: #120824;
+  --preset-app-bg-3: #061a24;
+  --preset-panel-rgb: 23 15 38;
+  --preset-soft-rgb: 16 9 28;
+  --preset-border-rgb: 240 58 164;
+  --preset-shadow-rgb: 0 0 0;
+  --preset-text: #f0e5ff;
+  --preset-heading: #fff4ff;
+  --preset-muted: #c7b5e4;
+  --preset-subtle: #957cad;
+  --preset-accent: #ff2f98;
+  --preset-accent-strong: #ffd3ed;
+  --preset-accent-rgb: 255 47 152;
+  --preset-secondary: #18d5f4;
+  --preset-secondary-rgb: 24 213 244;
+  --preset-success-text: #b9f8ff;
+  --preset-on-accent: #240018;
 }
 
 html[data-theme="dark"][data-theme-preset="kyotoKurenai"] {
-  --preset-app-bg: #160f0c;
-  --preset-app-bg-2: #281713;
-  --preset-app-bg-3: #241b10;
-  --preset-panel-rgb: 46 33 27;
-  --preset-soft-rgb: 33 23 19;
-  --preset-border-rgb: 212 111 94;
+  --preset-app-bg: #120807;
+  --preset-app-bg-2: #27100d;
+  --preset-app-bg-3: #241806;
+  --preset-panel-rgb: 42 25 20;
+  --preset-soft-rgb: 29 16 13;
+  --preset-border-rgb: 230 100 79;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #f0d8c7;
-  --preset-heading: #fff3e8;
-  --preset-muted: #d0b29d;
-  --preset-subtle: #aa8c76;
-  --preset-accent: #e26354;
-  --preset-accent-strong: #ffc8bd;
-  --preset-accent-rgb: 226 99 84;
-  --preset-secondary: #d6b15d;
-  --preset-secondary-rgb: 214 177 93;
-  --preset-success-text: #f4d995;
-  --preset-on-accent: #2e0e09;
+  --preset-text: #f4d8c6;
+  --preset-heading: #fff4e8;
+  --preset-muted: #d5b39b;
+  --preset-subtle: #ad8870;
+  --preset-accent: #ff5f4a;
+  --preset-accent-strong: #ffd2c4;
+  --preset-accent-rgb: 255 95 74;
+  --preset-secondary: #e3b23c;
+  --preset-secondary-rgb: 227 178 60;
+  --preset-success-text: #f6dc91;
+  --preset-on-accent: #310b06;
 }
 
 html[data-theme="dark"][data-theme-preset="ukiyoIndigo"] {
-  --preset-app-bg: #0c1219;
-  --preset-app-bg-2: #102034;
-  --preset-app-bg-3: #1c1b18;
-  --preset-panel-rgb: 25 38 56;
-  --preset-soft-rgb: 17 27 41;
-  --preset-border-rgb: 102 159 200;
+  --preset-app-bg: #07101a;
+  --preset-app-bg-2: #0a2540;
+  --preset-app-bg-3: #211d15;
+  --preset-panel-rgb: 23 43 64;
+  --preset-soft-rgb: 13 29 46;
+  --preset-border-rgb: 94 179 226;
   --preset-shadow-rgb: 0 0 0;
   --preset-text: #d8e8f4;
   --preset-heading: #edf8ff;
   --preset-muted: #abc1d1;
   --preset-subtle: #849cad;
-  --preset-accent: #6aa7d7;
+  --preset-accent: #4aa6dd;
   --preset-accent-strong: #c5e7ff;
-  --preset-accent-rgb: 106 167 215;
-  --preset-secondary: #d0a45e;
-  --preset-secondary-rgb: 208 164 94;
+  --preset-accent-rgb: 74 166 221;
+  --preset-secondary: #d59b43;
+  --preset-secondary-rgb: 213 155 67;
   --preset-success-text: #c5e7ff;
-  --preset-on-accent: #071f34;
+  --preset-on-accent: #041b2f;
 }
 
 html[data-theme="dark"][data-theme-preset="fujiSnow"] {
-  --preset-app-bg: #0e121b;
-  --preset-app-bg-2: #15213a;
-  --preset-app-bg-3: #211625;
-  --preset-panel-rgb: 29 39 56;
-  --preset-soft-rgb: 21 29 44;
-  --preset-border-rgb: 126 163 228;
+  --preset-app-bg: #08111f;
+  --preset-app-bg-2: #10244a;
+  --preset-app-bg-3: #2a1430;
+  --preset-panel-rgb: 24 36 56;
+  --preset-soft-rgb: 15 25 43;
+  --preset-border-rgb: 107 155 235;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #dde8fb;
-  --preset-heading: #f5f9ff;
-  --preset-muted: #b6c5dc;
-  --preset-subtle: #8f9fba;
-  --preset-accent: #7fa7f5;
-  --preset-accent-strong: #d7e5ff;
-  --preset-accent-rgb: 127 167 245;
-  --preset-secondary: #ee90bd;
-  --preset-secondary-rgb: 238 144 189;
-  --preset-success-text: #d7e5ff;
-  --preset-on-accent: #0d1d39;
+  --preset-text: #e2ecff;
+  --preset-heading: #f8fbff;
+  --preset-muted: #b7c9e6;
+  --preset-subtle: #8ca3c3;
+  --preset-accent: #6b9beb;
+  --preset-accent-strong: #d7e7ff;
+  --preset-accent-rgb: 107 155 235;
+  --preset-secondary: #f07db7;
+  --preset-secondary-rgb: 240 125 183;
+  --preset-success-text: #d7e7ff;
+  --preset-on-accent: #071936;
 }
 
 html[data-theme="dark"][data-theme-preset="matsuriLantern"] {
-  --preset-app-bg: #140d0c;
-  --preset-app-bg-2: #291512;
-  --preset-app-bg-3: #231b0f;
-  --preset-panel-rgb: 48 32 27;
-  --preset-soft-rgb: 33 21 17;
-  --preset-border-rgb: 225 117 96;
+  --preset-app-bg: #120706;
+  --preset-app-bg-2: #2d100b;
+  --preset-app-bg-3: #2a1a05;
+  --preset-panel-rgb: 49 28 21;
+  --preset-soft-rgb: 33 16 12;
+  --preset-border-rgb: 246 124 72;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #f1d6c8;
-  --preset-heading: #fff0e6;
-  --preset-muted: #d3b29c;
-  --preset-subtle: #af8c73;
-  --preset-accent: #f06b58;
-  --preset-accent-strong: #ffd0c5;
-  --preset-accent-rgb: 240 107 88;
-  --preset-secondary: #f0bd55;
-  --preset-secondary-rgb: 240 189 85;
-  --preset-success-text: #ffe09a;
-  --preset-on-accent: #320f09;
+  --preset-text: #f5d5c2;
+  --preset-heading: #fff1e2;
+  --preset-muted: #d8ad91;
+  --preset-subtle: #b48769;
+  --preset-accent: #ff5a3c;
+  --preset-accent-strong: #ffd0bf;
+  --preset-accent-rgb: 255 90 60;
+  --preset-secondary: #ffb72e;
+  --preset-secondary-rgb: 255 183 46;
+  --preset-success-text: #ffe19a;
+  --preset-on-accent: #340c05;
 }
 
 html[data-theme="dark"][data-theme-preset="ginzaNoir"] {
-  --preset-app-bg: #0f1013;
-  --preset-app-bg-2: #18191f;
-  --preset-app-bg-3: #201b18;
-  --preset-panel-rgb: 36 36 43;
-  --preset-soft-rgb: 24 25 31;
-  --preset-border-rgb: 195 164 92;
+  --preset-app-bg: #090a0d;
+  --preset-app-bg-2: #111219;
+  --preset-app-bg-3: #1b1712;
+  --preset-panel-rgb: 29 29 36;
+  --preset-soft-rgb: 17 18 24;
+  --preset-border-rgb: 214 177 88;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #e2dacd;
-  --preset-heading: #f6f1e7;
-  --preset-muted: #bdb2a3;
-  --preset-subtle: #9b9287;
-  --preset-accent: #d3af5a;
-  --preset-accent-strong: #f6dc98;
-  --preset-accent-rgb: 211 175 90;
-  --preset-secondary: #7aa6c7;
-  --preset-secondary-rgb: 122 166 199;
-  --preset-success-text: #f6dc98;
-  --preset-on-accent: #221805;
+  --preset-text: #e8dfce;
+  --preset-heading: #fff5e5;
+  --preset-muted: #c2b5a1;
+  --preset-subtle: #9d907f;
+  --preset-accent: #d6b158;
+  --preset-accent-strong: #ffe1a0;
+  --preset-accent-rgb: 214 177 88;
+  --preset-secondary: #66a8d4;
+  --preset-secondary-rgb: 102 168 212;
+  --preset-success-text: #ffe1a0;
+  --preset-on-accent: #1f1604;
 }
 
 html[data-theme="dark"][data-theme-preset="frostJazz"] {
-  --preset-app-bg: #0d1118;
-  --preset-app-bg-2: #151d2b;
-  --preset-app-bg-3: #1f1725;
-  --preset-panel-rgb: 29 39 53;
-  --preset-soft-rgb: 20 27 39;
-  --preset-border-rgb: 118 157 213;
+  --preset-app-bg: #080d15;
+  --preset-app-bg-2: #101b2c;
+  --preset-app-bg-3: #201426;
+  --preset-panel-rgb: 24 36 52;
+  --preset-soft-rgb: 14 23 36;
+  --preset-border-rgb: 92 143 211;
   --preset-shadow-rgb: 0 0 0;
-  --preset-text: #dce7f5;
-  --preset-heading: #f3f7ff;
-  --preset-muted: #b5c3d5;
-  --preset-subtle: #8e9db1;
-  --preset-accent: #78a6e8;
-  --preset-accent-strong: #d1e3ff;
-  --preset-accent-rgb: 120 166 232;
-  --preset-secondary: #d083ad;
-  --preset-secondary-rgb: 208 131 173;
-  --preset-success-text: #d1e3ff;
-  --preset-on-accent: #0c1b31;
+  --preset-text: #deebfb;
+  --preset-heading: #f5f9ff;
+  --preset-muted: #b1c4dc;
+  --preset-subtle: #879db7;
+  --preset-accent: #5c8fd3;
+  --preset-accent-strong: #d1e4ff;
+  --preset-accent-rgb: 92 143 211;
+  --preset-secondary: #c06a9e;
+  --preset-secondary-rgb: 192 106 158;
+  --preset-success-text: #d1e4ff;
+  --preset-on-accent: #07182d;
 }
 
 html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) {
@@ -1248,6 +1292,54 @@ html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([
     linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.96), rgb(var(--preset-soft-rgb) / 0.98));
   --shadow-soft: 0 22px 60px rgb(0 0 0 / 0.34);
   --shadow-panel: 0 12px 30px rgb(0 0 0 / 0.24);
+}
+
+html[data-theme-preset="darkSideMoon"] {
+  --theme-page-bg:
+    linear-gradient(
+      106deg,
+      transparent 0 28%,
+      rgb(246 247 251 / 0.18) 28.35%,
+      rgb(246 247 251 / 0.02) 30.5%,
+      transparent 31% 52%,
+      rgb(237 47 59 / 0.16) 52.2% 56%,
+      rgb(246 142 32 / 0.16) 56% 60%,
+      rgb(246 217 59 / 0.16) 60% 64%,
+      rgb(68 199 101 / 0.16) 64% 68%,
+      rgb(38 168 237 / 0.16) 68% 72%,
+      rgb(141 99 199 / 0.16) 72% 76%,
+      transparent 76.5% 100%
+    ),
+    radial-gradient(circle at 44% 25%, rgb(255 255 255 / 0.1), transparent 18%),
+    linear-gradient(135deg, var(--preset-app-bg) 0%, var(--preset-app-bg-2) 54%, var(--preset-app-bg-3) 100%);
+  --echo-polish-app-bg-layer:
+    radial-gradient(circle at 42% 18%, rgb(255 255 255 / 0.09), transparent 15%),
+    linear-gradient(
+      106deg,
+      transparent 0 29%,
+      rgb(246 247 251 / 0.18) 29.2%,
+      transparent 31.4% 51.5%,
+      rgb(237 47 59 / 0.15) 51.6% 55.4%,
+      rgb(246 142 32 / 0.15) 55.4% 59.2%,
+      rgb(246 217 59 / 0.15) 59.2% 63%,
+      rgb(68 199 101 / 0.15) 63% 66.8%,
+      rgb(38 168 237 / 0.15) 66.8% 70.6%,
+      rgb(141 99 199 / 0.15) 70.6% 74.4%,
+      transparent 75%
+    ),
+    linear-gradient(135deg, var(--preset-app-bg) 0%, var(--preset-app-bg-2) 54%, var(--preset-app-bg-3) 100%);
+  --echo-polish-titlebar-bg: rgb(var(--preset-panel-rgb) / 0.9);
+  --echo-polish-sidebar-bg:
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.9), rgb(var(--preset-soft-rgb) / 0.96));
+  --echo-polish-page-bg:
+    radial-gradient(circle at 42% 16%, rgb(255 255 255 / 0.08), transparent 18%),
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.74), rgb(var(--preset-soft-rgb) / 0.92) 58%, var(--preset-app-bg));
+  --echo-polish-player-bg:
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.96), rgb(var(--preset-soft-rgb) / 0.96));
+  --theme-list-row-bg-active: rgb(246 247 251 / 0.12);
+  --theme-accent-bg: rgb(246 247 251 / 0.12);
+  --theme-accent-border: rgb(246 247 251 / 0.28);
+  --theme-focus-ring: rgb(38 168 237 / 0.32);
 }
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell:not(.app-shell--wallpaper) {
@@ -1361,11 +1453,12 @@ html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="
   color: var(--theme-heading-text);
   border-color: var(--theme-accent-border);
   background: var(--theme-list-row-bg-active);
-  box-shadow: inset 3px 0 0 var(--theme-accent-solid-bg);
+  box-shadow: none;
 }
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .nav-item[data-active="true"]::before {
-  background: var(--theme-accent-solid-bg);
+  display: none;
+  background: transparent;
 }
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .list-filter-chip.active,
@@ -1378,6 +1471,160 @@ html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .progress-fill {
   background: linear-gradient(90deg, var(--theme-accent-solid-bg), var(--preset-secondary));
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar {
+  --lyrics-mini-readable-text: var(--theme-heading-text);
+  --lyrics-mini-readable-muted: color-mix(in srgb, var(--theme-muted-text) 58%, var(--theme-heading-text) 42%);
+  --lyrics-mini-button-bg: rgb(var(--preset-panel-rgb) / 0.66);
+  --lyrics-mini-button-bg-hover: rgb(var(--preset-panel-rgb) / 0.92);
+  --lyrics-mini-button-border: rgb(var(--preset-border-rgb) / 0.2);
+  --lyrics-mini-track-bg: rgb(var(--preset-border-rgb) / 0.18);
+  --lyrics-mini-track-border: rgb(var(--preset-border-rgb) / 0.16);
+  color: var(--lyrics-mini-readable-text);
+  border: 1px solid rgb(var(--preset-border-rgb) / 0.2);
+  background:
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.93), rgb(var(--preset-soft-rgb) / 0.9)),
+    var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.9));
+  box-shadow:
+    0 18px 42px rgb(var(--preset-shadow-rgb) / 0.2),
+    0 0 0 1px rgb(var(--preset-panel-rgb) / 0.62),
+    inset 0 1px 0 rgb(255 255 255 / 0.36);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-row,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .output-status > span {
+  color: var(--lyrics-mini-readable-muted);
+  text-shadow: none;
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button {
+  color: var(--lyrics-mini-readable-text);
+  border-color: var(--lyrics-mini-button-border);
+  background: var(--lyrics-mini-button-bg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button:hover,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button.is-soft-active {
+  color: var(--theme-accent-text-strong);
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-bg);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .play-button,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .play-button:hover {
+  color: var(--theme-on-accent);
+  border-color: rgb(var(--preset-accent-rgb) / 0.32);
+  background: linear-gradient(180deg, var(--theme-accent-solid-bg), var(--theme-accent-text-strong));
+  box-shadow:
+    0 10px 24px rgb(var(--preset-accent-rgb) / 0.24),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track {
+  border: 1px solid var(--lyrics-mini-track-border);
+  background: var(--lyrics-mini-track-bg);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb {
+  background: linear-gradient(90deg, var(--theme-accent-solid-bg), var(--preset-secondary));
+}
+
+html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar {
+  --lyrics-mini-readable-muted: color-mix(in srgb, var(--theme-muted-text) 72%, var(--theme-heading-text) 28%);
+  --lyrics-mini-button-bg: rgb(var(--preset-panel-rgb) / 0.72);
+  --lyrics-mini-button-bg-hover: rgb(var(--preset-panel-rgb) / 0.94);
+  --lyrics-mini-button-border: rgb(var(--preset-border-rgb) / 0.22);
+  --lyrics-mini-track-bg: rgb(var(--preset-panel-rgb) / 0.78);
+  --lyrics-mini-track-border: rgb(var(--preset-border-rgb) / 0.18);
+  background:
+    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.95), rgb(var(--preset-soft-rgb) / 0.96)),
+    var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.92));
+  box-shadow:
+    0 18px 44px rgb(0 0 0 / 0.34),
+    0 0 0 1px rgb(var(--preset-border-rgb) / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track {
+  height: 6px;
+  border: 1px solid rgb(246 247 251 / 0.16);
+  background:
+    linear-gradient(90deg, rgb(246 247 251 / 0.72) 0 18%, rgb(246 247 251 / 0.22) 18% 23%, transparent 23%),
+    rgb(246 247 251 / 0.08);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.28),
+    0 0 18px rgb(38 168 237 / 0.12),
+    inset 0 1px 1px rgb(255 255 255 / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track::before {
+  content: "";
+  position: absolute;
+  inset: -8px 22% -8px 36%;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(237 47 59 / 0.12),
+      rgb(246 142 32 / 0.12),
+      rgb(246 217 59 / 0.12),
+      rgb(68 199 101 / 0.12),
+      rgb(38 168 237 / 0.12),
+      rgb(141 99 199 / 0.12)
+    );
+  filter: blur(10px);
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-fill {
+  background:
+    linear-gradient(
+      90deg,
+      #f7f8fb 0 18%,
+      #ed2f3b 22%,
+      #f68e20 36%,
+      #f6d93b 50%,
+      #44c765 64%,
+      #26a8ed 78%,
+      #8d63c7 100%
+    );
+  box-shadow:
+    0 0 12px rgb(246 217 59 / 0.22),
+    0 0 18px rgb(38 168 237 / 0.16);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb {
+  width: 21px;
+  height: 18px;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(116deg, transparent 0 43%, rgb(255 255 255 / 0.9) 44% 48%, transparent 49%),
+    linear-gradient(244deg, transparent 0 43%, rgb(255 255 255 / 0.72) 44% 48%, transparent 49%),
+    radial-gradient(circle at 50% 82%, rgb(246 247 251 / 0.95), transparent 24%),
+    linear-gradient(135deg, #020203 0%, #11131a 42%, #d9e0e8 55%, #020203 76%);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  filter:
+    drop-shadow(0 0 7px rgb(246 247 251 / 0.42))
+    drop-shadow(0 7px 10px rgb(0 0 0 / 0.45));
+  opacity: 1;
+  transform: translate(-50%, -58%) scale(1);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-thumb::before {
+  content: "";
+  position: absolute;
+  inset: 5px 5px 3px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.18), rgb(0 0 0 / 0.72));
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track:hover .progress-thumb,
+html[data-theme-preset="darkSideMoon"] .player-bar .progress-track:focus-within .progress-thumb {
+  transform: translate(-50%, -58%) scale(1.12);
 }
 
 .setting-row--theme-presets {

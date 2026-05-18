@@ -119,6 +119,9 @@ const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: numb
       : null,
 });
 
+const libraryMediaTypeFromSourceProvider = (sourceProvider: string | null): 'local' | 'remote' | null =>
+  sourceProvider === 'local' || sourceProvider === 'remote' ? sourceProvider : null;
+
 const pageFromHistoryQuery = (
   query?: PlaybackHistoryQuery,
 ): { page: number; pageSize: number; search: string; from: string | null; to: string | null; completedOnly: boolean } => ({
@@ -2535,9 +2538,10 @@ export class LibraryStore {
 
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     const startedAt = performance.now();
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
+    const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
     const hideDuplicates = query?.hideDuplicates === true;
     const duplicateMode = query?.duplicateMode === 'strict' ? query.duplicateMode : 'strict';
     const searchQuery = buildFtsSearchQuery(search, searchOptions);
@@ -2564,6 +2568,8 @@ export class LibraryStore {
       ? "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled' AND remote_tracks_fts MATCH ?"
       : "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled'";
     const allParams = [...baseParams, ...(searchQuery ? [searchQuery] : [])];
+    const mediaTypeWhereSql = mediaTypeFilter ? 'WHERE media_type = ?' : '';
+    const pageParams = [...allParams, ...(mediaTypeFilter ? [mediaTypeFilter] : [])];
     const unifiedTracksSql = `WITH library_tracks AS (
       SELECT
         tracks.id,
@@ -2656,14 +2662,15 @@ export class LibraryStore {
       ${remoteWhereSql}
     )`;
     const orderSql = this.unifiedTrackOrderSql(sort, Boolean(searchQuery));
-    const totalRow = this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks`, ...allParams);
+    const totalRow = this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks ${mediaTypeWhereSql}`, ...pageParams);
     const rows = isNaturalTitleSort(sort)
       ? applyNaturalTitleSortPage(
           this.allRows(
             `${unifiedTracksSql}
       SELECT *
-      FROM library_tracks`,
-            ...allParams,
+      FROM library_tracks
+      ${mediaTypeWhereSql}`,
+            ...pageParams,
           ),
           sort,
           offset,
@@ -2673,9 +2680,10 @@ export class LibraryStore {
           `${unifiedTracksSql}
       SELECT *
       FROM library_tracks
+      ${mediaTypeWhereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
-          ...allParams,
+          ...pageParams,
           pageSize,
           offset,
         );
@@ -2695,7 +2703,8 @@ export class LibraryStore {
   }
 
   locateTrackInTracks(trackId: string, query?: LibraryPageQuery): LibraryTrackLocateResult {
-    const { pageSize, search, sort } = pageFromQuery(query);
+    const { pageSize, search, sort, sourceProvider } = pageFromQuery(query);
+    const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
 
     if (!trackId) {
       return {
@@ -2752,6 +2761,8 @@ export class LibraryStore {
       ? "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled' AND remote_tracks_fts MATCH ?"
       : "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled'";
     const allParams = [...baseParams, ...(searchQuery ? [searchQuery] : [])];
+    const mediaTypeWhereSql = mediaTypeFilter ? 'WHERE media_type = ?' : '';
+    const pageParams = [...allParams, ...(mediaTypeFilter ? [mediaTypeFilter] : [])];
     const unifiedTracksSql = `WITH library_tracks AS (
       SELECT
         tracks.id,
@@ -2843,7 +2854,7 @@ export class LibraryStore {
       ${remoteSearchJoinSql}
       ${remoteWhereSql}
     )`;
-    const total = Number(this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks`, ...allParams)?.total ?? 0);
+    const total = Number(this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks ${mediaTypeWhereSql}`, ...pageParams)?.total ?? 0);
 
     let absoluteIndex = -1;
     if (isNaturalTitleSort(sort)) {
@@ -2851,8 +2862,9 @@ export class LibraryStore {
       const rows = this.allRows(
         `${unifiedTracksSql}
          SELECT id, title, artist, path
-         FROM library_tracks`,
-        ...allParams,
+         FROM library_tracks
+         ${mediaTypeWhereSql}`,
+        ...pageParams,
       );
       absoluteIndex = [...rows]
         .sort((left, right) => compareNaturalTitleRows(left, right) * direction)
@@ -2864,11 +2876,12 @@ export class LibraryStore {
          ranked_tracks AS (
            SELECT id, ROW_NUMBER() OVER (${orderSql}) AS row_number
            FROM library_tracks
+           ${mediaTypeWhereSql}
          )
          SELECT row_number
          FROM ranked_tracks
          WHERE id = ?`,
-        ...allParams,
+        ...pageParams,
         trackId,
       );
       absoluteIndex = positionRow ? Number(positionRow.row_number) - 1 : -1;
@@ -2956,19 +2969,25 @@ export class LibraryStore {
 
   getAlbums(query?: LibraryPageQuery): LibraryPage<LibraryAlbum> {
     const startedAt = performance.now();
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
+    const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
     const searchFilter = buildSearchFilter(search, [
       likePredicate('library_albums.title'),
       likePredicate('library_albums.album_artist'),
       likePredicate('COALESCE(CAST(library_albums.year AS TEXT), \'\')'),
       likePredicate('library_albums.search_blob'),
     ], searchOptions);
-    const whereSql = searchFilter.sql ? `WHERE ${searchFilter.sql}` : '';
+    const whereParts = [
+      searchFilter.sql,
+      mediaTypeFilter ? 'library_albums.media_type = ?' : '',
+    ].filter(Boolean);
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const whereParams = [...searchFilter.params, ...(mediaTypeFilter ? [mediaTypeFilter] : [])];
     const orderSql = this.unifiedAlbumOrderSql(sort);
     const albumsSql = this.unifiedAlbumsSql();
-    const totalRow = this.getRow(`${albumsSql} SELECT COUNT(*) AS total FROM library_albums ${whereSql}`, ...searchFilter.params);
+    const totalRow = this.getRow(`${albumsSql} SELECT COUNT(*) AS total FROM library_albums ${whereSql}`, ...whereParams);
     const rows = this.allRows(
       `${albumsSql}
       SELECT
@@ -2978,7 +2997,7 @@ export class LibraryStore {
       ${whereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
-      ...searchFilter.params,
+      ...whereParams,
       pageSize,
       offset,
     );
@@ -3260,17 +3279,23 @@ export class LibraryStore {
   }
 
   getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
-    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
+    const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
     const searchFilter = buildSearchFilter(search, [
       likePredicate('library_artists.name'),
       likePredicate('COALESCE(library_artists.sort_name, \'\')'),
     ], searchOptions);
-    const whereSql = searchFilter.sql ? `WHERE ${searchFilter.sql}` : '';
+    const whereParts = [
+      searchFilter.sql,
+      mediaTypeFilter ? 'library_artists.media_type = ?' : '',
+    ].filter(Boolean);
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const whereParams = [...searchFilter.params, ...(mediaTypeFilter ? [mediaTypeFilter] : [])];
     const orderSql = this.unifiedArtistOrderSql(sort, query?.prioritizeArtistAvatars === true);
     const artistsSql = this.unifiedArtistsSql();
-    const totalRow = this.getRow(`${artistsSql} SELECT COUNT(*) AS total FROM library_artists ${whereSql}`, ...searchFilter.params);
+    const totalRow = this.getRow(`${artistsSql} SELECT COUNT(*) AS total FROM library_artists ${whereSql}`, ...whereParams);
     const rows = this.allRows(
       `${artistsSql}
       SELECT
@@ -3281,7 +3306,7 @@ export class LibraryStore {
        ${whereSql}
        ${orderSql}
        LIMIT ? OFFSET ?`,
-      ...searchFilter.params,
+      ...whereParams,
       pageSize,
       offset,
     );

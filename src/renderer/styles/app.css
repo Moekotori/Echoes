@@ -2816,7 +2816,7 @@
   width: 100%;
   max-width: 620px;
   min-width: 0;
-  gap: 9px;
+  gap: 6px;
   align-self: center;
   justify-self: center;
 }
@@ -6358,6 +6358,26 @@ html[data-theme="dark"] .settings-lyrics-panel .lyrics-source-filters button[dat
   background: var(--theme-panel-bg-muted);
   font-size: 12px;
   font-weight: 780;
+}
+
+.settings-number-field {
+  display: inline-grid;
+  min-width: 130px;
+  gap: 6px;
+  color: var(--echo-heading-text);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.settings-number-field input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(39, 59, 84, 0.1);
+  border-radius: 8px;
+  background: var(--theme-panel-bg-muted);
+  color: var(--echo-heading-text);
+  font: inherit;
 }
 
 .settings-cache-path,

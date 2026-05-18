@@ -164,6 +164,79 @@ type OggDurationInfo = {
   codec: string;
 };
 
+type QueuedRequest<T> = {
+  run: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  queued: boolean;
+  onAbort: () => void;
+};
+
+const webDavRequestLimiter = new class {
+  private active = 0;
+  private readonly queue: Array<QueuedRequest<unknown>> = [];
+  private readonly maxConcurrent = 6;
+
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      return Promise.reject(this.abortError());
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const queued: QueuedRequest<T> = {
+        run: task,
+        resolve,
+        reject,
+        signal,
+        queued: true,
+        onAbort: () => {
+          if (!queued.queued) {
+            return;
+          }
+          const index = this.queue.indexOf(queued as QueuedRequest<unknown>);
+          if (index >= 0) {
+            this.queue.splice(index, 1);
+          }
+          queued.queued = false;
+          reject(this.abortError());
+        },
+      };
+
+      signal?.addEventListener('abort', queued.onAbort, { once: true });
+      this.queue.push(queued as QueuedRequest<unknown>);
+      this.drain();
+    });
+  }
+
+  private drain(): void {
+    while (this.active < this.maxConcurrent && this.queue.length > 0) {
+      const request = this.queue.shift()!;
+      request.queued = false;
+      request.signal?.removeEventListener('abort', request.onAbort);
+      if (request.signal?.aborted) {
+        request.reject(this.abortError());
+        continue;
+      }
+
+      this.active += 1;
+      void request.run()
+        .then(request.resolve)
+        .catch(request.reject)
+        .finally(() => {
+          this.active -= 1;
+          setImmediate(() => this.drain());
+        });
+    }
+  }
+
+  private abortError(): Error {
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    return error;
+  }
+}();
+
 export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
   readonly provider: RemoteSourceProvider = 'webdav';
   private streamUrlResolver: ((input: RemoteStreamInput) => Promise<RemoteStreamUrlResult>) | null = null;
@@ -205,7 +278,7 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
 
   async *scan(input: RemoteScanInput): AsyncGenerator<RemoteScanItem> {
     const rootPath = normalizeRemoteDirectoryPath(input.rootPath ?? this.rootPathFor(input));
-    const concurrency = clampInt(input.source.config.scanConcurrency, 3, 1, 6);
+    const concurrency = clampInt(input.source.config.scanConcurrency, 3, 1, 4);
     const pendingDirectories = [rootPath];
     const readyFiles: RemoteScanItem[] = [];
     const inFlight = new Set<Promise<void>>();
@@ -454,14 +527,13 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
       throw new Error('WebDAV URL is required');
     }
 
-    return fetch(this.createBackendUrl(baseUrl, remotePath), {
+    return this.fetch(input, this.createBackendUrl(baseUrl, remotePath), {
       method: 'PROPFIND',
       headers: {
         ...this.createAuthHeaders(input),
         Depth: String(depth),
       },
-      signal: timeoutSignal(8000, input.signal),
-    });
+    }, 8000);
   }
 
   private rootPathFor(input: RemoteAdapterInput): string {
@@ -521,13 +593,12 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
   }
 
   private async fetchRange(url: string, input: RemoteAdapterInput, range: string, maxFallbackBytes = maxRangeFallbackBytes): Promise<Uint8Array | null> {
-    const response = await fetch(url, {
+    const response = await this.fetch(input, url, {
       headers: {
         ...this.createAuthHeaders(input),
         Range: range,
       },
-      signal: timeoutSignal(8000, input.signal),
-    });
+    }, 8000);
 
     if (!response.ok && response.status !== 206) {
       return null;
@@ -539,6 +610,14 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
     }
 
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  private fetch(input: RemoteAdapterInput, url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+    return webDavRequestLimiter.run(() =>
+      fetch(url, {
+        ...options,
+        signal: timeoutSignal(timeoutMs, input.signal),
+      }), input.signal);
   }
 
   private async parseMetadataBuffer(buffer: Uint8Array, input: RemoteReadMetadataInput, fallback: RemoteMetadataResult): Promise<RemoteMetadataResult> {
