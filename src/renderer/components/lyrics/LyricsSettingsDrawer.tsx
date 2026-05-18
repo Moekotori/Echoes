@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   Captions,
   Check,
@@ -1450,6 +1451,13 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                 <RotateCcw size={14} />
                 重置
               </button>
+            </div>
+            <div
+              className="lyrics-color-preview"
+              style={{ '--lyrics-preview-color': effectiveSettings.lyricsColor } as CSSProperties}
+            >
+              <span>Lyrics preview</span>
+              <small>Secondary lyric line</small>
             </div>
           </div>
           ) : null}

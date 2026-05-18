@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  ChevronRight,
   Copy,
   Disc3,
   Download,
@@ -19,7 +20,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { LibraryTrack } from '../../../shared/types/library';
+import type { LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 
@@ -45,7 +46,8 @@ type TrackContextMenuProps = {
   track: LibraryTrack;
   position: { x: number; y: number };
   liked?: boolean;
-  onAction: (action: TrackMenuAction, track: LibraryTrack) => void;
+  selectionCount?: number;
+  onAction: (action: TrackMenuAction, track: LibraryTrack, playlist?: LibraryPlaylist) => void;
   onClose: () => void;
 };
 
@@ -59,13 +61,23 @@ type MenuItem = {
 
 const viewportPadding = 8;
 const pointerOffset = 6;
+const submenuGap = 8;
+const menuWidth = 224;
+const submenuWidth = 224;
+const submenuMaxHeight = 360;
 const remoteHiddenActions = new Set<TrackMenuAction>(['edit-tags', 'reload-embedded-tags', 'open-osu-timing', 'show-in-folder', 'copy-path', 'open-system', 'delete-song']);
+const batchActions = new Set<TrackMenuAction>(['add-to-playlist', 'play-next', 'add-to-queue', 'toggle-liked', 'remove-from-queue']);
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
-export const TrackContextMenu = ({ track, position, liked = false, onAction, onClose }: TrackContextMenuProps): JSX.Element => {
+export const TrackContextMenu = ({ track, position, liked = false, selectionCount = 1, onAction, onClose }: TrackContextMenuProps): JSX.Element => {
   const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const playlistLoadStartedRef = useRef(false);
+  const [playlistSubmenuOpen, setPlaylistSubmenuOpen] = useState(false);
+  const [playlists, setPlaylists] = useState<LibraryPlaylist[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [playlistSubmenuPosition, setPlaylistSubmenuPosition] = useState(() => ({ x: position.x + menuWidth + submenuGap, y: position.y }));
   const [menuPosition, setMenuPosition] = useState(() => ({
     x: position.x + pointerOffset,
     y: position.y + pointerOffset,
@@ -85,6 +97,39 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
     });
   }, [position.x, position.y]);
 
+  const loadPlaylists = (): void => {
+    if (playlistLoadStartedRef.current) {
+      return;
+    }
+
+    playlistLoadStartedRef.current = true;
+    const library = window.echo?.library;
+    if (!library) {
+      return;
+    }
+
+    setPlaylistsLoading(true);
+    void library
+      .getPlaylists()
+      .then((items) => {
+        setPlaylists(items.filter((item) => item.sourceProvider === 'local' && item.kind !== 'system'));
+      })
+      .finally(() => setPlaylistsLoading(false));
+  };
+
+  const openPlaylistSubmenu = (target: HTMLElement): void => {
+    const rect = target.getBoundingClientRect();
+    const opensLeft = rect.right + submenuGap + submenuWidth + viewportPadding > window.innerWidth;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - Math.min(submenuMaxHeight, window.innerHeight - viewportPadding * 2));
+
+    setPlaylistSubmenuPosition({
+      x: opensLeft ? Math.max(viewportPadding, rect.left - submenuWidth - submenuGap) : rect.right + submenuGap,
+      y: clamp(rect.top - 8, viewportPadding, maxTop),
+    });
+    setPlaylistSubmenuOpen(true);
+    loadPlaylists();
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
@@ -102,11 +147,12 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
     };
   }, [onClose]);
 
+  const isBatch = selectionCount > 1;
   const allItems: MenuItem[] = [
     { action: 'add-to-playlist', labelKey: 'trackMenu.action.addToPlaylist', icon: Plus },
     { action: 'play-next', labelKey: 'trackMenu.action.playNext', icon: Play },
     { action: 'add-to-queue', labelKey: 'trackMenu.action.addToQueue', icon: ListEnd },
-    { action: 'toggle-liked', labelKey: liked ? 'trackMenu.action.unlike' : 'trackMenu.action.like', icon: Heart },
+    { action: 'toggle-liked', labelKey: isBatch || !liked ? 'trackMenu.action.like' : 'trackMenu.action.unlike', icon: Heart },
     { action: 'remove-from-queue', labelKey: 'trackMenu.action.removeFromQueue', icon: Minus },
     { action: 'open-osu-timing', labelKey: 'trackMenu.action.openOsuTiming', icon: Timer },
     { action: 'edit-tags', labelKey: 'trackMenu.action.editTags', icon: Tag },
@@ -120,7 +166,13 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
     { action: 'save-cover', labelKey: 'trackMenu.action.saveCover', icon: Download },
     { action: 'delete-song', labelKey: 'trackMenu.action.deleteSong', icon: Trash2, danger: true },
   ];
-  const items = allItems.filter((item) => track.mediaType !== 'remote' || !remoteHiddenActions.has(item.action));
+  const items = allItems.filter((item) => {
+    if (isBatch && !batchActions.has(item.action)) {
+      return false;
+    }
+
+    return track.mediaType !== 'remote' || !remoteHiddenActions.has(item.action);
+  });
 
   return createPortal(
     <div className="track-menu-layer" role="presentation" onMouseDown={onClose}>
@@ -131,8 +183,28 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
         style={{ left: menuPosition.x, top: menuPosition.y }}
         onMouseDown={(event) => event.stopPropagation()}
       >
+        {isBatch ? <div className="track-menu-heading">已选 {selectionCount} 首</div> : null}
         {items.map((item) => {
           const Icon = item.icon;
+          if (item.action === 'add-to-playlist') {
+            return (
+              <button
+                className="track-menu-item track-menu-item--branch"
+                data-danger={item.danger ? 'true' : undefined}
+                disabled={item.disabled}
+                key={item.action}
+                role="menuitem"
+                type="button"
+                onClick={(event) => openPlaylistSubmenu(event.currentTarget)}
+                onMouseEnter={(event) => openPlaylistSubmenu(event.currentTarget)}
+              >
+                <Icon size={16} />
+                <span>{t(item.labelKey)}</span>
+                <ChevronRight className="track-menu-branch-icon" size={15} />
+              </button>
+            );
+          }
+
           return (
             <button
               className="track-menu-item"
@@ -149,6 +221,35 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
           );
         })}
       </div>
+      {playlistSubmenuOpen ? (
+        <div
+          className="track-playlist-submenu"
+          role="menu"
+          aria-label="选择歌单"
+          style={{ left: playlistSubmenuPosition.x, top: playlistSubmenuPosition.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {playlistsLoading ? <div className="track-playlist-submenu-empty">读取歌单...</div> : null}
+          {!playlistsLoading && playlists.length === 0 ? <div className="track-playlist-submenu-empty">没有本地歌单</div> : null}
+          {!playlistsLoading
+            ? playlists.map((playlist) => (
+                <button
+                  className="track-playlist-submenu-item"
+                  key={playlist.id}
+                  role="menuitem"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAction('add-to-playlist', track, playlist);
+                  }}
+                >
+                  <span>{playlist.name}</span>
+                  <small>{playlist.itemCount} 首</small>
+                </button>
+              ))
+            : null}
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

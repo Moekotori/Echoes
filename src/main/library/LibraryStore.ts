@@ -1092,13 +1092,14 @@ export class LibraryStore {
     const existing = this.getRow('SELECT id, created_at FROM tracks WHERE path = ?', resolve(track.path));
     const createdAt = textOrNull(existing?.created_at) ?? track.createdAt ?? track.updatedAt;
     const id = textOrNull(existing?.id) ?? track.id;
+    const normalizedPath = resolve(track.path);
     const searchTerms = buildTrackSearchTerms({
       title: track.title,
       artist: track.artist,
       album: track.album,
       albumArtist: track.albumArtist,
       genre: track.genre,
-      path: resolve(track.path),
+      path: normalizedPath,
     });
     const hasReplayGainTag =
       track.replayGainTrackGainDb !== null && track.replayGainTrackGainDb !== undefined ||
@@ -1161,7 +1162,7 @@ export class LibraryStore {
         missing = 0,
         updated_at = excluded.updated_at`,
       id,
-      resolve(track.path),
+      normalizedPath,
       track.folderId,
       track.sizeBytes,
       track.mtimeMs,
@@ -1207,7 +1208,86 @@ export class LibraryStore {
       track.updatedAt,
     );
 
+    this.relinkLocalPlaylistItemsToTrack({
+      id,
+      path: normalizedPath,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      duration: track.duration,
+      coverId: track.coverId,
+      timestamp: track.updatedAt,
+    });
+
     return existing ? 'updated' : 'added';
+  }
+
+  private relinkLocalPlaylistItemsToTrack(track: {
+    id: string;
+    path: string;
+    title: string;
+    artist: string;
+    album: string;
+    duration: number;
+    coverId: string | null;
+    timestamp: string;
+  }): number {
+    const result = this.run(
+      `UPDATE playlist_items SET
+        media_id = ?,
+        source_item_id = ?,
+        cover_id = COALESCE(cover_id, ?),
+        unavailable = 0
+       WHERE media_type = 'track'
+         AND source_provider = 'local'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM tracks AS linked_tracks
+           WHERE linked_tracks.id = playlist_items.media_id
+             AND linked_tracks.missing = 0
+         )
+         AND (
+           source_item_id = ?
+           OR (
+             source_item_id IS NULL
+             AND title_snapshot = ?
+             AND artist_snapshot = ?
+             AND COALESCE(album_snapshot, '') = COALESCE(?, '')
+             AND (
+               duration_snapshot IS NULL
+               OR ? IS NULL
+               OR ABS(duration_snapshot - ?) < 1
+             )
+           )
+         )`,
+      track.id,
+      track.path,
+      track.coverId,
+      track.path,
+      track.title,
+      track.artist,
+      track.album,
+      Number.isFinite(track.duration) ? track.duration : null,
+      Number.isFinite(track.duration) ? track.duration : null,
+    );
+
+    const changed = Number(result.changes ?? 0);
+    if (changed > 0) {
+      this.run(
+        `UPDATE playlists SET updated_at = ?
+         WHERE id IN (
+           SELECT DISTINCT playlist_id
+           FROM playlist_items
+           WHERE media_type = 'track'
+             AND source_provider = 'local'
+             AND media_id = ?
+         )`,
+        track.timestamp,
+        track.id,
+      );
+    }
+
+    return changed;
   }
 
   updateTrackCover(trackId: string, coverId: string | null, timestamp = nowIso()): void {
@@ -3992,12 +4072,13 @@ export class LibraryStore {
             media_type = 'track',
             media_id = ?,
             source_provider = 'local',
-            source_item_id = NULL,
+            source_item_id = ?,
             cover_id = COALESCE(cover_id, ?),
             unavailable = 0,
             added_from = 'streaming-download'
            WHERE id = ?`,
           track.id,
+          track.path,
           track.coverId,
           row.id,
         );
@@ -4036,7 +4117,7 @@ export class LibraryStore {
           'track',
           track.id,
           'local',
-          null,
+          track.path,
           track.title,
           track.artist,
           track.album,

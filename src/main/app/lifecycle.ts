@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { createMainWindow } from './createMainWindow';
 import { requestAppQuit } from './tray';
 import { getMainWindow } from './windowManager';
@@ -52,6 +52,18 @@ const refreshPreviouslyLoggedInAccountsOnStartup = async (): Promise<void> => {
   }
 };
 
+const notifyLibraryDatabaseReset = (): void => {
+  void dialog.showMessageBox({
+    type: 'warning',
+    title: '曲库数据库已重建',
+    message: 'ECHO Next 检测到音乐库数据库已完全损坏，已删除损坏的数据库文件。',
+    detail: '你的音乐文件没有被删除。请重新添加歌曲文件夹并扫描，ECHO Next 会重新建立曲库索引。',
+    buttons: ['知道了'],
+    defaultId: 0,
+    noLink: true,
+  });
+};
+
 export const registerAppLifecycle = (): void => {
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -94,6 +106,9 @@ export const registerAppLifecycle = (): void => {
       });
     }
     createMainWindow();
+    if (dataProtection.recovery.action === 'reset') {
+      notifyLibraryDatabaseReset();
+    }
     initializeBackgroundPlaybackShortcuts();
     const appSettings = getAppSettings();
     if (appSettings.autoAccountCheckOnStartup !== false) {

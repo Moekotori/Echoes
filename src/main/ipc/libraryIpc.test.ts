@@ -154,6 +154,20 @@ const installLibraryService = () => {
       total: 2,
       hasMore: false,
     })),
+    createPlaylist: vi.fn((request: { name: string }) => ({
+      id: 'playlist-imported',
+      name: request.name,
+      description: null,
+      kind: 'manual',
+      sourceProvider: 'local',
+      sourcePlaylistId: null,
+      coverId: null,
+      coverThumb: null,
+      sortMode: 'manual',
+      itemCount: 0,
+      createdAt: '2026-05-18T00:00:00.000Z',
+      updatedAt: '2026-05-18T00:00:00.000Z',
+    })),
     resolveCoverAsset: vi.fn(() => null),
     addFolder: vi.fn(),
     getFolders: vi.fn(),
@@ -434,6 +448,28 @@ describe('library IPC', () => {
     const result = await handlers[IpcChannels.LibraryExportPlaylist]!(null, { playlistId: 'playlist-1', format: 'json' });
 
     expect(result).toBeNull();
+  });
+
+  it('imports local m3u8 files as local playlists', async () => {
+    const service = installLibraryService();
+    const root = makeTempRoot();
+    const audioPath = join(root, 'Song One.flac');
+    const playlistPath = join(root, 'Road Mix.m3u8');
+    writeFileSync(audioPath, 'fake audio');
+    writeFileSync(playlistPath, ['#EXTM3U', '#PLAYLIST:Road Mix', '#EXTINF:180,Artist - Song One', 'Song One.flac'].join('\n'));
+    showOpenDialogMock.mockResolvedValue({ canceled: false, filePaths: [playlistPath] });
+
+    const result = await handlers[IpcChannels.LibraryImportPlaylistFile]!();
+
+    expect(result).toEqual({
+      playlistId: 'playlist-imported',
+      playlistName: 'Road Mix',
+      importedCount: 1,
+      filePath: playlistPath,
+    });
+    expect(service.createPlaylist).toHaveBeenCalledWith({ name: 'Road Mix' });
+    expect(service.importAudioFile).toHaveBeenCalledWith(audioPath);
+    expect(service.addTracksToPlaylist).toHaveBeenCalledWith('playlist-imported', [`track-${audioPath}`]);
   });
 
   it('refreshes album grouping through IPC', async () => {

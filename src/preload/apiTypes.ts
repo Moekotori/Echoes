@@ -23,6 +23,8 @@ import type {
   LibraryArtist,
   LibraryCacheClearResult,
   LibraryCleanupResult,
+  LibraryDatabaseDeleteResult,
+  LibraryDatabaseRepairResult,
   LibraryMaintenanceCleanupResult,
   LibraryDiagnostics,
   LibraryTrackTagUpdateRequest,
@@ -273,6 +275,8 @@ export type EchoApi = {
     pruneInvalidTracks: () => Promise<LibraryMaintenanceCleanupResult>;
     clearTracks: () => Promise<LibraryCleanupResult>;
     clearCache: () => Promise<LibraryCacheClearResult>;
+    repairDatabase: () => Promise<LibraryDatabaseRepairResult>;
+    deleteDatabase: () => Promise<LibraryDatabaseDeleteResult>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
     scanMissingMetadata: (options?: number | MissingMetadataScanOptions) => Promise<MissingMetadataScanResult>;
     startMissingMetadataScan: (options?: number | MissingMetadataScanOptions) => Promise<NetworkMetadataScanJobStatus>;
@@ -330,6 +334,7 @@ export type EchoApi = {
     hydrateVisibleTracks: (trackIds: string[], options?: RemoteVisibleHydrationOptions) => Promise<LibraryTrack[]>;
     startBackgroundJobs: (sourceId: string, kinds?: RemoteBackgroundJobKind[]) => Promise<RemoteBackgroundJobStatus>;
     pauseBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
+    resumeBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
     getJobStatus: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
     retryFailedJobs: (sourceId: string, kinds?: RemoteBackgroundJobKind[]) => Promise<RemoteBackgroundJobStatus>;
     setBackgroundPaused: (paused: boolean) => Promise<RemoteBackgroundGlobalStatus>;

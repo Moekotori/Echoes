@@ -1,6 +1,6 @@
 {
   "name": "echo-next",
-  "version": "26.5.17",
+  "version": "26.5.18",
   "description": "ECHO Next Phase 0 desktop music app shell.",
   "author": "Moekotori",
   "main": "out/main/index.js",

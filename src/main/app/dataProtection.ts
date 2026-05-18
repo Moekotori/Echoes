@@ -7,6 +7,7 @@ import {
   checkpointWal,
   type DatabaseHealthResult,
 } from '../database/health';
+import type { LibraryDatabaseDeleteResult, LibraryDatabaseRepairResult } from '../../shared/types/library';
 
 type DataProtectionReason = 'startup' | 'update-install';
 type ProtectedEntryKind = 'file' | 'directory';
@@ -29,6 +30,28 @@ type RestoreResult = {
   skipped: string[];
 };
 
+type LibraryDatabaseMaintenanceEvent = {
+  createdAt: string;
+  action: 'manual-repair' | 'manual-delete' | 'scan-health-failed';
+  databasePath: string;
+  archivePath?: string | null;
+  removedDatabaseFiles?: string[];
+  health?: DatabaseHealthResult;
+  scan?: {
+    jobId: string;
+    folderId: string;
+    phase: string;
+    totalFiles: number;
+    processedFiles: number;
+    skippedFiles: number;
+    addedTracks: number;
+    updatedTracks: number;
+    removedTracks: number;
+    errorCount: number;
+  };
+  error?: string;
+};
+
 type LegacyMigrationResult = {
   sourcePath: string | null;
   migrated: string[];
@@ -36,7 +59,7 @@ type LegacyMigrationResult = {
 };
 
 export type LibraryRecoveryResult = {
-  action: 'none' | 'restored' | 'quarantined' | 'failed';
+  action: 'none' | 'reset' | 'failed';
   sourceSnapshotPath?: string;
   archivePath?: string;
   health: DatabaseHealthResult;
@@ -54,8 +77,8 @@ export type DataProtectionResult = {
 export class LibraryDatabaseUnavailableError extends Error {
   constructor(readonly recovery: LibraryRecoveryResult | null = lastDataProtectionResult?.recovery ?? null) {
     super(
-      recovery?.action === 'quarantined' || recovery?.action === 'failed'
-        ? '音乐库数据库需要修复。ECHO Next 已保留原始库文件,请导出诊断或重新扫描曲库。'
+      recovery?.action === 'reset' || recovery?.action === 'failed'
+        ? '音乐库数据库已确认损坏。ECHO Next 已删除损坏数据库，请重新添加音乐文件夹并扫描。'
         : '音乐库数据库暂时不可用。请稍后重试或导出诊断。',
     );
     this.name = 'LibraryDatabaseUnavailableError';
@@ -85,7 +108,9 @@ const dataProtectionDirectoryName = 'data-protection';
 const snapshotDirectoryName = 'snapshots';
 const corruptArchivesDirectoryName = 'corrupt-archives';
 const manifestFileName = 'echo-data-protection.json';
+const libraryMaintenanceFileName = 'library-database-maintenance.json';
 const maxSnapshots = 5;
+const maxLibraryMaintenanceEvents = 20;
 const libraryFileName = 'echo-library.sqlite';
 const libraryWalFileName = `${libraryFileName}-wal`;
 const libraryShmFileName = `${libraryFileName}-shm`;
@@ -113,6 +138,36 @@ const safeReadJson = <T>(path: string): T | null => {
     return null;
   }
 };
+
+const getLibraryMaintenancePath = (userDataPath: string): string => join(getDataProtectionPath(userDataPath), libraryMaintenanceFileName);
+
+const readLibraryDatabaseMaintenanceEvents = (userDataPath: string): LibraryDatabaseMaintenanceEvent[] => {
+  const value = safeReadJson<{ events?: LibraryDatabaseMaintenanceEvent[] }>(getLibraryMaintenancePath(userDataPath));
+  return Array.isArray(value?.events) ? value.events : [];
+};
+
+export const recordLibraryDatabaseMaintenanceEvent = (
+  event: Omit<LibraryDatabaseMaintenanceEvent, 'createdAt'>,
+  userDataPath = app.getPath('userData'),
+): void => {
+  try {
+    const events = [
+      ...readLibraryDatabaseMaintenanceEvents(userDataPath),
+      { ...event, createdAt: new Date().toISOString() },
+    ].slice(-maxLibraryMaintenanceEvents);
+    const filePath = getLibraryMaintenancePath(userDataPath);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, `${JSON.stringify({ formatVersion: 1, events }, null, 2)}\n`, 'utf8');
+  } catch {
+    // Diagnostics breadcrumbs must never block app recovery.
+  }
+};
+
+export const getLibraryDatabaseMaintenanceReport = (userDataPath = app.getPath('userData')): {
+  events: LibraryDatabaseMaintenanceEvent[];
+} => ({
+  events: readLibraryDatabaseMaintenanceEvents(userDataPath),
+});
 
 export const getProtectedUserDataPath = (electronApp: ElectronAppLike = app): string => {
   const appDataPath = electronApp.getPath('appData');
@@ -203,6 +258,58 @@ const removeLibraryTriplet = (rootPath: string): void => {
   }
 };
 
+export const repairProtectedLibraryDatabase = (userDataPath = app.getPath('userData')): LibraryDatabaseRepairResult => {
+  mkdirSync(userDataPath, { recursive: true });
+  const removedDatabaseFiles = [libraryFileName, libraryWalFileName, libraryShmFileName].filter((name) =>
+    existsSync(join(userDataPath, name)),
+  );
+  const archivePath = archiveLibraryTriplet(userDataPath, 'manual-library-database-repair');
+  removeLibraryTriplet(userDataPath);
+  const health = checkDatabaseHealth(libraryPathFor(userDataPath));
+  recordLibraryDatabaseMaintenanceEvent(
+    {
+      action: 'manual-repair',
+      databasePath: libraryPathFor(userDataPath),
+      archivePath,
+      removedDatabaseFiles,
+      health,
+    },
+    userDataPath,
+  );
+
+  return {
+    databasePath: libraryPathFor(userDataPath),
+    archivePath,
+    removedDatabaseFiles,
+    readyForRescan: health.status === 'ok',
+  };
+};
+
+export const deleteProtectedLibraryDatabase = (userDataPath = app.getPath('userData')): LibraryDatabaseDeleteResult => {
+  mkdirSync(userDataPath, { recursive: true });
+  const removedDatabaseFiles = [libraryFileName, libraryWalFileName, libraryShmFileName].filter((name) =>
+    existsSync(join(userDataPath, name)),
+  );
+  const archivePath = archiveLibraryTriplet(userDataPath, 'manual-library-database-delete');
+  removeLibraryTriplet(userDataPath);
+  recordLibraryDatabaseMaintenanceEvent(
+    {
+      action: 'manual-delete',
+      databasePath: libraryPathFor(userDataPath),
+      archivePath,
+      removedDatabaseFiles,
+      health: checkDatabaseHealth(libraryPathFor(userDataPath)),
+    },
+    userDataPath,
+  );
+
+  return {
+    databasePath: libraryPathFor(userDataPath),
+    archivePath,
+    removedDatabaseFiles,
+  };
+};
+
 const sqliteBackup = async (sourcePath: string, targetPath: string): Promise<void> => {
   mkdirSync(dirname(targetPath), { recursive: true });
   rmSync(targetPath, { force: true, maxRetries: 3, retryDelay: 50 });
@@ -213,25 +320,6 @@ const sqliteBackup = async (sourcePath: string, targetPath: string): Promise<voi
     database.close();
   }
 };
-
-const readSnapshotManifest = (snapshotPath: string): { libraryHealth?: DatabaseHealthResult } | null =>
-  safeReadJson<{ libraryHealth?: DatabaseHealthResult }>(join(snapshotPath, 'snapshot.json'));
-
-const snapshotHasHealthyLibrary = (snapshotPath: string): boolean => {
-  if (!existsSync(libraryPathFor(snapshotPath))) {
-    return false;
-  }
-
-  const manifestHealth = readSnapshotManifest(snapshotPath)?.libraryHealth;
-  if (manifestHealth && manifestHealth.status !== 'ok') {
-    return false;
-  }
-
-  return checkDatabaseHealth(libraryPathFor(snapshotPath)).status === 'ok';
-};
-
-const findHealthyLibrarySnapshot = (userDataPath: string): string | null =>
-  listSnapshotPaths(userDataPath).find(snapshotHasHealthyLibrary) ?? null;
 
 const archiveLibraryTriplet = (userDataPath: string, reason: string, date = new Date()): string | null => {
   if (!existsSync(libraryPathFor(userDataPath)) && !existsSync(libraryWalPathFor(userDataPath)) && !existsSync(libraryShmPathFor(userDataPath))) {
@@ -498,41 +586,24 @@ export const writeDataProtectionManifest = (userDataPath = app.getPath('userData
   );
 };
 
-const restoreLibraryFromSnapshot = (userDataPath: string, snapshotPath: string): void => {
-  removeLibraryTriplet(userDataPath);
-  copyProtectedEntry(libraryPathFor(snapshotPath), libraryPathFor(userDataPath), 'file');
-  if (existsSync(libraryWalPathFor(snapshotPath))) {
-    copyProtectedEntry(libraryWalPathFor(snapshotPath), libraryWalPathFor(userDataPath), 'file');
-  }
-  if (existsSync(libraryShmPathFor(snapshotPath))) {
-    copyProtectedEntry(libraryShmPathFor(snapshotPath), libraryShmPathFor(userDataPath), 'file');
-  }
-};
-
-const recoverLibraryFromSnapshots = (userDataPath: string, currentHealth: DatabaseHealthResult): LibraryRecoveryResult => {
+const resetCorruptLibraryDatabase = (userDataPath: string, currentHealth: DatabaseHealthResult): LibraryRecoveryResult => {
   if (currentHealth.status === 'ok') {
     return { action: 'none', health: currentHealth };
   }
 
-  const archivePath = archiveLibraryTriplet(userDataPath, 'startup-corrupt-library') ?? undefined;
-  const snapshotPath = findHealthyLibrarySnapshot(userDataPath);
-
-  if (!snapshotPath) {
-    return { action: 'quarantined', archivePath, health: currentHealth };
+  if (currentHealth.status !== 'corrupt') {
+    return { action: 'none', health: currentHealth };
   }
 
+  const archivePath = archiveLibraryTriplet(userDataPath, 'startup-corrupt-library') ?? undefined;
   try {
-    restoreLibraryFromSnapshot(userDataPath, snapshotPath);
-    const restoredHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
-    if (restoredHealth.status === 'ok') {
-      return { action: 'restored', archivePath, sourceSnapshotPath: snapshotPath, health: restoredHealth };
-    }
-    return { action: 'failed', archivePath, sourceSnapshotPath: snapshotPath, health: restoredHealth };
+    removeLibraryTriplet(userDataPath);
+    const cleanHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
+    return { action: 'reset', archivePath, health: cleanHealth.status === 'ok' ? cleanHealth : currentHealth };
   } catch (error) {
     return {
       action: 'failed',
       archivePath,
-      sourceSnapshotPath: snapshotPath,
       health: {
         status: 'unreadable',
         databasePath: libraryPathFor(userDataPath),
@@ -547,7 +618,8 @@ let lastDataProtectionResult: DataProtectionResult | null = null;
 
 export const getLastDataProtectionResult = (): DataProtectionResult | null => lastDataProtectionResult;
 
-export const isProtectedLibraryAvailable = (): boolean => !lastDataProtectionResult || lastDataProtectionResult.libraryHealth.status === 'ok';
+export const isProtectedLibraryAvailable = (): boolean =>
+  !lastDataProtectionResult || lastDataProtectionResult.libraryHealth.status !== 'corrupt';
 
 export const assertProtectedLibraryAvailable = (): void => {
   if (!isProtectedLibraryAvailable()) {
@@ -565,8 +637,8 @@ export const ensureDataProtection = async (
     const restore = restoreMissingProtectedData(userDataPath);
     writeDataProtectionManifest(userDataPath);
     const initialHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
-    const recovery = recoverLibraryFromSnapshots(userDataPath, initialHealth);
-    const libraryHealth = recovery.action === 'restored' ? recovery.health : checkDatabaseHealth(libraryPathFor(userDataPath));
+    const recovery = resetCorruptLibraryDatabase(userDataPath, initialHealth);
+    const libraryHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
     const snapshot = await createDataProtectionSnapshot(reason, userDataPath);
 
     if (migration.migrated.length > 0) {
@@ -577,10 +649,10 @@ export const ensureDataProtection = async (
       console.info(`[data-protection] restored protected data: ${restore.restored.map((entry) => basename(entry)).join(', ')}`);
     }
 
-    if (recovery.action === 'restored') {
-      console.info(`[data-protection] restored library database from snapshot ${recovery.sourceSnapshotPath}`);
-    } else if (recovery.action === 'quarantined' || recovery.action === 'failed') {
-      console.warn(`[data-protection] library database recovery ${recovery.action}: ${recovery.health.message ?? recovery.health.status}`);
+    if (recovery.action === 'reset') {
+      console.warn('[data-protection] corrupt library database was removed; user must rescan music folders');
+    } else if (recovery.action === 'failed') {
+      console.warn(`[data-protection] library database recovery failed: ${recovery.health.message ?? recovery.health.status}`);
     }
 
     lastDataProtectionResult = { userDataPath, migration, snapshot, restore, libraryHealth, recovery };

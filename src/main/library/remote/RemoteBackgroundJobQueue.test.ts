@@ -468,7 +468,25 @@ describe('RemoteBackgroundJobQueue', () => {
     queue.enqueueSource(source.id, ['cover']);
 
     await waitFor(() => getTrackIdsForBackgroundJobs.mock.calls.length > 0);
-    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['cover'], { failedOnly: undefined, limit: 500 });
+    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['cover'], { failedOnly: undefined, limit: 25 });
+  });
+
+  it('uses a bounded source batch when enqueueing lyrics-only work', async () => {
+    const source = makeSource();
+    const getTrackIdsForBackgroundJobs = vi.fn().mockReturnValue([]);
+    const store = {
+      getTrackIdsForBackgroundJobs,
+      getTracksByIds: vi.fn().mockReturnValue([]),
+      getTrack: vi.fn(),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readMetadata: vi.fn() } as never));
+
+    queue.enqueueSource(source.id, ['lyrics']);
+
+    await waitFor(() => getTrackIdsForBackgroundJobs.mock.calls.length > 0);
+    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['lyrics'], { failedOnly: undefined, limit: 50 });
   });
 
   it('does not enqueue cover jobs that were already marked not found', async () => {

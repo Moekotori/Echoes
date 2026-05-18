@@ -23,6 +23,19 @@ export type LibraryCacheClearResult = LibraryCleanupResult & {
   freedCoverCacheBytes: number;
 };
 
+export type LibraryDatabaseRepairResult = {
+  databasePath: string;
+  archivePath: string | null;
+  removedDatabaseFiles: string[];
+  readyForRescan: boolean;
+};
+
+export type LibraryDatabaseDeleteResult = {
+  databasePath: string;
+  archivePath: string | null;
+  removedDatabaseFiles: string[];
+};
+
 export type ArtistImageCacheStatus = 'pending' | 'loading' | 'matched' | 'not_found' | 'error' | 'rate_limited';
 
 export type ArtistImageCacheEntry = {

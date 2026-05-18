@@ -44,6 +44,7 @@ type ScanJobQueueOptions = {
   metadataConcurrency?: number;
   coverConcurrency?: number;
   getAlbumMergeStrategy?: () => AlbumMergeStrategy;
+  checkDatabaseHealth?: (status: LibraryScanStatus) => void;
 };
 
 const progressFlushIntervalMs = 300;
@@ -66,6 +67,7 @@ export class ScanJobQueue {
   private readonly metadataConcurrency: number;
   private readonly coverConcurrency: number;
   private readonly getAlbumMergeStrategy: () => AlbumMergeStrategy;
+  private readonly checkDatabaseHealth: (status: LibraryScanStatus) => void;
   private coverCacheDir: string;
 
   constructor(
@@ -79,6 +81,7 @@ export class ScanJobQueue {
     this.metadataConcurrency = options.metadataConcurrency ?? 2;
     this.coverConcurrency = options.coverConcurrency ?? 2;
     this.getAlbumMergeStrategy = options.getAlbumMergeStrategy ?? (() => 'standard');
+    this.checkDatabaseHealth = options.checkDatabaseHealth ?? (() => undefined);
     this.coverCacheDir = options.coverCacheDir;
   }
 
@@ -379,6 +382,7 @@ export class ScanJobQueue {
           finishedAt: new Date().toISOString(),
         });
       });
+      this.checkDatabaseHealth(this.getScanStatus(jobId));
     } catch (error) {
       if (error instanceof ScanCancelledError) {
         progress.flushNow({

@@ -19,6 +19,7 @@ import type {
   LibraryFolderNode,
   LibraryFolderOverview,
   LibraryPage,
+  LibraryPlaylist,
   LibraryScanStatus,
   LibrarySort,
   LibraryTrack,
@@ -38,6 +39,7 @@ import {
 } from '../stores/libraryScanSession';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { usePlaybackFollowCurrentTrack } from '../hooks/usePlaybackFollowCurrentTrack';
 import type { TranslationKey } from '../i18n/locales';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
@@ -642,7 +644,7 @@ export const FoldersPage = (): JSX.Element => {
   }, []);
 
   const handleTrackMenuAction = useCallback(
-    async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {
+    async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
@@ -758,23 +760,7 @@ export const FoldersPage = (): JSX.Element => {
             return;
           case 'add-to-playlist':
             {
-              const playlists = await library!.getPlaylists();
-              let playlist: (typeof playlists)[number] | null = playlists[0] ?? null;
-              if (playlists.length > 1) {
-                const names = playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
-                const choice = window.prompt(t('folders.prompt.choosePlaylist', { names }), '1');
-                const index = Number(choice) - 1;
-                playlist = Number.isInteger(index) ? playlists[index] ?? null : null;
-              }
-
-              if (!playlist) {
-                const name = window.prompt(t('folders.prompt.createPlaylist'));
-                if (!name?.trim()) {
-                  return;
-                }
-                playlist = await library!.createPlaylist({ name });
-              }
-
+              const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library!));
               if (!playlist) {
                 return;
               }
@@ -1103,7 +1089,7 @@ export const FoldersPage = (): JSX.Element => {
         <TrackContextMenu
           track={trackMenu.track}
           position={trackMenu.position}
-          onAction={(action, track) => void handleTrackMenuAction(action, track)}
+          onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
           onClose={() => setTrackMenu(null)}
         />
       ) : null}

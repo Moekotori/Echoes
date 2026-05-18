@@ -11,6 +11,7 @@ import type {
   PlaybackStartRequest,
   PlaybackStatus,
 } from '../../shared/types/playback';
+import type { LibraryTrack } from '../../shared/types/library';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import type { AudioSessionAutomixRequest } from '../audio/audioTypes';
@@ -198,6 +199,88 @@ const isLikelyExpiredUrlError = (error: unknown): boolean => {
 
   const message = error instanceof Error ? error.message : String(error);
   return /kind="http_expired_or_forbidden"|\b(?:401|403|404)\b|expired|forbidden|unauthorized|server returned 4\d\d|http error\s*4\d\d/iu.test(message);
+};
+
+const isQqMusicPermissionError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /QQ\s*音乐.*(?:无播放权限|104003)|QQ\s*Music.*(?:104003|permission)/iu.test(message);
+};
+
+const normalizeMatchText = (value: string | null | undefined): string =>
+  (value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/\((?:explicit|clean|remaster(?:ed)?|album version|single version)\)/giu, ' ')
+    .replace(/\[(?:explicit|clean|remaster(?:ed)?|album version|single version)\]/giu, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+
+const artistTokens = (value: string | null | undefined): Set<string> =>
+  new Set(
+    normalizeMatchText(value)
+      .split(' ')
+      .filter((token) => token.length >= 2),
+  );
+
+const hasArtistOverlap = (left: string | null | undefined, right: string | null | undefined): boolean => {
+  const leftTokens = artistTokens(left);
+  const rightTokens = artistTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return false;
+  }
+
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const durationMatches = (left: number | null | undefined, right: number | null | undefined): boolean => {
+  if (!left || !right) {
+    return true;
+  }
+
+  return Math.abs(left - right) <= 8;
+};
+
+const findLocalFallbackForStreamingItem = async (item: Extract<PlayableTrack, { mediaType: 'streaming' }>): Promise<LibraryTrack | null> => {
+  if (!item.title || !item.artist) {
+    return null;
+  }
+
+  try {
+    const { getLibraryService } = await import('../library/LibraryService');
+    const localCandidates = getLibraryService().getTracks({
+      page: 1,
+      pageSize: 25,
+      search: `${item.title} ${item.artist}`,
+      sourceProvider: 'local',
+    }).items;
+    const targetTitle = normalizeMatchText(item.title);
+
+    return (
+      localCandidates.find((candidate) => {
+        if (candidate.mediaType !== 'local') {
+          return false;
+        }
+
+        const candidateTitle = normalizeMatchText(candidate.title);
+        const titleMatches =
+          candidateTitle === targetTitle ||
+          candidateTitle.includes(targetTitle) ||
+          targetTitle.includes(candidateTitle);
+
+        return titleMatches && hasArtistOverlap(candidate.artist, item.artist) && durationMatches(candidate.duration, item.duration);
+      }) ?? null
+    );
+  } catch (error) {
+    console.warn(`[playback] QQ Music local fallback lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 };
 
 const createPreparedMediaKey = (request: PlaybackMediaStartRequest): string => {
@@ -471,7 +554,32 @@ const resolveMediaItemForPlayback = async (
       getStreamingService().invalidatePlayback(playbackRequest);
     }
 
-    const source = await getStreamingService().resolvePlayback(playbackRequest);
+    let source;
+    try {
+      source = await getStreamingService().resolvePlayback(playbackRequest);
+    } catch (error) {
+      if (item.provider !== 'qqmusic' || !isQqMusicPermissionError(error)) {
+        throw error;
+      }
+
+      const fallback = await findLocalFallbackForStreamingItem(item);
+      if (!fallback || fallback.mediaType !== 'local') {
+        throw error;
+      }
+
+      return {
+        filePath: fallback.path,
+        probe: {
+          durationSeconds: fallback.duration || durationSeconds || undefined,
+          fileSampleRate: fallback.sampleRate,
+          channels: 2,
+          codec: fallback.codec,
+          bitDepth: fallback.bitDepth,
+          bitrate: fallback.bitrate,
+        },
+        durationSeconds: fallback.duration || durationSeconds,
+      };
+    }
 
     if (source.requiresProxy) {
       throw new Error('This streaming source requires the streaming proxy adapter, which is not enabled yet.');

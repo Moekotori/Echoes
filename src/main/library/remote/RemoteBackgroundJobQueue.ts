@@ -77,10 +77,15 @@ const maxConcurrentByKind: Record<RemoteBackgroundJobKind, number> = {
 const maxTotalRunningJobs = 8;
 const maxJobsStartedPerDrain = 8;
 const maxTracksPerSourceEnqueue = 5000;
-const maxCoverOnlyTracksPerSourceEnqueue = 500;
+const maxCoverOnlyTracksPerSourceEnqueue = 25;
+const maxLyricsOnlyTracksPerSourceEnqueue = 50;
 const sourceEnqueueChunkSize = 100;
-const coverOnlySourceEnqueueChunkSize = 25;
-const coverOnlyChunkYieldMs = 25;
+const coverOnlySourceEnqueueChunkSize = 5;
+const lyricsOnlySourceEnqueueChunkSize = 10;
+const coverOnlyChunkYieldMs = 100;
+const lyricsOnlyChunkYieldMs = 75;
+const coverJobCooldownMs = 150;
+const lyricsJobCooldownMs = 150;
 
 const limitKeys: Record<RemoteBackgroundJobKind, keyof RemoteRuntimeLimits> = {
   metadata: 'metadataConcurrency',
@@ -306,11 +311,12 @@ export class RemoteBackgroundJobQueue {
     options: { failedOnly?: boolean; priority?: number },
   ): Promise<void> {
     const coverOnly = kinds.length === 1 && kinds[0] === 'cover';
+    const lyricsOnly = kinds.length === 1 && kinds[0] === 'lyrics';
     const trackIds = this.getBackgroundJobTrackIds(sourceId, kinds, {
       failedOnly: options.failedOnly,
-      limit: coverOnly ? maxCoverOnlyTracksPerSourceEnqueue : maxTracksPerSourceEnqueue,
+      limit: coverOnly ? maxCoverOnlyTracksPerSourceEnqueue : lyricsOnly ? maxLyricsOnlyTracksPerSourceEnqueue : maxTracksPerSourceEnqueue,
     });
-    const chunkSize = coverOnly ? coverOnlySourceEnqueueChunkSize : sourceEnqueueChunkSize;
+    const chunkSize = coverOnly ? coverOnlySourceEnqueueChunkSize : lyricsOnly ? lyricsOnlySourceEnqueueChunkSize : sourceEnqueueChunkSize;
 
     for (let index = 0; index < trackIds.length; index += chunkSize) {
       const tracks = this.getBackgroundJobTracks(trackIds.slice(index, index + chunkSize));
@@ -331,7 +337,7 @@ export class RemoteBackgroundJobQueue {
 
       this.enqueueMany(jobs);
       this.schedule();
-      await this.yieldToEventLoop(coverOnly ? coverOnlyChunkYieldMs : 0);
+      await this.yieldToEventLoop(coverOnly ? coverOnlyChunkYieldMs : lyricsOnly ? lyricsOnlyChunkYieldMs : 0);
     }
   }
 
@@ -475,6 +481,8 @@ export class RemoteBackgroundJobQueue {
 
   private async run(job: QueueJob, track: RemoteLibraryTrack): Promise<void> {
     try {
+      let shouldCooldownCover = false;
+      let shouldCooldownLyrics = false;
       if (job.kind === 'metadata' || job.kind === 'duration-backfill') {
         const updated = await this.runMetadataJob(track, job.kind);
         if (updated) {
@@ -486,10 +494,12 @@ export class RemoteBackgroundJobQueue {
           this.increment(this.skippedBySource, job.sourceId, job.kind);
           return;
         }
+        shouldCooldownCover = true;
       } else if (job.kind === 'lyrics') {
         this.store.updateTrackJobStatus(track.id, 'lyrics', 'searching');
         const lyrics = await getLyricsService().getLyricsForTrack(track.id);
         this.store.updateTrackJobStatus(track.id, 'lyrics', lyrics ? 'ok' : 'not_found');
+        shouldCooldownLyrics = true;
       } else if (job.kind === 'mv') {
         this.increment(this.skippedBySource, job.sourceId, job.kind);
         return;
@@ -499,6 +509,12 @@ export class RemoteBackgroundJobQueue {
       }
 
       this.increment(this.completedBySource, job.sourceId, job.kind);
+      if (shouldCooldownCover) {
+        await this.yieldToEventLoop(coverJobCooldownMs);
+      }
+      if (shouldCooldownLyrics) {
+        await this.yieldToEventLoop(lyricsJobCooldownMs);
+      }
     } catch (error) {
       this.lastErrors.set(job.sourceId, error instanceof Error ? error.message : String(error));
       if (job.kind === 'cover' || job.kind === 'lyrics' || job.kind === 'mv' || job.kind === 'metadata' || job.kind === 'duration-backfill') {

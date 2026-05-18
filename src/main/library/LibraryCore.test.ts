@@ -647,6 +647,7 @@ describe('Library Core', () => {
     expect(updated.name).toBe('Road Mix 2');
     expect(harness.service.getPlaylists()[0]).toMatchObject({ id: playlist.id, itemCount: 2, sourceProvider: 'local' });
     expect(firstItem.titleSnapshot).toBe('Playlist One');
+    expect(firstItem.sourceItemId).toBe(firstTrack.path);
     expect(firstItem.track?.id).toBe(firstTrack.id);
     expect(firstPage.items).toHaveLength(1);
     expect(firstPage.hasMore).toBe(true);
@@ -718,6 +719,61 @@ describe('Library Core', () => {
     harness.cleanup();
   }, 20000);
 
+  it('relinks local playlist items after library tracks are rebuilt', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Rebuilt Playlist Track.flac');
+    harness.metadataService.overrides.set(filePath, baseMetadata({ title: 'Rebuilt Song', artist: 'Rebuilt Artist', album: 'Rebuilt Album', duration: 123 }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const playlist = harness.service.createPlaylist({ name: 'Rebuilt Mix' });
+    const item = harness.service.addTrackToPlaylist(playlist.id, track.id);
+
+    harness.service.clearTracks();
+    const [afterClear] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+    expect(afterClear.id).toBe(item.id);
+    expect(afterClear.unavailable).toBe(true);
+
+    const rebuiltTrack = await harness.service.importAudioFile(filePath);
+    const [afterReimport] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+
+    expect(rebuiltTrack.id).not.toBe(track.id);
+    expect(afterReimport.id).toBe(item.id);
+    expect(afterReimport.mediaId).toBe(rebuiltTrack.id);
+    expect(afterReimport.sourceItemId).toBe(rebuiltTrack.path);
+    expect(afterReimport.track?.id).toBe(rebuiltTrack.id);
+    expect(afterReimport.unavailable).toBe(false);
+    harness.cleanup();
+  }, 20000);
+
+  it('relinks older local playlist items from snapshots when path identity is missing', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Legacy Playlist Track.flac');
+    harness.metadataService.overrides.set(filePath, baseMetadata({ title: 'Legacy Song', artist: 'Legacy Artist', album: 'Legacy Album', duration: 99 }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const playlist = harness.service.createPlaylist({ name: 'Legacy Mix' });
+    const item = harness.service.addTrackToPlaylist(playlist.id, track.id);
+    const database = createDatabase(harness.databasePath);
+    database.prepare('UPDATE playlist_items SET source_item_id = NULL WHERE id = ?').run(item.id);
+    database.close();
+
+    harness.service.clearTracks();
+    const rebuiltTrack = await harness.service.importAudioFile(filePath);
+    const [afterReimport] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+
+    expect(rebuiltTrack.id).not.toBe(track.id);
+    expect(afterReimport.id).toBe(item.id);
+    expect(afterReimport.mediaId).toBe(rebuiltTrack.id);
+    expect(afterReimport.sourceItemId).toBe(rebuiltTrack.path);
+    expect(afterReimport.track?.id).toBe(rebuiltTrack.id);
+    expect(afterReimport.unavailable).toBe(false);
+    harness.cleanup();
+  }, 20000);
+
   it('switches matching streaming playlist items to the downloaded local track', async () => {
     const harness = createHarness();
     const filePath = writeAudioFile(harness.folder, 'Downloaded Stream.flac');
@@ -749,7 +805,7 @@ describe('Library Core', () => {
     expect(linkedItem.mediaType).toBe('track');
     expect(linkedItem.mediaId).toBe(localTrack.id);
     expect(linkedItem.sourceProvider).toBe('local');
-    expect(linkedItem.sourceItemId).toBeNull();
+    expect(linkedItem.sourceItemId).toBe(localTrack.path);
     expect(linkedItem.track?.id).toBe(localTrack.id);
     expect(linkedItem.track?.mediaType).toBe('local');
     expect(linkedItem.unavailable).toBe(false);

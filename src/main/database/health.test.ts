@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from './createDatabase';
-import { checkDatabaseHealth, DatabaseHealthError } from './health';
+import { checkDatabaseHealth, DatabaseHealthError, isSqliteCorruptionMessage } from './health';
 
 describe('database health', () => {
   let root: string;
@@ -35,5 +35,9 @@ describe('database health', () => {
 
     expect(checkDatabaseHealth(databasePath).status).toBe('corrupt');
     expect(() => createDatabase(databasePath)).toThrow(DatabaseHealthError);
+  });
+
+  it('treats malformed database schema errors as corruption', () => {
+    expect(isSqliteCorruptionMessage('malformed database schema (6301a741-3d56-407f-a3d6-77e5a19a8416)')).toBe(true);
   });
 });

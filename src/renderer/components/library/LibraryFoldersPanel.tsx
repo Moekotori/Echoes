@@ -89,6 +89,11 @@ const formatFolderError = (error: unknown): string => {
   return message || '导入失败';
 };
 
+const isLibraryDatabaseSchemaError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /DatabaseHealthError|malformed database schema|database disk image is malformed|SQLITE_CORRUPT|file is not a database/i.test(message);
+};
+
 export const LibraryFoldersPanel = ({ autoFocus = false }: LibraryFoldersPanelProps): JSX.Element => {
   const [folders, setFolders] = useState<LibraryFolder[]>([]);
   const [folderPath, setFolderPath] = useState('');
@@ -155,7 +160,7 @@ export const LibraryFoldersPanel = ({ autoFocus = false }: LibraryFoldersPanelPr
   );
 
   const importFolderPath = useCallback(
-    async (selectedPath: string): Promise<void> => {
+    async (selectedPath: string, repaired = false): Promise<void> => {
       const normalizedPath = selectedPath.trim();
 
       if (!normalizedPath) {
@@ -179,6 +184,17 @@ export const LibraryFoldersPanel = ({ autoFocus = false }: LibraryFoldersPanelPr
         await refreshFolders();
         await startScan(folder.id, alreadyImported ? '文件夹已存在，开始重新扫描' : '文件夹已添加，开始扫描');
       } catch (importError) {
+        if (!repaired && isLibraryDatabaseSchemaError(importError) && window.confirm('曲库数据库损坏，重新添加和重扫都会失败。是否备份旧数据库、重建为空库，然后重新添加这个文件夹并扫描？')) {
+          try {
+            await getLibraryBridge()?.repairDatabase?.();
+            setMessage('曲库数据库已修复，正在重新添加并扫描文件夹。如果再次报错，请导出诊断。');
+            await importFolderPath(normalizedPath, true);
+            return;
+          } catch (repairError) {
+            setError(formatFolderError(repairError));
+            return;
+          }
+        }
         setError(formatFolderError(importError));
       }
     },

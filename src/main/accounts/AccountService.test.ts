@@ -159,4 +159,41 @@ describe('AccountService', () => {
       error: null,
     });
   });
+
+  it('marks QQ Music cookies disconnected when the login-status API rejects them', async () => {
+    const { service } = createService();
+    service.saveCookie('qqmusic', 'uin=2331103944; qqmusic_key=expired; qm_keyst=expired');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ code: 0, req_0: { code: 1000 } }), { headers: { 'Content-Type': 'application/json' } })),
+    );
+
+    const status = await service.checkAccount('qqmusic');
+
+    expect(status.connected).toBe(false);
+    expect(status.error).toContain('QQ 音乐登录凭证已过期');
+  });
+
+  it('keeps QQ Music connected after a successful login-status check', async () => {
+    const { service } = createService();
+    service.saveCookie('qqmusic', 'uin=2331103944; qqmusic_key=valid; qm_keyst=valid');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ code: 0, req_0: { code: 0, data: { userInfo: { uin: '2331103944', nick: 'Moe' } } } }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+
+    const status = await service.checkAccount('qqmusic');
+
+    expect(status).toMatchObject({
+      provider: 'qqmusic',
+      connected: true,
+      username: '2331103944',
+      displayName: 'Moe',
+      error: null,
+    });
+  });
 });

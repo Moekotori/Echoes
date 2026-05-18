@@ -137,6 +137,11 @@ export class RemoteSourceService {
     return this.backgroundQueue.pause(sourceId);
   }
 
+  resumeBackgroundJobs(sourceId: string): RemoteBackgroundJobStatus {
+    this.requireSource(sourceId);
+    return this.backgroundQueue.resume(sourceId);
+  }
+
   getJobStatus(sourceId: string): RemoteBackgroundJobStatus {
     this.requireSource(sourceId);
     return this.backgroundQueue.getStatus(sourceId);

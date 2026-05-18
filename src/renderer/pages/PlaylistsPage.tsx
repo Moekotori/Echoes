@@ -8,6 +8,7 @@ import { TrackContextMenu, type TrackMenuAction } from '../components/library/Tr
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
 import { usePlaybackFollowCurrentTrack } from '../hooks/usePlaybackFollowCurrentTrack';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
 
 const pageSize = 100;
@@ -886,7 +887,7 @@ export const PlaylistsPage = (): JSX.Element => {
   }, [likedTrackIds]);
 
   const handleTrackMenuAction = useCallback(
-    async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {
+    async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
@@ -976,23 +977,7 @@ export const PlaylistsPage = (): JSX.Element => {
                 return;
               }
 
-              const playlists = await library.getPlaylists();
-              let playlist: (typeof playlists)[number] | null = playlists[0] ?? null;
-              if (playlists.length > 1) {
-                const names = playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
-                const choice = window.prompt(`选择歌单编号：\n${names}`, '1');
-                const index = Number(choice) - 1;
-                playlist = Number.isInteger(index) ? playlists[index] ?? null : null;
-              }
-
-              if (!playlist) {
-                const name = window.prompt('还没有歌单，输入名称创建后添加：');
-                if (!name?.trim()) {
-                  return;
-                }
-                playlist = await library.createPlaylist({ name });
-              }
-
+              const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library));
               if (!playlist) {
                 return;
               }
@@ -1376,7 +1361,7 @@ export const PlaylistsPage = (): JSX.Element => {
             track={trackMenu.track}
             position={trackMenu.position}
             liked={likedTrackIds[trackMenu.track.id] === true}
-            onAction={(action, track) => void handleTrackMenuAction(action, track)}
+            onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
             onClose={() => setTrackMenu(null)}
           />
         ) : null}

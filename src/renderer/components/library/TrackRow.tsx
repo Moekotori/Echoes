@@ -14,8 +14,10 @@ export type HifiTag = {
 type TrackRowProps = {
   track: LibraryTrack;
   isPlaying: boolean;
+  isSelected?: boolean;
   duplicateHiddenCount?: number;
   onPlay?: (track: LibraryTrack) => void;
+  onToggleSelected?: (track: LibraryTrack) => void;
   onAddToQueue?: (track: LibraryTrack) => void;
   onAddToPlaylist?: (track: LibraryTrack) => void;
   onDownload?: (track: LibraryTrack) => void;
@@ -90,7 +92,7 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 };
 
 export const TrackRow = memo(
-  ({ track, isPlaying, duplicateHiddenCount = 0, onPlay, onAddToQueue, onAddToPlaylist, onDownload, onOpenArtist, onOpenAlbum, isDownloading = false, downloadProgress = null, onShowVersions, onOpenMenu }: TrackRowProps): JSX.Element => {
+  ({ track, isPlaying, isSelected = false, duplicateHiddenCount = 0, onPlay, onToggleSelected, onAddToQueue, onAddToPlaylist, onDownload, onOpenArtist, onOpenAlbum, isDownloading = false, downloadProgress = null, onShowVersions, onOpenMenu }: TrackRowProps): JSX.Element => {
     const tags = tagsFromTrack(track);
     const isUnavailable = track.unavailable === true;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
@@ -100,21 +102,29 @@ export const TrackRow = memo(
       typeof downloadProgress === 'number' && Number.isFinite(downloadProgress)
         ? Math.max(0, Math.min(100, Math.round(downloadProgress)))
         : null;
-    const handlePlay = useCallback((): void => {
+    const handleRowClick = useCallback((event: MouseEvent<HTMLDivElement>): void => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        onToggleSelected?.(track);
+        return;
+      }
+
       if (isUnavailable) {
         return;
       }
 
       onPlay?.(track);
-    }, [isUnavailable, onPlay, track]);
+    }, [isUnavailable, onPlay, onToggleSelected, track]);
     const handleKeyDown = useCallback(
       (event: KeyboardEvent<HTMLDivElement>): void => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          handlePlay();
+          if (!isUnavailable) {
+            onPlay?.(track);
+          }
         }
       },
-      [handlePlay],
+      [isUnavailable, onPlay, track],
     );
     const stopActionPropagation = useCallback((event: MouseEvent): void => {
       event.stopPropagation();
@@ -201,10 +211,11 @@ export const TrackRow = memo(
         className="track-row"
         data-clickable={Boolean(onPlay) && !isUnavailable}
         data-playing={isPlaying}
+        data-selected={isSelected ? 'true' : undefined}
         data-unavailable={isUnavailable ? 'true' : undefined}
         role="listitem"
         tabIndex={onPlay && !isUnavailable ? 0 : undefined}
-        onClick={handlePlay}
+        onClick={handleRowClick}
         onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
       >
@@ -295,8 +306,10 @@ export const TrackRow = memo(
   (previous, next) =>
     previous.track === next.track &&
     previous.isPlaying === next.isPlaying &&
+    previous.isSelected === next.isSelected &&
     previous.duplicateHiddenCount === next.duplicateHiddenCount &&
     previous.onPlay === next.onPlay &&
+    previous.onToggleSelected === next.onToggleSelected &&
     previous.onAddToQueue === next.onAddToQueue &&
     previous.onAddToPlaylist === next.onAddToPlaylist &&
     previous.onDownload === next.onDownload &&

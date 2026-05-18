@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Check, ChevronDown, Disc3, ListFilter, RefreshCw, Search } from 'lucide-react';
-import type { EditableAlbumTags, LibraryAlbum, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import type { EditableAlbumTags, LibraryAlbum, LibraryPlaylist, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { AlbumContextMenu } from '../components/album/AlbumContextMenu';
 import type { AlbumMenuAction } from '../components/album/AlbumContextMenu';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
@@ -302,7 +302,7 @@ export const AlbumsPage = (): JSX.Element => {
   }, []);
 
   const handleAlbumMenuAction = useCallback(
-    async (action: AlbumMenuAction, album: LibraryAlbum): Promise<void> => {
+    async (action: AlbumMenuAction, album: LibraryAlbum, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setAlbumMenu(null);
 
@@ -325,6 +325,35 @@ export const AlbumsPage = (): JSX.Element => {
             return;
           case 'add-to-queue':
             appendTracksToQueue(await getAllAlbumTracks(album.id), { type: 'album' as const, label: album.title, albumId: album.id });
+            return;
+          case 'add-to-playlist':
+            {
+              const playlist = playlistTarget;
+              if (!playlist) {
+                return;
+              }
+
+              const tracks = await getAllAlbumTracks(album.id);
+              const localTrackIds: string[] = [];
+              const streamingTracks: LibraryTrack[] = [];
+              for (const track of tracks) {
+                if (track.mediaType === 'streaming' && track.provider && track.providerTrackId) {
+                  streamingTracks.push(track);
+                } else {
+                  localTrackIds.push(track.id);
+                }
+              }
+
+              if (localTrackIds.length > 0) {
+                if (library.addTracksToPlaylist) {
+                  await library.addTracksToPlaylist(playlist.id, localTrackIds);
+                } else {
+                  await Promise.all(localTrackIds.map((trackId) => library.addTrackToPlaylist(playlist.id, trackId)));
+                }
+              }
+              await Promise.all(streamingTracks.map((track) => library.addStreamingTrackToPlaylist(playlist.id, track)));
+              window.dispatchEvent(new Event('library:playlists-changed'));
+            }
             return;
           case 'toggle-liked':
             {
@@ -567,7 +596,7 @@ export const AlbumsPage = (): JSX.Element => {
           album={albumMenu.album}
           position={albumMenu.position}
           liked={likedAlbumIds[albumMenu.album.id] === true}
-          onAction={(action, album) => void handleAlbumMenuAction(action, album)}
+          onAction={(action, album, playlist) => void handleAlbumMenuAction(action, album, playlist)}
           onClose={() => setAlbumMenu(null)}
         />
       ) : null}

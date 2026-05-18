@@ -338,8 +338,14 @@ const qqPlaybackFilenames = (
 };
 
 const qqPlaybackFailureMessage = (lastResult: QqVkeyResult | null): string => {
+  const requestCode = Number(lastResult?.payload.code);
   const rawResult = lastResult?.item.result ?? lastResult?.payload.result ?? lastResult?.payload.code;
   const result = Number(rawResult);
+  const returnedUin = text(lastResult?.payload.uin);
+  const loginKey = text(lastResult?.payload.login_key);
+  if (requestCode === 1000 || (result === 104003 && !returnedUin && !loginKey)) {
+    return 'QQ 音乐登录凭证已过期，当前 Cookie 已不能换取会员播放地址。请在设置里重新登录 QQ 音乐后再试。';
+  }
   if (result === 104003) {
     return 'QQ 音乐返回无播放权限（104003）。请确认当前登录的是已开通会员的 QQ 音乐账号，并在设置里重新登录 QQ 音乐后再试。';
   }

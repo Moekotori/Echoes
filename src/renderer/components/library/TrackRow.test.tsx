@@ -106,6 +106,19 @@ describe('TrackRow', () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it('toggles selection on Ctrl+click without playing the row', () => {
+    const onPlay = vi.fn();
+    const onToggleSelected = vi.fn();
+    const item = track();
+    render(<TrackRow isPlaying={false} track={item} onPlay={onPlay} onToggleSelected={onToggleSelected} />);
+
+    fireEvent.click(screen.getByRole('listitem'), { ctrlKey: true });
+
+    expect(onToggleSelected).toHaveBeenCalledTimes(1);
+    expect(onToggleSelected).toHaveBeenCalledWith(item);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
   it('opens artist and album links without playing the row', () => {
     const onPlay = vi.fn();
     const onOpenArtist = vi.fn();

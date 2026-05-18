@@ -2,13 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { MouseEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Disc3, ListPlus, MoreHorizontal, Play, SkipForward } from 'lucide-react';
-import type { EditableTrackTags, LibraryAlbum, LibraryPage, LibraryTrack } from '../../../shared/types/library';
+import type { EditableTrackTags, LibraryAlbum, LibraryPage, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { TrackContextMenu } from '../library/TrackContextMenu';
 import type { TrackMenuAction } from '../library/TrackContextMenu';
 import { TrackTagEditorDrawer } from '../library/TrackTagEditorDrawer';
 import { getPageScrollContainer } from '../ui/InfiniteScrollSentinel';
 import { openAlbumDetailForTrack } from '../../utils/albumNavigation';
+import { resolvePlaylistForTrackAdd } from '../../utils/appPrompt';
 
 type ArtistTrackListProps = {
   artistId: string;
@@ -315,7 +316,7 @@ export const ArtistTrackList = ({
   );
 
   const handleTrackMenuAction = useCallback(
-    async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {
+    async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
@@ -420,23 +421,7 @@ export const ArtistTrackList = ({
             return;
           case 'add-to-playlist':
             {
-              const playlists = await library!.getPlaylists();
-              let playlist: (typeof playlists)[number] | null = playlists[0] ?? null;
-              if (playlists.length > 1) {
-                const names = playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
-                const choice = window.prompt(`Choose playlist number:\n${names}`, '1');
-                const index = Number(choice) - 1;
-                playlist = Number.isInteger(index) ? playlists[index] ?? null : null;
-              }
-
-              if (!playlist) {
-                const name = window.prompt('No playlists yet. Enter a name to create one:');
-                if (!name?.trim()) {
-                  return;
-                }
-                playlist = await library!.createPlaylist({ name });
-              }
-
+              const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library!));
               if (!playlist) {
                 return;
               }
@@ -566,7 +551,7 @@ export const ArtistTrackList = ({
         <TrackContextMenu
           track={trackMenu.track}
           position={trackMenu.position}
-          onAction={(action, track) => void handleTrackMenuAction(action, track)}
+          onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
           onClose={() => setTrackMenu(null)}
         />
       ) : null}

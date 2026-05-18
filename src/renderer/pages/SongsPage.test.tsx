@@ -234,6 +234,7 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
       ]),
       createPlaylist: vi.fn(),
       addTrackToPlaylist: vi.fn().mockResolvedValue({ id: 'playlist-item-1' }),
+      addTracksToPlaylist: vi.fn().mockResolvedValue([{ id: 'playlist-item-1' }]),
       pruneInvalidTracks: vi.fn().mockResolvedValue({
         scannedCount: tracks.length,
         removedCount: 0,
@@ -460,9 +461,102 @@ describe('SongsPage', () => {
 
     await renderSongsPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: '添加到歌单 Song One' }));
+    fireEvent.click(await screen.findByRole('button', { name: /添加到歌单\s*Song One/ }));
 
-    await waitFor(() => expect(window.echo.library.addTrackToPlaylist).toHaveBeenCalledWith('playlist-1', 'track-1'));
+    await waitFor(() => expect(window.echo.library.addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1']));
+  });
+
+  it('uses the app playlist picker instead of window.prompt when multiple playlists exist', async () => {
+    const track = makeTrack();
+    installEcho([track]);
+    vi.spyOn(window, 'prompt').mockImplementation(() => {
+      throw new Error('prompt() is not supported.');
+    });
+    vi.mocked(window.echo.library.getPlaylists).mockResolvedValue([
+      {
+        id: 'playlist-1',
+        name: 'Road Mix',
+        description: null,
+        kind: 'manual',
+        sourceProvider: 'local',
+        sourcePlaylistId: null,
+        coverId: null,
+        coverThumb: null,
+        sortMode: 'manual',
+        itemCount: 0,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+      {
+        id: 'playlist-2',
+        name: 'Second Mix',
+        description: null,
+        kind: 'manual',
+        sourceProvider: 'local',
+        sourcePlaylistId: null,
+        coverId: null,
+        coverThumb: null,
+        sortMode: 'manual',
+        itemCount: 3,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+    ]);
+
+    await renderSongsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /添加到歌单\s*Song One/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Second Mix/ }));
+
+    await waitFor(() => expect(window.echo.library.addTracksToPlaylist).toHaveBeenCalledWith('playlist-2', ['track-1']));
+    expect(window.prompt).not.toHaveBeenCalled();
+  });
+
+  it('shows playlist choices from the context menu add-to-playlist hover', async () => {
+    const track = makeTrack();
+    installEcho([track]);
+    vi.spyOn(window, 'prompt').mockImplementation(() => {
+      throw new Error('prompt() is not supported.');
+    });
+    vi.mocked(window.echo.library.getPlaylists).mockResolvedValue([
+      {
+        id: 'playlist-1',
+        name: 'Road Mix',
+        description: null,
+        kind: 'manual',
+        sourceProvider: 'local',
+        sourcePlaylistId: null,
+        coverId: null,
+        coverThumb: null,
+        sortMode: 'manual',
+        itemCount: 0,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+      {
+        id: 'playlist-2',
+        name: 'Second Mix',
+        description: null,
+        kind: 'manual',
+        sourceProvider: 'local',
+        sourcePlaylistId: null,
+        coverId: null,
+        coverThumb: null,
+        sortMode: 'manual',
+        itemCount: 3,
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T00:00:00.000Z',
+      },
+    ]);
+
+    await renderSongsPage();
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: 'Song One' }), { clientX: 240, clientY: 180 });
+    fireEvent.mouseEnter(screen.getAllByRole('menuitem')[0]);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Second Mix/ }));
+
+    await waitFor(() => expect(window.echo.library.addTracksToPlaylist).toHaveBeenCalledWith('playlist-2', ['track-1']));
+    expect(window.prompt).not.toHaveBeenCalled();
   });
 
   it('opens osu timing from the song context menu and copies the timing line', async () => {

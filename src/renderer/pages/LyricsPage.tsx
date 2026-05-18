@@ -19,6 +19,7 @@ import type {
   LyricsTrackSnapshotRequest,
   TrackLyrics,
 } from "../../shared/types/lyrics";
+import type { MvSettings } from "../../shared/types/mv";
 import type {
   StreamingLyricsResult,
   StreamingProviderName,
@@ -430,15 +431,29 @@ const originalCoverUrlFromCachedVariant = (coverUrl: string | null | undefined):
   return originalUrl?.startsWith("echo-cover://original/") ? originalUrl : null;
 };
 
+const isRemoteArtworkUrl = (coverUrl: string | null | undefined): coverUrl is string =>
+  Boolean(coverUrl && !coverUrl.startsWith("data:") && !coverUrl.startsWith("echo-cover://"));
+
+const isStreamBackedTrack = (track: LibraryTrack | null): boolean =>
+  track?.mediaType === "streaming" || track?.mediaType === "remote";
+
 const safeOriginalCoverUrl = (track: LibraryTrack | null): string | null => {
   const allowInlineCover = isSnapshotLyricsTrack(track, track?.id ?? null);
+  const coverLarge = (track as TrackWithLargeCover | null)?.coverLarge ?? null;
+  const coverThumb = track?.coverThumb ?? null;
   const inlineCover = allowInlineCover
-    ? ((track as TrackWithLargeCover | null)?.coverLarge ?? track?.coverThumb ?? null)
+    ? (coverLarge ?? coverThumb)
     : null;
+  const streamCover = isStreamBackedTrack(track) && isRemoteArtworkUrl(coverLarge)
+    ? coverLarge
+    : isStreamBackedTrack(track) && isRemoteArtworkUrl(coverThumb)
+      ? coverThumb
+      : null;
   const coverUrl = track?.coverId
     ? `echo-cover://original/${encodeURIComponent(track.coverId)}`
-    : originalCoverUrlFromCachedVariant((track as TrackWithLargeCover | null)?.coverLarge)
-      ?? originalCoverUrlFromCachedVariant(track?.coverThumb)
+    : originalCoverUrlFromCachedVariant(coverLarge)
+      ?? originalCoverUrlFromCachedVariant(coverThumb)
+      ?? streamCover
       ?? inlineCover;
 
   return coverUrl && (allowInlineCover || !coverUrl.startsWith("data:")) ? coverUrl : null;
@@ -506,6 +521,17 @@ const lyricsSmartReadableVideoSampleEvent = "lyrics:smart-readable-video-sample"
 type LyricsSmartReadableVideoSampleDetail = {
   trackId?: string | null;
   sample?: ReadableColorSample | null;
+};
+
+const pickLyricsReadabilityEnhanced = (value: unknown): boolean | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const patch = value as Partial<MvSettings>;
+  return typeof patch.lyricsReadabilityEnhanced === "boolean"
+    ? patch.lyricsReadabilityEnhanced
+    : null;
 };
 
 const getCurrentDocumentThemeMode = (): "light" | "dark" =>
@@ -678,10 +704,13 @@ const useLyricsDisplayPosition = (
       const staleRegressionSeconds = previous.positionSeconds - boundedSourcePosition;
       const canIgnoreStaleRegression =
         canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
+      const canIgnoreStaleForwardJump = canBridgeSourceLag && sourceJumpedForward && Math.abs(previous.playbackRate - 1) > 0.001;
 
       if (rateChangeSourceDiscontinuity) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canIgnoreStaleRegression) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (canIgnoreStaleForwardJump) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
         nextPositionSeconds = estimatedPositionSeconds;
@@ -777,6 +806,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     useState(false);
   const [lyricsViewMode, setLyricsViewModeState] =
     useState<LyricsViewMode>(() => readRememberedLyricsViewMode());
+  const [lyricsReadabilityEnhanced, setLyricsReadabilityEnhanced] = useState(false);
   const [imageReadableSample, setImageReadableSample] = useState<ReadableColorSample | null>(null);
   const [mvReadableSample, setMvReadableSample] = useState<ReadableColorSample | null>(null);
   const [documentThemeMode, setDocumentThemeMode] = useState<"light" | "dark">(getCurrentDocumentThemeMode);
@@ -887,6 +917,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     : null;
   const lyricsBackgroundCoverUrl = networkBackgroundCoverUrl ?? backgroundCoverUrl;
   const lyricsSmartReadableEnabled = lyricsDisplaySettings.lyricsSmartReadableColorsEnabled === true;
+  const lyricsUsesManualColor =
+    lyricsDisplaySettings.lyricsColor.toUpperCase() !== fallbackLyricsDisplaySettings.lyricsColor.toUpperCase();
+  const shouldEnhanceLyricsReadability = lyricsReadabilityEnhanced || lyricsSmartReadableEnabled;
   const lyricsSmartReadableImageUrl = lyricsSmartReadableEnabled
     ? effectiveLyricsBackgroundMode === "cover"
       ? lyricsBackgroundCoverUrl
@@ -1306,6 +1339,42 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         window.removeEventListener("lyrics:display-settings-changed", handleSettingsChanged);
       };
   }, [loadLyricsDisplaySettings]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadLyricsReadabilityEnhanced = async (): Promise<void> => {
+      try {
+        const nextSettings = await window.echo?.mv?.getSettings?.();
+        if (!isCancelled && nextSettings) {
+          setLyricsReadabilityEnhanced(nextSettings.lyricsReadabilityEnhanced === true);
+        }
+      } catch {
+        // Keep the last known value when the MV bridge is unavailable.
+      }
+    };
+
+    const handleSettingsChanged = (event: Event): void => {
+      const nextValue = pickLyricsReadabilityEnhanced(
+        event instanceof CustomEvent ? event.detail : null,
+      );
+      if (nextValue !== null) {
+        setLyricsReadabilityEnhanced(nextValue);
+        return;
+      }
+
+      if (!isExplicitObjectSettingsPatch(event)) {
+        void loadLyricsReadabilityEnhanced();
+      }
+    };
+
+    void loadLyricsReadabilityEnhanced();
+    window.addEventListener("settings:changed", handleSettingsChanged);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("settings:changed", handleSettingsChanged);
+    };
+  }, []);
 
   const setLyricsCandidatePanelAutoOpenEnabled = useCallback(
     (enabled: boolean): void => {
@@ -2338,6 +2407,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     <div
       className="lyrics-page"
       data-background={effectiveLyricsBackgroundMode}
+      data-lyrics-color-mode={lyricsUsesManualColor ? "manual" : "theme"}
       data-smart-readable={lyricsSmartReadableEnabled ? "true" : undefined}
       data-album-transition={isAlbumNavigating ? "true" : undefined}
       data-custom-lrc-dragging={isCustomLyricsDragging}
@@ -2438,6 +2508,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         <section
           className="lyrics-mv-panel"
           aria-label="MV"
+          data-lyrics-readability={shouldEnhanceLyricsReadability ? "true" : undefined}
           data-mv-enabled="false"
           data-view-mode="lyrics"
         />

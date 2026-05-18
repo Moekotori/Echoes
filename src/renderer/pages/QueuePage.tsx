@@ -17,13 +17,14 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { EditableTrackTags, LibraryTrack, PlaybackHistoryEntry } from '../../shared/types/library';
+import type { EditableTrackTags, LibraryPlaylist, LibraryTrack, PlaybackHistoryEntry } from '../../shared/types/library';
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
 import { usePlaybackFollowCurrentTrack } from '../hooks/usePlaybackFollowCurrentTrack';
 import type { QueueItem, RepeatMode } from '../stores/PlaybackQueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
+import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
@@ -260,7 +261,7 @@ export const QueuePage = (): JSX.Element => {
   );
 
   const handleTrackMenuAction = useCallback(
-    async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {
+    async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
@@ -371,23 +372,7 @@ export const QueuePage = (): JSX.Element => {
             return;
           case 'add-to-playlist':
             {
-              const playlists = await library!.getPlaylists();
-              let playlist: (typeof playlists)[number] | null = playlists[0] ?? null;
-              if (playlists.length > 1) {
-                const names = playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n');
-                const choice = window.prompt(`Choose playlist number:\n${names}`, '1');
-                const index = Number(choice) - 1;
-                playlist = Number.isInteger(index) ? playlists[index] ?? null : null;
-              }
-
-              if (!playlist) {
-                const name = window.prompt('No playlists yet. Enter a name to create one:');
-                if (!name?.trim()) {
-                  return;
-                }
-                playlist = await library!.createPlaylist({ name });
-              }
-
+              const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library!));
               if (!playlist) {
                 return;
               }
@@ -738,7 +723,7 @@ export const QueuePage = (): JSX.Element => {
           track={trackMenu.track}
           position={trackMenu.position}
           liked={!trackMenu.track.isTemporary && likedTrackIds[trackMenu.track.id] === true}
-          onAction={(action, track) => void handleTrackMenuAction(action, track)}
+          onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
           onClose={() => setTrackMenu(null)}
         />
       ) : null}

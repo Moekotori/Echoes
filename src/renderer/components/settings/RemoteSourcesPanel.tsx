@@ -122,6 +122,7 @@ const syncProgressFor = (status: RemoteSyncStatus): { processed: number; total: 
 
 const formatDate = (value: string | null): string => (value ? new Date(value).toLocaleString() : '尚未执行');
 const sumKinds = (values: Record<RemoteBackgroundJobKind, number>): number => jobKinds.reduce((total, kind) => total + values[kind], 0);
+const isJobKindActive = (status: RemoteBackgroundJobStatus, kind: RemoteBackgroundJobKind): boolean => status.pending[kind] + status.running[kind] > 0;
 
 const readConfigNumber = (source: RemoteSource, key: string, fallback: number): number => {
   const value = source.config[key];
@@ -343,18 +344,26 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         await remoteApi.startBackgroundJobs(source.id, ['metadata', 'duration-backfill']);
         setMessage('已加入元数据补齐任务。');
       } else if (action === 'cover') {
-        setMessage('\u5c01\u9762\u5df2\u6539\u4e3a\u6309\u9700\u52a0\u8f7d\uff1a\u56de\u5230\u7f51\u76d8\u6b4c\u66f2\u5217\u8868\uff0c\u6eda\u5230\u54ea\u91cc\u5c31\u4f4e\u8d1f\u8f7d\u8865\u54ea\u91cc\u3002');
+        await remoteApi.startBackgroundJobs(source.id, ['cover']);
+        setMessage('\u5df2\u52a0\u5165\u4e00\u5c0f\u6279\u7f3a\u5931\u5c01\u9762\u626b\u63cf\u4efb\u52a1\u3002');
         await refreshStatuses([source.id]);
         return;
       } else if (action === 'match') {
         await remoteApi.startBackgroundJobs(source.id, ['lyrics']);
-        setMessage('\u5df2\u52a0\u5165\u6b4c\u8bcd\u5339\u914d\u4efb\u52a1\uff1b\u7f51\u76d8\u6765\u6e90\u4e0d\u518d\u6279\u91cf\u5339\u914d MV\u3002');
+        setMessage('\u5df2\u52a0\u5165\u4e00\u5c0f\u6279\u6b4c\u8bcd\u5339\u914d\u4efb\u52a1\uff1b\u7f51\u76d8\u6765\u6e90\u4e0d\u518d\u6279\u91cf\u5339\u914d MV\u3002');
+        await refreshStatuses([source.id]);
+        return;
       } else if (action === 'retryFailed') {
         await remoteApi.retryFailedJobs(source.id, ['metadata', 'duration-backfill']);
         setMessage('\u5df2\u91cd\u8bd5\u5931\u8d25\u7684\u5143\u6570\u636e\u4efb\u52a1\uff1b\u4e0d\u518d\u91cd\u8bd5\u7f51\u76d8\u5c01\u9762\u6216 MV \u6279\u91cf\u5339\u914d\u3002');
       } else if (action === 'pauseJobs') {
-        await remoteApi.pauseBackgroundJobs(source.id);
-        setMessage('已暂停该来源后台任务。');
+        const paused = jobStatuses[source.id]?.paused === true;
+        const nextStatus = paused
+          ? await remoteApi.resumeBackgroundJobs(source.id)
+          : await remoteApi.pauseBackgroundJobs(source.id);
+        setJobStatuses((current) => ({ ...current, [source.id]: nextStatus }));
+        setMessage(paused ? '\u5df2\u6062\u590d\u8be5\u6765\u6e90\u540e\u53f0\u4efb\u52a1\u3002' : '\u5df2\u6682\u505c\u8be5\u6765\u6e90\u540e\u53f0\u4efb\u52a1\u3002');
+        return;
       } else if (action === 'toggle') {
         await remoteApi.update({ id: source.id, status: source.status === 'disabled' ? 'enabled' : 'disabled' });
       } else if (action === 'delete') {
@@ -506,6 +515,12 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           const browsePreview = browsePreviews[source.id] ?? [];
           const running = syncStatus.status === 'running';
           const syncProgress = syncProgressFor(syncStatus);
+          const metadataActive = isJobKindActive(jobStatus, 'metadata') || isJobKindActive(jobStatus, 'duration-backfill');
+          const coverActive = isJobKindActive(jobStatus, 'cover');
+          const lyricsActive = isJobKindActive(jobStatus, 'lyrics');
+          const hasFailedMetadata = jobStatus.failed.metadata + jobStatus.failed['duration-backfill'] > 0;
+          const sourcePaused = jobStatus.paused;
+          const sourceDisabled = source.status === 'disabled';
 
           return (
             <article className="remote-source-card" key={source.id}>
@@ -569,28 +584,28 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <button type="button" disabled={busy === `test:${source.id}`} onClick={() => void runSourceAction(source, 'test')}>
                   <Wifi size={15} />测试
                 </button>
-                <button type="button" disabled={busy === `sync:${source.id}`} onClick={() => void runSourceAction(source, 'sync')}>
+                <button type="button" disabled={busy === `sync:${source.id}`} data-state={running ? 'active' : undefined} aria-pressed={running} onClick={() => void runSourceAction(source, 'sync')}>
                   <RefreshCw size={15} />同步
                 </button>
-                <button type="button" disabled={busy === `metadata:${source.id}`} onClick={() => void runSourceAction(source, 'metadata')}>
+                <button type="button" disabled={busy === `metadata:${source.id}`} data-state={metadataActive ? 'active' : undefined} aria-pressed={metadataActive} onClick={() => void runSourceAction(source, 'metadata')}>
                   <RefreshCw size={15} />补齐元数据
                 </button>
-                <button type="button" disabled={busy === `cover:${source.id}`} onClick={() => void runSourceAction(source, 'cover')}>
+                <button type="button" disabled={busy === `cover:${source.id}`} data-state={coverActive ? 'active' : undefined} aria-pressed={coverActive} onClick={() => void runSourceAction(source, 'cover')}>
                   <RefreshCw size={15} />加载封面
                 </button>
-                <button type="button" disabled={busy === `match:${source.id}`} onClick={() => void runSourceAction(source, 'match')}>
+                <button type="button" disabled={busy === `match:${source.id}`} data-state={lyricsActive ? 'active' : undefined} aria-pressed={lyricsActive} onClick={() => void runSourceAction(source, 'match')}>
                   <Play size={15} />{'\u5339\u914d\u6b4c\u8bcd'}
                 </button>
-                <button type="button" disabled={busy === `retryFailed:${source.id}`} onClick={() => void runSourceAction(source, 'retryFailed')}>
+                <button type="button" disabled={busy === `retryFailed:${source.id}`} data-state={hasFailedMetadata ? 'active' : undefined} aria-pressed={hasFailedMetadata} onClick={() => void runSourceAction(source, 'retryFailed')}>
                   <RotateCcw size={15} />{'\u4ec5\u91cd\u8bd5\u5931\u8d25\u5143\u6570\u636e'}
                 </button>
-                <button type="button" disabled={busy === `pauseJobs:${source.id}`} onClick={() => void runSourceAction(source, 'pauseJobs')}>
-                  <PauseCircle size={15} />暂停后台任务
+                <button type="button" disabled={busy === `pauseJobs:${source.id}`} data-state={sourcePaused ? 'paused' : undefined} aria-pressed={sourcePaused} onClick={() => void runSourceAction(source, 'pauseJobs')}>
+                  <PauseCircle size={15} />{sourcePaused ? '\u6062\u590d\u540e\u53f0\u4efb\u52a1' : '\u6682\u505c\u540e\u53f0\u4efb\u52a1'}
                 </button>
                 <button type="button" disabled={busy === `browse:${source.id}`} onClick={() => void runSourceAction(source, 'browse')}>
                   <FolderOpen size={15} />浏览
                 </button>
-                <button type="button" onClick={() => void runSourceAction(source, 'toggle')}>
+                <button type="button" data-state={sourceDisabled ? 'off' : undefined} aria-pressed={sourceDisabled} onClick={() => void runSourceAction(source, 'toggle')}>
                   <Check size={15} />{source.status === 'disabled' ? '启用' : '禁用'}
                 </button>
                 {running ? <button type="button" onClick={() => void runSourceAction(source, 'cancel')}>取消</button> : null}
@@ -621,7 +636,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           ))}
         </div>
         <div className="remote-source-actions">
-          <button type="button" onClick={() => remoteApi?.setBackgroundPaused(!globalJobStatus.paused).then(setGlobalJobStatus)}>
+          <button type="button" data-state={globalJobStatus.paused ? 'paused' : undefined} aria-pressed={globalJobStatus.paused} onClick={() => remoteApi?.setBackgroundPaused(!globalJobStatus.paused).then(setGlobalJobStatus)}>
             {globalJobStatus.paused ? '恢复后台任务' : '全局暂停后台任务'}
           </button>
         </div>

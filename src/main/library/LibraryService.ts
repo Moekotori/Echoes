@@ -6,7 +6,9 @@ import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import electron from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import { defaultSettings, getAppSettings, setAppSettings } from '../app/appSettings';
+import { recordLibraryDatabaseMaintenanceEvent } from '../app/dataProtection';
 import { createDatabase, type EchoDatabase } from '../database/createDatabase';
+import { assertDatabaseHealthy } from '../database/health';
 import { AlbumService } from './AlbumService';
 import type { AlbumMergeStrategy } from './AlbumService';
 import { getDefaultCoverCacheDir, migrateCoverCache, resolveConfiguredCoverCacheDir, resolveCoverCacheDir } from './CoverCacheManager';
@@ -1637,6 +1639,30 @@ export const createLibraryService = (
     metadataConcurrency: scanConcurrency.metadataConcurrency,
     coverConcurrency: scanConcurrency.coverConcurrency,
     getAlbumMergeStrategy: () => readSettings().albumMergeStrategy,
+    checkDatabaseHealth: (scanStatus) => {
+      try {
+        assertDatabaseHealthy(databasePath);
+      } catch (error) {
+        recordLibraryDatabaseMaintenanceEvent({
+          action: 'scan-health-failed',
+          databasePath,
+          scan: {
+            jobId: scanStatus.id,
+            folderId: scanStatus.folderId,
+            phase: scanStatus.phase,
+            totalFiles: scanStatus.totalFiles,
+            processedFiles: scanStatus.processedFiles,
+            skippedFiles: scanStatus.skippedFiles,
+            addedTracks: scanStatus.addedTracks,
+            updatedTracks: scanStatus.updatedTracks,
+            removedTracks: scanStatus.removedTracks,
+            errorCount: scanStatus.errors.length,
+          },
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
   });
 
   const networkMetadataService = new NetworkMetadataService(database);

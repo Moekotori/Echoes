@@ -357,6 +357,116 @@ describe('playback media prepare IPC', () => {
     }));
   });
 
+  it('falls back to a matching local track when QQ Music rejects a playable VIP stream', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const playLocalFile = vi.fn().mockResolvedValue(undefined);
+    const resolvePlayback = vi.fn().mockRejectedValue(new Error('QQ 音乐返回无播放权限（104003）。请确认当前登录的是已开通会员的 QQ 音乐账号。'));
+    const getTracks = vi.fn().mockReturnValue({
+      items: [
+        {
+          id: 'local-track',
+          mediaType: 'local',
+          path: 'D:\\Music\\Glass Animals - The Other Side Of Paradise.flac',
+          title: 'The Other Side Of Paradise',
+          artist: 'Glass Animals',
+          album: 'How To Be A Human Being',
+          albumArtist: 'Glass Animals',
+          duration: 320.6,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 25,
+      hasMore: false,
+    });
+
+    vi.doMock('electron', () => ({
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => ({
+        getStatus: () => ({
+          state: 'playing',
+          currentTrackId: 'streaming-track',
+          positionSeconds: 0,
+          durationSeconds: 320,
+          currentFilePath: 'D:\\Music\\Glass Animals - The Other Side Of Paradise.flac',
+        }),
+        on: vi.fn(),
+        restorePlaybackMemory: vi.fn(),
+        playLocalFile,
+      }),
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/LibraryService', () => ({
+      getLibraryService: () => ({ getTracks }),
+    }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback,
+        invalidatePlayback: vi.fn(),
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    await handlers.get(IpcChannels.PlaybackPlayMediaItem)?.({}, {
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming-track',
+        provider: 'qqmusic',
+        providerTrackId: '003MqJoE1UFw4k',
+        stableKey: 'streaming:qqmusic:003MqJoE1UFw4k',
+        title: 'The Other Side Of Paradise (Explicit)',
+        artist: 'Glass Animals',
+        album: 'How To Be A Human Being (Explicit)',
+        duration: 320,
+      },
+    });
+
+    expect(resolvePlayback).toHaveBeenCalledWith({
+      provider: 'qqmusic',
+      providerTrackId: '003MqJoE1UFw4k',
+      quality: undefined,
+    });
+    expect(getTracks).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 25,
+      search: 'The Other Side Of Paradise (Explicit) Glass Animals',
+      sourceProvider: 'local',
+    });
+    expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: 'D:\\Music\\Glass Animals - The Other Side Of Paradise.flac',
+      trackId: 'streaming-track',
+      probe: expect.objectContaining({
+        durationSeconds: 320.6,
+      }),
+    }));
+  });
+
   it('refreshes an active streaming source when FFmpeg reports an expired CDN URL after playback started', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const reportAudioError = vi.fn();

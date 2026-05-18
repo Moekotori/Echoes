@@ -811,10 +811,13 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       const staleRegressionSeconds = previous.positionSeconds - boundedSourcePosition;
       const canIgnoreStaleRegression =
         canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
+      const canIgnoreStaleForwardJump = canBridgeSourceLag && sourceJumpedForward && Math.abs(previous.playbackRate - 1) > 0.001;
 
       if (rateChangeSourceDiscontinuity) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canIgnoreStaleRegression) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (canIgnoreStaleForwardJump) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
         nextPositionSeconds = estimatedPositionSeconds;

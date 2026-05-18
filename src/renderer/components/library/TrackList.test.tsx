@@ -102,6 +102,26 @@ describe('TrackList', () => {
     expect(screen.queryByRole('button', { name: /Like Song 1|Unlike Song 1/ })).toBeNull();
   });
 
+  it('marks selected rows and forwards Ctrl+click selection toggles', () => {
+    const onToggleSelected = vi.fn();
+    const tracks = [track(1), track(2)];
+
+    render(
+      <TrackList
+        currentTrackId={null}
+        tracks={tracks}
+        selectedTrackIds={{ 'track-2': true }}
+        onToggleSelected={onToggleSelected}
+      />,
+    );
+
+    expect(screen.getByText('Song 2').closest('.track-row')?.getAttribute('data-selected')).toBe('true');
+
+    fireEvent.click(screen.getByText('Song 1').closest('.track-row')!, { ctrlKey: true });
+
+    expect(onToggleSelected).toHaveBeenCalledWith(expect.objectContaining({ id: 'track-1' }));
+  });
+
   it('only requests one next page while the loaded boundary is still the same', () => {
     const onEndReached = vi.fn();
     const tracks = Array.from({ length: 2 }, (_, index) => track(index + 1));

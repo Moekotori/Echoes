@@ -699,6 +699,70 @@ describe("LyricsPage", () => {
     ).toContain("Second line");
   });
 
+  it("keeps high-speed active lyrics from jumping far forward on a brief same-track stale audio status", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.4);
+    window.echo.audio.getStatus = vi
+      .fn()
+      .mockResolvedValue({ ...makeAudioStatus(track, 10.4), playbackRate: 1.5 });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+
+    performanceNow.mockReturnValue(500);
+    act(() => {
+      emitAudioStatus({ ...makeAudioStatus(track, 25), playbackRate: 1.5 });
+    });
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Second line");
+  });
+
+  it("keeps slow-speed active lyrics from jumping far forward on a brief same-track stale audio status", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.4);
+    window.echo.audio.getStatus = vi
+      .fn()
+      .mockResolvedValue({ ...makeAudioStatus(track, 10.4), playbackRate: 0.5 });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+
+    performanceNow.mockReturnValue(500);
+    act(() => {
+      emitAudioStatus({ ...makeAudioStatus(track, 25), playbackRate: 0.5 });
+    });
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Second line");
+  });
+
   it("rebases active lyrics smoothly when playback speed changes with a stale source position", async () => {
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     const track = makeTrack();
@@ -1211,6 +1275,36 @@ describe("LyricsPage", () => {
 
     expect(page.dataset.background).toBe("theme");
     expect(page.style.getPropertyValue("--lyrics-cover")).toBe("none");
+  });
+
+  it("uses streaming remote artwork for the lyrics header and cover-following background", async () => {
+    const track = makeTrack({
+      mediaType: "streaming",
+      provider: "netease",
+      providerTrackId: "netease-track-1",
+      coverId: null,
+      coverThumb: "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg?referer=https%3A%2F%2Fmusic.163.com%2F",
+    });
+    mockEcho(track, 0, {
+      lyricsBackgroundMode: "cover",
+      lyricsHighResolutionNetworkCoverEnabled: false,
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Test Song" });
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+    const coverUrl = "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg?referer=https%3A%2F%2Fmusic.163.com%2F";
+
+    expect(container.querySelector(".lyrics-track-cover img")?.getAttribute("src")).toBe(coverUrl);
+    expect(page.dataset.background).toBe("cover");
+    expect(page.style.getPropertyValue("--lyrics-cover")).toBe(`url("${coverUrl}")`);
   });
 
   it("uses a high resolution network cover for cover-following lyrics background when available", async () => {
@@ -2119,6 +2213,7 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-context-opacity")).toBe(
       "0.64",
     );
+    expect(page.dataset.lyricsColorMode).toBe("manual");
   });
 
   it("keeps manual lyrics color when smart readable colors are disabled", async () => {
@@ -2140,8 +2235,30 @@ describe("LyricsPage", () => {
     const page = container.querySelector(".lyrics-page") as HTMLElement;
 
     expect(page.dataset.smartReadable).toBeUndefined();
+    expect(page.dataset.lyricsColorMode).toBe("manual");
     expect(page.style.getPropertyValue("--lyrics-color")).toBe("#FF3366");
     expect(page.style.getPropertyValue("--lyrics-smart-primary-color")).toBe("");
+  });
+
+  it("lets the default lyrics color fall back to theme typography", async () => {
+    const track = makeTrack();
+    mockEcho(track, 0, {
+      lyricsColor: "#314054",
+      lyricsBackgroundMode: "theme",
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Test Song" });
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+
+    expect(page.dataset.lyricsColorMode).toBe("theme");
   });
 
   it("applies smart readable colors immediately when enabled", async () => {
@@ -2167,6 +2284,29 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-smart-primary-color")).toMatch(/^rgb\(/);
     expect(page.style.getPropertyValue("--lyrics-smart-secondary-color")).toMatch(/^rgb\(/);
     expect(document.documentElement.dataset.lyricsSmartReadable).toBeUndefined();
+  });
+
+  it("applies lyrics readability enhancement in pure lyrics mode", async () => {
+    const track = makeTrack();
+    mockEcho(track);
+    attachMvBridge(null, {
+      ...defaultMvSettings,
+      lyricsReadabilityEnhanced: true,
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Test Song" });
+
+    await waitFor(() =>
+      expect(container.querySelector(".lyrics-mv-panel")?.getAttribute("data-lyrics-readability")).toBe("true"),
+    );
   });
 
   it("applies lyrics display settings from settings change events immediately", async () => {
@@ -2208,6 +2348,7 @@ describe("LyricsPage", () => {
     );
     expect(page.dataset.background).toBe("cover");
     expect(page.dataset.smartReadable).toBe("true");
+    expect(container.querySelector(".lyrics-mv-panel")?.getAttribute("data-lyrics-readability")).toBe("true");
     expect(page.style.getPropertyValue("--lyrics-color")).toBe("#FFFFFF");
     expect(page.style.getPropertyValue("--lyrics-smart-primary-color")).toMatch(/^rgb\(/);
     expect(page.style.getPropertyValue("--lyrics-cover-opacity")).toBe("0.24");

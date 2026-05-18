@@ -1517,6 +1517,89 @@ html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="
   -webkit-background-clip: text;
 }
 
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] {
+  --lyrics-color: #fff8df;
+  --lyrics-readable-color: #fff8df;
+  --lyrics-word-accent-color: #fff06f;
+  --lyrics-word-fill-color: var(--lyrics-word-accent-color);
+  --lyrics-word-upcoming-color: rgb(238 243 255 / 0.72);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line {
+  color: rgb(238 243 255 / 0.84);
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.78),
+    0 8px 24px rgb(2 4 12 / 0.54),
+    0 0 18px rgb(255 248 223 / 0.1);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-active="true"] {
+  color: #fff8df;
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.82),
+    0 10px 28px rgb(2 4 12 / 0.62),
+    0 0 22px rgb(255 248 223 / 0.16);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-active="true"] span:first-child {
+  background: linear-gradient(90deg, #fff8df, #93dcff 52%, #fff06f);
+  background-clip: text;
+  -webkit-background-clip: text;
+  filter: drop-shadow(0 3px 9px rgb(0 0 0 / 0.48));
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-focus-distance="1"] {
+  opacity: 0.72;
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-focus-distance="2"] {
+  opacity: 0.42;
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-focus-distance="3"],
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line[data-focus-distance="4"] {
+  opacity: 0.28;
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line small,
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-line em {
+  color: rgb(203 215 236 / 0.76);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.66);
+}
+
+html[data-theme-preset="darkSideMoon"] .lyrics-page[data-background="theme"] .lyrics-backdrop::before {
+  background:
+    linear-gradient(112deg, transparent 0 52%, rgb(237 47 59 / 0.06) 52% 56%, rgb(246 142 32 / 0.06) 56% 60%, rgb(255 216 79 / 0.07) 60% 64%, rgb(68 199 101 / 0.06) 64% 68%, rgb(40 184 240 / 0.06) 68% 72%, transparent 72.5%),
+    linear-gradient(180deg, rgb(16 17 26 / 0.26), rgb(16 17 26 / 0.58));
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] {
+  --lyrics-readable-color: var(--lyrics-color);
+  --lyrics-word-accent-color: var(--lyrics-color);
+  --lyrics-word-fill-color: var(--lyrics-color);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] .lyrics-line {
+  color: color-mix(in srgb, var(--lyrics-color) 58%, transparent);
+  text-shadow: 0 10px 28px rgb(var(--preset-shadow-rgb) / 0.12);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] .lyrics-line[data-active="true"] {
+  color: var(--lyrics-color);
+  text-shadow: 0 12px 30px color-mix(in srgb, var(--lyrics-color) 22%, transparent);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] .lyrics-line[data-active="true"] span:first-child {
+  color: inherit;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] .lyrics-line small,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .lyrics-page[data-background="theme"][data-lyrics-color-mode="manual"] .lyrics-line em {
+  color: color-mix(in srgb, var(--lyrics-color) 70%, transparent);
+}
+
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .page-surface:has(.settings-page) {
   background: var(--echo-polish-page-bg), var(--theme-app-bg);
 }
@@ -1565,9 +1648,7 @@ html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="
   --lyrics-mini-track-border: rgb(var(--preset-border-rgb) / 0.16);
   color: var(--lyrics-mini-readable-text);
   border: 1px solid rgb(var(--preset-border-rgb) / 0.2);
-  background:
-    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.93), rgb(var(--preset-soft-rgb) / 0.9)),
-    var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.9));
+  background: var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.9));
   box-shadow:
     0 18px 42px rgb(var(--preset-shadow-rgb) / 0.2),
     0 0 0 1px rgb(var(--preset-panel-rgb) / 0.62),
@@ -1621,9 +1702,7 @@ html[data-theme="dark"]:is([data-theme-custom="true"], [data-theme-preset]:not([
   --lyrics-mini-button-border: rgb(var(--preset-border-rgb) / 0.22);
   --lyrics-mini-track-bg: rgb(var(--preset-panel-rgb) / 0.78);
   --lyrics-mini-track-border: rgb(var(--preset-border-rgb) / 0.18);
-  background:
-    linear-gradient(180deg, rgb(var(--preset-panel-rgb) / 0.95), rgb(var(--preset-soft-rgb) / 0.96)),
-    var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.92));
+  background: var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.92));
   box-shadow:
     0 18px 44px rgb(0 0 0 / 0.34),
     0 0 0 1px rgb(var(--preset-border-rgb) / 0.08),
@@ -2048,6 +2127,71 @@ html[data-theme-preset="darkSideMoon"] .settings-range-field span {
   background: rgb(var(--preset-panel-rgb) / 0.86);
 }
 
+html[data-theme-preset="darkSideMoon"] .settings-wallpaper-control,
+html[data-theme-preset="darkSideMoon"] .settings-status-grid span,
+html[data-theme-preset="darkSideMoon"] .settings-cache-path,
+html[data-theme-preset="darkSideMoon"] .settings-cache-confirm,
+html[data-theme-preset="darkSideMoon"] .settings-cache-result,
+html[data-theme-preset="darkSideMoon"] .settings-inline-toggle,
+html[data-theme-preset="darkSideMoon"] .settings-number-field input,
+html[data-theme-preset="darkSideMoon"] .settings-lyrics-panel .lyrics-drawer-range,
+html[data-theme-preset="darkSideMoon"] .settings-account-row {
+  color: var(--theme-page-text);
+  border-color: rgb(246 240 216 / 0.16);
+  background:
+    linear-gradient(135deg, rgb(37 41 57 / 0.9), rgb(20 23 35 / 0.88)),
+    rgb(var(--preset-panel-rgb) / 0.84);
+  box-shadow:
+    0 14px 32px rgb(2 4 12 / 0.18),
+    inset 0 1px 0 rgb(246 240 216 / 0.07);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-wallpaper-control > span,
+html[data-theme-preset="darkSideMoon"] .settings-status-grid em,
+html[data-theme-preset="darkSideMoon"] .settings-cache-path em,
+html[data-theme-preset="darkSideMoon"] .settings-cache-confirm em,
+html[data-theme-preset="darkSideMoon"] .settings-cache-result em,
+html[data-theme-preset="darkSideMoon"] .settings-cache-confirm p,
+html[data-theme-preset="darkSideMoon"] .settings-cache-result p,
+html[data-theme-preset="darkSideMoon"] .settings-lyrics-panel .lyrics-drawer-range em,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider span,
+html[data-theme-preset="darkSideMoon"] .settings-account-panel-header p,
+html[data-theme-preset="darkSideMoon"] .settings-account-row p,
+html[data-theme-preset="darkSideMoon"] .settings-account-browser-field span {
+  color: rgb(218 227 246 / 0.82);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-status-grid strong,
+html[data-theme-preset="darkSideMoon"] .settings-cache-path strong,
+html[data-theme-preset="darkSideMoon"] .settings-cache-confirm strong,
+html[data-theme-preset="darkSideMoon"] .settings-cache-result strong,
+html[data-theme-preset="darkSideMoon"] .settings-inline-toggle,
+html[data-theme-preset="darkSideMoon"] .settings-number-field,
+html[data-theme-preset="darkSideMoon"] .settings-number-field input,
+html[data-theme-preset="darkSideMoon"] .settings-lyrics-panel .lyrics-drawer-range strong,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider span em strong,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider > span > strong,
+html[data-theme-preset="darkSideMoon"] .settings-account-panel-header h3,
+html[data-theme-preset="darkSideMoon"] .settings-account-row h3,
+html[data-theme-preset="darkSideMoon"] .settings-account-cookie-field input {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-account-panel {
+  border-top-color: rgb(246 240 216 / 0.13);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-account-cookie-field input {
+  border-color: rgb(246 240 216 / 0.18);
+  background: rgb(13 16 25 / 0.76);
+}
+
+html[data-theme-preset="darkSideMoon"] .settings-lyrics-panel .lyrics-drawer-range em,
+html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider > span > strong {
+  border: 1px solid rgb(246 240 216 / 0.18);
+  background: rgb(12 15 24 / 0.58);
+}
+
 html[data-theme-preset="darkSideMoon"] .settings-range-field input[type="range"],
 html[data-theme-preset="darkSideMoon"] .settings-theme-custom-slider input[type="range"],
 html[data-theme-preset="darkSideMoon"] .lyrics-drawer-range input[type="range"] {
@@ -2088,16 +2232,224 @@ html[data-theme-preset="darkSideMoon"] .lyrics-drawer-range input[type="range"]:
   appearance: none;
 }
 
-html[data-theme-preset="darkSideMoon"] .settings-section,
 html[data-theme-preset="darkSideMoon"] .settings-theme-custom-panel,
 html[data-theme-preset="darkSideMoon"] .settings-theme-custom-color-card,
 html[data-theme-preset="darkSideMoon"] .settings-theme-custom-gradient-card,
 html[data-theme-preset="darkSideMoon"] .settings-theme-custom-sliders {
   border-color: rgb(var(--preset-border-rgb) / 0.15);
-  background: rgb(var(--preset-panel-rgb) / 0.78);
+  background:
+    linear-gradient(135deg, rgb(36 40 57 / 0.82), rgb(18 21 32 / 0.86)),
+    rgb(var(--preset-panel-rgb) / 0.78);
   box-shadow:
     0 18px 42px rgb(2 4 12 / 0.28),
     inset 0 1px 0 rgb(246 240 216 / 0.08);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-panel {
+  color: var(--theme-page-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-title-block h2,
+html[data-theme-preset="darkSideMoon"] .eq-status-card strong,
+html[data-theme-preset="darkSideMoon"] .eq-preamp-bar strong,
+html[data-theme-preset="darkSideMoon"] .eq-preset-metadata span,
+html[data-theme-preset="darkSideMoon"] .eq-inspector-title strong,
+html[data-theme-preset="darkSideMoon"] .eq-compare-label,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip span,
+html[data-theme-preset="darkSideMoon"] .channel-balance-header h3,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group header strong,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group label strong,
+html[data-theme-preset="darkSideMoon"] .channel-calibration-readout strong,
+html[data-theme-preset="darkSideMoon"] .channel-balance-readout strong {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-title-block p,
+html[data-theme-preset="darkSideMoon"] .eq-status-card span,
+html[data-theme-preset="darkSideMoon"] .eq-preamp-bar span,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools span,
+html[data-theme-preset="darkSideMoon"] .eq-preset-search,
+html[data-theme-preset="darkSideMoon"] .eq-preset-menu-heading,
+html[data-theme-preset="darkSideMoon"] .eq-preset-metadata p,
+html[data-theme-preset="darkSideMoon"] .eq-preset-metadata em,
+html[data-theme-preset="darkSideMoon"] .eq-level-meter em,
+html[data-theme-preset="darkSideMoon"] .eq-level-meter p,
+html[data-theme-preset="darkSideMoon"] .eq-inspector-title span,
+html[data-theme-preset="darkSideMoon"] .eq-inspector label span,
+html[data-theme-preset="darkSideMoon"] .eq-inspector em,
+html[data-theme-preset="darkSideMoon"] .eq-compare-row span,
+html[data-theme-preset="darkSideMoon"] .eq-compare-toggle,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip strong,
+html[data-theme-preset="darkSideMoon"] .eq-x-label,
+html[data-theme-preset="darkSideMoon"] .eq-y-label,
+html[data-theme-preset="darkSideMoon"] .channel-balance-header p,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group header span,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group label > span,
+html[data-theme-preset="darkSideMoon"] .channel-calibration-readout em,
+html[data-theme-preset="darkSideMoon"] .channel-balance-wide em,
+html[data-theme-preset="darkSideMoon"] .channel-balance-readout em {
+  color: rgb(212 224 244 / 0.82);
+  fill: rgb(212 224 244 / 0.82);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-title-icon,
+html[data-theme-preset="darkSideMoon"] .eq-enable-pill,
+html[data-theme-preset="darkSideMoon"] .eq-icon-action,
+html[data-theme-preset="darkSideMoon"] .eq-preset-search,
+html[data-theme-preset="darkSideMoon"] .eq-preset-filter,
+html[data-theme-preset="darkSideMoon"] .eq-preset-trigger,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools input,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools button,
+html[data-theme-preset="darkSideMoon"] .eq-soft-button,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip,
+html[data-theme-preset="darkSideMoon"] .eq-status-card,
+html[data-theme-preset="darkSideMoon"] .eq-preset-metadata,
+html[data-theme-preset="darkSideMoon"] .eq-preamp-bar,
+html[data-theme-preset="darkSideMoon"] .eq-level-meter,
+html[data-theme-preset="darkSideMoon"] .eq-inspector,
+html[data-theme-preset="darkSideMoon"] .eq-inspector label,
+html[data-theme-preset="darkSideMoon"] .eq-inspector input[type="number"],
+html[data-theme-preset="darkSideMoon"] .eq-compare-row,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group,
+html[data-theme-preset="darkSideMoon"] .channel-calibration-readout span,
+html[data-theme-preset="darkSideMoon"] .channel-balance-meter,
+html[data-theme-preset="darkSideMoon"] .channel-balance-readout span {
+  color: var(--theme-page-text);
+  border-color: rgb(246 240 216 / 0.15);
+  background: rgb(19 23 35 / 0.84);
+  box-shadow: none;
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-workbench,
+html[data-theme-preset="darkSideMoon"] .channel-balance-panel {
+  border-color: rgb(246 240 216 / 0.16);
+  background:
+    linear-gradient(135deg, rgb(38 42 58 / 0.9), rgb(14 17 27 / 0.92)),
+    rgb(var(--preset-soft-rgb) / 0.92);
+  box-shadow:
+    0 18px 46px rgb(2 4 12 / 0.24),
+    inset 0 1px 0 rgb(246 240 216 / 0.07);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-curve-shell {
+  border-color: rgb(246 240 216 / 0.16);
+  background:
+    linear-gradient(180deg, rgb(37 42 58 / 0.94), rgb(15 18 28 / 0.96)),
+    rgb(15 18 28 / 0.96);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-preset-menu {
+  border-color: rgb(246 240 216 / 0.16);
+  background: rgb(14 18 29 / 0.98);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.42);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-preset-filter-chip,
+html[data-theme-preset="darkSideMoon"] .eq-preset-option,
+html[data-theme-preset="darkSideMoon"] .eq-preset-search input,
+html[data-theme-preset="darkSideMoon"] .eq-preset-trigger,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools input,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools button,
+html[data-theme-preset="darkSideMoon"] .eq-soft-button,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip,
+html[data-theme-preset="darkSideMoon"] .eq-inspector input[type="number"] {
+  color: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-preset-filter-chip[data-active="true"],
+html[data-theme-preset="darkSideMoon"] .eq-preset-option[data-selected="true"],
+html[data-theme-preset="darkSideMoon"] .eq-status-card[data-active="true"],
+html[data-theme-preset="darkSideMoon"] .eq-preset-metadata strong,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip[data-selected="true"],
+html[data-theme-preset="darkSideMoon"] .eq-soft-button[data-active="true"] {
+  color: #fff8df;
+  border-color: rgb(143 220 255 / 0.34);
+  background:
+    linear-gradient(135deg, rgb(143 220 255 / 0.16), rgb(246 240 216 / 0.1)),
+    rgb(22 30 43 / 0.9);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-icon-action:hover,
+html[data-theme-preset="darkSideMoon"] .eq-soft-button:hover,
+html[data-theme-preset="darkSideMoon"] .eq-preset-tools button:hover,
+html[data-theme-preset="darkSideMoon"] .eq-band-chip:hover,
+html[data-theme-preset="darkSideMoon"] .eq-preset-trigger:hover,
+html[data-theme-preset="darkSideMoon"] .eq-preset-filter-chip:hover,
+html[data-theme-preset="darkSideMoon"] .eq-preset-option:hover {
+  color: #fff8df;
+  border-color: rgb(246 240 216 / 0.28);
+  background: rgb(45 52 70 / 0.86);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-status-card[data-risk="true"],
+html[data-theme-preset="darkSideMoon"] .eq-level-meter[data-risk="true"],
+html[data-theme-preset="darkSideMoon"] .eq-soft-button[data-risk="true"] {
+  color: #ffd0b2;
+  border-color: rgb(255 151 96 / 0.32);
+  background: rgb(86 45 28 / 0.36);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-enable-pill input {
+  border-color: #93dcff;
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-enable-pill input::before {
+  background: #93dcff;
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-preamp-bar input,
+html[data-theme-preset="darkSideMoon"] .eq-inspector-toggle input,
+html[data-theme-preset="darkSideMoon"] .eq-compare-toggle input,
+html[data-theme-preset="darkSideMoon"] .channel-tool-group input[type="range"] {
+  accent-color: #93dcff;
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-grid-line {
+  stroke: rgb(210 224 246 / 0.12);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-grid-line[data-major="true"] {
+  stroke: rgb(210 224 246 / 0.22);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-zero-line {
+  stroke: rgb(255 248 223 / 0.38);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-curve-node {
+  fill: rgb(16 20 31 / 0.98);
+  stroke: rgb(218 227 246 / 0.86);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-curve-node-number,
+html[data-theme-preset="darkSideMoon"] .eq-selected-readout text {
+  fill: var(--theme-heading-text);
+}
+
+html[data-theme-preset="darkSideMoon"] .eq-curve-node-group[data-active="true"] .eq-curve-node,
+html[data-theme-preset="darkSideMoon"] .eq-curve-node-group:focus .eq-curve-node {
+  fill: rgb(37 67 80 / 0.96);
+  stroke: #93dcff;
+}
+
+html[data-theme-preset="darkSideMoon"] .channel-balance-meter {
+  background:
+    linear-gradient(90deg, rgb(143 220 255 / 0.22), transparent 50%, rgb(255 216 79 / 0.2)),
+    rgb(11 15 24 / 0.76);
+}
+
+html[data-theme-preset="darkSideMoon"] .channel-balance-meter::before {
+  background: rgb(255 248 223 / 0.3);
+}
+
+html[data-theme-preset="darkSideMoon"] .channel-balance-meter span {
+  border-color: #93dcff;
+  background: #10141f;
+}
+
+html[data-theme-preset="darkSideMoon"] .channel-balance-readout p,
+html[data-theme-preset="darkSideMoon"] .eq-panel-error {
+  color: #ffb48e;
 }
 
 html[data-theme-preset="darkSideMoon"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop,
@@ -2275,6 +2627,76 @@ html[data-theme-preset="darkSideMoon"] .player-bar .progress-track:focus-within 
     width: 31px;
     height: 27px;
   }
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar {
+  background-size: auto;
+  animation: none;
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lyrics-mini-track-bg, rgba(255, 255, 255, 0.22));
+  box-shadow: none;
+  image-rendering: auto;
+  isolation: auto;
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track::before,
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track::after,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track::before,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track::after {
+  content: none;
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill {
+  position: static;
+  width: var(--progress-percent, 0%);
+  max-width: none;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--theme-accent-solid-bg), var(--preset-secondary));
+  box-shadow: none;
+  filter: none;
+  image-rendering: auto;
+  animation: none;
+  transform: none;
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb {
+  top: 50%;
+  z-index: 2;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--theme-panel-bg-strong);
+  border-radius: 50%;
+  background: var(--theme-accent-solid-bg);
+  clip-path: none;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
+  filter: none;
+  image-rendering: auto;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.8);
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb::before,
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb::after,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb::before,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-thumb::after {
+  content: none;
+}
+
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track:hover .progress-thumb,
+html[data-theme-preset="nyanCat"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track:focus-within .progress-thumb,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track:hover .progress-thumb,
+html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track:focus-within .progress-thumb {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.05);
 }
 
 .setting-row--theme-presets {

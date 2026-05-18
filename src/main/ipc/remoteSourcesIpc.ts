@@ -202,6 +202,9 @@ export const registerRemoteSourcesIpc = (): void => {
   ipcMain.handle(IpcChannels.RemoteSourcesPauseBackgroundJobs, (_event, sourceId: unknown) =>
     getRemoteSourceService().pauseBackgroundJobs(requireText(sourceId, 'sourceId')),
   );
+  ipcMain.handle(IpcChannels.RemoteSourcesResumeBackgroundJobs, (_event, sourceId: unknown) =>
+    getRemoteSourceService().resumeBackgroundJobs(requireText(sourceId, 'sourceId')),
+  );
   ipcMain.handle(IpcChannels.RemoteSourcesGetJobStatus, (_event, sourceId: unknown) =>
     getRemoteSourceService().getJobStatus(requireText(sourceId, 'sourceId')),
   );

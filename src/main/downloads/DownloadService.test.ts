@@ -1117,6 +1117,48 @@ describe('DownloadService', () => {
     expect(bindMvUrl).toHaveBeenCalledWith('track-1', 'https://www.bilibili.com/video/BV1ECHO');
   });
 
+  it('falls back to the real downloaded file when yt-dlp prints a mojibake path', async () => {
+    const ytDlpPath = makeToolPath();
+    const outputDirectory = makeTempRoot();
+    const outputPath = join(outputDirectory, '鏡音リン - ねぇねぇねぇ.m4a');
+    const mojibakePath = join(outputDirectory, '鏡音リン - ������������.m4a');
+    const importAudioFile = vi.fn(async () => ({ id: 'track-unicode' }));
+    const service = new DownloadService(
+      () => ({
+        promise: Promise.resolve({
+          stdout: JSON.stringify({
+            title: '鏡音リン - ねぇねぇねぇ',
+            webpage_url: 'https://www.bilibili.com/video/BV1UNICODE',
+          }),
+          stderr: '',
+          exitCode: 0,
+        }),
+        kill: vi.fn(),
+      }),
+      () => ytDlpPath,
+      {
+        importAudioFile,
+        streamingCommandRunner: (_command, _args, listeners) => {
+          writeFileSync(outputPath, 'audio');
+          listeners.onStdout?.(mojibakePath);
+          return {
+            promise: Promise.resolve({ stdout: mojibakePath, stderr: '', exitCode: 0 }),
+            kill: vi.fn(),
+          };
+        },
+      },
+    );
+    service.setSettings({ outputDirectory, importToLibrary: true, bindMvAfterImport: false });
+
+    const job = service.createUrlJob('https://www.bilibili.com/video/BV1UNICODE');
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.outputPath).toBe(outputPath);
+    expect(completedJob.importedTrackId).toBe('track-unicode');
+    expect(importAudioFile).toHaveBeenCalledWith(outputPath, { folderPath: outputDirectory });
+  });
+
   it('keeps the downloaded audio imported when MV binding rejects the source URL', async () => {
     const ytDlpPath = makeToolPath();
     const outputDirectory = makeTempRoot();

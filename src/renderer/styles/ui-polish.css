@@ -322,10 +322,17 @@ html[data-theme="dark"] .sidebar-folder:hover {
 
 .settings-page .settings-section {
   color: var(--theme-page-text);
-  border: 1px solid var(--theme-panel-border);
-  border-radius: var(--radius-md);
-  background: var(--theme-panel-bg);
-  box-shadow: var(--theme-shadow-panel);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-page .settings-cache-panel--mv-network {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .settings-page .section-title {
@@ -840,6 +847,9 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .playlist-action-menu,
 .playlist-quality-menu,
 .track-context-menu,
+.track-playlist-submenu,
+.album-context-menu,
+.album-playlist-submenu,
 .font-picker-modal {
   border-color: var(--echo-polish-border);
   border-radius: var(--radius-md);
@@ -851,7 +861,10 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .streaming-quality-menu button,
 .playlist-action-menu-item,
 .playlist-quality-menu button,
-.track-context-menu button {
+.track-context-menu button,
+.track-playlist-submenu-item,
+.album-menu-item,
+.album-playlist-submenu-item {
   color: var(--theme-button-text);
   border-radius: var(--radius-md);
 }
@@ -862,9 +875,16 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .streaming-quality-menu button[aria-selected="true"],
 .playlist-action-menu-item:hover,
 .playlist-quality-menu button:hover,
-.track-context-menu button:hover {
+.track-context-menu button:hover,
+.track-playlist-submenu-item:hover,
+.album-menu-item:hover,
+.album-playlist-submenu-item:hover {
   color: var(--theme-heading-text);
   background: var(--echo-polish-active-bg);
+}
+
+.album-menu-item svg {
+  color: currentColor;
 }
 
 .chrome-notice,

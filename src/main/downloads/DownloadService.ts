@@ -2138,7 +2138,7 @@ export class DownloadService extends EventEmitter {
       return null;
     }
 
-    return this.isSupportedAudioPath(candidate) ? candidate : null;
+    return existsSync(candidate) && this.isSupportedAudioPath(candidate) ? candidate : null;
   }
 
   private findNewestAudioFile(outputDirectory: string, startedAtMs: number): string | null {

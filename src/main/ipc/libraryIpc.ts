@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { isScannableAudioExtension } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
@@ -34,9 +35,13 @@ import type {
   LibraryScanMode,
 } from '../../shared/types/library';
 import { getAppSettings } from '../app/appSettings';
-import { getLibraryService } from '../library/LibraryService';
+import { deleteProtectedLibraryDatabase, repairProtectedLibraryDatabase } from '../app/dataProtection';
+import { closeDefaultLibraryService, getLibraryService } from '../library/LibraryService';
+import { closeDefaultRemoteSourceService } from '../library/remote/RemoteSourceService';
+import { closeDefaultLyricsService } from '../lyrics/LyricsService';
+import { closeDefaultMvService } from '../mv/MvService';
 import { SongCardRenderer } from '../library/SongCardRenderer';
-import { getStreamingService } from '../streaming/StreamingService';
+import { closeDefaultStreamingService, getStreamingService } from '../streaming/StreamingService';
 import { decodeM3u8ProviderTrackId } from '../streaming/M3u8Playlist';
 
 const sortValues = new Set<LibrarySort>([
@@ -60,6 +65,14 @@ const sortValues = new Set<LibrarySort>([
 ]);
 const sourceProviderValues = new Set(['local', 'netease', 'qqmusic', 'spotify', 'remote', 'm3u8']);
 const songCardRenderer = new SongCardRenderer();
+
+const closeLibraryDatabaseUsers = (): void => {
+  closeDefaultLyricsService();
+  closeDefaultMvService();
+  closeDefaultStreamingService();
+  closeDefaultRemoteSourceService();
+  closeDefaultLibraryService();
+};
 
 const requireText = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -149,6 +162,68 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
   }
 
   return query;
+};
+
+const httpUrlPattern = /^https?:\/\//iu;
+
+const normalizeM3uLocalPath = (line: string, playlistDir: string): string | null => {
+  const trimmed = line.trim().replace(/^"(.*)"$/u, '$1');
+  if (!trimmed || httpUrlPattern.test(trimmed)) {
+    return null;
+  }
+
+  if (/^file:\/\//iu.test(trimmed)) {
+    try {
+      return fileURLToPath(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (/^[a-z]:[\\/]/iu.test(trimmed) || /^\\\\/u.test(trimmed)) {
+    return resolve(trimmed);
+  }
+
+  return resolve(playlistDir, trimmed);
+};
+
+const parseLocalM3uPlaylistFile = (filePath: string, content: string): { title: string; paths: string[]; hasRemoteUrls: boolean } => {
+  const playlistDir = dirname(filePath);
+  const paths: string[] = [];
+  let title = basename(filePath).replace(/\.(m3u8?|txt)$/iu, '') || 'Imported Playlist';
+  let hasRemoteUrls = false;
+
+  for (const rawLine of content.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    if (line.startsWith('#PLAYLIST:')) {
+      title = line.slice('#PLAYLIST:'.length).trim() || title;
+      continue;
+    }
+
+    if (line.startsWith('#')) {
+      continue;
+    }
+
+    if (httpUrlPattern.test(line)) {
+      hasRemoteUrls = true;
+      continue;
+    }
+
+    const localPath = normalizeM3uLocalPath(line, playlistDir);
+    if (localPath) {
+      paths.push(localPath);
+    }
+  }
+
+  return {
+    title,
+    paths: Array.from(new Set(paths)),
+    hasRemoteUrls,
+  };
 };
 
 type ArtistImageIpcInput = { id?: string; name?: string; artistKey?: string; artistName?: string };
@@ -1017,7 +1092,27 @@ const importPlaylistFile = async (): Promise<ImportPlaylistFileResult | null> =>
   }
 
   const filePath = result.filePaths[0];
-  const imported = await getStreamingService().importM3u8PlaylistFile(filePath, readFileSync(filePath, 'utf8'));
+  const content = readFileSync(filePath, 'utf8');
+  const localPlaylist = parseLocalM3uPlaylistFile(filePath, content);
+  const localClassification = classifyImportPaths(localPlaylist.paths);
+
+  if (localClassification.audioFiles.length > 0) {
+    const service = getLibraryService();
+    const playlist = service.createPlaylist({ name: localPlaylist.title });
+    const imported = await addLocalAudioFilesToPlaylist(playlist.id, localPlaylist.paths);
+    return {
+      playlistId: playlist.id,
+      playlistName: playlist.name,
+      importedCount: imported.addedCount,
+      filePath,
+    };
+  }
+
+  if (localPlaylist.paths.length > 0 && !localPlaylist.hasRemoteUrls) {
+    throw new Error('The selected playlist did not contain any existing supported audio files.');
+  }
+
+  const imported = await getStreamingService().importM3u8PlaylistFile(filePath, content);
   return {
     playlistId: imported.playlistId,
     playlistName: imported.playlistName,
@@ -1380,6 +1475,14 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryPruneInvalidTracks, () => getLibraryService().pruneInvalidTracks());
   ipcMain.handle(IpcChannels.LibraryClearTracks, () => getLibraryService().clearTracks());
   ipcMain.handle(IpcChannels.LibraryClearCache, () => getLibraryService().clearCache());
+  ipcMain.handle(IpcChannels.LibraryRepairDatabase, () => {
+    closeLibraryDatabaseUsers();
+    return repairProtectedLibraryDatabase(app.getPath('userData'));
+  });
+  ipcMain.handle(IpcChannels.LibraryDeleteDatabase, () => {
+    closeLibraryDatabaseUsers();
+    return deleteProtectedLibraryDatabase(app.getPath('userData'));
+  });
   ipcMain.handle(IpcChannels.LibraryNetworkRepairMissingMetadata, (_event, trackId: unknown) =>
     {
       const settings = getAppSettings();

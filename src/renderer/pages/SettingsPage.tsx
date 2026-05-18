@@ -28,6 +28,8 @@ import {
   X,
   Zap,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
@@ -643,7 +645,7 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     'BPM',
   ],
   about: ['about', 'version', 'update', 'diagnostics', 'crash', 'repository', '关于', '版本', '更新', '诊断', '崩溃', '仓库'],
-  danger: ['danger', 'reset', 'clear cache', 'delete cache', 'restore defaults', '危险', '重置', '清空缓存', '恢复默认'],
+  danger: ['danger', 'reset', 'clear cache', 'delete cache', 'restore defaults', 'rebuild database', 'repair database', 'delete database', '危险', '重置', '清空缓存', '恢复默认', '重建数据库', '修复数据库', '删除数据库'],
 };
 
 const normalizeSettingsSearchText = (value: string): string => value.trim().toLocaleLowerCase();
@@ -2781,6 +2783,11 @@ export const SettingsPage = (): JSX.Element => {
   const { locale, localeOptions, setLocale, t } = useI18n();
   const playbackQueue = usePlaybackQueue();
   const settingsScrollShellRef = useRef<HTMLDivElement | null>(null);
+  const [settingsHorizontalScroll, setSettingsHorizontalScroll] = useState({
+    available: false,
+    canLeft: false,
+    canRight: false,
+  });
   const [activeSection, setActiveSection] = useState<SettingsNavKey>('general');
   const [settingsQuery, setSettingsQuery] = useState('');
   const [highlightedSettingId, setHighlightedSettingId] = useState<string | null>(null);
@@ -3472,6 +3479,73 @@ export const SettingsPage = (): JSX.Element => {
         });
     });
   }, [activeSection]);
+
+  const refreshSettingsHorizontalScroll = useCallback((): void => {
+    const scrollShell = settingsScrollShellRef.current;
+    if (!scrollShell) {
+      setSettingsHorizontalScroll({ available: false, canLeft: false, canRight: false });
+      return;
+    }
+
+    const maxScrollLeft = scrollShell.scrollWidth - scrollShell.clientWidth;
+    const nextState = {
+      available: maxScrollLeft > 8,
+      canLeft: scrollShell.scrollLeft > 4,
+      canRight: scrollShell.scrollLeft < maxScrollLeft - 4,
+    };
+
+    setSettingsHorizontalScroll((current) =>
+      current.available === nextState.available && current.canLeft === nextState.canLeft && current.canRight === nextState.canRight
+        ? current
+        : nextState,
+    );
+  }, []);
+
+  useEffect(() => {
+    const scrollShell = settingsScrollShellRef.current;
+    if (!scrollShell) {
+      return undefined;
+    }
+
+    let frameId = window.requestAnimationFrame(refreshSettingsHorizontalScroll);
+    const handleScroll = (): void => refreshSettingsHorizontalScroll();
+    const handleResize = (): void => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(refreshSettingsHorizontalScroll);
+    };
+
+    scrollShell.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleResize);
+
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            handleResize();
+          });
+
+    resizeObserver?.observe(scrollShell);
+    if (scrollShell.firstElementChild instanceof HTMLElement) {
+      resizeObserver?.observe(scrollShell.firstElementChild);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      scrollShell.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
+    };
+  }, [activeSection, refreshSettingsHorizontalScroll]);
+
+  const handleSettingsHorizontalScroll = (direction: -1 | 1): void => {
+    const scrollShell = settingsScrollShellRef.current;
+    if (!scrollShell) {
+      return;
+    }
+
+    const distance = Math.min(Math.max(scrollShell.clientWidth * 0.72, 180), 360);
+    scrollShell.scrollBy({ left: direction * distance, behavior: 'smooth' });
+  };
 
   const applyOutputSettings = useCallback(
     async (nextOutputMode = outputMode, nextDeviceId = selectedDeviceId, nextSharedBackend = sharedBackend) => {
@@ -5182,6 +5256,63 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const handleRepairLibraryDatabase = async (): Promise<void> => {
+    if (!window.confirm('重建曲库数据库？这会归档当前曲库数据库并删除正在使用的数据库索引，不会删除你的音乐文件。重建后需要重新添加歌曲文件夹并扫描。')) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+
+    if (!library?.repairDatabase) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to repair the library database.');
+      return;
+    }
+
+    try {
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.repairDatabase();
+      const archived = result.archivePath ? `已归档旧数据库：${result.archivePath}` : '没有发现旧数据库文件。';
+      setDangerMessage(`曲库数据库已重建为空库。${archived} 请重新添加歌曲文件夹并扫描；如果重扫后再次报错，请直接导出诊断。`);
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (repairError) {
+      setDangerMessage(null);
+      setError(repairError instanceof Error ? repairError.message : String(repairError));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
+  const handleDeleteLibraryDatabase = async (): Promise<void> => {
+    if (!window.confirm('删除曲库数据库？这会归档并删除当前数据库文件，不会主动重建数据库，也不会删除你的音乐文件。删除后请重启 ECHO Next，再重新添加歌曲文件夹并扫描。')) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+
+    if (!library?.deleteDatabase) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to delete the library database.');
+      return;
+    }
+
+    try {
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.deleteDatabase();
+      const archived = result.archivePath ? `已归档旧数据库：${result.archivePath}` : '没有发现旧数据库文件。';
+      const removed = result.removedDatabaseFiles.length > 0 ? `已删除 ${result.removedDatabaseFiles.join('、')}。` : '没有需要删除的数据库文件。';
+      setDangerMessage(`曲库数据库已删除。${removed}${archived} 请重启 ECHO Next 后重新添加歌曲文件夹并扫描。`);
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (deleteError) {
+      setDangerMessage(null);
+      setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
   const handleResetDefaultSettings = async (): Promise<void> => {
     if (!window.confirm('恢复默认设置？这会重置应用偏好、封面缓存目录和外观偏好，不会删除音乐文件或曲库文件夹。')) {
       return;
@@ -5381,8 +5512,28 @@ export const SettingsPage = (): JSX.Element => {
           })}
         </nav>
 
-        <div className="settings-scroll-shell" ref={settingsScrollShellRef}>
-          <div className="settings-content">
+        <div className={`settings-scroll-frame ${settingsHorizontalScroll.available ? 'has-horizontal-overflow' : ''}`}>
+          <button
+            className="settings-horizontal-pager settings-horizontal-pager--left"
+            type="button"
+            aria-label="向左翻动设置内容"
+            disabled={!settingsHorizontalScroll.canLeft}
+            onClick={() => handleSettingsHorizontalScroll(-1)}
+          >
+            <ChevronLeft size={18} aria-hidden="true" />
+          </button>
+          <button
+            className="settings-horizontal-pager settings-horizontal-pager--right"
+            type="button"
+            aria-label="向右翻动设置内容"
+            disabled={!settingsHorizontalScroll.canRight}
+            onClick={() => handleSettingsHorizontalScroll(1)}
+          >
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+
+          <div className="settings-scroll-shell" ref={settingsScrollShellRef}>
+            <div className="settings-content">
             <SettingSection activeKey={activeSection} icon={MessageSquare} id="general" title={t('settings.nav.general.label')}>
               <SettingRow title={t('settings.general.language.title')} description={t('settings.general.language.description')}>
                 <div className="settings-chip-row">
@@ -5573,7 +5724,7 @@ export const SettingsPage = (): JSX.Element => {
                 title="ReplayGain 响度标准化"
                 description="读取已有 ReplayGain/R128 标签；缺失时只分析并写入 ECHO 数据库，不修改你的音乐文件。"
               >
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
                       <span>启用 ReplayGain</span>
@@ -5814,7 +5965,7 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('mvSettings.network.title')}
                 description={t('mvSettings.network.autoApplyThresholdDescription', { threshold: formatMvThreshold(appSettings?.mvAutoApplyThreshold) })}
               >
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--mv-network">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
                       <span>{t('mvSettings.network.autoApply')}</span>
@@ -5897,7 +6048,7 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('mvSettings.immersive.title')}
                 description={t('mvSettings.immersive.description')}
               >
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--mv-immersive">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
                       <span>{t('mvSettings.immersive.title')}</span>
@@ -6021,7 +6172,7 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow className="setting-row--full" title={t('settings.integrations.lastfm.connection.title')} description={t('settings.integrations.lastfm.connection.description')}>
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" onClick={() => void handleLastFmConnect()}>
                       {t('settings.integrations.lastfm.action.connect')}
@@ -6545,7 +6696,7 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('settings.appearance.artistAvatars.title')}
                 description={t('settings.appearance.artistAvatars.description')}
               >
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--artist-avatars">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
                       <span>{t('settings.appearance.artistAvatars.toggle')}</span>
@@ -6650,7 +6801,7 @@ export const SettingsPage = (): JSX.Element => {
                 title="歌单自动备份"
                 description="开启后，刷新、清空或删除歌单前会先在系统下载文件夹保存一份 JSON 备份。"
               >
-                <div className="settings-inline-toggle">
+                <div className="settings-inline-toggle settings-inline-toggle--compact">
                   <span>{appSettings?.playlistBackupsEnabled === false ? '已关闭' : '已开启'}</span>
                   <ToggleButton
                     active={appSettings?.playlistBackupsEnabled ?? true}
@@ -7155,6 +7306,16 @@ export const SettingsPage = (): JSX.Element => {
                   {dangerBusy ? '处理中...' : '恢复默认设置'}
                 </button>
               </SettingRow>
+              <SettingRow title="重建曲库数据库" description="曲库数据库完全损坏、重新添加文件夹无效、重扫没反应时使用；会归档旧数据库并删除当前索引，不删除音乐文件。">
+                <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleRepairLibraryDatabase()}>
+                  {dangerBusy ? '处理中...' : '重建曲库数据库'}
+                </button>
+              </SettingRow>
+              <SettingRow title="删除曲库数据库" description="比重建更硬：只归档并删除数据库文件，不主动创建新库；适合重建也失败或数据库文件被严重损坏时使用。">
+                <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleDeleteLibraryDatabase()}>
+                  {dangerBusy ? '处理中...' : '删除曲库数据库'}
+                </button>
+              </SettingRow>
               {dangerMessage ? <p className="settings-inline-note">{dangerMessage}</p> : null}
             </SettingSection>
 
@@ -7189,6 +7350,7 @@ export const SettingsPage = (): JSX.Element => {
             </details>
           </div>
         </div>
+      </div>
       </div>
       {fontPickerTarget ? (
         <FontPickerModal

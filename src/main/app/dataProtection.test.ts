@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -8,6 +8,7 @@ import {
   ensureDataProtection,
   getProtectedUserDataPath,
   initializeProtectedUserDataPath,
+  isProtectedLibraryAvailable,
   migrateLegacyProtectedData,
   restoreMissingProtectedData,
   writeDataProtectionManifest,
@@ -169,41 +170,55 @@ describe('dataProtection', () => {
     expect(manifest.libraryBackupMethod).toBe('sqlite-backup');
   });
 
-  it('archives a corrupt library and restores the latest healthy snapshot', async () => {
+  it('archives and removes a corrupt library even when a healthy snapshot exists', async () => {
     createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
-    const healthySnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
     writeFileSync(join(tempDir, 'echo-library.sqlite'), 'not sqlite', 'utf8');
 
     const result = await ensureDataProtection('startup', tempDir);
 
-    expect(result.recovery.action).toBe('restored');
-    expect(result.recovery.sourceSnapshotPath).toBe(healthySnapshot.snapshotPath);
+    expect(result.recovery.action).toBe('reset');
     expect(result.libraryHealth.status).toBe('ok');
+    expect(existsSync(join(tempDir, 'echo-library.sqlite'))).toBe(false);
     expect(existsSync(join(tempDir, 'data-protection', 'corrupt-archives'))).toBe(true);
   });
 
-  it('skips corrupt snapshots and restores an older healthy snapshot', async () => {
+  it('does not restore old snapshots after a corrupt startup database reset', async () => {
     createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
-    const healthySnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
     writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad newer snapshot', 'utf8');
-    const corruptSnapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-18T00:00:00.000Z'));
+    await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-18T00:00:00.000Z'));
     writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad current database', 'utf8');
 
     const result = await ensureDataProtection('startup', tempDir);
 
-    expect(result.recovery.action).toBe('restored');
-    expect(result.recovery.sourceSnapshotPath).toBe(healthySnapshot.snapshotPath);
-    expect(result.recovery.sourceSnapshotPath).not.toBe(corruptSnapshot.snapshotPath);
+    expect(result.recovery.action).toBe('reset');
+    expect(result.recovery.sourceSnapshotPath).toBeUndefined();
+    expect(existsSync(join(tempDir, 'echo-library.sqlite'))).toBe(false);
   });
 
-  it('quarantines a corrupt library when no healthy snapshot exists', async () => {
+  it('resets a corrupt library when no healthy snapshot exists', async () => {
     writeFileSync(join(tempDir, 'echo-library.sqlite'), 'bad current database', 'utf8');
 
     const result = await ensureDataProtection('startup', tempDir);
 
-    expect(result.recovery.action).toBe('quarantined');
-    expect(result.libraryHealth.status).not.toBe('ok');
-    expect(readText(join(tempDir, 'echo-library.sqlite'))).toBe('bad current database');
+    expect(result.recovery.action).toBe('reset');
+    expect(result.libraryHealth.status).toBe('ok');
+    expect(existsSync(join(tempDir, 'echo-library.sqlite'))).toBe(false);
+    const archivesPath = join(tempDir, 'data-protection', 'corrupt-archives');
+    const archiveNames = readdirSync(archivesPath);
+    expect(archiveNames.length).toBeGreaterThan(0);
+    expect(readText(join(archivesPath, archiveNames[0], 'echo-library.sqlite'))).toBe('bad current database');
+  });
+
+  it('does not globally block the library for unreadable health checks', async () => {
+    mkdirSync(join(tempDir, 'echo-library.sqlite'), { recursive: true });
+
+    const result = await ensureDataProtection('startup', tempDir);
+
+    expect(result.libraryHealth.status).toBe('unreadable');
+    expect(result.recovery.action).toBe('none');
+    expect(isProtectedLibraryAvailable()).toBe(true);
   });
 });
 

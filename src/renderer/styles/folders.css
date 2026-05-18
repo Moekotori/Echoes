@@ -484,6 +484,18 @@ html[data-theme="dark"] .folders-actions-panel {
   border-color: var(--color-border);
 }
 
+html[data-theme="dark"] .folders-actions-panel section {
+  padding: 12px;
+  border: 1px solid var(--theme-panel-border-strong);
+  border-radius: 8px;
+  background: var(--theme-panel-bg-strong);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+html[data-theme="dark"] .folders-panel-heading h2 {
+  color: var(--echo-heading-text);
+}
+
 html[data-theme="dark"] .folder-root-button,
 html[data-theme="dark"] .folder-tree-node,
 html[data-theme="dark"] .folder-metrics span,
@@ -495,8 +507,18 @@ html[data-theme="dark"] .folder-action-grid button,
 html[data-theme="dark"] .folder-scan-card {
   color: var(--color-text);
   border-color: var(--color-border);
-  background: rgba(27, 33, 42, 0.72);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  background: var(--theme-panel-bg);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+html[data-theme="dark"] .folder-import-box input {
+  background: var(--theme-field-bg-strong);
+}
+
+html[data-theme="dark"] .folder-import-box button,
+html[data-theme="dark"] .folder-action-grid button {
+  color: var(--echo-heading-text);
+  background: var(--theme-button-bg-hover);
 }
 
 html[data-theme="dark"] .folder-root-button:hover,

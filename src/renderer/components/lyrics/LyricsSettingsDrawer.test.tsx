@@ -425,6 +425,38 @@ describe('LyricsSettingsDrawer', () => {
     window.removeEventListener('lyrics:display-settings-changed', previewListener);
   });
 
+  it('updates the lyrics color preview and broadcasts the color change immediately', async () => {
+    const setSettings = vi.fn((patch: Partial<AppSettings>) => Promise.resolve(makeSettings(patch)));
+    const previewListener = vi.fn();
+    window.addEventListener('lyrics:display-settings-changed', previewListener);
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(container.querySelector('.lyrics-style-toggle input')).toBeTruthy());
+    fireEvent.click(container.querySelector('.lyrics-style-toggle input') as HTMLInputElement);
+    await waitFor(() => expect(container.querySelector('.lyrics-color-panel')).toBeTruthy());
+    const colorPanel = container.querySelector('.lyrics-color-panel') as HTMLElement;
+    const colorPreview = colorPanel.querySelector('.lyrics-color-preview') as HTMLElement;
+    const pinkSwatch = Array.from(colorPanel.querySelectorAll<HTMLButtonElement>('.lyrics-color-swatch')).find(
+      (button) => button.style.backgroundColor === 'rgb(255, 138, 128)',
+    ) as HTMLButtonElement;
+
+    fireEvent.click(pinkSwatch);
+
+    expect(colorPreview.style.getPropertyValue('--lyrics-preview-color')).toBe('#FF8A80');
+    expect(previewListener).toHaveBeenCalledWith(expect.objectContaining({ detail: { lyricsColor: '#FF8A80' } }));
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsColor: '#FF8A80' }));
+
+    window.removeEventListener('lyrics:display-settings-changed', previewListener);
+  });
+
   it('lets users toggle romanization display', async () => {
     const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsRomanizationEnabled: false }));
     window.echo = {

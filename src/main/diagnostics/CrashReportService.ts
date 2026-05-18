@@ -13,7 +13,7 @@ import type { SaveDialogReturnValue } from 'electron';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { LastCrashSummary, RendererErrorPayload, CrashSessionInfo } from '../../shared/types/diagnostics';
 import { getAppSettings } from '../app/appSettings';
-import { getLastDataProtectionResult } from '../app/dataProtection';
+import { getLastDataProtectionResult, getLibraryDatabaseMaintenanceReport } from '../app/dataProtection';
 import { getAudioSession } from '../audio/AudioSession';
 import { getLibraryService } from '../library/LibraryService';
 import { hashText, Logger, sanitizeLogPayload } from './Logger';
@@ -985,6 +985,7 @@ export class CrashReportService {
     entries.push({ name: 'accounts-status.safe.json', content: this.toJsonBuffer(this.getSafeAccountStatus()) });
     entries.push({ name: 'library-health.safe.json', content: this.toJsonBuffer(this.getSafeLibraryHealth()) });
     entries.push({ name: 'library-recovery.safe.json', content: this.toJsonBuffer(this.getSafeLibraryRecovery()) });
+    entries.push({ name: 'library-database-maintenance.safe.json', content: this.toJsonBuffer(this.getSafeLibraryDatabaseMaintenance()) });
     entries.push({ name: 'library-diagnostics.safe.json', content: this.toJsonBuffer(this.getSafeLibraryDiagnostics()) });
     entries.push({ name: 'playback-status.safe.json', content: this.toJsonBuffer(this.getSafePlaybackStatus()) });
     entries.push({ name: 'audio-status.safe.json', content: this.toJsonBuffer(this.getSafeAudioStatus()) });
@@ -1037,6 +1038,14 @@ export class CrashReportService {
         databasePath: safePathValue(result.recovery.health.databasePath),
       },
     };
+  }
+
+  private getSafeLibraryDatabaseMaintenance(): unknown {
+    try {
+      return sanitizeLogPayload(getLibraryDatabaseMaintenanceReport());
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private getSafeAccountStatus(): unknown {
