@@ -8,7 +8,12 @@ dist/
 
 # Local Codex workspace state
 .codex/
+.codex-tmp/
 .codex-backups/
+
+# Local scratch files for manual testing
+test-files/*
+!test-files/.gitkeep
 
 # Native/Electron build outputs
 native/**/build/
