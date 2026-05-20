@@ -320,13 +320,26 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fields.album).toBe('\u6b63\u5e38\u4e2d\u6587\u4e13\u8f91');
   });
 
-  it('falls back to the filename when an embedded title contains binary cover payload text', async () => {
+  it('skips all embedded text metadata when a file exposes binary cover payload as a tag', async () => {
     parseFileMock.mockResolvedValue(emptyMetadata({
       common: {
         title: `\u0000\u000fAPIC image/jpeg Front cover JFIF ${'x'.repeat(4096)}`,
+        artist: 'Embedded Artist',
+        album: 'Embedded Album',
+        albumartist: 'Embedded Album Artist',
+        genre: ['Embedded Genre'],
+        track: { no: 7, of: null },
       },
       format: {
         duration: 180,
+        codec: 'MP3',
+        sampleRate: 44100,
+      },
+      native: {
+        'ID3v2.3': [
+          { id: 'TPE2', value: 'Native Album Artist' },
+          { id: 'TCON', value: 'Native Genre' },
+        ],
       },
     }));
 
@@ -334,8 +347,24 @@ describe('TsMetadataReader parser fallbacks', () => {
 
     expect(result.fields.title).toBe('\u72c2\u304a\u3057\u3044\u307b\u3069\u50d5\u306b\u306f\u7f8e\u3057\u3044');
     expect(result.fields.artist).toBe('majiko');
+    expect(result.fields.album).toBe('Music');
+    expect(result.fields.albumArtist).toBe('majiko');
+    expect(result.fields.genre).toBeNull();
+    expect(result.fields.trackNo).toBeNull();
+    expect(result.fields.duration).toBe(180);
+    expect(result.fields.codec).toBe('MP3');
+    expect(result.fields.sampleRate).toBe(44100);
     expect(result.fieldSources.title).toBe('filename_fallback');
     expect(result.fieldSources.artist).toBe('filename_fallback');
+    expect(result.fieldSources.album).toBe('folder_structure');
+    expect(result.fieldSources.albumArtist).toBe('artist_fallback');
+    expect(result.fieldSources.genre).toBe('unknown');
+    expect(result.fieldSources.trackNo).toBe('unknown');
+    expect(result.fieldSources.duration).toBe('technical');
+    expect(result.fieldSources.codec).toBe('technical');
+    expect(result.embeddedMetadataStatus).toBe('missing');
+    expect(result.warnings).toContain('embedded_metadata_skipped_unsafe_text');
+    expect(readTagLibMetadataMock).not.toHaveBeenCalled();
   });
 
   it('ignores overlong native title frames before they reach the renderer payload', async () => {

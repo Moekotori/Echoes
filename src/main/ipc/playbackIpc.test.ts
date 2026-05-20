@@ -134,6 +134,34 @@ describe('playback media prepare IPC', () => {
         artist: 'Artist',
         album: 'Album',
         duration: 120,
+        replayGain: {
+          trackGainDb: -4,
+          trackPeak: 0.8,
+        },
+      },
+      gapless: {
+        enabled: true,
+        nextItem: {
+          mediaType: 'local',
+          trackId: 'local-next',
+          path: 'D:\\Music\\next.flac',
+          title: 'Next',
+          artist: 'Artist',
+          album: 'Album',
+          duration: 90,
+          replayGain: {
+            trackGainDb: -2,
+            trackPeak: 0.9,
+          },
+        },
+        nextProbe: {
+          durationSeconds: 90,
+          fileSampleRate: 44100,
+          channels: 2,
+          codec: 'flac',
+          bitDepth: 16,
+          bitrate: 900000,
+        },
       },
     };
 
@@ -148,12 +176,136 @@ describe('playback media prepare IPC', () => {
         Cookie: 'MUSIC_U=secret',
       }),
       trackId: 'streaming-track',
+      replayGain: {
+        trackGainDb: -4,
+        trackPeak: 0.8,
+      },
       probe: expect.objectContaining({
         durationSeconds: 120,
         fileSampleRate: 44100,
         channels: 2,
       }),
+      gapless: {
+        enabled: true,
+        next: expect.objectContaining({
+          filePath: 'D:\\Music\\next.flac',
+          trackId: 'local-next',
+          replayGain: {
+            trackGainDb: -2,
+            trackPeak: 0.9,
+          },
+        }),
+        following: [],
+      },
     }));
+  });
+
+  it('force-refreshes streaming playback resolution and returns MIME type', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const invalidatePlayback = vi.fn();
+    const resolvePlayback = vi.fn()
+      .mockResolvedValueOnce({
+        url: 'https://stream.example.test/song.flac?token=prepared',
+        sampleRate: 44100,
+        codec: 'flac',
+        bitDepth: 16,
+        bitrate: 900000,
+        mimeType: 'audio/flac',
+        headers: { Referer: 'https://music.163.com/' },
+        requiresProxy: false,
+      })
+      .mockResolvedValueOnce({
+        url: 'https://stream.example.test/song.mp3?token=refreshed',
+        sampleRate: 44100,
+        codec: 'mp3',
+        bitDepth: null,
+        bitrate: 320000,
+        mimeType: 'audio/mpeg',
+        headers: { Referer: 'https://music.163.com/' },
+        requiresProxy: false,
+      });
+
+    vi.doMock('electron', () => ({
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => ({
+        getStatus: () => ({
+          state: 'stopped',
+          currentTrackId: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          currentFilePath: null,
+        }),
+        on: vi.fn(),
+        restorePlaybackMemory: vi.fn(),
+        playLocalFile: vi.fn(),
+      }),
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback,
+        invalidatePlayback,
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    const request = {
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming-track',
+        provider: 'mock',
+        providerTrackId: 'provider-track',
+        stableKey: 'mock:provider-track',
+        title: 'Prepared',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 120,
+      },
+    };
+
+    await handlers.get(IpcChannels.PlaybackPrepareMediaItem)?.({}, request);
+    const refreshed = await handlers.get(IpcChannels.PlaybackResolveMediaItem)?.({}, {
+      ...request,
+      forceRefresh: true,
+    });
+
+    expect(invalidatePlayback).toHaveBeenCalledWith({
+      provider: 'mock',
+      providerTrackId: 'provider-track',
+      quality: undefined,
+    });
+    expect(resolvePlayback).toHaveBeenCalledTimes(2);
+    expect(refreshed).toMatchObject({
+      filePath: 'https://stream.example.test/song.mp3?token=refreshed',
+      mimeType: 'audio/mpeg',
+      inputHeaders: expect.objectContaining({ Referer: 'https://music.163.com/' }),
+    });
   });
 
   it('queues ReplayGain analysis only for the local track that starts playback', async () => {

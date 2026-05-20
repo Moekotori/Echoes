@@ -10,6 +10,7 @@ import {
 import type {
   LibraryDatabaseArchiveInfo,
   LibraryDatabaseDeleteResult,
+  LibraryDatabaseDiscardProblemTracksResult,
   LibraryDatabaseMaintenanceEventInfo,
   LibraryDatabasePoisonReport,
   LibraryDatabaseProtectionStatus,
@@ -49,6 +50,7 @@ type LibraryDatabaseMaintenanceEvent = {
     | 'manual-delete'
     | 'manual-restore'
     | 'manual-scrub-quarantined'
+    | 'manual-discard-quarantined'
     | 'startup-protected'
     | 'startup-poisoned'
     | 'scan-health-failed'
@@ -332,14 +334,45 @@ const copyLibraryTriplet = (sourceRoot: string, targetRoot: string): string[] =>
   return copied;
 };
 
-const removeLibraryTriplet = (rootPath: string): void => {
+type LibraryTripletRemoveResult = {
+  removed: string[];
+  failed: Array<{ name: string; path: string; message: string }>;
+};
+
+const tryRemoveLibraryTriplet = (rootPath: string): LibraryTripletRemoveResult => {
+  const result: LibraryTripletRemoveResult = { removed: [], failed: [] };
   for (const name of [libraryFileName, libraryWalFileName, libraryShmFileName]) {
-    rmSync(join(rootPath, name), { force: true, maxRetries: 3, retryDelay: 50 });
+    const filePath = join(rootPath, name);
+    if (!existsSync(filePath)) {
+      continue;
+    }
+    try {
+      rmSync(filePath, { force: true, maxRetries: 5, retryDelay: 100 });
+      result.removed.push(name);
+    } catch (error) {
+      result.failed.push({
+        name,
+        path: filePath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return result;
+};
+
+const describeRemoveLibraryTripletFailure = (result: LibraryTripletRemoveResult): string =>
+  result.failed.map((item) => `${item.name}: ${item.message}`).join('; ');
+
+const removeLibraryTriplet = (rootPath: string): void => {
+  const result = tryRemoveLibraryTriplet(rootPath);
+  if (result.failed.length > 0) {
+    throw new Error(`Failed to remove active library database files: ${describeRemoveLibraryTripletFailure(result)}`);
   }
 };
 
 const maxProtectedDisplayTextLength = 512;
 const maxProtectedSearchTextLength = 4096;
+const maxProtectedDiagnosticTextLength = 128 * 1024;
 const poisonBinaryMarkerPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF|Exif|\u0000)/iu;
 const textFieldsToInspect: Array<{ table: string; column: string; maxLength: number }> = [
   { table: 'tracks', column: 'title', maxLength: maxProtectedDisplayTextLength },
@@ -353,9 +386,9 @@ const textFieldsToInspect: Array<{ table: string; column: string; maxLength: num
   { table: 'albums', column: 'album_artist', maxLength: maxProtectedDisplayTextLength },
   { table: 'artists', column: 'name', maxLength: maxProtectedDisplayTextLength },
   { table: 'artists', column: 'sort_name', maxLength: maxProtectedDisplayTextLength },
-  { table: 'scan_jobs', column: 'errors_json', maxLength: maxProtectedSearchTextLength },
-  { table: 'covers', column: 'warnings_json', maxLength: maxProtectedSearchTextLength },
-  { table: 'covers', column: 'errors_json', maxLength: maxProtectedSearchTextLength },
+  { table: 'scan_jobs', column: 'errors_json', maxLength: maxProtectedDiagnosticTextLength },
+  { table: 'covers', column: 'warnings_json', maxLength: maxProtectedDiagnosticTextLength },
+  { table: 'covers', column: 'errors_json', maxLength: maxProtectedDiagnosticTextLength },
 ];
 
 const quoteSqlIdentifier = (value: string): string => `"${value.replace(/"/gu, '""')}"`;
@@ -707,6 +740,139 @@ const scrubJsonTextTable = (database: Database.Database, tableName: string, colu
   return scrubbed;
 };
 
+const scrubNonTrackLibraryTables = (database: Database.Database): number => {
+  let scrubbedRows = 0;
+  scrubbedRows += scrubSimpleTextTable(database, 'albums', [
+    { column: 'title', fallback: '' },
+    { column: 'album_artist', fallback: 'Unknown Artist' },
+  ]);
+  scrubbedRows += scrubSimpleTextTable(database, 'artists', [
+    { column: 'name', fallback: 'Unknown Artist' },
+    { column: 'sort_name', fallback: 'Unknown Artist' },
+  ]);
+  scrubbedRows += scrubJsonTextTable(database, 'scan_jobs', ['errors_json']);
+  scrubbedRows += scrubJsonTextTable(database, 'covers', ['warnings_json', 'errors_json']);
+  return scrubbedRows;
+};
+
+const unsafeTextPredicate = (columnName: string, maxLength: number): string => {
+  const column = quoteSqlIdentifier(columnName);
+  return `${column} IS NOT NULL AND (
+    LENGTH(${column}) > ${maxLength}
+    OR INSTR(${column}, char(0)) > 0
+    OR lower(${column}) LIKE '%apic%'
+    OR lower(${column}) LIKE '%image/jpeg%'
+    OR lower(${column}) LIKE '%image/jpg%'
+    OR lower(${column}) LIKE '%image/png%'
+    OR lower(${column}) LIKE '%image/webp%'
+    OR lower(${column}) LIKE '%jfif%'
+    OR lower(${column}) LIKE '%exif%'
+  )`;
+};
+
+const compactDiscardArchiveValue = (value: unknown): unknown => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = normalizeProtectedTextWhitespace(value);
+  if (normalized.length <= 512 && !poisonBinaryMarkerPattern.test(normalized)) {
+    return normalized;
+  }
+
+  return {
+    sample: normalized.slice(0, 512),
+    originalLength: value.length,
+    unsafe: true,
+  };
+};
+
+const tableHasColumn = (database: Database.Database, tableName: string, columnName: string): boolean =>
+  safeTableColumns(database, tableName).has(columnName);
+
+const deleteRowsByTrackIds = (database: Database.Database, tableName: string, columnName: string, trackIds: string[]): void => {
+  if (trackIds.length === 0 || !tableHasColumn(database, tableName, columnName)) {
+    return;
+  }
+
+  const placeholders = trackIds.map(() => '?').join(', ');
+  database.prepare(`DELETE FROM ${quoteSqlIdentifier(tableName)} WHERE ${quoteSqlIdentifier(columnName)} IN (${placeholders})`).run(...trackIds);
+};
+
+const discardUnsafeTrackRows = (
+  database: Database.Database,
+): { discardedTracks: number; discardedTrackIds: string[]; archivedRows: Array<Record<string, unknown>> } => {
+  const columns = safeTableColumns(database, 'tracks');
+  if (columns.size === 0) {
+    return { discardedTracks: 0, discardedTrackIds: [], archivedRows: [] };
+  }
+
+  const fields = textFieldsToInspect.filter((field) => field.table === 'tracks' && columns.has(field.column));
+  const unsafeFieldsByRowId = new Map<number, Set<string>>();
+  for (const field of fields) {
+    const rows = database
+      .prepare<[], { rowid: number }>(`SELECT rowid FROM tracks WHERE ${unsafeTextPredicate(field.column, field.maxLength)}`)
+      .all();
+    for (const row of rows) {
+      const unsafeFields = unsafeFieldsByRowId.get(row.rowid) ?? new Set<string>();
+      unsafeFields.add(field.column);
+      unsafeFieldsByRowId.set(row.rowid, unsafeFields);
+    }
+  }
+
+  const rowIds = [...unsafeFieldsByRowId.keys()];
+  if (rowIds.length === 0) {
+    return { discardedTracks: 0, discardedTrackIds: [], archivedRows: [] };
+  }
+
+  const selectedColumns = ['rowid', ...['id', 'path', 'title', 'artist', 'album', 'album_artist', 'genre', 'codec'].filter((column) => columns.has(column))];
+  const placeholders = rowIds.map(() => '?').join(', ');
+  const rows = database
+    .prepare<number[], Record<string, unknown>>(
+      `SELECT ${selectedColumns.map(quoteSqlIdentifier).join(', ')} FROM tracks WHERE rowid IN (${placeholders}) ORDER BY rowid ASC`,
+    )
+    .all(...rowIds);
+  const archivedRows = rows.map((row) => ({
+    unsafeFields: [...(unsafeFieldsByRowId.get(Number(row.rowid)) ?? [])],
+    ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, compactDiscardArchiveValue(value)])),
+  }));
+  const trackIds = rows.map((row) => (typeof row.id === 'string' ? row.id : '')).filter(Boolean);
+
+  database.exec('PRAGMA foreign_keys = ON');
+  deleteRowsByTrackIds(database, 'album_tracks', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'artist_tracks', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'network_metadata_candidates', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'network_metadata_decisions', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'network_cover_candidates', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'lyrics_cache', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'lyrics_candidates', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'duplicate_track_members', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'track_videos', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'playback_history', 'track_id', trackIds);
+  deleteRowsByTrackIds(database, 'duplicate_track_groups', 'representative_track_id', trackIds);
+
+  const deleteByRowId = database.prepare('DELETE FROM tracks WHERE rowid = ?');
+  for (const rowId of rowIds) {
+    deleteByRowId.run(rowId);
+  }
+
+  if (tableHasColumn(database, 'albums', 'id') && tableHasColumn(database, 'album_tracks', 'album_id')) {
+    database.exec('DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM album_tracks)');
+  }
+  if (tableHasColumn(database, 'artists', 'id') && tableHasColumn(database, 'artist_tracks', 'artist_id')) {
+    database.exec('DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_tracks)');
+  }
+  if (tableHasColumn(database, 'duplicate_track_groups', 'id') && tableHasColumn(database, 'duplicate_track_members', 'group_id')) {
+    database.exec('DELETE FROM duplicate_track_groups WHERE id NOT IN (SELECT DISTINCT group_id FROM duplicate_track_members)');
+  }
+
+  return {
+    discardedTracks: rowIds.length,
+    discardedTrackIds: trackIds,
+    archivedRows,
+  };
+};
+
 const scrubLibraryDatabaseCopy = (databasePath: string): number => {
   let database: Database.Database | null = null;
   try {
@@ -714,16 +880,7 @@ const scrubLibraryDatabaseCopy = (databasePath: string): number => {
     let scrubbedRows = 0;
     database.transaction(() => {
       scrubbedRows += scrubTrackRows(database!);
-      scrubbedRows += scrubSimpleTextTable(database!, 'albums', [
-        { column: 'title', fallback: '' },
-        { column: 'album_artist', fallback: 'Unknown Artist' },
-      ]);
-      scrubbedRows += scrubSimpleTextTable(database!, 'artists', [
-        { column: 'name', fallback: 'Unknown Artist' },
-        { column: 'sort_name', fallback: 'Unknown Artist' },
-      ]);
-      scrubbedRows += scrubJsonTextTable(database!, 'scan_jobs', ['errors_json']);
-      scrubbedRows += scrubJsonTextTable(database!, 'covers', ['warnings_json', 'errors_json']);
+      scrubbedRows += scrubNonTrackLibraryTables(database!);
     })();
     try {
       database.pragma('wal_checkpoint(TRUNCATE)');
@@ -1127,13 +1284,26 @@ export const scrubQuarantinedLibraryDatabase = (
     existsSync(join(userDataPath, name)),
   );
   const archivePath = archiveLibraryTriplet(userDataPath, 'manual-scrub-quarantined-database-replace');
-  removeLibraryTriplet(userDataPath);
-  const restoredDatabaseFiles = copyLibraryTriplet(scrubRoot, userDataPath);
-  if (!restoredDatabaseFiles.includes(libraryFileName)) {
-    throw new Error('修复后的曲库数据库复制失败，当前曲库未恢复。');
+  let restoredDatabaseFiles: string[] = [];
+  let appliedScrubbedRows = scrubbedRows;
+  try {
+    removeLibraryTriplet(userDataPath);
+    restoredDatabaseFiles = copyLibraryTriplet(scrubRoot, userDataPath);
+    if (!restoredDatabaseFiles.includes(libraryFileName)) {
+      throw new Error('修复后的曲库数据库复制失败，当前曲库未恢复。');
+    }
+  } catch (replaceError) {
+    const activeDatabasePath = libraryPathFor(userDataPath);
+    const activePoisonReport = existsSync(activeDatabasePath) ? inspectLibraryDatabaseForPoison(activeDatabasePath) : null;
+    if (activePoisonReport?.status !== 'poisoned') {
+      throw replaceError;
+    }
+    appliedScrubbedRows = scrubLibraryDatabaseCopy(activeDatabasePath);
+    restoredDatabaseFiles = [libraryFileName];
   }
 
   const health = checkDatabaseHealth(libraryPathFor(userDataPath));
+  const activePoisonReportAfter = inspectLibraryDatabaseForPoison(libraryPathFor(userDataPath));
   recordLibraryDatabaseMaintenanceEvent(
     {
       action: 'manual-scrub-quarantined',
@@ -1148,6 +1318,10 @@ export const scrubQuarantinedLibraryDatabase = (
 
   if (health.status !== 'ok') {
     throw new Error(`修复后的曲库仍未通过检查：${health.message ?? health.status}`);
+  }
+
+  if (activePoisonReportAfter.status !== 'ok') {
+    throw new Error('Recovered library database still contains unsafe embedded metadata payloads.');
   }
 
   if (lastDataProtectionResult?.userDataPath === userDataPath) {
@@ -1165,10 +1339,181 @@ export const scrubQuarantinedLibraryDatabase = (
     scrubbedDatabasePath,
     archivePath,
     replacedDatabaseFiles,
-    scrubbedRows,
+    scrubbedRows: appliedScrubbedRows,
     health,
     poisonReportBefore,
-    poisonReportAfter,
+    poisonReportAfter: activePoisonReportAfter,
+  };
+};
+
+export const discardQuarantinedProblemTracks = (
+  userDataPath = app.getPath('userData'),
+  date = new Date(),
+): LibraryDatabaseDiscardProblemTracksResult => {
+  const sourceArchive = getLatestQuarantinedArchive(userDataPath);
+  if (!sourceArchive?.databasePath) {
+    throw new Error('找不到可处理的隔离曲库数据库。');
+  }
+
+  const poisonReportBefore = inspectLibraryDatabaseForPoison(sourceArchive.databasePath);
+  const discardRoot = join(getDataProtectionPath(userDataPath), 'discarded-library-rows', `${timestampForPath(date)}-problem-tracks`);
+  const scrubRoot = join(discardRoot, 'scrubbed-library');
+  mkdirSync(scrubRoot, { recursive: true });
+  const copied = copyLibraryTriplet(sourceArchive.path, scrubRoot);
+  if (!copied.includes(libraryFileName)) {
+    throw new Error('隔离曲库副本复制失败，已拒绝归档问题曲目。');
+  }
+
+  const scrubbedDatabasePath = libraryPathFor(scrubRoot);
+  let discardResult: ReturnType<typeof discardUnsafeTrackRows> = {
+    discardedTracks: 0,
+    discardedTrackIds: [],
+    archivedRows: [],
+  };
+  let residualScrubbedRows = 0;
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(scrubbedDatabasePath, { fileMustExist: true });
+    database.transaction(() => {
+      discardResult = discardUnsafeTrackRows(database!);
+      residualScrubbedRows = scrubNonTrackLibraryTables(database!);
+    })();
+    try {
+      database.pragma('wal_checkpoint(TRUNCATE)');
+    } catch {
+      // A copied recovery database can still be validated without a successful checkpoint.
+    }
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // Ignore close errors after best-effort discard.
+    }
+  }
+
+  if (discardResult.discardedTracks <= 0) {
+    throw new Error('隔离曲库里没有找到可归档移除的问题曲目。');
+  }
+
+  const discardArchivePath = join(discardRoot, 'discarded-tracks.json');
+  writeFileSync(
+    discardArchivePath,
+    `${JSON.stringify(
+      {
+        formatVersion: 1,
+        createdAt: date.toISOString(),
+        sourceArchivePath: sourceArchive.path,
+        discardedTracks: discardResult.discardedTracks,
+        discardedTrackIds: discardResult.discardedTrackIds,
+        tracks: discardResult.archivedRows,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+
+  const scrubbedHealth = checkDatabaseHealth(scrubbedDatabasePath);
+  if (scrubbedHealth.status !== 'ok') {
+    throw new Error(`移除问题曲目后的副本没有通过数据库检查：${scrubbedHealth.message ?? scrubbedHealth.status}`);
+  }
+
+  const poisonReportAfter = inspectLibraryDatabaseForPoison(scrubbedDatabasePath);
+  if (poisonReportAfter.status !== 'ok') {
+    throw new Error('移除问题曲目后的副本仍包含不安全的标签数据，已拒绝替换当前曲库。');
+  }
+
+  mkdirSync(userDataPath, { recursive: true });
+  const replacedDatabaseFiles = [libraryFileName, libraryWalFileName, libraryShmFileName].filter((name) =>
+    existsSync(join(userDataPath, name)),
+  );
+  const archivePath = archiveLibraryTriplet(userDataPath, 'manual-discard-quarantined-problem-tracks');
+  let restoredDatabaseFiles: string[] = [];
+  let appliedDiscardResult = discardResult;
+  let appliedResidualScrubbedRows = residualScrubbedRows;
+  try {
+    removeLibraryTriplet(userDataPath);
+    restoredDatabaseFiles = copyLibraryTriplet(scrubRoot, userDataPath);
+    if (!restoredDatabaseFiles.includes(libraryFileName)) {
+      throw new Error('移除问题曲目后的曲库数据库复制失败，当前曲库未恢复。');
+    }
+  } catch (replaceError) {
+    const activeDatabasePath = libraryPathFor(userDataPath);
+    const activePoisonReport = existsSync(activeDatabasePath) ? inspectLibraryDatabaseForPoison(activeDatabasePath) : null;
+    if (activePoisonReport?.status !== 'poisoned') {
+      throw replaceError;
+    }
+
+    let activeDatabase: Database.Database | null = null;
+    try {
+      activeDatabase = new Database(activeDatabasePath, { fileMustExist: true });
+      activeDatabase.transaction(() => {
+        appliedDiscardResult = discardUnsafeTrackRows(activeDatabase!);
+        appliedResidualScrubbedRows = scrubNonTrackLibraryTables(activeDatabase!);
+      })();
+      try {
+        activeDatabase.pragma('wal_checkpoint(TRUNCATE)');
+      } catch {
+        // The active database will still be checked below.
+      }
+    } finally {
+      try {
+        activeDatabase?.close();
+      } catch {
+        // Ignore close errors after best-effort in-place discard.
+      }
+    }
+
+    if (appliedDiscardResult.discardedTracks <= 0) {
+      throw replaceError;
+    }
+    restoredDatabaseFiles = [libraryFileName];
+  }
+
+  const health = checkDatabaseHealth(libraryPathFor(userDataPath));
+  const activePoisonReportAfter = inspectLibraryDatabaseForPoison(libraryPathFor(userDataPath));
+  recordLibraryDatabaseMaintenanceEvent(
+    {
+      action: 'manual-discard-quarantined',
+      databasePath: libraryPathFor(userDataPath),
+      archivePath,
+      removedDatabaseFiles: replacedDatabaseFiles,
+      health,
+      poisonReport: poisonReportBefore,
+    },
+    userDataPath,
+  );
+
+  if (health.status !== 'ok') {
+    throw new Error(`恢复后的曲库仍未通过检查：${health.message ?? health.status}`);
+  }
+
+  if (lastDataProtectionResult?.userDataPath === userDataPath) {
+    lastDataProtectionResult = {
+      ...lastDataProtectionResult,
+      snapshot: skippedSnapshot(health),
+      libraryHealth: health,
+      recovery: { action: 'none', health },
+    };
+  }
+
+  if (activePoisonReportAfter.status !== 'ok') {
+    throw new Error('Recovered library database still contains unsafe embedded metadata payloads.');
+  }
+
+  return {
+    databasePath: libraryPathFor(userDataPath),
+    sourceArchivePath: sourceArchive.path,
+    scrubbedDatabasePath,
+    discardArchivePath,
+    archivePath,
+    replacedDatabaseFiles,
+    discardedTracks: appliedDiscardResult.discardedTracks,
+    discardedTrackIds: appliedDiscardResult.discardedTrackIds,
+    residualScrubbedRows: appliedResidualScrubbedRows,
+    health,
+    poisonReportBefore,
+    poisonReportAfter: activePoisonReportAfter,
   };
 };
 
@@ -1585,20 +1930,23 @@ const protectPoisonedLibraryDatabase = (userDataPath: string, currentHealth: Dat
     if (!archivePath || !existsSync(libraryPathFor(archivePath))) {
       throw new Error('Poisoned library archive was not created; active database was left untouched.');
     }
-    removeLibraryTriplet(userDataPath);
+    const removeResult = tryRemoveLibraryTriplet(userDataPath);
+    const removeWarning = removeResult.failed.length > 0
+      ? ` Active database files are still locked: ${describeRemoveLibraryTripletFailure(removeResult)}`
+      : '';
     const protectedHealth: DatabaseHealthResult = {
       status: 'corrupt',
       databasePath: libraryPathFor(userDataPath),
       checkedAt: new Date().toISOString(),
       message: '曲库因损坏嵌入标签/超大文本已隔离，音乐文件未被删除。',
-      detail: poisonReport.message,
+      detail: `${poisonReport.message ?? ''}${removeWarning}`,
     };
     recordLibraryDatabaseMaintenanceEvent(
       {
         action: 'startup-poisoned',
         databasePath: libraryPathFor(userDataPath),
         archivePath,
-        removedDatabaseFiles: [libraryFileName, libraryWalFileName, libraryShmFileName],
+        removedDatabaseFiles: removeResult.removed,
         health: protectedHealth,
         poisonReport,
       },

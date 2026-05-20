@@ -1020,10 +1020,11 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: '4K' }).className).toContain('active');
   });
 
-  it('shows ReplayGain playback controls and starts missing loudness analysis', async () => {
+  it('shows volume balancing controls and starts missing loudness analysis', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue({
       ...settings,
+      gaplessPlaybackEnabled: false,
       replayGainEnabled: false,
       replayGainMode: 'track',
       replayGainTargetLufs: -18,
@@ -1057,12 +1058,17 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
 
-    const row = screen.getByText('ReplayGain 响度标准化').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByText('启用 ReplayGain').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
-    fireEvent.click(within(row).getByText('播放时分析缺失响度').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
-    fireEvent.click(within(row).getByRole('button', { name: 'Album' }));
-    fireEvent.click(within(row).getByRole('button', { name: '分析缺失响度' }));
+    const gaplessRow = screen.getByText('真无缝播放').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(gaplessRow).getByRole('button'));
 
+    const row = screen.getByText('音量自动平衡').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByText('未开启').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
+    fireEvent.click(within(row).getByRole('button', { name: '高级' }));
+    fireEvent.click(within(row).getByText('播放时分析').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
+    fireEvent.click(within(row).getByRole('button', { name: '专辑' }));
+    fireEvent.click(within(row).getByRole('button', { name: '分析缺失音量' }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ gaplessPlaybackEnabled: true }));
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainEnabled: true }));
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainAnalyzeOnPlay: false }));
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainMode: 'album' }));

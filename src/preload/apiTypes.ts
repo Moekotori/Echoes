@@ -29,6 +29,7 @@ import type {
   LibraryCacheClearResult,
   LibraryCleanupResult,
   LibraryDatabaseDeleteResult,
+  LibraryDatabaseDiscardProblemTracksResult,
   LibraryDatabaseRepairResult,
   LibraryDatabaseProtectionStatus,
   LibraryDatabaseRestoreResult,
@@ -53,6 +54,11 @@ import type {
   LibraryQualityIssuePage,
   LibraryQualityIssueQuery,
   LibraryQualityOverviewItem,
+  LibraryInboxBatch,
+  LibraryInboxCreatePlaylistRequest,
+  LibraryInboxPlaylistResult,
+  LibraryInboxTrackPage,
+  LibraryInboxTrackQuery,
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
@@ -218,6 +224,9 @@ export type EchoApi = {
     getTracks: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryTrack>>;
     getLibraryQualityOverview: () => Promise<LibraryQualityOverviewItem[]>;
     getLibraryQualityIssues: (query: LibraryQualityIssueQuery) => Promise<LibraryQualityIssuePage>;
+    getLibraryInboxBatches: () => Promise<LibraryInboxBatch[]>;
+    getLibraryInboxTracks: (query?: LibraryInboxTrackQuery) => Promise<LibraryInboxTrackPage>;
+    createPlaylistFromLibraryInbox: (request: LibraryInboxCreatePlaylistRequest) => Promise<LibraryInboxPlaylistResult>;
     getHealthReport: () => Promise<LibraryHealthReport>;
     exportHealthReport: () => Promise<string | null>;
     refreshDuplicateTracks: (mode?: DuplicateTrackMode) => Promise<DuplicateTrackIndexSummary>;
@@ -317,6 +326,7 @@ export type EchoApi = {
     createDatabaseSnapshot: () => Promise<LibraryDatabaseProtectionStatus>;
     restoreDatabaseSnapshot: (snapshotId: string) => Promise<LibraryDatabaseRestoreResult>;
     scrubQuarantinedDatabase: () => Promise<LibraryDatabaseScrubResult>;
+    discardQuarantinedProblemTracks: () => Promise<LibraryDatabaseDiscardProblemTracksResult>;
     openDataProtectionFolder: () => Promise<void>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
     scanMissingMetadata: (options?: number | MissingMetadataScanOptions) => Promise<MissingMetadataScanResult>;

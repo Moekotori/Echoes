@@ -90,6 +90,18 @@ export type PcmAutomixDecodeRequest = {
   }>;
 };
 
+export type PcmGaplessDecodeRequest = {
+  current: PcmDecodeRequest & {
+    durationSeconds: number;
+  };
+  next: PcmDecodeRequest & {
+    durationSeconds: number;
+  };
+  following?: Array<PcmDecodeRequest & {
+    durationSeconds: number;
+  }>;
+};
+
 export type DecoderRun = {
   stream: Readable;
   stop: () => void;
@@ -99,6 +111,7 @@ export type DecoderRun = {
   decoderBackendImpl?: string;
   resamplerEngine?: AudioResamplerEngine;
   resamplerFallbackActive?: boolean;
+  replayGainAppliedInStream?: boolean;
 };
 
 export type FfmpegToolchainDiagnostics = Pick<
@@ -194,6 +207,7 @@ export type AudioSessionPlayRequest = LocalAudioSource & {
   output?: AudioOutputSettings;
   probe?: PlaybackProbeHint;
   automix?: AudioSessionAutomixRequest;
+  gapless?: AudioSessionGaplessRequest;
 };
 
 export type AudioSessionPlayPcmStreamRequest = {
@@ -214,6 +228,10 @@ export type AudioSessionAutomixNextTrack = LocalAudioSource & {
   probe?: PlaybackProbeHint;
 };
 
+export type AudioSessionGaplessNextTrack = LocalAudioSource & {
+  probe?: PlaybackProbeHint;
+};
+
 export type AudioSessionAutomixRequest = {
   enabled?: boolean;
   maxTransitionSeconds?: number;
@@ -222,6 +240,12 @@ export type AudioSessionAutomixRequest = {
   nextAnalysis?: TrackTransitionAnalysis | null;
   next?: AudioSessionAutomixNextTrack | null;
   following?: AudioSessionAutomixNextTrack[];
+};
+
+export type AudioSessionGaplessRequest = {
+  enabled?: boolean;
+  next?: AudioSessionGaplessNextTrack | null;
+  following?: AudioSessionGaplessNextTrack[];
 };
 
 export type AudioAutomixAdvanceEvent = {

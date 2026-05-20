@@ -76,6 +76,21 @@ export type LibraryDatabaseScrubResult = {
   poisonReportAfter: LibraryDatabasePoisonReport;
 };
 
+export type LibraryDatabaseDiscardProblemTracksResult = {
+  databasePath: string;
+  sourceArchivePath: string;
+  scrubbedDatabasePath: string;
+  discardArchivePath: string;
+  archivePath: string | null;
+  replacedDatabaseFiles: string[];
+  discardedTracks: number;
+  discardedTrackIds: string[];
+  residualScrubbedRows: number;
+  health: LibraryDatabaseHealthInfo;
+  poisonReportBefore: LibraryDatabasePoisonReport;
+  poisonReportAfter: LibraryDatabasePoisonReport;
+};
+
 export type LibraryDatabaseSnapshotInfo = {
   id: string;
   path: string;
@@ -106,6 +121,7 @@ export type LibraryDatabaseMaintenanceEventInfo = {
     | 'manual-delete'
     | 'manual-restore'
     | 'manual-scrub-quarantined'
+    | 'manual-discard-quarantined'
     | 'startup-protected'
     | 'startup-poisoned'
     | 'scan-health-failed'
@@ -1035,6 +1051,80 @@ export type LibraryQualityIssuePage = {
   total: number;
   hasMore: boolean;
   kind: LibraryQualityIssueKind;
+};
+
+export type LibraryInboxFilterKind =
+  | 'all'
+  | 'missing_cover'
+  | 'metadata_issue'
+  | 'unknown_artist'
+  | 'unknown_album';
+
+export type LibraryInboxScope = 'latest' | 'batch' | 'all';
+
+export type LibraryInboxBatch = {
+  id: string;
+  scanJobId: string;
+  folderId: string;
+  folderName: string;
+  folderPath: string;
+  addedCount: number;
+  missingCoverCount: number;
+  metadataIssueCount: number;
+  createdAt: string;
+  finishedAt: string;
+};
+
+export type LibraryInboxFacetOption = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+export type LibraryInboxIssueReason = LibraryQualityIssueReason;
+
+export type LibraryInboxTrackItem = {
+  batchId: string;
+  addedAt: string;
+  track: LibraryTrack;
+  reasons: LibraryInboxIssueReason[];
+};
+
+export type LibraryInboxTrackQuery = {
+  batchId?: string | null;
+  scope?: LibraryInboxScope;
+  filter?: LibraryInboxFilterKind;
+  folderId?: string | null;
+  album?: string | null;
+  artist?: string | null;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+};
+
+export type LibraryInboxTrackPage = LibraryPage<LibraryInboxTrackItem> & {
+  batches: LibraryInboxBatch[];
+  selectedBatch: LibraryInboxBatch | null;
+  scope: LibraryInboxScope;
+  filter: LibraryInboxFilterKind;
+  facets: {
+    folders: LibraryInboxFacetOption[];
+    albums: LibraryInboxFacetOption[];
+    artists: LibraryInboxFacetOption[];
+  };
+};
+
+export type LibraryInboxCreatePlaylistRequest = Omit<LibraryInboxTrackQuery, 'page' | 'pageSize'> & {
+  name?: string | null;
+};
+
+export type LibraryInboxPlaylistResult = {
+  playlist: LibraryPlaylist;
+  addedCount: number;
+  matchedCount: number;
+  skippedCount: number;
+  truncated: boolean;
+  limit: number;
 };
 
 export type LibraryHealthSafePath = {

@@ -216,6 +216,96 @@ const normalizeSystemStreamRequest = (value: unknown): { url: string; headers?: 
   };
 };
 
+const safeText = (value: unknown, maxLength = 240): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, maxLength) : null;
+};
+
+const normalizeHtmlAudioDiagnostics = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    networkState: typeof input.networkState === 'number' && Number.isFinite(input.networkState) ? input.networkState : null,
+    readyState: typeof input.readyState === 'number' && Number.isFinite(input.readyState) ? input.readyState : null,
+    errorCode: typeof input.errorCode === 'number' && Number.isFinite(input.errorCode) ? input.errorCode : null,
+    errorMessage: safeText(input.errorMessage, 160),
+  };
+};
+
+const normalizeSystemPlaybackErrorReport = (value: unknown): {
+  message: string;
+  phase: string;
+  severity: 'recoverable' | 'fatal';
+  recovered: boolean;
+  details: Record<string, unknown>;
+} => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('system audio error report must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  const phase = safeText(input.phase, 80) ?? 'system-audio-htmlaudio-error';
+  const message = safeText(input.message) ?? phase;
+  const recovered = input.recovered === true;
+  const mediaType = input.mediaType === 'streaming' || input.mediaType === 'remote' || input.mediaType === 'local'
+    ? input.mediaType
+    : null;
+  const htmlAudio = normalizeHtmlAudioDiagnostics(input.htmlAudio);
+
+  return {
+    message,
+    phase,
+    severity: recovered ? 'recoverable' : 'fatal',
+    recovered,
+    details: {
+      outputMode: 'system',
+      mediaType,
+      provider: safeText(input.provider, 64),
+      trackId: safeText(input.trackId, 128),
+      sourceKind: input.sourceKind === 'remote' || input.sourceKind === 'local' || input.sourceKind === 'renderer'
+        ? input.sourceKind
+        : null,
+      sourceHost: safeText(input.sourceHost, 128),
+      mimeType: safeText(input.mimeType, 96),
+      recoveryAttempt: typeof input.recoveryAttempt === 'number' && Number.isFinite(input.recoveryAttempt)
+        ? Math.max(0, Math.round(input.recoveryAttempt))
+        : null,
+      maxRecoveryAttempts: typeof input.maxRecoveryAttempts === 'number' && Number.isFinite(input.maxRecoveryAttempts)
+        ? Math.max(0, Math.round(input.maxRecoveryAttempts))
+        : null,
+      htmlAudio,
+    },
+  };
+};
+
+const reportSystemPlaybackError = (rawReport: unknown): void => {
+  const report = normalizeSystemPlaybackErrorReport(rawReport);
+  const status = getAudioSession().getStatus();
+  const audioStatus: AudioStatus = {
+    ...status,
+    outputMode: 'system',
+    outputBackend: 'windows-system-audio',
+    activeOutputBackendImpl: 'electron-html-audio',
+    error: report.recovered ? null : report.message,
+  };
+
+  getCrashReportService().reportAudioError({
+    message: report.message,
+    phase: report.phase,
+    severity: report.severity,
+    recovered: report.recovered,
+    details: report.details,
+    audioStatus,
+  });
+};
+
 export const registerAudioIpc = (): void => {
   getAudioSession().on('status', (status: AudioStatus) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -239,6 +329,9 @@ export const registerAudioIpc = (): void => {
   ipcMain.handle(IpcChannels.AudioCreateSystemStreamUrl, (_event, request: unknown): string =>
     createSystemAudioStreamUrl(normalizeSystemStreamRequest(request)),
   );
+  ipcMain.handle(IpcChannels.AudioReportSystemPlaybackError, (_event, report: unknown): void => {
+    reportSystemPlaybackError(report);
+  });
   ipcMain.handle(IpcChannels.AudioSetOutput, async (_event, settings: unknown): Promise<AudioStatus> => enqueueAudioStatusCommand(async () => {
     try {
       const normalized = normalizeOutputSettings(settings);

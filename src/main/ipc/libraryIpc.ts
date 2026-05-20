@@ -6,6 +6,7 @@ import { isScannableAudioExtension } from '../../shared/constants/audioExtension
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type {
   DuplicateTrackMode,
+  DuplicateTrackIndexSummary,
   EditableAlbumTags,
   EditableTrackTags,
   FinishPlaybackHistoryRequest,
@@ -18,6 +19,10 @@ import type {
   LibraryPageQuery,
   LibraryQualityIssueKind,
   LibraryQualityIssueQuery,
+  LibraryInboxCreatePlaylistRequest,
+  LibraryInboxFilterKind,
+  LibraryInboxScope,
+  LibraryInboxTrackQuery,
   LibraryHealthReport,
   LibraryPlaylist,
   LibraryPlaylistItem,
@@ -43,7 +48,9 @@ import { getAppCacheInventory } from '../app/cacheInventory';
 import {
   createManualLibraryDatabaseSnapshot,
   deleteProtectedLibraryDatabase,
+  discardQuarantinedProblemTracks,
   getLibraryDatabaseProtectionStatus,
+  LibraryDatabaseUnavailableError,
   repairProtectedLibraryDatabase,
   restoreProtectedLibraryDatabaseSnapshot,
   scrubQuarantinedLibraryDatabase,
@@ -85,6 +92,14 @@ const libraryQualityIssueKinds = new Set<LibraryQualityIssueKind>([
   'embedded_read_failed',
   'network_candidate',
 ]);
+const libraryInboxFilterKinds = new Set<LibraryInboxFilterKind>([
+  'all',
+  'missing_cover',
+  'metadata_issue',
+  'unknown_artist',
+  'unknown_album',
+]);
+const libraryInboxScopes = new Set<LibraryInboxScope>(['latest', 'batch', 'all']);
 const songCardRenderer = new SongCardRenderer();
 
 const closeLibraryDatabaseUsers = (): void => {
@@ -245,6 +260,53 @@ const normalizeLibraryQualityIssueQuery = (value: unknown): LibraryQualityIssueQ
   };
 };
 
+const normalizeNullableIpcText = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
+const normalizeLibraryInboxTrackQuery = (value: unknown): LibraryInboxTrackQuery => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const input = value as Record<string, unknown>;
+  const pageSize = Number(input.pageSize);
+  const page = Number(input.page);
+  const query: LibraryInboxTrackQuery = {
+    batchId: normalizeNullableIpcText(input.batchId),
+    folderId: normalizeNullableIpcText(input.folderId),
+    album: normalizeNullableIpcText(input.album),
+    artist: normalizeNullableIpcText(input.artist),
+    page: Number.isFinite(page) ? Math.max(1, Math.floor(page)) : undefined,
+    pageSize: Number.isFinite(pageSize) ? Math.max(1, Math.min(100, Math.floor(pageSize))) : undefined,
+    search: typeof input.search === 'string' ? input.search : undefined,
+  };
+
+  if (typeof input.scope === 'string' && libraryInboxScopes.has(input.scope as LibraryInboxScope)) {
+    query.scope = input.scope as LibraryInboxScope;
+  }
+  if (typeof input.filter === 'string' && libraryInboxFilterKinds.has(input.filter as LibraryInboxFilterKind)) {
+    query.filter = input.filter as LibraryInboxFilterKind;
+  }
+
+  return query;
+};
+
+const normalizeLibraryInboxPlaylistRequest = (value: unknown): LibraryInboxCreatePlaylistRequest => {
+  const query = normalizeLibraryInboxTrackQuery(value);
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+  return {
+    ...query,
+    name: normalizeNullableIpcText(input.name),
+  };
+};
+
 const httpUrlPattern = /^https?:\/\//iu;
 
 const normalizeM3uLocalPath = (line: string, playlistDir: string): string | null => {
@@ -391,6 +453,15 @@ const normalizeArtistImageBackfillOptions = (value: unknown): { force?: boolean;
 };
 
 const normalizeDuplicateMode = (value: unknown): DuplicateTrackMode => (value === 'strict' ? 'strict' : 'strict');
+
+const emptyDuplicateIndexSummary = (mode: DuplicateTrackMode): DuplicateTrackIndexSummary => ({
+  mode,
+  totalTracksScanned: 0,
+  duplicateGroups: 0,
+  duplicateMembers: 0,
+  hiddenTracks: 0,
+  updatedAt: '',
+});
 
 const normalizeFolderChildrenQuery = (value: unknown): LibraryFolderChildrenQuery => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1284,6 +1355,13 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetQualityIssues, (_event, query: unknown) =>
     getLibraryService().getLibraryQualityIssues(normalizeLibraryQualityIssueQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryGetInboxBatches, () => getLibraryService().getLibraryInboxBatches());
+  ipcMain.handle(IpcChannels.LibraryGetInboxTracks, (_event, query: unknown) =>
+    getLibraryService().getLibraryInboxTracks(normalizeLibraryInboxTrackQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryCreateInboxPlaylist, (_event, request: unknown) =>
+    getLibraryService().createPlaylistFromLibraryInbox(normalizeLibraryInboxPlaylistRequest(request)),
+  );
   ipcMain.handle(IpcChannels.LibraryGetHealthReport, () => createLibraryHealthReportForRenderer());
   ipcMain.handle(IpcChannels.LibraryExportHealthReport, async (): Promise<string | null> => {
     const result = await dialog.showSaveDialog({
@@ -1304,12 +1382,28 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetDuplicateTrackVersions, (_event, trackId: unknown) =>
     getLibraryService().getDuplicateTrackVersions(requireText(trackId, 'trackId')),
   );
-  ipcMain.handle(IpcChannels.LibraryGetDuplicateHiddenCounts, (_event, trackIds: unknown, mode: unknown) =>
-    getLibraryService().getDuplicateHiddenCounts(normalizeTrackIds(trackIds), normalizeDuplicateMode(mode)),
-  );
-  ipcMain.handle(IpcChannels.LibraryGetDuplicateIndexSummary, (_event, mode: unknown) =>
-    getLibraryService().getDuplicateIndexSummary(normalizeDuplicateMode(mode)),
-  );
+  ipcMain.handle(IpcChannels.LibraryGetDuplicateHiddenCounts, (_event, trackIds: unknown, mode: unknown) => {
+    const normalizedTrackIds = normalizeTrackIds(trackIds);
+    try {
+      return getLibraryService().getDuplicateHiddenCounts(normalizedTrackIds, normalizeDuplicateMode(mode));
+    } catch (error) {
+      if (error instanceof LibraryDatabaseUnavailableError) {
+        return Object.fromEntries(normalizedTrackIds.map((trackId) => [trackId, 0]));
+      }
+      throw error;
+    }
+  });
+  ipcMain.handle(IpcChannels.LibraryGetDuplicateIndexSummary, (_event, mode: unknown) => {
+    const duplicateMode = normalizeDuplicateMode(mode);
+    try {
+      return getLibraryService().getDuplicateIndexSummary(duplicateMode);
+    } catch (error) {
+      if (error instanceof LibraryDatabaseUnavailableError) {
+        return emptyDuplicateIndexSummary(duplicateMode);
+      }
+      throw error;
+    }
+  });
   ipcMain.handle(IpcChannels.LibraryGetPlaylists, () => getLibraryService().getPlaylists());
   ipcMain.handle(IpcChannels.LibraryCreatePlaylist, (_event, request: unknown) =>
     getLibraryService().createPlaylist(normalizeCreatePlaylistRequest(request)),
@@ -1664,6 +1758,13 @@ export const registerLibraryIpc = (): void => {
     return getLibraryDatabaseManager().runExclusiveMaintenance('manual-library-database-scrub-quarantined', () => {
       closeLibraryDatabaseUsers();
       return scrubQuarantinedLibraryDatabase(app.getPath('userData'));
+    });
+  });
+  ipcMain.handle(IpcChannels.LibraryDiscardQuarantinedProblemTracks, () => {
+    assertNoRunningLibraryScan();
+    return getLibraryDatabaseManager().runExclusiveMaintenance('manual-library-database-discard-quarantined-problem-tracks', () => {
+      closeLibraryDatabaseUsers();
+      return discardQuarantinedProblemTracks(app.getPath('userData'));
     });
   });
   ipcMain.handle(IpcChannels.LibraryOpenDataProtectionFolder, async () => {

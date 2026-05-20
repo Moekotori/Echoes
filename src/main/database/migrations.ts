@@ -1098,6 +1098,44 @@ export const migrations: Migration[] = [
       addColumnIfMissing(database, 'album_online_info_cache', 'information_json', 'information_json TEXT');
     },
   },
+  {
+    id: 34,
+    apply: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS library_inbox_batches (
+          id TEXT PRIMARY KEY,
+          scan_job_id TEXT NOT NULL UNIQUE,
+          folder_id TEXT NOT NULL,
+          folder_name TEXT NOT NULL,
+          folder_path TEXT NOT NULL,
+          added_count INTEGER NOT NULL DEFAULT 0,
+          missing_cover_count INTEGER NOT NULL DEFAULT 0,
+          metadata_issue_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          finished_at TEXT NOT NULL,
+          FOREIGN KEY (scan_job_id) REFERENCES scan_jobs(id) ON DELETE CASCADE,
+          FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS library_inbox_items (
+          batch_id TEXT NOT NULL,
+          track_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (batch_id, track_id),
+          FOREIGN KEY (batch_id) REFERENCES library_inbox_batches(id) ON DELETE CASCADE,
+          FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_library_inbox_batches_finished_at
+          ON library_inbox_batches(finished_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_library_inbox_items_batch_position
+          ON library_inbox_items(batch_id, position);
+        CREATE INDEX IF NOT EXISTS idx_library_inbox_items_track_id
+          ON library_inbox_items(track_id);
+      `);
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

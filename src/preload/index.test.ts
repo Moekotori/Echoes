@@ -6,6 +6,7 @@ import { ipcRenderer } from 'electron';
 const listeners = new Map<string, (...args: unknown[]) => void>();
 let exposedApi: EchoApi | null = null;
 let fakeAudioInstances: FakeAudio[] = [];
+let queuedAudioPlayFailures: Error[] = [];
 
 const createTestLocalStorage = (): Storage => {
   const values = new Map<string, string>();
@@ -28,8 +29,14 @@ class FakeAudio {
   playbackRate = 1;
   currentTime = 0;
   duration = 12;
+  networkState = 1;
+  readyState = 0;
   error: MediaError | null = null;
   readonly play = vi.fn(async () => {
+    const failure = queuedAudioPlayFailures.shift();
+    if (failure) {
+      throw failure;
+    }
     this.emit('playing');
   });
   readonly pause = vi.fn(() => {
@@ -57,10 +64,22 @@ class FakeAudio {
     }
   }
 
-  private emit(event: string): void {
+  triggerError(message = 'system_audio_playback_failed', code = 4): void {
+    this.error = { code, message } as MediaError;
+    this.networkState = 3;
+    this.emit('error');
+  }
+
+  emit(event: string): void {
     this.eventListeners.get(event)?.forEach((listener) => listener());
   }
 }
+
+const flushPromises = async (): Promise<void> => {
+  for (let index = 0; index < 12; index += 1) {
+    await Promise.resolve();
+  }
+};
 
 vi.mock('electron', () => ({
   contextBridge: {
@@ -85,6 +104,7 @@ describe('preload SMTC API', () => {
   beforeEach(async () => {
     listeners.clear();
     fakeAudioInstances = [];
+    queuedAudioPlayFailures = [];
     exposedApi = null;
     vi.stubGlobal('window', {
       localStorage: createTestLocalStorage(),
@@ -174,9 +194,15 @@ describe('preload SMTC API', () => {
   it('exposes the dropped import path classifier', async () => {
     await exposedApi!.library.classifyImportPaths(['D:\\Music']);
     await exposedApi!.library.resolveLyricsBackgroundCover('track-1');
+    await exposedApi!.library.getLibraryInboxBatches();
+    await exposedApi!.library.getLibraryInboxTracks({ scope: 'latest', filter: 'all' });
+    await exposedApi!.library.createPlaylistFromLibraryInbox({ scope: 'latest', filter: 'missing_cover' });
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryClassifyImportPaths, ['D:\\Music']);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryResolveLyricsBackgroundCover, 'track-1');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetInboxBatches);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetInboxTracks, { scope: 'latest', filter: 'all' });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryCreateInboxPlaylist, { scope: 'latest', filter: 'missing_cover' });
   });
 
   it('serializes dropped files for library import', async () => {
@@ -235,6 +261,206 @@ describe('preload SMTC API', () => {
       currentTrackId: 'track-1',
       durationMs: 12_000,
       filePath: 'D:\\Music\\song.mp3',
+    });
+  });
+
+  it('applies ReplayGain on remembered system audio playback', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string) => {
+      if (channel === IpcChannels.AppGetSettings) {
+        return Promise.resolve({
+          replayGainEnabled: true,
+          replayGainMode: 'track',
+          replayGainPreampDb: 0,
+          replayGainPreventClipping: true,
+        });
+      }
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/replaygain-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\song.mp3',
+      trackId: 'track-rg',
+      probe: { durationSeconds: 10 },
+      replayGain: { trackGainDb: -6, trackPeak: 0.8 },
+    });
+
+    expect(fakeAudioInstances[0].volume).toBeCloseTo(0.501, 3);
+    await expect(exposedApi!.audio.getStatus()).resolves.toMatchObject({
+      outputMode: 'system',
+      replayGainEnabled: true,
+      replayGainMode: 'track',
+      replayGainAppliedDb: -6,
+    });
+  });
+
+  it('refreshes a system media source after the initial HTMLAudio play fails', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    queuedAudioPlayFailures = [new Error('expired stream')];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.PlaybackResolveMediaItem) {
+        const playbackRequest = request as { forceRefresh?: boolean };
+        return Promise.resolve(
+          playbackRequest.forceRefresh
+            ? {
+                filePath: 'https://cdn.example.test/refreshed.mp3',
+                inputHeaders: { Referer: 'https://music.example.test/' },
+                mimeType: 'audio/mpeg',
+                durationSeconds: 180,
+              }
+            : {
+                filePath: 'https://cdn.example.test/expired.flac',
+                inputHeaders: { Referer: 'https://music.example.test/' },
+                mimeType: 'audio/flac',
+                durationSeconds: 180,
+              },
+        );
+      }
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(streamRequest.url.includes('refreshed') ? 'echo-audio://system/fresh' : 'echo-audio://system/stale');
+      }
+      if (channel === IpcChannels.AudioReportSystemPlaybackError) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+
+    const status = await exposedApi!.playback.playMediaItem({
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming-track',
+        provider: 'netease',
+        providerTrackId: 'provider-track',
+        quality: 'high',
+        stableKey: 'netease:provider-track',
+        title: 'Streaming',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 180,
+        coverThumb: null,
+        playable: true,
+      },
+    });
+
+    expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(IpcChannels.PlaybackPlayMediaItem, expect.anything());
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.PlaybackResolveMediaItem,
+      expect.objectContaining({ forceRefresh: true }),
+    );
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AudioCreateSystemStreamUrl, {
+      url: 'https://cdn.example.test/expired.flac',
+      headers: { Referer: 'https://music.example.test/' },
+      mimeType: 'audio/flac',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AudioCreateSystemStreamUrl, {
+      url: 'https://cdn.example.test/refreshed.mp3',
+      headers: { Referer: 'https://music.example.test/' },
+      mimeType: 'audio/mpeg',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.AudioReportSystemPlaybackError,
+      expect.objectContaining({
+        phase: 'system-audio-htmlaudio-error',
+        recovered: true,
+        mediaType: 'streaming',
+        provider: 'netease',
+      }),
+    );
+    expect(fakeAudioInstances[0].play).toHaveBeenCalledTimes(2);
+    expect(fakeAudioInstances[0].src).toBe('echo-audio://system/fresh');
+    expect(status.filePath).toBe('https://cdn.example.test/refreshed.mp3');
+  });
+
+  it('recovers an asynchronous HTMLAudio error without leaving system output mode', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.PlaybackResolveMediaItem) {
+        const playbackRequest = request as { forceRefresh?: boolean };
+        return Promise.resolve(
+          playbackRequest.forceRefresh
+            ? {
+                filePath: 'https://cdn.example.test/recovered.mp3',
+                inputHeaders: undefined,
+                mimeType: 'audio/mpeg',
+                durationSeconds: 90,
+              }
+            : {
+                filePath: 'https://cdn.example.test/initial.mp3',
+                inputHeaders: undefined,
+                mimeType: 'audio/mpeg',
+                durationSeconds: 90,
+              },
+        );
+      }
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(streamRequest.url.includes('recovered') ? 'echo-audio://system/recovered' : 'echo-audio://system/initial');
+      }
+      if (channel === IpcChannels.AudioReportSystemPlaybackError) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+
+    await exposedApi!.playback.playMediaItem({
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming-track',
+        provider: 'soundcloud',
+        providerTrackId: 'provider-track',
+        stableKey: 'soundcloud:provider-track',
+        title: 'Streaming',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 90,
+        coverThumb: null,
+        playable: true,
+      },
+    });
+
+    fakeAudioInstances[0].currentTime = 12;
+    fakeAudioInstances[0].triggerError('media element decode failed', 3);
+    await flushPromises();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.PlaybackResolveMediaItem,
+      expect.objectContaining({ forceRefresh: true, startSeconds: 12 }),
+    );
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.AudioReportSystemPlaybackError,
+      expect.objectContaining({
+        phase: 'system-audio-htmlaudio-error',
+        recovered: true,
+        mediaType: 'streaming',
+        provider: 'soundcloud',
+        htmlAudio: expect.objectContaining({
+          errorCode: 3,
+          errorMessage: 'media element decode failed',
+        }),
+      }),
+    );
+    expect(fakeAudioInstances[0].play).toHaveBeenCalledTimes(2);
+    expect(fakeAudioInstances[0].src).toBe('echo-audio://system/recovered');
+    await expect(exposedApi!.audio.getStatus()).resolves.toMatchObject({
+      outputMode: 'system',
+      state: 'playing',
+      currentTrackId: 'streaming-track',
     });
   });
 
@@ -311,6 +537,12 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetDuplicateTrackVersions, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetDuplicateHiddenCounts, ['track-1'], 'strict');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetDuplicateIndexSummary, 'strict');
+  });
+
+  it('exposes database recovery discard action through IPC', async () => {
+    await exposedApi!.library.discardQuarantinedProblemTracks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryDiscardQuarantinedProblemTracks);
   });
 
   it('exposes plugin management APIs through IPC', async () => {

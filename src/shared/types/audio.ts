@@ -24,7 +24,7 @@ export type AudioAutomixStatus = {
   fallbackReason?: string | null;
   beatAligned?: boolean;
   skipIntroSilence?: boolean;
-  engine?: 'nativeDualDeck' | 'ffmpegPremix' | 'fallback' | null;
+  engine?: 'nativeDualDeck' | 'ffmpegPremix' | 'nativeGapless' | 'ffmpegGapless' | 'fallback' | null;
   tempoRatio?: number | null;
   nextStartSeconds?: number | null;
   overlapSeconds?: number | null;

@@ -7,6 +7,7 @@ import {
   createManualLibraryDatabaseSnapshot,
   createScanGuardLibraryDatabaseSnapshot,
   createDataProtectionSnapshot,
+  discardQuarantinedProblemTracks,
   ensureDataProtection,
   getLibraryDatabaseProtectionStatus,
   getProtectedUserDataPath,
@@ -434,6 +435,33 @@ describe('dataProtection', () => {
     expect(row).toMatchObject({ title: 'Safe Title', artist: 'Safe Artist' });
     expect(row?.search_terms).toContain('safe title');
     expect(row?.search_terms).not.toContain('APIC');
+    expect(getLibraryDatabaseProtectionStatus(tempDir).recommendedAction).toBe('none');
+    expect(isProtectedLibraryAvailable()).toBe(true);
+  });
+
+  it('archives and removes poisoned tracks from a quarantined database copy', async () => {
+    const databasePath = join(tempDir, 'echo-library.sqlite');
+    createPoisonedLibrary(databasePath);
+    const database = new Database(databasePath);
+    database.prepare(
+      `INSERT INTO tracks (id, path, title, artist, album, album_artist, genre, codec, search_terms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('track-2', 'D:\\Music\\Good Artist - Good Title.mp3', 'Good Title', 'Good Artist', 'Good Album', 'Good Artist', null, 'MP3', 'good title good artist');
+    database.close();
+    await ensureDataProtection('startup', tempDir);
+
+    const result = discardQuarantinedProblemTracks(tempDir, new Date('2026-05-20T00:10:00.000Z'));
+    const restoredDatabase = new Database(databasePath, { readonly: true });
+    const rows = restoredDatabase.prepare<[], { id: string; title: string }>('SELECT id, title FROM tracks ORDER BY id').all();
+    restoredDatabase.close();
+    const discarded = JSON.parse(readText(result.discardArchivePath)) as { discardedTrackIds: string[] };
+
+    expect(result.health.status).toBe('ok');
+    expect(result.poisonReportAfter.status).toBe('ok');
+    expect(result.discardedTracks).toBe(1);
+    expect(result.discardedTrackIds).toEqual(['track-1']);
+    expect(discarded.discardedTrackIds).toEqual(['track-1']);
+    expect(rows).toEqual([{ id: 'track-2', title: 'Good Title' }]);
     expect(getLibraryDatabaseProtectionStatus(tempDir).recommendedAction).toBe('none');
     expect(isProtectedLibraryAvailable()).toBe(true);
   });

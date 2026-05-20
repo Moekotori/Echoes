@@ -285,6 +285,7 @@ export const defaultSettings: AppSettings = {
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
+  gaplessPlaybackEnabled: false,
   replayGainEnabled: false,
   replayGainMode: 'track',
   replayGainTargetLufs: -18,
@@ -920,6 +921,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
+    gaplessPlaybackEnabled: settings.gaplessPlaybackEnabled === true,
     replayGainEnabled: settings.replayGainEnabled === true,
     replayGainMode: normalizeReplayGainMode(settings.replayGainMode),
     replayGainTargetLufs: Number.isFinite(replayGainTargetLufs)

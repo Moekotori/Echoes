@@ -1,4 +1,4 @@
-import type { LucideIcon } from 'lucide-react';
+import { Inbox, type LucideIcon } from 'lucide-react';
 import { AlbumsPage } from '../pages/AlbumsPage';
 import { ArtistsPage } from '../pages/ArtistsPage';
 import { ConnectPage } from '../pages/ConnectPage';
@@ -6,6 +6,7 @@ import { DownloadsPage } from '../pages/DownloadsPage';
 import { FoldersPage } from '../pages/FoldersPage';
 import { HistoryPage } from '../pages/HistoryPage';
 import { ImportFolderPage } from '../pages/ImportFolderPage';
+import { InboxPage } from '../pages/InboxPage';
 import { PlaylistsPage } from '../pages/PlaylistsPage';
 import { PluginsPage } from '../pages/PluginsPage';
 import { QueuePage } from '../pages/QueuePage';
@@ -40,6 +41,7 @@ import type { TranslationKey } from '../i18n/locales';
 
 export type AppRouteId =
   | 'songs'
+  | 'inbox'
   | 'downloads'
   | 'lyrics'
   | 'albums'
@@ -96,6 +98,14 @@ export const appRoutes: AppRoute[] = [
     icon: EchoSongsIcon,
     placement: 'main',
     element: <SongsPage />,
+  },
+  {
+    id: 'inbox',
+    label: '收件箱',
+    description: '每次扫描新增歌曲。',
+    icon: Inbox,
+    placement: 'main',
+    element: <InboxPage />,
   },
   {
     id: 'downloads',

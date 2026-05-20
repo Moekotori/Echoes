@@ -288,6 +288,27 @@ const installLibraryService = () => {
       hasMore: false,
       kind: (query as { kind?: string }).kind,
     })),
+    getLibraryInboxBatches: vi.fn(() => []),
+    getLibraryInboxTracks: vi.fn((query: unknown) => ({
+      items: [],
+      page: 1,
+      pageSize: 60,
+      total: 0,
+      hasMore: false,
+      batches: [],
+      selectedBatch: null,
+      scope: (query as { scope?: string }).scope ?? 'latest',
+      filter: (query as { filter?: string }).filter ?? 'all',
+      facets: { folders: [], albums: [], artists: [] },
+    })),
+    createPlaylistFromLibraryInbox: vi.fn(() => ({
+      playlist: { id: 'playlist-1', name: 'Inbox', description: null, kind: 'manual', sourceProvider: 'local', sourcePlaylistId: null, coverId: null, coverThumb: null, coverUrl: null, sortMode: 'manual', itemCount: 1, createdAt: '2026-05-20T00:00:00.000Z', updatedAt: '2026-05-20T00:00:00.000Z' },
+      addedCount: 1,
+      matchedCount: 1,
+      skippedCount: 0,
+      truncated: false,
+      limit: 1000,
+    })),
     getDuplicateHiddenCounts: vi.fn(() => ({ 'track-1': 1, 'track-2': 0 })),
     getAlbums: vi.fn(),
     getAlbum: vi.fn(),
@@ -493,6 +514,59 @@ describe('library IPC', () => {
     expect(() => handlers[IpcChannels.LibraryGetQualityIssues]!(null, { kind: 'missing_cover', sourceProvider: 'remote' })).toThrow(
       'library quality dashboard currently supports local sourceProvider only',
     );
+  });
+
+  it('normalizes new-songs inbox queries to bounded local pages', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibraryGetInboxTracks]!(null, {
+      scope: 'all',
+      filter: 'metadata_issue',
+      page: 3.9,
+      pageSize: 999,
+      folderId: ' folder-1 ',
+      album: ' Album ',
+      artist: ' Artist ',
+      search: 'needle',
+    });
+
+    expect(service.getLibraryInboxTracks).toHaveBeenCalledWith({
+      scope: 'all',
+      filter: 'metadata_issue',
+      page: 3,
+      pageSize: 100,
+      folderId: 'folder-1',
+      album: 'Album',
+      artist: 'Artist',
+      batchId: null,
+      search: 'needle',
+    });
+  });
+
+  it('routes new-songs inbox playlist creation through the library service', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibraryCreateInboxPlaylist]!(null, {
+      scope: 'batch',
+      batchId: ' batch-1 ',
+      filter: 'missing_cover',
+      name: ' Inbox Picks ',
+      page: 99,
+      pageSize: 999,
+    });
+
+    expect(service.createPlaylistFromLibraryInbox).toHaveBeenCalledWith({
+      scope: 'batch',
+      filter: 'missing_cover',
+      batchId: 'batch-1',
+      folderId: null,
+      album: null,
+      artist: null,
+      page: 99,
+      pageSize: 100,
+      search: undefined,
+      name: 'Inbox Picks',
+    });
   });
 
   it('returns and exports a sanitized library health report', async () => {
@@ -734,6 +808,18 @@ describe('library IPC', () => {
 
     expect(service.getDuplicateHiddenCounts).toHaveBeenCalledWith(['track-1', 'track-2'], 'strict');
     expect(result).toEqual({ 'track-1': 1, 'track-2': 0 });
+  });
+
+  it('returns zero duplicate hidden counts while the protected library is unavailable', async () => {
+    const service = installLibraryService();
+    const { LibraryDatabaseUnavailableError } = await import('../app/dataProtection');
+    service.getDuplicateHiddenCounts.mockImplementation(() => {
+      throw new LibraryDatabaseUnavailableError();
+    });
+
+    const result = await handlers[IpcChannels.LibraryGetDuplicateHiddenCounts]!(null, ['track-1', 'track-2'], 'strict');
+
+    expect(result).toEqual({ 'track-1': 0, 'track-2': 0 });
   });
 
   it('accepts file modified sorting for songs and albums', async () => {

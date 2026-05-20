@@ -16,7 +16,8 @@ import type { LibraryTrack } from '../../shared/types/library';
 import type { AirPlayReceiverState, AirPlayReceiverStatus } from '../../shared/types/connect';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
-import type { AudioSessionAutomixRequest } from '../audio/audioTypes';
+import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
+import type { AudioSessionAutomixRequest, AudioSessionGaplessRequest } from '../audio/audioTypes';
 import { getAudioSession, type AudioErrorRecoveryHandler } from '../audio/AudioSession';
 import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
@@ -380,6 +381,38 @@ const normalizeProbeHint = (value: unknown): PlaybackProbeHint | undefined => {
   return Object.keys(output).length > 0 ? output : undefined;
 };
 
+const optionalFiniteNumberOrNull = (value: unknown): number | null | undefined => {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+};
+
+const normalizeReplayGainTrackData = (value: unknown): ReplayGainTrackData | null | undefined => {
+  if (value === null) {
+    return null;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const input = value as Record<string, unknown>;
+  const output: ReplayGainTrackData = {};
+  const trackGainDb = optionalFiniteNumberOrNull(input.trackGainDb);
+  const albumGainDb = optionalFiniteNumberOrNull(input.albumGainDb);
+  const trackPeak = optionalFiniteNumberOrNull(input.trackPeak);
+  const albumPeak = optionalFiniteNumberOrNull(input.albumPeak);
+  if (trackGainDb !== undefined) output.trackGainDb = trackGainDb;
+  if (albumGainDb !== undefined) output.albumGainDb = albumGainDb;
+  if (trackPeak !== undefined) output.trackPeak = trackPeak;
+  if (albumPeak !== undefined) output.albumPeak = albumPeak;
+  return Object.keys(output).length > 0 ? output : null;
+};
+
 const normalizePlayRequest = (value: unknown): PlaybackStartRequest => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('playback request must be an object');
@@ -393,7 +426,9 @@ const normalizePlayRequest = (value: unknown): PlaybackStartRequest => {
     startSeconds: optionalNonNegativeNumber(input.startSeconds),
     output: normalizeOutputSettings(input.output),
     probe: normalizeProbeHint(input.probe),
+    replayGain: normalizeReplayGainTrackData(input.replayGain),
     automix: normalizeAutomixOptions(input.automix),
+    gapless: normalizeGaplessOptions(input.gapless),
   };
 };
 
@@ -408,6 +443,7 @@ const normalizePrepareLocalFileRequest = (value: unknown): PlaybackPrepareLocalF
     filePath: normalizePlaybackFilePath(requireText(input.filePath, 'filePath')),
     trackId: typeof input.trackId === 'string' && input.trackId.trim() ? input.trackId : undefined,
     probe: normalizeProbeHint(input.probe),
+    replayGain: normalizeReplayGainTrackData(input.replayGain),
   };
 };
 
@@ -427,6 +463,7 @@ const normalizeMediaItem = (value: unknown): PlayableTrack => {
     albumArtist: typeof input.albumArtist === 'string' ? input.albumArtist : null,
     duration: typeof input.duration === 'number' && Number.isFinite(input.duration) ? input.duration : null,
     coverThumb: optionalText(input.coverThumb) ?? null,
+    replayGain: normalizeReplayGainTrackData(input.replayGain) ?? null,
   };
 
   if (mediaType === 'remote') {
@@ -474,6 +511,8 @@ const normalizeMediaPlayRequest = (value: unknown): PlaybackMediaStartRequest =>
     startSeconds: optionalNonNegativeNumber(input.startSeconds),
     output: normalizeOutputSettings(input.output),
     automix: normalizeAutomixOptions(input.automix),
+    gapless: normalizeGaplessOptions(input.gapless),
+    forceRefresh: input.forceRefresh === true,
   };
 };
 
@@ -501,6 +540,26 @@ const normalizeAutomixOptions = (value: unknown): PlaybackStartRequest['automix'
   };
 };
 
+const normalizeGaplessOptions = (value: unknown): PlaybackStartRequest['gapless'] => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    enabled: input.enabled === true,
+    nextItem: input.nextItem ? normalizeMediaItem(input.nextItem) : null,
+    nextProbe: normalizeProbeHint(input.nextProbe),
+    upcomingItems: Array.isArray(input.upcomingItems) ? input.upcomingItems.slice(0, 3).map(normalizeMediaItem) : [],
+    upcomingProbes: Array.isArray(input.upcomingProbes)
+      ? input.upcomingProbes
+          .slice(0, 3)
+          .map(normalizeProbeHint)
+          .filter((probe): probe is NonNullable<ReturnType<typeof normalizeProbeHint>> => Boolean(probe))
+      : [],
+  };
+};
+
 const resolveMediaItemForPlayback = async (
   request: PlaybackMediaStartRequest,
   options: { forceRefresh?: boolean } = {},
@@ -508,12 +567,13 @@ const resolveMediaItemForPlayback = async (
   const key = createPreparedMediaKey(request);
   const cached = preparedMediaCache.get(key);
   const now = Date.now();
-  if (!options.forceRefresh && cached && cached.expiresAt > now) {
+  const forceRefresh = options.forceRefresh === true || request.forceRefresh === true;
+  if (!forceRefresh && cached && cached.expiresAt > now) {
     preparedMediaCache.delete(key);
     return cached.prepared;
   }
 
-  if (cached && cached.expiresAt <= now) {
+  if (cached && (forceRefresh || cached.expiresAt <= now)) {
     preparedMediaCache.delete(key);
   }
 
@@ -548,7 +608,7 @@ const resolveMediaItemForPlayback = async (
       quality: item.quality,
     };
 
-    if (options.forceRefresh) {
+    if (forceRefresh) {
       getStreamingService().invalidatePlayback(playbackRequest);
     }
 
@@ -575,6 +635,7 @@ const resolveMediaItemForPlayback = async (
           bitDepth: fallback.bitDepth,
           bitrate: fallback.bitrate,
         },
+        mimeType: null,
         durationSeconds: fallback.duration || durationSeconds,
       };
     }
@@ -595,12 +656,12 @@ const resolveMediaItemForPlayback = async (
             bitrate: source.bitrate,
           }
         : undefined;
-    return { filePath, inputHeaders: source.headers, probe, durationSeconds };
+    return { filePath, inputHeaders: source.headers, mimeType: source.mimeType ?? null, probe, durationSeconds };
   } else {
     filePath = item.path;
   }
 
-  return { filePath, probe, durationSeconds };
+  return { filePath, mimeType: null, probe, durationSeconds };
 };
 
 const prepareMediaItem = async (request: PlaybackMediaStartRequest): Promise<void> => {
@@ -625,6 +686,10 @@ const createProbeHintForMediaItem = (item: PlayableTrack, hint?: PlaybackProbeHi
 };
 
 const createReplayGainHintForMediaItem = (item: PlayableTrack) => {
+  if (item.replayGain) {
+    return item.replayGain;
+  }
+
   const replayGain = item as Partial<{
     replayGainTrackGainDb: number | null;
     replayGainAlbumGainDb: number | null;
@@ -640,6 +705,10 @@ const createReplayGainHintForMediaItem = (item: PlayableTrack) => {
 };
 
 const hasReplayGainHint = (item: PlayableTrack): boolean => {
+  if (Number.isFinite(item.replayGain?.trackGainDb) || Number.isFinite(item.replayGain?.albumGainDb)) {
+    return true;
+  }
+
   const replayGain = item as Partial<{
     replayGainTrackGainDb: number | null;
     replayGainAlbumGainDb: number | null;
@@ -722,6 +791,53 @@ const resolveAutomixRequest = async (
       trackId: automix.nextItem.trackId,
       replayGain: createReplayGainHintForMediaItem(automix.nextItem),
       probe: nextProbe,
+    },
+    following,
+  };
+};
+
+const resolveGaplessRequest = async (
+  gapless: PlaybackStartRequest['gapless'] | undefined,
+): Promise<AudioSessionGaplessRequest | undefined> => {
+  if (gapless?.enabled !== true || !gapless.nextItem) {
+    return gapless?.enabled === true ? { enabled: true, next: null } : undefined;
+  }
+
+  if (gapless.nextItem.mediaType === 'streaming' && gapless.nextItem.provider === 'spotify') {
+    return { enabled: true, next: null };
+  }
+
+  const prepared = await resolveMediaItemForPlayback({ item: gapless.nextItem });
+  const following = await Promise.all(
+    (gapless.upcomingItems ?? [])
+      .filter((item) => !(item.mediaType === 'streaming' && item.provider === 'spotify'))
+      .slice(0, 3)
+      .map(async (item, index) => {
+        const preparedItem = await resolveMediaItemForPlayback({ item });
+        return {
+          filePath: preparedItem.filePath,
+          inputHeaders: preparedItem.inputHeaders,
+          trackId: item.trackId,
+          replayGain: createReplayGainHintForMediaItem(item),
+          probe: createProbeHintForMediaItem(item, {
+            ...(gapless.upcomingProbes?.[index] ?? {}),
+            ...preparedItem.probe,
+          }),
+        };
+      }),
+  );
+
+  return {
+    enabled: true,
+    next: {
+      filePath: prepared.filePath,
+      inputHeaders: prepared.inputHeaders,
+      trackId: gapless.nextItem.trackId,
+      replayGain: createReplayGainHintForMediaItem(gapless.nextItem),
+      probe: createProbeHintForMediaItem(gapless.nextItem, {
+        ...gapless.nextProbe,
+        ...prepared.probe,
+      }),
     },
     following,
   };
@@ -874,6 +990,7 @@ const recoverActiveMediaPlaybackFromExpiredUrl = async (
       startSeconds,
       output: request.output,
       probe: prepared.probe,
+      gapless: await resolveGaplessRequest(request.gapless),
     });
     scheduleReplayGainAnalysisForPlayback(request.item.trackId, request.item);
     savePlaybackMemoryNow();
@@ -978,6 +1095,7 @@ export const registerPlaybackIpc = (): void => {
       await getAudioSession().playLocalFile({
         ...normalized,
         automix: await resolveAutomixRequest(normalized.automix),
+        gapless: await resolveGaplessRequest(normalized.gapless),
       });
       assertPlaybackStartRunCurrent(playbackRun);
       scheduleReplayGainAnalysisForPlayback(normalized.trackId);
@@ -1044,6 +1162,7 @@ export const registerPlaybackIpc = (): void => {
           output: request.output,
           probe: prepared.probe,
           automix: await resolveAutomixRequest(request.automix),
+          gapless: await resolveGaplessRequest(request.gapless),
         });
         assertPlaybackStartRunCurrent(playbackRun);
         scheduleReplayGainAnalysisForPlayback(item.trackId, item);
@@ -1082,6 +1201,7 @@ export const registerPlaybackIpc = (): void => {
             output: request.output,
             probe: prepared.probe,
             automix: await resolveAutomixRequest(request.automix),
+            gapless: await resolveGaplessRequest(request.gapless),
           });
           assertPlaybackStartRunCurrent(playbackRun);
           scheduleReplayGainAnalysisForPlayback(item.trackId, item);

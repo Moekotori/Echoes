@@ -3,7 +3,7 @@ import type { ChildProcessByStdio, SpawnOptionsWithStdioTuple } from 'node:child
 import { PassThrough, type Readable } from 'node:stream';
 import readline from 'node:readline';
 import { parseFile } from 'music-metadata';
-import type { AudioProbeResult, AudioResamplerEngine, DecoderRun, PcmAutomixDecodeRequest, PcmDecodeRequest } from './audioTypes';
+import type { AudioProbeResult, AudioResamplerEngine, DecoderRun, PcmAutomixDecodeRequest, PcmDecodeRequest, PcmGaplessDecodeRequest } from './audioTypes';
 import { readTagLibAudioTechnicalMetadata, shouldPreferTagLibForAlacTechnicalFields } from './AlacTechnicalMetadata';
 import {
   resolveFfmpegToolchain,
@@ -462,12 +462,80 @@ export class DecoderPipeline {
         .map((plan) => plan.overlapSeconds.toFixed(3))
         .join(',')}s`,
     );
-    return this.spawnSimpleDecode(
+    const run = this.spawnSimpleDecode(
       args,
       request.current.resamplerEngine ?? 'default',
       false,
       getPcmStartupTimeoutMs(request.current.filePath),
     );
+    run.replayGainAppliedInStream = true;
+    return run;
+  }
+
+  decodeGaplessSequence(request: PcmGaplessDecodeRequest): DecoderRun {
+    const tracks = [
+      request.current,
+      request.next,
+      ...(request.following ?? []),
+    ].slice(0, 5);
+    const inputArgs = tracks.flatMap((track, index) => {
+      const headers = normalizeInputHeaders(track.inputHeaders);
+      const startSeconds = Math.max(0, index === 0 ? track.startSeconds : 0);
+      return [
+        ...(index === 0 || startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
+        ...(headers ? ['-headers', headers] : []),
+        ...createRemoteInputArgs(track.filePath),
+        '-i',
+        track.filePath,
+      ];
+    });
+    const segmentFilters = tracks.map((track, index) => {
+      const startSeconds = Math.max(0, index === 0 ? track.startSeconds : 0);
+      const durationSeconds = Math.max(0.001, track.durationSeconds - startSeconds);
+      const replayGainDb = Number(track.replayGainDb ?? 0);
+      const filters = [
+        `atrim=0:${durationSeconds.toFixed(3)}`,
+        'asetpts=PTS-STARTPTS',
+      ];
+      if (Number.isFinite(replayGainDb) && Math.abs(replayGainDb) >= 0.01) {
+        filters.push(`volume=${replayGainDb.toFixed(3)}dB`);
+      }
+
+      return `[${index}:a]${filters.join(',')}[g${index}]`;
+    });
+    const concatInputs = tracks.map((_track, index) => `[g${index}]`).join('');
+    const filter = `${segmentFilters.join(';')};${concatInputs}concat=n=${tracks.length}:v=0:a=1[aout]`;
+    const args = [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-nostdin',
+      ...inputArgs,
+      '-filter_complex',
+      filter,
+      '-map',
+      '[aout]',
+      '-vn',
+      '-f',
+      'f32le',
+      '-ac',
+      String(request.current.channels),
+      '-ar',
+      String(request.current.decoderOutputSampleRate),
+      'pipe:1',
+    ];
+
+    this.logger(
+      `[DecoderPipeline] gapless: current="${redactUrlSecrets(request.current.filePath)}" tracks=${tracks.length}`,
+    );
+    const run = this.spawnSimpleDecode(
+      args,
+      request.current.resamplerEngine ?? 'default',
+      false,
+      getPcmStartupTimeoutMs(request.current.filePath),
+    );
+    run.replayGainAppliedInStream = true;
+    return run;
   }
 
   private spawnProcess(args: string[]): DecoderChildProcess {

@@ -223,6 +223,7 @@ describe('PlaybackQueueProvider playback history session', () => {
         bitDepth: second.bitDepth,
         bitrate: second.bitrate,
       },
+      replayGain: null,
     });
     expect(prepareMediaItem).not.toHaveBeenCalled();
   });
@@ -284,6 +285,85 @@ describe('PlaybackQueueProvider playback history session', () => {
         path: second.path,
       },
     });
+  });
+
+  it('passes ReplayGain and a gapless next-track plan after opt-in', async () => {
+    const first = {
+      ...makeTrack(1),
+      replayGainTrackGainDb: -5,
+      replayGainTrackPeak: 0.9,
+    };
+    const second = makeTrack(2);
+    const third = makeTrack(3);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: first.duration * 1000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ gaplessPlaybackEnabled: true }),
+      },
+      playback: {
+        playLocalFile,
+      },
+    } as unknown as Window['echo'];
+
+    const GaplessProbe = (): null => {
+      const queue = usePlaybackQueue();
+      const didSeedRef = useRef(false);
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (!didSeedRef.current) {
+          didSeedRef.current = true;
+          queue.replaceQueue([first, second, third]);
+        }
+
+        if (queue.gaplessPlaybackEnabled && !didStartRef.current) {
+          didStartRef.current = true;
+          void queue.playTrack(first);
+        }
+      }, [queue]);
+
+      return null;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <GaplessProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(1));
+    expect(playLocalFile.mock.calls[0]?.[0]).toMatchObject({
+      trackId: first.id,
+      replayGain: {
+        trackGainDb: -5,
+        trackPeak: 0.9,
+      },
+      gapless: {
+        enabled: true,
+        nextItem: {
+          mediaType: 'local',
+          trackId: second.id,
+          path: second.path,
+        },
+        upcomingItems: [
+          expect.objectContaining({
+            mediaType: 'local',
+            trackId: third.id,
+            path: third.path,
+          }),
+        ],
+      },
+    });
+    expect(playLocalFile.mock.calls[0]?.[0].automix).toBeUndefined();
   });
 
   it('rearms the current native playback when automix is enabled mid-song', async () => {
@@ -532,7 +612,7 @@ describe('PlaybackQueueProvider playback history session', () => {
     await waitFor(() => expect(playMediaItem).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(startPlaybackHistory).toHaveBeenCalledTimes(1));
 
-    expect(playMediaItem).toHaveBeenCalledWith({
+    expect(playMediaItem).toHaveBeenCalledWith(expect.objectContaining({
       item: expect.objectContaining({
         mediaType: 'remote',
         trackId: remoteTrack.id,
@@ -540,7 +620,7 @@ describe('PlaybackQueueProvider playback history session', () => {
         stableKey: remoteTrack.stableKey,
         remotePath: remoteTrack.remotePath,
       }),
-    });
+    }));
     expect(playMediaItem.mock.calls[0]?.[0].item.streamUrl).toBeUndefined();
     expect(startPlaybackHistory).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -338,6 +338,7 @@ export class ScanJobQueue {
     let updatedTracks = 0;
     let removedTracks = 0;
     let coverCount = 0;
+    const addedTrackIds: string[] = [];
     const reducedScanPressure = await this.resolveBooleanOption(this.shouldReduceScanPressure);
     const scanGuard = await Promise.resolve(this.createDatabaseScanGuard(this.getScanStatus(jobId)));
 
@@ -570,10 +571,11 @@ export class ScanJobQueue {
 
         for (const item of parsedItems) {
           const coverId = item.cover ? this.store.upsertCover(item.cover, timestamp) : null;
+          const trackId = item.existingTrackId ?? randomUUID();
           const result = this.store.upsertTrack({
             ...item.file,
             ...item.metadata.fields,
-            id: item.existingTrackId ?? randomUUID(),
+            id: trackId,
             coverId,
             fieldSources: item.metadata.fieldSources,
             embeddedMetadataStatus: item.metadata.embeddedMetadataStatus,
@@ -587,6 +589,7 @@ export class ScanJobQueue {
 
           if (result === 'added') {
             addedTracks += 1;
+            addedTrackIds.push(trackId);
           } else {
             updatedTracks += 1;
           }
@@ -618,6 +621,15 @@ export class ScanJobQueue {
         });
         if (markMissing) {
           this.store.finishFolderScan(folder.id, timestamp);
+        }
+        if (addedTrackIds.length > 0) {
+          this.store.recordLibraryInboxBatch({
+            scanJobId: jobId,
+            folder,
+            trackIds: addedTrackIds,
+            createdAt: timestamp,
+            finishedAt: timestamp,
+          });
         }
         progress.flushNow({
           status: 'completed',

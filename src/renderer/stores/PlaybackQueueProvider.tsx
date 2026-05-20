@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import type { AudioPlaybackState } from '../../shared/types/audio';
+import type { AppSettings } from '../../shared/types/appSettings';
 import type { AirPlayReceiverStatus, ConnectReceiverStatus } from '../../shared/types/connect';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { LocalFileResolveResult, PlaybackStatus } from '../../shared/types/playback';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
+import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
 import { streamingProviderNames, streamingStableKey } from '../../shared/types/streaming';
 import type { StreamingProviderName } from '../../shared/types/streaming';
 import { isSpotifyTrack, playSpotifyTrack } from '../integrations/spotify/spotifyPlayback';
@@ -72,6 +74,7 @@ type PlaybackQueueContextValue = {
   isShuffleEnabled: boolean;
   repeatMode: RepeatMode;
   automixEnabled: boolean;
+  gaplessPlaybackEnabled: boolean;
   canGoPrevious: boolean;
   canGoNext: boolean;
   replaceQueue: (tracks: LibraryTrack[], options?: ReplaceQueueOptions) => void;
@@ -316,7 +319,18 @@ const writePlaybackQueueMemory = (memory: PlaybackQueueMemory): void => {
 const isStreamingProviderName = (provider: string | null | undefined): provider is StreamingProviderName =>
   streamingProviderNames.includes(provider as StreamingProviderName);
 
+const replayGainFromTrack = (track: LibraryTrack): ReplayGainTrackData | null => {
+  const replayGain: ReplayGainTrackData = {
+    trackGainDb: track.replayGainTrackGainDb ?? null,
+    albumGainDb: track.replayGainAlbumGainDb ?? null,
+    trackPeak: track.replayGainTrackPeak ?? null,
+    albumPeak: track.replayGainAlbumPeak ?? null,
+  };
+  return Object.values(replayGain).some((value) => typeof value === 'number' && Number.isFinite(value)) ? replayGain : null;
+};
+
 const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
+  const replayGain = replayGainFromTrack(track);
   if (track.mediaType === 'streaming') {
     const provider = isStreamingProviderName(track.provider) ? track.provider : 'mock';
     const providerTrackId = track.providerTrackId ?? track.id;
@@ -335,6 +349,7 @@ const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
       albumArtist: track.albumArtist,
       duration: track.duration,
       coverThumb: track.coverThumb,
+      replayGain,
       playable: track.unavailable !== true,
       unavailableReason: track.unavailable ? 'This streaming track is unavailable.' : null,
     };
@@ -353,6 +368,7 @@ const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
       albumArtist: track.albumArtist,
       duration: track.duration,
       coverThumb: track.coverThumb,
+      replayGain,
     };
   }
 
@@ -366,6 +382,7 @@ const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
     albumArtist: track.albumArtist,
     duration: track.duration,
     coverThumb: track.coverThumb,
+    replayGain,
   };
 };
 
@@ -608,6 +625,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const [isShuffleEnabled, setIsShuffleEnabled] = useState(initialPlaybackMode.isShuffleEnabled);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(initialPlaybackMode.repeatMode);
   const [automixEnabled, setAutomixEnabledState] = useState(initialAutomixEnabled);
+  const [gaplessPlaybackEnabled, setGaplessPlaybackEnabledState] = useState(false);
 
   const itemsRef = useRef(items);
   const currentQueueIdRef = useRef(currentQueueId);
@@ -616,6 +634,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const historyRef = useRef(history);
   const repeatModeRef = useRef(repeatMode);
   const automixEnabledRef = useRef(automixEnabled);
+  const gaplessPlaybackEnabledRef = useRef(gaplessPlaybackEnabled);
   const isShuffleEnabledRef = useRef(isShuffleEnabled);
   const playbackHistorySessionRef = useRef<PlaybackHistorySession | null>(null);
   const pausedSessionTimerRef = useRef<number | null>(null);
@@ -683,6 +702,44 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       void rearmAutomixRef.current?.();
     }
   }, []);
+
+  const applyPlaybackSettings = useCallback((settings: Partial<AppSettings> | null | undefined): void => {
+    const enabled = settings?.gaplessPlaybackEnabled === true;
+    gaplessPlaybackEnabledRef.current = enabled;
+    setGaplessPlaybackEnabledState(enabled);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.echo?.app?.getSettings?.()
+      .then((settings) => {
+        if (!cancelled) {
+          applyPlaybackSettings(settings);
+        }
+      })
+      .catch(() => undefined);
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent && event.detail && typeof event.detail === 'object' && 'gaplessPlaybackEnabled' in event.detail) {
+        applyPlaybackSettings(event.detail as Partial<AppSettings>);
+        return;
+      }
+
+      void window.echo?.app?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            applyPlaybackSettings(settings);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, [applyPlaybackSettings]);
 
   useEffect(() => {
     writePlaybackQueueMemory({
@@ -991,6 +1048,43 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     };
   }, []);
 
+  const createGaplessOptions = useCallback((item: QueueItem): {
+    enabled: boolean;
+    nextItem: PlayableTrack | null;
+    nextProbe?: ReturnType<typeof createProbeFromTrack>;
+    upcomingItems?: PlayableTrack[];
+    upcomingProbes?: ReturnType<typeof createProbeFromTrack>[];
+  } | undefined => {
+    if (!gaplessPlaybackEnabledRef.current || automixEnabledRef.current || repeatModeRef.current === 'one' || isShuffleEnabledRef.current) {
+      return undefined;
+    }
+
+    const current = itemsRef.current;
+    const index = current.findIndex((candidate) => candidate.queueId === item.queueId);
+    const next =
+      index >= 0 && index < current.length - 1
+        ? current[index + 1]
+        : index === current.length - 1 && repeatModeRef.current === 'all' && current.length > 1
+          ? current[0]
+          : null;
+    if (!next || isSpotifyTrack(item.track) || isSpotifyTrack(next.track)) {
+      return undefined;
+    }
+
+    const upcoming = current
+      .slice(index + 2)
+      .filter((candidate) => !isSpotifyTrack(candidate.track))
+      .slice(0, 3);
+
+    return {
+      enabled: true,
+      nextItem: toPlayableTrack(next.track),
+      nextProbe: createProbeFromTrack(next.track),
+      upcomingItems: upcoming.map((candidate) => toPlayableTrack(candidate.track)),
+      upcomingProbes: upcoming.map((candidate) => createProbeFromTrack(candidate.track)),
+    };
+  }, []);
+
   const rearmAutomixForCurrentPlayback = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
     if (!playback) {
@@ -1072,6 +1166,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     const previousItem = findItemByQueueId(itemsRef.current, currentQueueIdRef.current);
     const automix = createAutomixOptions(item);
+    const gapless = automix ? undefined : createGaplessOptions(item);
     void finishPlaybackHistorySession();
     setCurrentQueueId(item.queueId);
     setCurrentTrackIdInternal(item.track.id);
@@ -1099,12 +1194,15 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
                 ? playback.playMediaItem({
                     item: toPlayableTrack(track),
                     automix,
+                    gapless,
                   })
                 : playback.playLocalFile({
                     filePath: track.path,
                     trackId: track.id,
                     probe: createProbeFromTrack(track),
+                    replayGain: replayGainFromTrack(track),
                     automix,
+                    gapless,
                   });
             })();
       } catch (error) {
@@ -1127,7 +1225,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       void startPlaybackHistorySession(item);
     }
     return status;
-  }, [createAutomixOptions, finishPlaybackHistorySession, setCurrentQueueId, setCurrentTrackIdInternal, setLastPlayedTrack, startPlaybackHistorySession]);
+  }, [createAutomixOptions, createGaplessOptions, finishPlaybackHistorySession, setCurrentQueueId, setCurrentTrackIdInternal, setLastPlayedTrack, startPlaybackHistorySession]);
 
   const autoSearchMv = useCallback((trackId: string): void => {
     const mvApi = window.echo?.mv;
@@ -1193,6 +1291,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         filePath: next.track.path,
         trackId: next.track.id,
         probe: createProbeFromTrack(next.track),
+        replayGain: replayGainFromTrack(next.track),
       }).catch(() => undefined);
     });
   }, []);
@@ -1706,6 +1805,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       isShuffleEnabled,
       repeatMode,
       automixEnabled,
+      gaplessPlaybackEnabled,
       canGoPrevious,
       canGoNext,
       replaceQueue,
@@ -1741,6 +1841,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       currentTrackId,
       history,
       automixEnabled,
+      gaplessPlaybackEnabled,
       isShuffleEnabled,
       items,
       lastPlayedTrack,

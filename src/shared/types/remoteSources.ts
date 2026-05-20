@@ -1,4 +1,5 @@
 import type { StreamingAudioQuality, StreamingProviderName } from './streaming';
+import type { ReplayGainTrackData } from '../utils/replayGain';
 
 export type RemoteSourceProvider = 'webdav' | 'jellyfin' | 'emby' | 'smb' | 'sshfs' | 'subsonic';
 
@@ -149,6 +150,7 @@ export type StreamingMediaItem = {
 export type MediaItem = LocalMediaItem | RemoteMediaItem | StreamingMediaItem;
 
 export type PlayableTrack = MediaItem & {
+  replayGain?: ReplayGainTrackData | null;
   streamUrl?: string | null;
 };
 

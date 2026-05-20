@@ -59,6 +59,11 @@ import type {
   LibraryQualityIssuePage,
   LibraryQualityIssueQuery,
   LibraryQualityOverviewItem,
+  LibraryInboxBatch,
+  LibraryInboxCreatePlaylistRequest,
+  LibraryInboxPlaylistResult,
+  LibraryInboxTrackPage,
+  LibraryInboxTrackQuery,
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
@@ -294,6 +299,18 @@ export class LibraryService {
 
   getLibraryQualityIssues(query: LibraryQualityIssueQuery): LibraryQualityIssuePage {
     return this.store.getLibraryQualityIssues(query);
+  }
+
+  getLibraryInboxBatches(): LibraryInboxBatch[] {
+    return this.store.getLibraryInboxBatches();
+  }
+
+  getLibraryInboxTracks(query?: LibraryInboxTrackQuery): LibraryInboxTrackPage {
+    return this.store.getLibraryInboxTracks(query);
+  }
+
+  createPlaylistFromLibraryInbox(request: LibraryInboxCreatePlaylistRequest): LibraryInboxPlaylistResult {
+    return this.store.createPlaylistFromLibraryInbox(request);
   }
 
   refreshDuplicateTracks(mode: DuplicateTrackMode = 'strict'): DuplicateTrackIndexSummary {

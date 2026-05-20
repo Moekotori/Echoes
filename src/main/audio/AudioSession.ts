@@ -36,6 +36,7 @@ import type {
   AudioSessionPlayPcmStreamRequest,
   AudioSessionPrepareLocalFileRequest,
   AudioSessionAutomixNextTrack,
+  AudioSessionGaplessNextTrack,
   AudioSessionPlayRequest,
   AudioStatus,
   DecoderRun,
@@ -53,6 +54,7 @@ import type { AudioCrashReportPayload } from '../diagnostics/CrashReportService'
 
 type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'> & {
   decodeAutomixPair?: DecoderPipeline['decodeAutomixPair'];
+  decodeGaplessSequence?: DecoderPipeline['decodeGaplessSequence'];
   getToolchainInfo?: () => FfmpegToolchainDiagnostics;
 };
 type JuceDecodePipelineLike = Pick<JuceDecodePipeline, 'decodeLocalFile'>;
@@ -135,6 +137,7 @@ type PreparedLocalProbeUse = {
 
 type ActiveAutomixState = {
   enabled: boolean;
+  gapless: boolean;
   nextTransitionIndex: number;
   fromTrackId: string | null;
   nextTrackId: string;
@@ -1824,13 +1827,28 @@ export class AudioSession extends EventEmitter {
         this.currentOutputSettings,
         bridge,
       );
+      const nativeGapless = nativeAutomix
+        ? null
+        : await this.createNativeGaplessPlayback(
+            request,
+            probe,
+            pcmPlan,
+            this.currentOutputSettings,
+            bridge,
+          );
       const automixRun = nativeAutomix
         ? null
-        : await this.createAutomixDecoderRunForPlayback(request, probe, pcmPlan, this.currentOutputSettings);
-      const run = nativeAutomix
+        : nativeGapless
+          ? null
+          : await this.createAutomixDecoderRunForPlayback(request, probe, pcmPlan, this.currentOutputSettings);
+      const gaplessRun = nativeAutomix || nativeGapless || automixRun
         ? null
-        : automixRun
-          ? automixRun.run
+        : await this.createGaplessDecoderRunForPlayback(request, probe, pcmPlan, this.currentOutputSettings);
+      const activeChainedState = nativeAutomix?.state ?? nativeGapless?.state ?? automixRun?.state ?? gaplessRun?.state ?? null;
+      const playbackRun = automixRun
+        ? automixRun.run
+        : gaplessRun
+          ? gaplessRun.run
           : await this.createDecoderRunForPlayback(
               request.filePath,
               request.inputHeaders,
@@ -1839,35 +1857,42 @@ export class AudioSession extends EventEmitter {
               pcmPlan,
               this.currentOutputSettings,
             );
-      this.activeAutomix = nativeAutomix?.state ?? automixRun?.state ?? null;
+      this.activeAutomix = activeChainedState;
 
       await this.syncEqStateForPlayback();
       this.assertCurrentRun(token);
       const sessionId = bridge.beginSession?.({
-        startSeconds: nativeAutomix?.state.compositeStartSeconds ?? request.startSeconds ?? 0,
+        startSeconds: activeChainedState?.compositeStartSeconds ?? request.startSeconds ?? 0,
         playbackRate: this.currentOutputSettings.playbackRate,
-        durationSeconds: nativeAutomix?.state.compositeDurationSeconds ?? automixRun?.state.compositeDurationSeconds ?? probe.durationSeconds,
+        durationSeconds: activeChainedState?.compositeDurationSeconds ?? probe.durationSeconds,
       });
       const writable = bridge.createSessionWritable?.(sessionId) ?? bridge.writable;
       if (!writable) {
         throw new Error('native output bridge did not expose a writable PCM stream');
       }
 
-      if (nativeAutomix) {
+      if (nativeAutomix || nativeGapless) {
         const nextWritable = bridge.createAutomixNextWritable?.();
         if (!nextWritable || !bridge.prepareAutomixPlan) {
           throw new Error('native output bridge did not expose an Automix deck');
         }
 
-        const transition = nativeAutomix.state.transitions[0];
-        bridge.prepareAutomixPlan(nativeAutomix.state.plan, {
-          fadeStartSeconds: Math.max(0, transition?.transitionStartSeconds ?? nativeAutomix.state.transitionStartSeconds),
+        const nativeChainedState = (nativeAutomix ?? nativeGapless)!.state;
+        const transition = nativeChainedState.transitions[0];
+        bridge.prepareAutomixPlan(nativeChainedState.plan, {
+          fadeStartSeconds: Math.max(0, transition?.transitionStartSeconds ?? nativeChainedState.transitionStartSeconds),
           sampleRate: pcmPlan.actualDeviceSampleRate ?? pcmPlan.requestedOutputSampleRate,
         });
-        this.currentDecodeBackendImpl = 'native-automix-dual-deck';
-        this.startNativeAutomixRuns(nativeAutomix.currentRun, nativeAutomix.nextRun, writable, nextWritable, token);
-      } else if (run) {
-        this.startDecoderRun(run, writable, token);
+        this.startNativeAutomixRuns(
+          (nativeAutomix ?? nativeGapless)!.currentRun,
+          (nativeAutomix ?? nativeGapless)!.nextRun,
+          writable,
+          nextWritable,
+          token,
+          nativeGapless ? 'native-gapless-dual-deck' : 'native-automix-dual-deck',
+        );
+      } else if (playbackRun) {
+        this.startDecoderRun(playbackRun, writable, token);
       }
 
       this.state = 'playing';
@@ -2700,13 +2725,17 @@ export class AudioSession extends EventEmitter {
         fallbackReason: this.activeAutomix?.plan.fallbackReason ?? null,
         beatAligned: this.activeAutomix?.plan.beatAligned ?? false,
         skipIntroSilence: this.activeAutomix?.plan.skipIntroSilence ?? false,
-        engine: this.currentDecodeBackendImpl === 'native-automix-dual-deck'
-          ? 'nativeDualDeck'
-          : this.currentDecodeBackendImpl === 'ffmpeg-automix'
-            ? 'ffmpegPremix'
-            : automixActive
-              ? 'fallback'
-              : null,
+        engine: this.currentDecodeBackendImpl === 'native-gapless-dual-deck'
+          ? 'nativeGapless'
+          : this.currentDecodeBackendImpl === 'ffmpeg-gapless'
+            ? 'ffmpegGapless'
+            : this.currentDecodeBackendImpl === 'native-automix-dual-deck'
+              ? 'nativeDualDeck'
+              : this.currentDecodeBackendImpl === 'ffmpeg-automix'
+                ? 'ffmpegPremix'
+                : automixActive
+                  ? 'fallback'
+                  : null,
         tempoRatio: this.activeAutomix?.plan.tempoRatio ?? null,
         nextStartSeconds: this.activeAutomix?.plan.nextStartSeconds ?? null,
         overlapSeconds: this.activeAutomix?.plan.overlapSeconds ?? null,
@@ -3076,6 +3105,58 @@ export class AudioSession extends EventEmitter {
     }
   }
 
+  private createGaplessTransitionPlan(
+    currentStartSeconds: number,
+    currentProbe: AudioProbeResult,
+    nextProbe: AudioProbeResult,
+  ): AutomixTransitionPlan | null {
+    const currentDuration = Math.max(0, currentProbe.durationSeconds);
+    const nextDuration = Math.max(0, nextProbe.durationSeconds);
+    if (currentDuration - currentStartSeconds < 0.25 || nextDuration < 0.25) {
+      return null;
+    }
+
+    return {
+      mode: 'gaplessFallback',
+      currentStartSeconds,
+      currentEndSeconds: currentDuration,
+      currentFadeStartSeconds: currentDuration,
+      nextStartSeconds: 0,
+      overlapSeconds: 0.001,
+      curve: 'tri',
+      currentGainDb: 0,
+      nextGainDb: 0,
+      tempoRatio: 1,
+      advanceAtSeconds: currentDuration,
+      skipIntroSilence: false,
+      beatAligned: false,
+      fallbackReason: null,
+    };
+  }
+
+  private createGaplessTransition(
+    fromTrackId: string | null,
+    next: AudioSessionGaplessNextTrack,
+    nextProbe: AudioProbeResult,
+    transitionStartSeconds: number,
+    trackStartSourceSeconds: number,
+    plan: AutomixTransitionPlan,
+  ): ActiveAutomixTransition {
+    return {
+      fromTrackId,
+      nextTrackId: next.trackId ?? next.filePath,
+      nextFilePath: next.filePath,
+      nextInputHeaders: next.inputHeaders ?? null,
+      nextProbe,
+      nextReplayGain: next.replayGain ?? null,
+      transitionSeconds: 0,
+      transitionStartSeconds,
+      trackStartOutputSeconds: transitionStartSeconds,
+      trackStartSourceSeconds,
+      plan,
+    };
+  }
+
   private async createNativeAutomixPlayback(
     request: AudioSessionPlayRequest,
     currentProbe: AudioProbeResult,
@@ -3180,6 +3261,7 @@ export class AudioSession extends EventEmitter {
       nextRun: this.decoder.decodeLocalFile(nextDecodeRequest),
       state: {
         enabled: true,
+        gapless: false,
         nextTransitionIndex: 0,
         fromTrackId: request.trackId ?? null,
         nextTrackId: next.trackId ?? next.filePath,
@@ -3191,6 +3273,90 @@ export class AudioSession extends EventEmitter {
         transitionStartSeconds,
         compositeStartSeconds: transitionPlan.currentStartSeconds,
         compositeDurationSeconds,
+        plan: transitionPlan,
+        transitions: [transition],
+      },
+    };
+  }
+
+  private async createNativeGaplessPlayback(
+    request: AudioSessionPlayRequest,
+    currentProbe: AudioProbeResult,
+    plan: SampleRatePlan,
+    outputSettings: AudioOutputSettings,
+    bridge: OutputBridgeLike,
+  ): Promise<NativeAutomixPlayback | null> {
+    const gapless = request.gapless;
+    const next = gapless?.next ?? null;
+    if (
+      request.automix?.enabled === true ||
+      gapless?.enabled !== true ||
+      !next ||
+      (gapless.following?.length ?? 0) > 0 ||
+      typeof bridge.prepareAutomixPlan !== 'function' ||
+      typeof bridge.createAutomixNextWritable !== 'function' ||
+      outputSettings.playbackRate !== 1 ||
+      plan.dsdOutputMode !== 'pcm' ||
+      isDsdCodec(currentProbe.codec) ||
+      isDsdFilePath(request.filePath)
+    ) {
+      return null;
+    }
+
+    const currentStartSeconds = Math.max(0, request.startSeconds ?? 0);
+    const nextProbe = await this.resolveAutomixNextProbe(next);
+    if (isDsdCodec(nextProbe.codec) || isDsdFilePath(next.filePath)) {
+      return null;
+    }
+
+    const transitionPlan = this.createGaplessTransitionPlan(currentStartSeconds, currentProbe, nextProbe);
+    if (!transitionPlan) {
+      return null;
+    }
+
+    const currentDecodeRequest = this.createDecodeRequest(
+      request.filePath,
+      request.inputHeaders,
+      currentStartSeconds,
+      currentProbe.channels,
+      plan,
+      outputSettings,
+    );
+    const nextDecodeRequest = this.createDecodeRequest(
+      next.filePath,
+      next.inputHeaders,
+      0,
+      currentProbe.channels,
+      plan,
+      outputSettings,
+    );
+    const transitionStartSeconds = Math.max(0, currentProbe.durationSeconds - currentStartSeconds);
+    const transition = this.createGaplessTransition(
+      request.trackId ?? null,
+      next,
+      nextProbe,
+      transitionStartSeconds,
+      0,
+      transitionPlan,
+    );
+
+    return {
+      currentRun: this.decoder.decodeLocalFile(currentDecodeRequest),
+      nextRun: this.decoder.decodeLocalFile(nextDecodeRequest),
+      state: {
+        enabled: true,
+        gapless: true,
+        nextTransitionIndex: 0,
+        fromTrackId: request.trackId ?? null,
+        nextTrackId: next.trackId ?? next.filePath,
+        nextFilePath: next.filePath,
+        nextInputHeaders: next.inputHeaders ?? null,
+        nextProbe,
+        nextReplayGain: next.replayGain ?? null,
+        transitionSeconds: 0,
+        transitionStartSeconds,
+        compositeStartSeconds: currentStartSeconds,
+        compositeDurationSeconds: transitionStartSeconds + nextProbe.durationSeconds,
         plan: transitionPlan,
         transitions: [transition],
       },
@@ -3371,6 +3537,7 @@ export class AudioSession extends EventEmitter {
       run,
       state: {
         enabled: true,
+        gapless: false,
         nextTransitionIndex: 0,
         fromTrackId: request.trackId ?? null,
         nextTrackId: firstCandidate.track.trackId ?? firstCandidate.track.filePath,
@@ -3383,6 +3550,149 @@ export class AudioSession extends EventEmitter {
         compositeStartSeconds: transitionPlan.currentStartSeconds,
         compositeDurationSeconds,
         plan: transitionPlan,
+        transitions,
+      },
+    };
+  }
+
+  private async createGaplessDecoderRunForPlayback(
+    request: AudioSessionPlayRequest,
+    currentProbe: AudioProbeResult,
+    plan: SampleRatePlan,
+    outputSettings: AudioOutputSettings,
+  ): Promise<{ run: DecoderRun; state: ActiveAutomixState } | null> {
+    const gapless = request.gapless;
+    const next = gapless?.next ?? null;
+    if (
+      request.automix?.enabled === true ||
+      gapless?.enabled !== true ||
+      !next ||
+      !this.decoder.decodeGaplessSequence ||
+      outputSettings.playbackRate !== 1 ||
+      plan.dsdOutputMode !== 'pcm' ||
+      isDsdCodec(currentProbe.codec) ||
+      isDsdFilePath(request.filePath)
+    ) {
+      return null;
+    }
+
+    const currentStartSeconds = Math.max(0, request.startSeconds ?? 0);
+    const candidates = [next, ...(gapless.following ?? [])].slice(0, 4);
+    const resolvedCandidates: Array<{
+      track: AudioSessionGaplessNextTrack;
+      probe: AudioProbeResult;
+    }> = [];
+    for (const candidate of candidates) {
+      const candidateProbe = await this.resolveAutomixNextProbe(candidate);
+      if (candidateProbe.durationSeconds < 0.25 || isDsdCodec(candidateProbe.codec) || isDsdFilePath(candidate.filePath)) {
+        break;
+      }
+      resolvedCandidates.push({ track: candidate, probe: candidateProbe });
+    }
+
+    const firstCandidate = resolvedCandidates[0];
+    if (!firstCandidate) {
+      return null;
+    }
+
+    const firstPlan = this.createGaplessTransitionPlan(currentStartSeconds, currentProbe, firstCandidate.probe);
+    if (!firstPlan) {
+      return null;
+    }
+
+    const currentDecodeRequest = this.createDecodeRequest(
+      request.filePath,
+      request.inputHeaders,
+      currentStartSeconds,
+      currentProbe.channels,
+      plan,
+      outputSettings,
+    );
+    currentDecodeRequest.replayGainDb = this.calculateCurrentReplayGain().appliedDb;
+
+    const nextDecodeRequest = this.createDecodeRequest(
+      firstCandidate.track.filePath,
+      firstCandidate.track.inputHeaders,
+      0,
+      currentProbe.channels,
+      plan,
+      outputSettings,
+    );
+    nextDecodeRequest.replayGainDb = this.calculateReplayGainForTrack(firstCandidate.track.replayGain).appliedDb;
+
+    const followingDecodeRequests = resolvedCandidates.slice(1).map((candidate) => {
+      const decodeRequest = this.createDecodeRequest(
+        candidate.track.filePath,
+        candidate.track.inputHeaders,
+        0,
+        currentProbe.channels,
+        plan,
+        outputSettings,
+      );
+      decodeRequest.replayGainDb = this.calculateReplayGainForTrack(candidate.track.replayGain).appliedDb;
+      return {
+        ...decodeRequest,
+        durationSeconds: candidate.probe.durationSeconds,
+      };
+    });
+
+    const run = this.decoder.decodeGaplessSequence({
+      current: {
+        ...currentDecodeRequest,
+        durationSeconds: currentProbe.durationSeconds,
+      },
+      next: {
+        ...nextDecodeRequest,
+        durationSeconds: firstCandidate.probe.durationSeconds,
+      },
+      following: followingDecodeRequests,
+    });
+    run.decoderBackendImpl = 'ffmpeg-gapless';
+    this.currentDecodeBackendImpl = 'ffmpeg-gapless';
+
+    const transitions: ActiveAutomixTransition[] = [];
+    let trackStartOutputSeconds = Math.max(0, currentProbe.durationSeconds - currentStartSeconds);
+    let previousTrackId: string | null = request.trackId ?? null;
+    let previousProbe = currentProbe;
+    let previousStartSeconds = currentStartSeconds;
+    for (const candidate of resolvedCandidates) {
+      const transitionPlan = transitions.length === 0
+        ? firstPlan
+        : this.createGaplessTransitionPlan(previousStartSeconds, previousProbe, candidate.probe);
+      if (!transitionPlan) {
+        break;
+      }
+      transitions.push(this.createGaplessTransition(
+        previousTrackId,
+        candidate.track,
+        candidate.probe,
+        trackStartOutputSeconds,
+        0,
+        transitionPlan,
+      ));
+      previousTrackId = candidate.track.trackId ?? candidate.track.filePath;
+      previousProbe = candidate.probe;
+      previousStartSeconds = 0;
+      trackStartOutputSeconds += candidate.probe.durationSeconds;
+    }
+
+    return {
+      run,
+      state: {
+        enabled: true,
+        gapless: true,
+        nextTransitionIndex: 0,
+        fromTrackId: request.trackId ?? null,
+        nextTrackId: firstCandidate.track.trackId ?? firstCandidate.track.filePath,
+        nextFilePath: firstCandidate.track.filePath,
+        nextInputHeaders: firstCandidate.track.inputHeaders ?? null,
+        nextProbe: firstCandidate.probe,
+        nextReplayGain: firstCandidate.track.replayGain ?? null,
+        transitionSeconds: 0,
+        transitionStartSeconds: transitions[0]?.transitionStartSeconds ?? 0,
+        compositeStartSeconds: currentStartSeconds,
+        compositeDurationSeconds: trackStartOutputSeconds,
+        plan: firstPlan,
         transitions,
       },
     };
@@ -4646,7 +4956,7 @@ export class AudioSession extends EventEmitter {
     const volume = this.currentOutputSettings?.volume ?? this.outputSettings.volume;
     const nativeVolumeControl = typeof this.bridge?.setVolume === 'function';
     const replayGainCalculation = this.calculateCurrentReplayGain();
-    const replayGainTransform = new PcmVolumeTransform(this.replayGainLinearGain(replayGainCalculation), 16);
+    const replayGainTransform = new PcmVolumeTransform(run.replayGainAppliedInStream === true ? 1 : this.replayGainLinearGain(replayGainCalculation), 16);
     const livePcmResampler = this.createLivePcmResamplerTransform();
     const gainTransform = new PcmVolumeTransform(nativeVolumeControl ? 1 : volume);
     const speedTransform = new PcmPlaybackRateTransform(
@@ -4756,6 +5066,7 @@ export class AudioSession extends EventEmitter {
     currentWritable: Writable,
     nextWritable: Writable,
     token: number,
+    decoderBackendImpl: 'native-automix-dual-deck' | 'native-gapless-dual-deck' = 'native-automix-dual-deck',
   ): void {
     this.decoderPipelineCleanup?.();
     const volume = this.currentOutputSettings?.volume ?? this.outputSettings.volume;
@@ -4780,7 +5091,7 @@ export class AudioSession extends EventEmitter {
           throw rejected.reason instanceof Error ? rejected.reason : new Error(String(rejected.reason));
         }
       }),
-      decoderBackendImpl: 'native-automix-dual-deck',
+      decoderBackendImpl,
       resamplerEngine: currentRun.resamplerEngine,
       resamplerFallbackActive: currentRun.resamplerFallbackActive || nextRun.resamplerFallbackActive,
     };
@@ -4812,6 +5123,7 @@ export class AudioSession extends EventEmitter {
     };
 
     this.decoderRun = combinedRun;
+    this.currentDecodeBackendImpl = decoderBackendImpl;
     this.currentReplayGainCalculation = currentReplayGainCalculation;
     this.gainTransform = currentGainTransform;
     this.speedTransform = null;

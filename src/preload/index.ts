@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
 import type { AudioOutputSettings, AudioStatus, PlaybackSpeedMode } from '../shared/types/audio';
+import type { AppSettings, ReplayGainMode } from '../shared/types/appSettings';
 import type { GlobalShortcutAction } from '../shared/types/globalShortcuts';
 import type {
   PlaybackMediaStartRequest,
@@ -11,6 +12,7 @@ import type {
 } from '../shared/types/playback';
 import type { SmtcCommand } from '../shared/types/smtc';
 import type { UpdateStatus } from '../shared/types/updates';
+import { calculateReplayGain, dbToLinearGain, type ReplayGainCalculation, type ReplayGainTrackData } from '../shared/utils/replayGain';
 
 const sanitizePathList = (paths: unknown): string[] =>
   Array.isArray(paths) ? paths.filter((path): path is string => typeof path === 'string') : [];
@@ -31,10 +33,41 @@ const automixAdvanceHandlers = new Set<(event: AutomixAdvancePayload) => void>()
 
 type SystemPlaybackSource = PlaybackResolvedMediaSource & {
   trackId?: string | null;
+  replayGain?: ReplayGainTrackData | null;
+};
+
+type SystemMediaPlaybackContext = {
+  request: PlaybackMediaStartRequest;
+  generation: number;
+  recoveryAttempts: number;
+  recovering: boolean;
+  source: SystemPlaybackSource | null;
+};
+
+type SystemPlaybackErrorReport = {
+  phase: string;
+  message: string;
+  recovered: boolean;
+  mediaType?: 'local' | 'remote' | 'streaming';
+  provider?: string | null;
+  trackId?: string | null;
+  sourceKind?: 'local' | 'remote' | 'renderer';
+  sourceHost?: string | null;
+  mimeType?: string | null;
+  recoveryAttempt?: number;
+  maxRecoveryAttempts?: number;
+  htmlAudio?: {
+    networkState: number | null;
+    readyState: number | null;
+    errorCode: number | null;
+    errorMessage: string | null;
+  };
 };
 
 const systemAudioWarning = 'system_audio_compatibility_mode';
 const systemAudioDeviceName = 'Windows default output';
+const maxSystemMediaRecoveryAttempts = 1;
+const systemPlaybackSupersededMessage = 'audio_session_run_cancelled';
 const audioStatusHandlers = new Set<(status: AudioStatus) => void>();
 const readPersistedSystemAudioMode = (): boolean => {
   try {
@@ -49,6 +82,9 @@ const readPersistedSystemAudioMode = (): boolean => {
   }
 };
 let systemAudioElement: HTMLAudioElement | null = null;
+let systemAudioContext: AudioContext | null = null;
+let systemAudioSourceNode: MediaElementAudioSourceNode | null = null;
+let systemAudioGainNode: GainNode | null = null;
 let systemAudioModeActive = readPersistedSystemAudioMode();
 let systemAudioState: AudioStatus['state'] = 'idle';
 let systemAudioSource: SystemPlaybackSource | null = null;
@@ -56,6 +92,17 @@ let systemAudioObjectUrl: string | null = null;
 let systemAudioError: string | null = null;
 let systemAudioStatusTimer: number | null = null;
 let lastNativeAudioStatus: AudioStatus | null = null;
+let systemPlaybackGeneration = 0;
+let systemMediaPlaybackContext: SystemMediaPlaybackContext | null = null;
+let systemReplayGainEnabled = false;
+let systemReplayGainMode: ReplayGainMode = 'track';
+let systemReplayGainCalculation: ReplayGainCalculation = {
+  appliedDb: 0,
+  selectedGainDb: null,
+  selectedPeak: null,
+  preventedClipping: false,
+  active: false,
+};
 let systemOutputSettings: Pick<AudioStatus, 'volume' | 'playbackRate' | 'playbackSpeedMode'> = {
   volume: 1,
   playbackRate: 1,
@@ -64,6 +111,59 @@ let systemOutputSettings: Pick<AudioStatus, 'volume' | 'playbackRate' | 'playbac
 
 const isHttpUrl = (value: string): boolean => /^https?:\/\//iu.test(value.trim());
 const isRendererReadyUrl = (value: string): boolean => /^(?:blob|data):/iu.test(value.trim());
+
+const nextSystemPlaybackGeneration = (): number => {
+  systemPlaybackGeneration += 1;
+  return systemPlaybackGeneration;
+};
+
+const sourceDiagnostics = (source: SystemPlaybackSource | null): Pick<SystemPlaybackErrorReport, 'sourceKind' | 'sourceHost' | 'mimeType'> => {
+  const rawUrl = source?.filePath?.trim() ?? '';
+  if (!rawUrl) {
+    return { sourceKind: undefined, sourceHost: null, mimeType: source?.mimeType ?? null };
+  }
+
+  if (isRendererReadyUrl(rawUrl)) {
+    return { sourceKind: 'renderer', sourceHost: null, mimeType: source?.mimeType ?? null };
+  }
+
+  if (isHttpUrl(rawUrl)) {
+    try {
+      return { sourceKind: 'remote', sourceHost: new URL(rawUrl).host, mimeType: source?.mimeType ?? null };
+    } catch {
+      return { sourceKind: 'remote', sourceHost: null, mimeType: source?.mimeType ?? null };
+    }
+  }
+
+  return { sourceKind: 'local', sourceHost: null, mimeType: source?.mimeType ?? null };
+};
+
+const htmlAudioDiagnostics = (): SystemPlaybackErrorReport['htmlAudio'] => {
+  const element = systemAudioElement;
+  return {
+    networkState: typeof element?.networkState === 'number' ? element.networkState : null,
+    readyState: typeof element?.readyState === 'number' ? element.readyState : null,
+    errorCode: typeof element?.error?.code === 'number' ? element.error.code : null,
+    errorMessage: element?.error?.message ?? null,
+  };
+};
+
+const mediaRequestDiagnostics = (request: PlaybackMediaStartRequest | null): Pick<SystemPlaybackErrorReport, 'mediaType' | 'provider' | 'trackId'> => {
+  const item = request?.item;
+  if (!item) {
+    return {};
+  }
+
+  return {
+    mediaType: item.mediaType,
+    provider: item.mediaType === 'streaming' ? item.provider : null,
+    trackId: item.trackId,
+  };
+};
+
+const reportSystemPlaybackError = (report: SystemPlaybackErrorReport): void => {
+  void ipcRenderer.invoke(IpcChannels.AudioReportSystemPlaybackError, report).catch(() => undefined);
+};
 
 const createFallbackAudioStatus = (): AudioStatus => ({
   host: 'ready',
@@ -85,6 +185,10 @@ const createFallbackAudioStatus = (): AudioStatus => ({
   volume: systemOutputSettings.volume,
   playbackRate: systemOutputSettings.playbackRate,
   playbackSpeedMode: systemOutputSettings.playbackSpeedMode,
+  replayGainEnabled: false,
+  replayGainMode: 'track',
+  replayGainAppliedDb: 0,
+  replayGainPreventedClipping: false,
   currentFilePath: null,
   currentTrackId: null,
   durationSeconds: 0,
@@ -173,6 +277,10 @@ const createSystemAudioStatus = (): AudioStatus => {
     volume: systemOutputSettings.volume,
     playbackRate: systemOutputSettings.playbackRate,
     playbackSpeedMode: systemOutputSettings.playbackSpeedMode,
+    replayGainEnabled: systemReplayGainEnabled,
+    replayGainMode: systemReplayGainMode,
+    replayGainAppliedDb: systemReplayGainCalculation.appliedDb,
+    replayGainPreventedClipping: systemReplayGainCalculation.preventedClipping,
     currentFilePath: systemAudioSource?.filePath ?? null,
     currentTrackId: systemAudioSource?.trackId ?? null,
     durationSeconds: getSystemDurationSeconds(),
@@ -192,7 +300,7 @@ const createSystemAudioStatus = (): AudioStatus => {
     latencyProfile: 'balanced',
     eqEnabled: false,
     channelBalanceEnabled: false,
-    dspActive: false,
+    dspActive: systemReplayGainCalculation.active && Math.abs(systemReplayGainCalculation.appliedDb) >= 0.001,
     preampDb: 0,
     eqPresetName: null,
     clippingRisk: false,
@@ -253,6 +361,66 @@ const releaseSystemObjectUrl = (): void => {
   }
 };
 
+const replayGainLinearGain = (): number =>
+  systemReplayGainCalculation.active && Math.abs(systemReplayGainCalculation.appliedDb) >= 0.001
+    ? Math.max(0, Math.min(16, dbToLinearGain(systemReplayGainCalculation.appliedDb)))
+    : 1;
+
+const ensureSystemAudioGraph = (element: HTMLAudioElement): void => {
+  if (systemAudioGainNode) {
+    return;
+  }
+
+  const AudioContextConstructor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) {
+    return;
+  }
+
+  try {
+    systemAudioContext = systemAudioContext ?? new AudioContextConstructor();
+    systemAudioSourceNode = systemAudioSourceNode ?? systemAudioContext.createMediaElementSource(element);
+    systemAudioGainNode = systemAudioContext.createGain();
+    systemAudioSourceNode.connect(systemAudioGainNode);
+    systemAudioGainNode.connect(systemAudioContext.destination);
+  } catch {
+    systemAudioGainNode = null;
+  }
+};
+
+const applySystemElementOutput = (): void => {
+  if (!systemAudioElement) {
+    return;
+  }
+
+  systemAudioElement.playbackRate = systemOutputSettings.playbackRate;
+  if (systemAudioGainNode) {
+    systemAudioElement.volume = systemOutputSettings.volume;
+    systemAudioGainNode.gain.value = replayGainLinearGain();
+    return;
+  }
+
+  systemAudioElement.volume = Math.max(0, Math.min(1, systemOutputSettings.volume * replayGainLinearGain()));
+};
+
+const refreshSystemReplayGain = async (source: SystemPlaybackSource): Promise<void> => {
+  let settings: Partial<AppSettings> | null = null;
+  try {
+    settings = await ipcRenderer.invoke(IpcChannels.AppGetSettings) as AppSettings;
+  } catch {
+    settings = null;
+  }
+
+  systemReplayGainEnabled = settings?.replayGainEnabled === true;
+  systemReplayGainMode = settings?.replayGainMode ?? 'track';
+  systemReplayGainCalculation = calculateReplayGain({
+    ...(source.replayGain ?? {}),
+    enabled: systemReplayGainEnabled,
+    mode: systemReplayGainMode,
+    preampDb: settings?.replayGainPreampDb ?? 0,
+    preventClipping: settings?.replayGainPreventClipping !== false,
+  });
+};
+
 const applySystemOutputSettings = (settings: Partial<AudioOutputSettings> | null | undefined, base?: AudioStatus | null): void => {
   const nextVolume = typeof settings?.volume === 'number' && Number.isFinite(settings.volume)
     ? Math.max(0, Math.min(1, settings.volume))
@@ -271,10 +439,7 @@ const applySystemOutputSettings = (settings: Partial<AudioOutputSettings> | null
     playbackSpeedMode: nextPlaybackSpeedMode,
   };
 
-  if (systemAudioElement) {
-    systemAudioElement.volume = systemOutputSettings.volume;
-    systemAudioElement.playbackRate = systemOutputSettings.playbackRate;
-  }
+  applySystemElementOutput();
 };
 
 const toSystemPlaybackStatus = (): PlaybackStatus => ({
@@ -321,6 +486,7 @@ const ensureSystemAudioElement = (): HTMLAudioElement => {
     systemAudioError = element.error?.message || 'system_audio_playback_failed';
     stopSystemStatusTimer();
     emitSystemAudioStatus();
+    void handleSystemPlaybackFailure('system-audio-htmlaudio-error', new Error(systemAudioError), systemPlaybackGeneration);
   });
   element.addEventListener('timeupdate', () => emitSystemAudioStatus());
 
@@ -340,21 +506,52 @@ const resolveSystemSourceUrl = async (source: SystemPlaybackSource): Promise<str
   return ipcRenderer.invoke(IpcChannels.AudioCreateSystemStreamUrl, {
     url: trimmed,
     headers: isHttpUrl(trimmed) ? source.inputHeaders : undefined,
-    mimeType: null,
+    mimeType: source.mimeType ?? null,
   }) as Promise<string>;
 };
 
-const playSystemSource = async (source: SystemPlaybackSource, startSeconds?: number): Promise<PlaybackStatus> => {
+const playSystemSource = async (
+  source: SystemPlaybackSource,
+  startSeconds: number | undefined,
+  options: {
+    generation: number;
+    request?: PlaybackMediaStartRequest | null;
+    allowRecovery?: boolean;
+  },
+): Promise<PlaybackStatus> => {
+  const { generation, request = null, allowRecovery = true } = options;
   systemAudioModeActive = true;
   systemAudioSource = source;
   systemAudioState = 'loading';
   systemAudioError = null;
+  if (request) {
+    if (!systemMediaPlaybackContext || systemMediaPlaybackContext.generation !== generation) {
+      systemMediaPlaybackContext = {
+        request,
+        generation,
+        recoveryAttempts: 0,
+        recovering: false,
+        source,
+      };
+    } else {
+      systemMediaPlaybackContext.request = request;
+      systemMediaPlaybackContext.source = source;
+    }
+  } else if (systemMediaPlaybackContext?.generation !== generation) {
+    systemMediaPlaybackContext = null;
+  }
+
   const element = ensureSystemAudioElement();
+  await refreshSystemReplayGain(source);
+  ensureSystemAudioGraph(element);
+  await systemAudioContext?.resume?.().catch(() => undefined);
   const sourceUrl = await resolveSystemSourceUrl(source);
+  if (generation !== systemPlaybackGeneration) {
+    throw new Error(systemPlaybackSupersededMessage);
+  }
   element.pause();
   element.src = sourceUrl;
-  element.volume = systemOutputSettings.volume;
-  element.playbackRate = systemOutputSettings.playbackRate;
+  applySystemElementOutput();
   element.load();
   emitSystemAudioStatus();
 
@@ -370,6 +567,12 @@ const playSystemSource = async (source: SystemPlaybackSource, startSeconds?: num
   try {
     await element.play();
   } catch (error) {
+    if (allowRecovery) {
+      const recovered = await handleSystemPlaybackFailure('system-audio-htmlaudio-error', error, generation);
+      if (recovered) {
+        return recovered;
+      }
+    }
     systemAudioState = 'error';
     systemAudioError = error instanceof Error ? error.message : String(error);
     emitSystemAudioStatus();
@@ -379,10 +582,98 @@ const playSystemSource = async (source: SystemPlaybackSource, startSeconds?: num
   return toSystemPlaybackStatus();
 };
 
+const handleSystemPlaybackFailure = async (
+  phase: string,
+  error: unknown,
+  generation: number,
+): Promise<PlaybackStatus | null> => {
+  const message = error instanceof Error ? error.message : String(error);
+  const context = systemMediaPlaybackContext;
+  const canRefreshMedia =
+    context &&
+    context.generation === generation &&
+    !context.recovering &&
+    context.recoveryAttempts < maxSystemMediaRecoveryAttempts &&
+    (context.request.item.mediaType === 'streaming' || context.request.item.mediaType === 'remote');
+
+  if (!canRefreshMedia) {
+    reportSystemPlaybackError({
+      phase,
+      message,
+      recovered: false,
+      ...mediaRequestDiagnostics(context?.request ?? null),
+      ...sourceDiagnostics(context?.source ?? systemAudioSource),
+      recoveryAttempt: context?.recoveryAttempts ?? 0,
+      maxRecoveryAttempts: maxSystemMediaRecoveryAttempts,
+      htmlAudio: htmlAudioDiagnostics(),
+    });
+    return null;
+  }
+
+  context.recovering = true;
+  context.recoveryAttempts += 1;
+  const recoveryAttempt = context.recoveryAttempts;
+  const startSeconds = getSystemPositionSeconds();
+
+  try {
+    const retryRequest: PlaybackMediaStartRequest = {
+      ...context.request,
+      startSeconds,
+      forceRefresh: true,
+    };
+    const resolved = await ipcRenderer.invoke(IpcChannels.PlaybackResolveMediaItem, retryRequest) as PlaybackResolvedMediaSource;
+    if (systemMediaPlaybackContext !== context || generation !== systemPlaybackGeneration) {
+      return null;
+    }
+
+    const recoveredStatus = await playSystemSource(
+      { ...resolved, trackId: context.request.item.trackId, replayGain: context.request.item.replayGain ?? null },
+      startSeconds,
+      { generation, request: context.request, allowRecovery: false },
+    );
+    if (systemMediaPlaybackContext !== context || generation !== systemPlaybackGeneration) {
+      return null;
+    }
+
+    reportSystemPlaybackError({
+      phase,
+      message,
+      recovered: true,
+      ...mediaRequestDiagnostics(context.request),
+      ...sourceDiagnostics(context.source),
+      recoveryAttempt,
+      maxRecoveryAttempts: maxSystemMediaRecoveryAttempts,
+      htmlAudio: htmlAudioDiagnostics(),
+    });
+    return recoveredStatus;
+  } catch (recoveryError) {
+    if (systemMediaPlaybackContext === context && generation === systemPlaybackGeneration) {
+      const recoveryMessage = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+      reportSystemPlaybackError({
+        phase: 'system-audio-recovery-failed',
+        message: `${message}; retry="${recoveryMessage}"`,
+        recovered: false,
+        ...mediaRequestDiagnostics(context.request),
+        ...sourceDiagnostics(context.source),
+        recoveryAttempt,
+        maxRecoveryAttempts: maxSystemMediaRecoveryAttempts,
+        htmlAudio: htmlAudioDiagnostics(),
+      });
+    }
+    return null;
+  } finally {
+    if (systemMediaPlaybackContext === context) {
+      context.recovering = false;
+    }
+  }
+};
+
 const stopSystemPlayback = (
   state: Extract<AudioStatus['state'], 'stopped' | 'idle'> = 'stopped',
   emitStatus = true,
 ): PlaybackStatus => {
+  nextSystemPlaybackGeneration();
+  systemMediaPlaybackContext = null;
   stopSystemStatusTimer();
   if (systemAudioElement) {
     systemAudioElement.pause();
@@ -391,6 +682,13 @@ const stopSystemPlayback = (
   }
   releaseSystemObjectUrl();
   systemAudioSource = null;
+  systemReplayGainCalculation = {
+    appliedDb: 0,
+    selectedGainDb: null,
+    selectedPeak: null,
+    preventedClipping: false,
+    active: false,
+  };
   systemAudioState = state;
   systemAudioError = null;
   if (emitStatus) {
@@ -425,20 +723,33 @@ const refreshSystemAudioModeActive = async (): Promise<boolean> => {
   return false;
 };
 
-const playLocalFileWithSystemAudio = (request: PlaybackStartRequest): Promise<PlaybackStatus> =>
-  playSystemSource(
+const playLocalFileWithSystemAudio = (request: PlaybackStartRequest): Promise<PlaybackStatus> => {
+  const generation = nextSystemPlaybackGeneration();
+  return playSystemSource(
     {
       filePath: request.filePath,
       probe: request.probe,
       durationSeconds: request.probe?.durationSeconds ?? null,
       trackId: request.trackId ?? null,
+      mimeType: null,
+      replayGain: request.replayGain ?? null,
     },
     request.startSeconds,
+    { generation, request: null, allowRecovery: true },
   );
+};
 
 const playMediaItemWithSystemAudio = async (request: PlaybackMediaStartRequest): Promise<PlaybackStatus> => {
+  const generation = nextSystemPlaybackGeneration();
   const resolved = await ipcRenderer.invoke(IpcChannels.PlaybackResolveMediaItem, request) as PlaybackResolvedMediaSource;
-  return playSystemSource({ ...resolved, trackId: request.item.trackId }, request.startSeconds);
+  if (generation !== systemPlaybackGeneration) {
+    throw new Error(systemPlaybackSupersededMessage);
+  }
+  return playSystemSource({ ...resolved, trackId: request.item.trackId, replayGain: request.item.replayGain ?? null }, request.startSeconds, {
+    generation,
+    request,
+    allowRecovery: true,
+  });
 };
 
 ipcRenderer.on(IpcChannels.PlaybackLocalAudioFilesOpened, (_event: Electron.IpcRendererEvent, paths: unknown): void => {
@@ -566,6 +877,9 @@ const echoApi: EchoApi = {
     getTracks: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetTracks, query),
     getLibraryQualityOverview: () => ipcRenderer.invoke(IpcChannels.LibraryGetQualityOverview),
     getLibraryQualityIssues: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetQualityIssues, query),
+    getLibraryInboxBatches: () => ipcRenderer.invoke(IpcChannels.LibraryGetInboxBatches),
+    getLibraryInboxTracks: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetInboxTracks, query),
+    createPlaylistFromLibraryInbox: (request) => ipcRenderer.invoke(IpcChannels.LibraryCreateInboxPlaylist, request),
     getHealthReport: () => ipcRenderer.invoke(IpcChannels.LibraryGetHealthReport),
     exportHealthReport: () => ipcRenderer.invoke(IpcChannels.LibraryExportHealthReport),
     refreshDuplicateTracks: (mode) => ipcRenderer.invoke(IpcChannels.LibraryRefreshDuplicateTracks, mode),
@@ -674,6 +988,7 @@ const echoApi: EchoApi = {
     createDatabaseSnapshot: () => ipcRenderer.invoke(IpcChannels.LibraryCreateDatabaseSnapshot),
     restoreDatabaseSnapshot: (snapshotId) => ipcRenderer.invoke(IpcChannels.LibraryRestoreDatabaseSnapshot, snapshotId),
     scrubQuarantinedDatabase: () => ipcRenderer.invoke(IpcChannels.LibraryScrubQuarantinedDatabase),
+    discardQuarantinedProblemTracks: () => ipcRenderer.invoke(IpcChannels.LibraryDiscardQuarantinedProblemTracks),
     openDataProtectionFolder: () => ipcRenderer.invoke(IpcChannels.LibraryOpenDataProtectionFolder),
     repairMissingMetadata: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryNetworkRepairMissingMetadata, trackId),
     scanMissingMetadata: (options) => ipcRenderer.invoke(IpcChannels.LibraryNetworkScanMissingMetadata, options),

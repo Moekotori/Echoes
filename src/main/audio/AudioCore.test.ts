@@ -6327,6 +6327,65 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     expect(filter).toContain('[1:a]atrim=0:149.000,areverse,silenceremove=start_periods=1:start_duration=0.180:start_threshold=-42dB,areverse');
   });
 
+  it('builds a gapless ffmpeg concat graph without crossfade and applies in-stream ReplayGain', async () => {
+    let spawnedArgs: string[] = [];
+    const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {
+      spawnedArgs = args;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child as unknown as ReturnType<NonNullable<DecoderPipelineDependencies['spawn']>>;
+    };
+    const decoder = new DecoderPipeline({
+      ffmpegPath: 'test-ffmpeg',
+      spawn,
+      logger: noopLogger,
+    });
+    const run = decoder.decodeGaplessSequence({
+      current: {
+        filePath: 'one.flac',
+        startSeconds: 10,
+        durationSeconds: 120,
+        channels: 2,
+        decoderOutputSampleRate: 44100,
+        replayGainDb: -3,
+      },
+      next: {
+        filePath: 'two.flac',
+        startSeconds: 0,
+        durationSeconds: 160,
+        channels: 2,
+        decoderOutputSampleRate: 44100,
+        replayGainDb: 1.5,
+      },
+      following: [
+        {
+          filePath: 'three.flac',
+          startSeconds: 0,
+          durationSeconds: 180,
+          channels: 2,
+          decoderOutputSampleRate: 44100,
+          replayGainDb: -1,
+        },
+      ],
+    });
+
+    await expect(run.done).resolves.toBeUndefined();
+    const filter = spawnedArgs[spawnedArgs.indexOf('-filter_complex') + 1];
+    expect(run.replayGainAppliedInStream).toBe(true);
+    expect(spawnedArgs.filter((arg) => arg === '-i')).toHaveLength(3);
+    expect(spawnedArgs[spawnedArgs.indexOf('-ss') + 1]).toBe('10');
+    expect(filter).toContain('[g0][g1][g2]concat=n=3:v=0:a=1[aout]');
+    expect(filter).toContain('[0:a]atrim=0:110.000,asetpts=PTS-STARTPTS,volume=-3.000dB[g0]');
+    expect(filter).toContain('[1:a]atrim=0:160.000,asetpts=PTS-STARTPTS,volume=1.500dB[g1]');
+    expect(filter).toContain('[2:a]atrim=0:180.000,asetpts=PTS-STARTPTS,volume=-1.000dB[g2]');
+    expect(filter).not.toContain('acrossfade');
+  });
+
   it('adds conservative reconnect args before remote HTTP inputs', async () => {
     let spawnedArgs: string[] = [];
     const spawn: NonNullable<DecoderPipelineDependencies['spawn']> = (_file, args) => {

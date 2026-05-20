@@ -1,6 +1,7 @@
 import type { AudioOutputSettings, AudioPlaybackState } from './audio';
 import type { LibraryTrack } from './library';
 import type { PlayableTrack } from './remoteSources';
+import type { ReplayGainTrackData } from '../utils/replayGain';
 
 export type PlaybackStatus = {
   state: AudioPlaybackState;
@@ -32,19 +33,30 @@ export type PlaybackAutomixOptions = {
   upcomingProbes?: PlaybackProbeHint[];
 };
 
+export type PlaybackGaplessOptions = {
+  enabled?: boolean;
+  nextItem?: PlayableTrack | null;
+  nextProbe?: PlaybackProbeHint;
+  upcomingItems?: PlayableTrack[];
+  upcomingProbes?: PlaybackProbeHint[];
+};
+
 export type PlaybackStartRequest = {
   filePath: string;
   trackId?: string;
   startSeconds?: number;
   output?: AudioOutputSettings;
   probe?: PlaybackProbeHint;
+  replayGain?: ReplayGainTrackData | null;
   automix?: PlaybackAutomixOptions;
+  gapless?: PlaybackGaplessOptions;
 };
 
 export type PlaybackPrepareLocalFileRequest = {
   filePath: string;
   trackId?: string;
   probe?: PlaybackProbeHint;
+  replayGain?: ReplayGainTrackData | null;
 };
 
 export type PlaybackMediaStartRequest = {
@@ -52,11 +64,14 @@ export type PlaybackMediaStartRequest = {
   startSeconds?: number;
   output?: AudioOutputSettings;
   automix?: PlaybackAutomixOptions;
+  gapless?: PlaybackGaplessOptions;
+  forceRefresh?: boolean;
 };
 
 export type PlaybackResolvedMediaSource = {
   filePath: string;
   inputHeaders?: Record<string, string>;
+  mimeType?: string | null;
   probe?: PlaybackProbeHint;
   durationSeconds: number | null;
 };

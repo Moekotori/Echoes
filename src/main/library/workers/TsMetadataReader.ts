@@ -41,6 +41,9 @@ const maxMetadataTextLength = 512;
 const maxRawMetadataTextLength = 4096;
 const suspiciousMojibakePattern = /(?:[\u00c0-\u00ff]{2,}|[\u00c2-\u00f4][\u0080-\u00bf]|[\u00c3\u00c2][\u0080-\u00ffA-Za-z]|[\u93c4\u71b7\u5a07\u9287\u958e\u59b5\u7d0b]{2,}|\u{fffd}|\?{2,})/u;
 const binaryMetadataTextPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF|Exif|\u0000)/iu;
+const unsafeEmbeddedMetadataWarning = 'embedded_metadata_skipped_unsafe_text';
+const commonTextMetadataKeys = new Set(['title', 'artist', 'artists', 'album', 'albumartist', 'genre', 'date']);
+const nativeArtworkTagIds = ['apic', 'pic', 'covr', 'coverart', 'metadata_block_picture', 'metadatablockpicture'];
 const mojibakeFragments = [
   '\u00c3',
   '\u00c2',
@@ -123,6 +126,36 @@ const isSafeMetadataText = (text: string): boolean => {
   const controlCount = countControlCharacters(text);
   return controlCount < 8 && controlCount / Math.max(1, text.length) <= 0.02;
 };
+
+const isUnsafeRawMetadataText = (value: string): boolean => {
+  const raw = value.trim();
+  if (!raw) {
+    return false;
+  }
+
+  if (raw.length > maxRawMetadataTextLength || binaryMetadataTextPattern.test(raw)) {
+    return true;
+  }
+
+  const hardControlCount = countHardControlCharacters(raw);
+  return hardControlCount >= 8 || hardControlCount / Math.max(1, raw.length) > 0.02;
+};
+
+const containsUnsafeMetadataText = (value: unknown): boolean => {
+  if (typeof value === 'string') {
+    return isUnsafeRawMetadataText(value);
+  }
+
+  return Array.isArray(value) ? value.some(containsUnsafeMetadataText) : false;
+};
+
+const isNativeArtworkTagId = (id: string): boolean => {
+  const normalized = id.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return nativeArtworkTagIds.some((tagId) => normalized === tagId || normalized.startsWith(tagId));
+};
+
+const hasUnsafeTagMapTextMetadata = (tags: Record<string, unknown>): boolean =>
+  Object.entries(tags).some(([key, value]) => !isNativeArtworkTagId(key) && containsUnsafeMetadataText(value));
 
 const textQualityScore = (text: string): number => {
   let score = 0;
@@ -226,6 +259,71 @@ const cleanTextList = (value: unknown): string | null => {
   }
 
   return cleanText(value);
+};
+
+const shouldInspectNativeTextTag = (common: IAudioMetadata['common'], rawId: string): boolean => {
+  const id = rawId.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (id === 'title' || id === 'tit2') {
+    return !cleanText(common.title);
+  }
+  if (id === 'artist' || id === 'tpe1') {
+    return !cleanText(common.artist) && !cleanTextList(common.artists);
+  }
+  if (id === 'album' || id === 'talb') {
+    return !cleanText(common.album);
+  }
+  if (id === 'albumartist' || id === 'tpe2') {
+    return !cleanTextList(common.albumartist);
+  }
+  if (id === 'genre' || id === 'tcon') {
+    return !cleanTextList(common.genre);
+  }
+
+  return [
+    'tracknumber',
+    'track',
+    'trck',
+    'discnumber',
+    'disknumber',
+    'disc',
+    'disk',
+    'tpos',
+    'date',
+    'year',
+    'originaldate',
+    'originalyear',
+    'tdrc',
+    'bpm',
+    'tbpm',
+    'replaygaintrackgain',
+    'replaygaintrackpeak',
+    'replaygainalbumgain',
+    'replaygainalbumpeak',
+    'replaygainintegratedlufs',
+    'r128trackgain',
+    'r128albumgain',
+  ].includes(id);
+};
+
+const hasUnsafeEmbeddedTextMetadata = (metadata: IAudioMetadata): boolean => {
+  for (const [key, value] of Object.entries(metadata.common ?? {})) {
+    if (commonTextMetadataKeys.has(key.toLowerCase()) && containsUnsafeMetadataText(value)) {
+      return true;
+    }
+  }
+
+  for (const entries of Object.values(metadata.native ?? {})) {
+    for (const entry of entries) {
+      if (typeof entry.id !== 'string' || isNativeArtworkTagId(entry.id) || !shouldInspectNativeTextTag(metadata.common, entry.id)) {
+        continue;
+      }
+      if (containsUnsafeMetadataText(entry.value)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 };
 
 export const decodeWaveInfoText = (rawValue: Buffer): string | null => {
@@ -545,9 +643,14 @@ export const readTagLibFallbackMetadata = async (filePath: string): Promise<TagL
     const metadata = await taglib.readMetadata(filePath);
     const tags = (metadata.tags ?? {}) as Record<string, unknown>;
     const properties = (metadata.properties ?? {}) as Record<string, unknown> | undefined;
+    const skipTagMetadata = hasUnsafeTagMapTextMetadata(tags);
     let embeddedCover: EmbeddedCoverData | undefined;
 
-    if (metadata.hasCoverArt) {
+    if (skipTagMetadata) {
+      warnings.push(unsafeEmbeddedMetadataWarning);
+    }
+
+    if (!skipTagMetadata && metadata.hasCoverArt) {
       try {
         const pictures = await taglib.readPictures(filePath);
         const picture = pictures.find((item) => item.type === 'FrontCover') ?? pictures[0];
@@ -564,29 +667,33 @@ export const readTagLibFallbackMetadata = async (filePath: string): Promise<TagL
 
     return {
       fields: {
-        title: firstText(tagValue(tags, ['title'])),
-        artist: firstText(tagValue(tags, ['artist', 'artists'])),
-        album: firstText(tagValue(tags, ['album'])),
-        albumArtist: firstText(tagValue(tags, ['albumArtist', 'albumartist', 'album_artist'])),
-        trackNo: firstNumber(tagValue(tags, ['track', 'trackNumber', 'tracknumber'])),
-        discNo: firstNumber(tagValue(tags, ['discNumber', 'discnumber', 'disc', 'disk'])),
-        year: yearFromMetadata(tagValue(tags, ['year', 'date', 'originalDate', 'originaldate'])),
-        genre: firstText(tagValue(tags, ['genre'])),
+        title: skipTagMetadata ? null : firstText(tagValue(tags, ['title'])),
+        artist: skipTagMetadata ? null : firstText(tagValue(tags, ['artist', 'artists'])),
+        album: skipTagMetadata ? null : firstText(tagValue(tags, ['album'])),
+        albumArtist: skipTagMetadata ? null : firstText(tagValue(tags, ['albumArtist', 'albumartist', 'album_artist'])),
+        trackNo: skipTagMetadata ? null : firstNumber(tagValue(tags, ['track', 'trackNumber', 'tracknumber'])),
+        discNo: skipTagMetadata ? null : firstNumber(tagValue(tags, ['discNumber', 'discnumber', 'disc', 'disk'])),
+        year: skipTagMetadata ? null : yearFromMetadata(tagValue(tags, ['year', 'date', 'originalDate', 'originaldate'])),
+        genre: skipTagMetadata ? null : firstText(tagValue(tags, ['genre'])),
         duration: positiveFloatOrNull(properties?.duration),
         codec: normalizeTagLibCodec(properties),
         sampleRate: numberOrNull(properties?.sampleRate),
         bitDepth: numberOrNull(properties?.bitsPerSample),
         bitrate: normalizeTagLibBitrate(properties?.bitrate),
-        bpm: positiveFloatOrNull(tagValue(tags, ['bpm'])),
+        bpm: skipTagMetadata ? null : positiveFloatOrNull(tagValue(tags, ['bpm'])),
         replayGainTrackGainDb:
-          signedFloatOrNull(tagValue(tags, ['replaygain_track_gain', 'REPLAYGAIN_TRACK_GAIN'])) ??
-          r128GainToDb(tagValue(tags, ['r128_track_gain', 'R128_TRACK_GAIN'])),
+          skipTagMetadata
+            ? null
+            : signedFloatOrNull(tagValue(tags, ['replaygain_track_gain', 'REPLAYGAIN_TRACK_GAIN'])) ??
+              r128GainToDb(tagValue(tags, ['r128_track_gain', 'R128_TRACK_GAIN'])),
         replayGainAlbumGainDb:
-          signedFloatOrNull(tagValue(tags, ['replaygain_album_gain', 'REPLAYGAIN_ALBUM_GAIN'])) ??
-          r128GainToDb(tagValue(tags, ['r128_album_gain', 'R128_ALBUM_GAIN'])),
-        replayGainTrackPeak: replayGainPeakOrNull(tagValue(tags, ['replaygain_track_peak', 'REPLAYGAIN_TRACK_PEAK'])),
-        replayGainAlbumPeak: replayGainPeakOrNull(tagValue(tags, ['replaygain_album_peak', 'REPLAYGAIN_ALBUM_PEAK'])),
-        replayGainIntegratedLufs: signedFloatOrNull(tagValue(tags, ['integrated_lufs', 'replaygain_integrated_lufs', 'ebu_r128_integrated_lufs'])),
+          skipTagMetadata
+            ? null
+            : signedFloatOrNull(tagValue(tags, ['replaygain_album_gain', 'REPLAYGAIN_ALBUM_GAIN'])) ??
+              r128GainToDb(tagValue(tags, ['r128_album_gain', 'R128_ALBUM_GAIN'])),
+        replayGainTrackPeak: skipTagMetadata ? null : replayGainPeakOrNull(tagValue(tags, ['replaygain_track_peak', 'REPLAYGAIN_TRACK_PEAK'])),
+        replayGainAlbumPeak: skipTagMetadata ? null : replayGainPeakOrNull(tagValue(tags, ['replaygain_album_peak', 'REPLAYGAIN_ALBUM_PEAK'])),
+        replayGainIntegratedLufs: skipTagMetadata ? null : signedFloatOrNull(tagValue(tags, ['integrated_lufs', 'replaygain_integrated_lufs', 'ebu_r128_integrated_lufs'])),
       },
       embeddedCover,
       warnings,
@@ -785,6 +892,10 @@ export class TsMetadataReader implements MetadataReader {
   }
 
   private shouldReadTagLibFallback(filePath: string, result: MetadataResult): boolean {
+    if (result.warnings.includes(unsafeEmbeddedMetadataWarning)) {
+      return false;
+    }
+
     if (tagLibPreferredExtensions.has(extname(filePath).toLowerCase())) {
       return true;
     }
@@ -877,6 +988,7 @@ export class TsMetadataReader implements MetadataReader {
     const format = metadata.format;
     const filenameGuess = guessFromFilename(filePath);
     const fieldSources: FieldSources = {};
+    const skipEmbeddedMetadata = hasUnsafeEmbeddedTextMetadata(metadata);
 
     // Fixed priority: manual > embedded > sidecar/info > folder inference > network completion > filename fallback.
     // Phase v0.1 implements embedded tags, folder album fallback, and filename fallback; source names stay stable
@@ -896,19 +1008,28 @@ export class TsMetadataReader implements MetadataReader {
       return value;
     };
 
-    const commonTitle = cleanText(common.title);
-    const commonArtist = cleanText(common.artist) ?? cleanTextList(common.artists);
-    const commonAlbum = cleanText(common.album);
-    const embeddedTitle =
-      preferHigherQualityText(commonTitle, cleanText(waveInfoTags.INAM)) ?? firstNativeText(metadata, ['TITLE', 'TIT2']);
-    const embeddedArtist =
-      preferHigherQualityText(commonArtist, cleanText(waveInfoTags.IART)) ?? firstNativeText(metadata, ['ARTIST', 'TPE1']);
-    const embeddedAlbum =
-      preferHigherQualityText(commonAlbum, cleanText(waveInfoTags.IPRD)) ?? firstNativeText(metadata, ['ALBUM', 'TALB']);
-    const embeddedAlbumArtist = cleanTextList(common.albumartist) ?? firstNativeText(metadata, ['ALBUMARTIST', 'ALBUM ARTIST', 'ALBUM_ARTIST', 'TPE2']);
-    const embeddedGenre = cleanTextList(common.genre) ?? cleanText(waveInfoTags.IGNR) ?? firstNativeText(metadata, ['GENRE', 'TCON']);
-    const embeddedTrackNo = numberOrNull(common.track?.no) ?? numberOrNull(waveInfoTags.ITRK) ?? firstNativeNumber(metadata, ['TRACKNUMBER', 'TRACK', 'TRCK']);
-    const embeddedYear = yearFromMetadata(common.year ?? common.date) ?? yearFromMetadata(waveInfoTags.ICRD);
+    const commonTitle = skipEmbeddedMetadata ? null : cleanText(common.title);
+    const commonArtist = skipEmbeddedMetadata ? null : (cleanText(common.artist) ?? cleanTextList(common.artists));
+    const commonAlbum = skipEmbeddedMetadata ? null : cleanText(common.album);
+    const embeddedTitle = skipEmbeddedMetadata
+      ? null
+      : (preferHigherQualityText(commonTitle, cleanText(waveInfoTags.INAM)) ?? firstNativeText(metadata, ['TITLE', 'TIT2']));
+    const embeddedArtist = skipEmbeddedMetadata
+      ? null
+      : (preferHigherQualityText(commonArtist, cleanText(waveInfoTags.IART)) ?? firstNativeText(metadata, ['ARTIST', 'TPE1']));
+    const embeddedAlbum = skipEmbeddedMetadata
+      ? null
+      : (preferHigherQualityText(commonAlbum, cleanText(waveInfoTags.IPRD)) ?? firstNativeText(metadata, ['ALBUM', 'TALB']));
+    const embeddedAlbumArtist = skipEmbeddedMetadata
+      ? null
+      : (cleanTextList(common.albumartist) ?? firstNativeText(metadata, ['ALBUMARTIST', 'ALBUM ARTIST', 'ALBUM_ARTIST', 'TPE2']));
+    const embeddedGenre = skipEmbeddedMetadata
+      ? null
+      : (cleanTextList(common.genre) ?? cleanText(waveInfoTags.IGNR) ?? firstNativeText(metadata, ['GENRE', 'TCON']));
+    const embeddedTrackNo = skipEmbeddedMetadata
+      ? null
+      : (numberOrNull(common.track?.no) ?? numberOrNull(waveInfoTags.ITRK) ?? firstNativeNumber(metadata, ['TRACKNUMBER', 'TRACK', 'TRCK']));
+    const embeddedYear = skipEmbeddedMetadata ? null : (yearFromMetadata(common.year ?? common.date) ?? yearFromMetadata(waveInfoTags.ICRD));
     const folderAlbum = folderAlbumFallback(filePath);
 
     const title = pickText('title', embeddedTitle, filenameGuess.title, 'filename_fallback');
@@ -916,8 +1037,8 @@ export class TsMetadataReader implements MetadataReader {
     const album = pickText('album', embeddedAlbum, folderAlbum ?? unknownAlbum, folderAlbum ? 'folder_structure' : 'unknown');
     const albumArtist = pickText('albumArtist', embeddedAlbumArtist, artist, 'artist_fallback');
     const trackNo = pickNumber('trackNo', embeddedTrackNo);
-    const discNo = pickNumber('discNo', numberOrNull(common.disk?.no) ?? firstNativeNumber(metadata, ['DISCNUMBER', 'DISKNUMBER', 'DISC', 'DISK', 'TPOS']));
-    const year = pickNumber('year', embeddedYear ?? firstNativeYear(metadata, ['DATE', 'YEAR', 'ORIGINALDATE', 'ORIGINALYEAR', 'TDRC']));
+    const discNo = pickNumber('discNo', skipEmbeddedMetadata ? null : (numberOrNull(common.disk?.no) ?? firstNativeNumber(metadata, ['DISCNUMBER', 'DISKNUMBER', 'DISC', 'DISK', 'TPOS'])));
+    const year = pickNumber('year', skipEmbeddedMetadata ? null : (embeddedYear ?? firstNativeYear(metadata, ['DATE', 'YEAR', 'ORIGINALDATE', 'ORIGINALYEAR', 'TDRC'])));
     const genre = embeddedGenre;
     fieldSources.genre = genre ? 'embedded' : 'unknown';
     const duration = Math.max(0, Number(format.duration ?? 0));
@@ -930,23 +1051,27 @@ export class TsMetadataReader implements MetadataReader {
     fieldSources.bitDepth = bitDepth ? 'technical' : 'unknown';
     const bitrate = typeof format.bitrate === 'number' ? Math.round(format.bitrate) : null;
     fieldSources.bitrate = bitrate ? 'technical' : 'unknown';
-    const bpm = positiveFloatOrNull(common.bpm) ?? firstNativeNumber(metadata, ['BPM', 'TBPM']);
+    const bpm = skipEmbeddedMetadata ? null : (positiveFloatOrNull(common.bpm) ?? firstNativeNumber(metadata, ['BPM', 'TBPM']));
     fieldSources.bpm = bpm ? 'embedded' : 'unknown';
     const replayGainTrackGainDb =
-      signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_TRACK_GAIN', 'REPLAYGAIN_TRACKGAIN', 'TXXX:REPLAYGAIN_TRACK_GAIN'])) ??
-      r128GainToDb(firstNativeText(metadata, ['R128_TRACK_GAIN']));
+      skipEmbeddedMetadata
+        ? null
+        : signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_TRACK_GAIN', 'REPLAYGAIN_TRACKGAIN', 'TXXX:REPLAYGAIN_TRACK_GAIN'])) ??
+          r128GainToDb(firstNativeText(metadata, ['R128_TRACK_GAIN']));
     const replayGainAlbumGainDb =
-      signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_ALBUM_GAIN', 'REPLAYGAIN_ALBUMGAIN', 'TXXX:REPLAYGAIN_ALBUM_GAIN'])) ??
-      r128GainToDb(firstNativeText(metadata, ['R128_ALBUM_GAIN']));
-    const replayGainTrackPeak = replayGainPeakOrNull(firstNativeText(metadata, ['REPLAYGAIN_TRACK_PEAK', 'REPLAYGAIN_TRACKPEAK']));
-    const replayGainAlbumPeak = replayGainPeakOrNull(firstNativeText(metadata, ['REPLAYGAIN_ALBUM_PEAK', 'REPLAYGAIN_ALBUMPEAK']));
-    const replayGainIntegratedLufs = signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_INTEGRATED_LUFS', 'EBU_R128_INTEGRATED_LUFS', 'INTEGRATED_LUFS']));
+      skipEmbeddedMetadata
+        ? null
+        : signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_ALBUM_GAIN', 'REPLAYGAIN_ALBUMGAIN', 'TXXX:REPLAYGAIN_ALBUM_GAIN'])) ??
+          r128GainToDb(firstNativeText(metadata, ['R128_ALBUM_GAIN']));
+    const replayGainTrackPeak = skipEmbeddedMetadata ? null : replayGainPeakOrNull(firstNativeText(metadata, ['REPLAYGAIN_TRACK_PEAK', 'REPLAYGAIN_TRACKPEAK']));
+    const replayGainAlbumPeak = skipEmbeddedMetadata ? null : replayGainPeakOrNull(firstNativeText(metadata, ['REPLAYGAIN_ALBUM_PEAK', 'REPLAYGAIN_ALBUMPEAK']));
+    const replayGainIntegratedLufs = skipEmbeddedMetadata ? null : signedFloatOrNull(firstNativeText(metadata, ['REPLAYGAIN_INTEGRATED_LUFS', 'EBU_R128_INTEGRATED_LUFS', 'INTEGRATED_LUFS']));
     fieldSources.replayGainTrackGainDb = replayGainTrackGainDb !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainAlbumGainDb = replayGainAlbumGainDb !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainTrackPeak = replayGainTrackPeak !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainAlbumPeak = replayGainAlbumPeak !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainIntegratedLufs = replayGainIntegratedLufs !== null ? 'embedded' : 'unknown';
-    const picture = common.picture?.[0];
+    const picture = skipEmbeddedMetadata ? undefined : common.picture?.[0];
     const hasEmbeddedMetadata = [
       embeddedTitle,
       embeddedArtist,
@@ -991,7 +1116,7 @@ export class TsMetadataReader implements MetadataReader {
         : undefined,
       embeddedMetadataStatus: hasEmbeddedMetadata ? 'present' : 'missing',
       embeddedCoverStatus: picture ? 'present' : 'missing',
-      warnings: [],
+      warnings: skipEmbeddedMetadata ? [unsafeEmbeddedMetadataWarning] : [],
       errors: [],
       status: 'ok',
     };

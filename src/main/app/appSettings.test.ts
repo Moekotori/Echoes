@@ -113,6 +113,7 @@ describe('app settings normalization', () => {
     expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
     expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
+    expect(settings.gaplessPlaybackEnabled).toBe(false);
   });
 
   it('normalizes an empty coverCacheDir to null', async () => {
@@ -226,6 +227,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).albumMergeStrategy).toBe('standard');
     expect(normalizeSettings({ albumMergeStrategy: 'sameTitleAndCover' }).albumMergeStrategy).toBe('sameTitleAndCover');
     expect(normalizeSettings({ albumMergeStrategy: 'loose' as never }).albumMergeStrategy).toBe('standard');
+  });
+
+  it('keeps gapless playback opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).gaplessPlaybackEnabled).toBe(false);
+    expect(normalizeSettings({ gaplessPlaybackEnabled: true }).gaplessPlaybackEnabled).toBe(true);
+    expect(normalizeSettings({ gaplessPlaybackEnabled: 'yes' as never }).gaplessPlaybackEnabled).toBe(false);
   });
 
   it('keeps Chinese cross-script search enabled unless explicitly disabled', async () => {

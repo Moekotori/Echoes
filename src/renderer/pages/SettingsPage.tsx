@@ -2974,6 +2974,7 @@ export const SettingsPage = (): JSX.Element => {
   const [replayGainAnalysisJob, setReplayGainAnalysisJob] = useState<ReplayGainAnalysisJobStatus | null>(null);
   const [replayGainAnalysisBusy, setReplayGainAnalysisBusy] = useState(false);
   const [replayGainAnalysisMessage, setReplayGainAnalysisMessage] = useState<string | null>(null);
+  const [replayGainAdvancedOpen, setReplayGainAdvancedOpen] = useState(false);
   const [audioResetBusy, setAudioResetBusy] = useState(false);
   const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
   const [audioResetMessage, setAudioResetMessage] = useState<string | null>(null);
@@ -2986,7 +2987,7 @@ export const SettingsPage = (): JSX.Element => {
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
   const [databaseProtectionStatus, setDatabaseProtectionStatus] = useState<LibraryDatabaseProtectionStatus | null>(null);
-  const [databaseProtectionBusyAction, setDatabaseProtectionBusyAction] = useState<'refresh' | 'snapshot' | 'restore' | 'scrub' | 'open' | null>(null);
+  const [databaseProtectionBusyAction, setDatabaseProtectionBusyAction] = useState<'refresh' | 'snapshot' | 'restore' | 'scrub' | 'discard' | 'open' | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -3144,12 +3145,27 @@ export const SettingsPage = (): JSX.Element => {
           'automix',
           'smart crossfade',
           'crossfade',
-          'gapless',
           'spotify',
           'apple music',
           '智能过渡',
           '连续播放',
         ],
+      },
+      {
+        id: 'row-gapless-playback',
+        sectionKey: 'playback',
+        targetId: 'settings-row-gapless-playback',
+        title: '真无缝播放',
+        description: '0 秒间隔，不淡入淡出；第一版只保证原生输出链路。',
+        terms: ['真无缝播放', '无缝播放', 'gapless', 'gapless playback', '0 秒间隔', '连续播放'],
+      },
+      {
+        id: 'row-volume-balance',
+        sectionKey: 'playback',
+        targetId: 'settings-row-volume-balance',
+        title: '音量自动平衡',
+        description: '自动拉齐歌曲音量；只读取标签或写入 ECHO 数据库。',
+        terms: ['音量自动平衡', '音量平衡', '响度', 'ReplayGain', 'replay gain', 'loudness', 'lufs'],
       },
       {
         id: 'row-output-device',
@@ -5550,8 +5566,8 @@ export const SettingsPage = (): JSX.Element => {
       setReplayGainAnalysisJob(status);
       setReplayGainAnalysisMessage(
         status.status === 'completed'
-          ? `ReplayGain 分析完成：${status.updatedTracks}/${status.totalTracks} 首已更新`
-          : `ReplayGain 分析中：${status.processedTracks}/${status.totalTracks}`,
+          ? `音量分析完成：${status.updatedTracks}/${status.totalTracks} 首已更新`
+          : `音量分析中：${status.processedTracks}/${status.totalTracks}`,
       );
 
       if (status.status === 'completed' || status.status === 'failed') {
@@ -5570,7 +5586,7 @@ export const SettingsPage = (): JSX.Element => {
     const library = getLibraryBridge();
 
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to analyze ReplayGain.');
+      setError('桌面桥接不可用，无法分析音量。');
       return;
     }
 
@@ -5580,7 +5596,7 @@ export const SettingsPage = (): JSX.Element => {
       setError(null);
       const job = await library.startReplayGainAnalysis({ limit: 500 });
       setReplayGainAnalysisJob(job);
-      setReplayGainAnalysisMessage(job.totalTracks > 0 ? `ReplayGain 分析已开始：0/${job.totalTracks}` : '没有需要分析响度的歌曲');
+      setReplayGainAnalysisMessage(job.totalTracks > 0 ? `音量分析已开始：0/${job.totalTracks}` : '没有需要分析音量的歌曲');
       if (job.totalTracks === 0) {
         setReplayGainAnalysisBusy(false);
         return;
@@ -5721,6 +5737,35 @@ export const SettingsPage = (): JSX.Element => {
     } catch (scrubError) {
       setDangerMessage(null);
       setError(scrubError instanceof Error ? scrubError.message : String(scrubError));
+    } finally {
+      setDangerBusy(false);
+      setDatabaseProtectionBusyAction(null);
+    }
+  };
+
+  const handleDiscardQuarantinedProblemTracks = async (): Promise<void> => {
+    if (!requireDangerConfirmWord('归档问题曲目', 'ECHO 会复制隔离库副本，把含有危险元数据的曲目记录归档成 JSON 后从曲库数据库移除；音乐文件不会被删除。')) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+    if (!library?.discardQuarantinedProblemTracks) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to archive problem library tracks.');
+      return;
+    }
+
+    try {
+      setDatabaseProtectionBusyAction('discard');
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.discardQuarantinedProblemTracks();
+      setDangerMessage(`已归档并移除 ${result.discardedTracks} 首问题曲目，当前检查：${getDatabaseHealthLabel(result.health.status)}。归档：${result.discardArchivePath}`);
+      window.dispatchEvent(new Event('library:changed'));
+      await refreshDatabaseProtectionStatus();
+    } catch (discardError) {
+      setDangerMessage(null);
+      setError(discardError instanceof Error ? discardError.message : String(discardError));
     } finally {
       setDangerBusy(false);
       setDatabaseProtectionBusyAction(null);
@@ -6475,48 +6520,32 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
+                id="settings-row-gapless-playback"
+                highlighted={highlightedSettingId === 'settings-row-gapless-playback'}
+                title="真无缝播放"
+                description="0 秒间隔，不淡入淡出；第一版只保证原生输出链路。Automix 开启时会自动优先。"
+              >
+                <ToggleButton
+                  active={appSettings?.gaplessPlaybackEnabled ?? false}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ gaplessPlaybackEnabled: !(appSettings?.gaplessPlaybackEnabled ?? false) })}
+                />
+              </SettingRow>
+              <SettingRow
                 className="setting-row--full setting-row--compact-panel"
-                title="ReplayGain 响度标准化"
-                description="读取已有 ReplayGain/R128 标签；缺失时只分析并写入 ECHO 数据库，不修改你的音乐文件。"
+                id="settings-row-volume-balance"
+                highlighted={highlightedSettingId === 'settings-row-volume-balance'}
+                title="音量自动平衡"
+                description="自动拉齐歌曲音量；只读取标签或写入 ECHO 数据库，不修改你的音乐文件。"
               >
                 <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
-                      <span>启用 ReplayGain</span>
+                      <span>{appSettings?.replayGainEnabled ? '已开启' : '未开启'}</span>
                       <ToggleButton
                         active={appSettings?.replayGainEnabled ?? false}
                         disabled={!appSettings}
                         onClick={() => patchAppSettings({ replayGainEnabled: !(appSettings?.replayGainEnabled ?? false) })}
-                      />
-                    </div>
-                    <div className="settings-inline-toggle">
-                      <span>防削波</span>
-                      <ToggleButton
-                        active={appSettings?.replayGainPreventClipping ?? true}
-                        disabled={!appSettings}
-                        onClick={() => patchAppSettings({ replayGainPreventClipping: !(appSettings?.replayGainPreventClipping ?? true) })}
-                      />
-                    </div>
-                    <div className="settings-inline-toggle">
-                      <span>扫描后分析缺失响度</span>
-                      <ToggleButton
-                        active={appSettings?.replayGainAnalyzeMissingOnScan ?? false}
-                        disabled={!appSettings}
-                        onClick={() => {
-                          const nextAnalyzeOnScan = !(appSettings?.replayGainAnalyzeMissingOnScan ?? false);
-                          patchAppSettings({
-                            replayGainAnalyzeMissingOnScan: nextAnalyzeOnScan,
-                            replayGainAnalyzeMissingOnScanOptIn: nextAnalyzeOnScan,
-                          });
-                        }}
-                      />
-                    </div>
-                    <div className="settings-inline-toggle">
-                      <span>播放时分析缺失响度</span>
-                      <ToggleButton
-                        active={appSettings?.replayGainAnalyzeOnPlay ?? true}
-                        disabled={!appSettings}
-                        onClick={() => patchAppSettings({ replayGainAnalyzeOnPlay: !(appSettings?.replayGainAnalyzeOnPlay ?? true) })}
                       />
                     </div>
                     <button
@@ -6526,64 +6555,106 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleStartReplayGainAnalysis()}
                     >
                       <RotateCw className={replayGainAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
-                      {replayGainAnalysisBusy ? '分析中...' : '分析缺失响度'}
+                      {replayGainAnalysisBusy ? '分析中...' : '分析缺失音量'}
                     </button>
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    {(['track', 'album', 'off'] as const).map((mode) => (
-                      <ChipButton
-                        active={(appSettings?.replayGainMode ?? 'track') === mode}
-                        key={mode}
-                        onClick={() => patchAppSettings({ replayGainMode: mode })}
-                      >
-                        {mode === 'track' ? 'Track' : mode === 'album' ? 'Album' : 'Off'}
-                      </ChipButton>
-                    ))}
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => setReplayGainAdvancedOpen((open) => !open)}
+                    >
+                      <SlidersHorizontal size={15} />
+                      高级
+                    </button>
                   </div>
                   <div className="settings-status-grid">
                     <span>
-                      <em>目标响度</em>
-                      <strong>{appSettings?.replayGainTargetLufs ?? -18} LUFS</strong>
+                      <em>模式</em>
+                      <strong>{(appSettings?.replayGainMode ?? 'track') === 'album' ? '专辑' : (appSettings?.replayGainMode ?? 'track') === 'off' ? '关闭' : '单曲'}</strong>
                     </span>
                     <span>
-                      <em>前级增益</em>
-                      <strong>{appSettings?.replayGainPreampDb ?? 0} dB</strong>
+                      <em>当前应用</em>
+                      <strong>{Number.isFinite(status?.replayGainAppliedDb) ? `${status?.replayGainAppliedDb?.toFixed(2)} dB` : '0 dB'}</strong>
                     </span>
                     <span>
-                      <em>播放应用</em>
-                      <strong>{status?.replayGainAppliedDb ? `${status.replayGainAppliedDb} dB` : '0 dB'}</strong>
+                      <em>防削波</em>
+                      <strong>{appSettings?.replayGainPreventClipping ?? true ? '开启' : '关闭'}</strong>
                     </span>
                     <span>
                       <em>进度</em>
                       <strong>{replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : '尚未运行'}</strong>
                     </span>
                   </div>
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <label className="settings-number-field">
-                      <span>目标 LUFS</span>
-                      <input
-                        type="number"
-                        min={-24}
-                        max={-12}
-                        step={0.5}
-                        value={appSettings?.replayGainTargetLufs ?? -18}
-                        onChange={(event) => patchAppSettings({ replayGainTargetLufs: Number(event.currentTarget.value) })}
-                      />
-                    </label>
-                    <label className="settings-number-field">
-                      <span>Preamp dB</span>
-                      <input
-                        type="number"
-                        min={-12}
-                        max={12}
-                        step={0.5}
-                        value={appSettings?.replayGainPreampDb ?? 0}
-                        onChange={(event) => patchAppSettings({ replayGainPreampDb: Number(event.currentTarget.value) })}
-                      />
-                    </label>
-                  </div>
+                  {replayGainAdvancedOpen ? (
+                    <>
+                      <div className="settings-chip-row settings-chip-row--left">
+                        {(['track', 'album', 'off'] as const).map((mode) => (
+                          <ChipButton
+                            active={(appSettings?.replayGainMode ?? 'track') === mode}
+                            key={mode}
+                            onClick={() => patchAppSettings({ replayGainMode: mode })}
+                          >
+                            {mode === 'track' ? '单曲' : mode === 'album' ? '专辑' : '关闭'}
+                          </ChipButton>
+                        ))}
+                      </div>
+                      <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                        <div className="settings-inline-toggle">
+                          <span>防削波</span>
+                          <ToggleButton
+                            active={appSettings?.replayGainPreventClipping ?? true}
+                            disabled={!appSettings}
+                            onClick={() => patchAppSettings({ replayGainPreventClipping: !(appSettings?.replayGainPreventClipping ?? true) })}
+                          />
+                        </div>
+                        <div className="settings-inline-toggle">
+                          <span>播放时分析</span>
+                          <ToggleButton
+                            active={appSettings?.replayGainAnalyzeOnPlay ?? true}
+                            disabled={!appSettings}
+                            onClick={() => patchAppSettings({ replayGainAnalyzeOnPlay: !(appSettings?.replayGainAnalyzeOnPlay ?? true) })}
+                          />
+                        </div>
+                        <div className="settings-inline-toggle">
+                          <span>扫描后分析</span>
+                          <ToggleButton
+                            active={appSettings?.replayGainAnalyzeMissingOnScan ?? false}
+                            disabled={!appSettings}
+                            onClick={() => {
+                              const nextAnalyzeOnScan = !(appSettings?.replayGainAnalyzeMissingOnScan ?? false);
+                              patchAppSettings({
+                                replayGainAnalyzeMissingOnScan: nextAnalyzeOnScan,
+                                replayGainAnalyzeMissingOnScanOptIn: nextAnalyzeOnScan,
+                              });
+                            }}
+                          />
+                        </div>
+                        <label className="settings-number-field">
+                          <span>目标 LUFS</span>
+                          <input
+                            type="number"
+                            min={-24}
+                            max={-12}
+                            step={0.5}
+                            value={appSettings?.replayGainTargetLufs ?? -18}
+                            onChange={(event) => patchAppSettings({ replayGainTargetLufs: Number(event.currentTarget.value) })}
+                          />
+                        </label>
+                        <label className="settings-number-field">
+                          <span>Preamp dB</span>
+                          <input
+                            type="number"
+                            min={-12}
+                            max={12}
+                            step={0.5}
+                            value={appSettings?.replayGainPreampDb ?? 0}
+                            onChange={(event) => patchAppSettings({ replayGainPreampDb: Number(event.currentTarget.value) })}
+                          />
+                        </label>
+                      </div>
+                    </>
+                  ) : null}
                   {replayGainAnalysisMessage ? <p className="settings-inline-note">{replayGainAnalysisMessage}</p> : null}
-                  {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">ReplayGain 分析错误 {replayGainAnalysisJob.errorCount} 个，已跳过问题文件。</p> : null}
+                  {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">音量分析错误 {replayGainAnalysisJob.errorCount} 个，已跳过问题文件。</p> : null}
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.playback.wireless.title')} description={t('settings.playback.wireless.description')}>
@@ -8284,6 +8355,17 @@ export const SettingsPage = (): JSX.Element => {
                     <ShieldAlert size={15} />
                     {databaseProtectionBusyAction === 'restore' || databaseProtectionBusyAction === 'scrub' ? databasePrimaryActionBusyLabel : databasePrimaryActionLabel}
                   </button>
+                  {databaseQuarantined ? (
+                    <button
+                      className="settings-danger-button"
+                      type="button"
+                      disabled={databaseProtectionBusy || databaseProtectionStatus?.hasRunningScan || !databaseProtectionStatus?.canScrubQuarantinedDatabase}
+                      onClick={() => void handleDiscardQuarantinedProblemTracks()}
+                    >
+                      <Trash2 size={15} />
+                      {databaseProtectionBusyAction === 'discard' ? '归档中...' : '归档问题曲目'}
+                    </button>
+                  ) : null}
                   <button className="settings-action-button" type="button" disabled={databaseProtectionBusyAction === 'open'} onClick={() => void handleOpenDataProtectionFolder()}>
                     <FolderOpen size={15} />
                     打开保护目录
