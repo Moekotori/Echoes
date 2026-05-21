@@ -1707,6 +1707,9 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetPlaybackHistorySummary, (_event, query: unknown) =>
     getLibraryService().getPlaybackHistorySummary(normalizePlaybackHistoryQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryGetPlaybackStatsDashboard, (_event, query: unknown) =>
+    getLibraryService().getPlaybackStatsDashboard(normalizePlaybackHistoryQuery(query)),
+  );
   ipcMain.handle(IpcChannels.LibraryDeletePlaybackHistoryEntry, (_event, id: unknown) =>
     getLibraryService().deletePlaybackHistoryEntry(requireText(id, 'historyId')),
   );

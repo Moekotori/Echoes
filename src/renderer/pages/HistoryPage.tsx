@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Clock3, ListX, Music2, Play, Plus, Search, Trash2 } from 'lucide-react';
-import type { LibraryTrack, PlaybackHistoryEntry, PlaybackHistoryQuery, PlaybackHistorySummary } from '../../shared/types/library';
+import type { ReactNode } from 'react';
+import { BarChart3, CalendarDays, Clock3, Disc3, ListX, Music2, Play, Plus, Radio, Search, Trash2, Trophy } from 'lucide-react';
+import type {
+  LibraryTrack,
+  PlaybackHistoryEntry,
+  PlaybackHistoryQuery,
+  PlaybackHistorySummary,
+  PlaybackStatsArtist,
+  PlaybackStatsBreakdownItem,
+  PlaybackStatsDashboard,
+  PlaybackStatsDay,
+  PlaybackStatsTrack,
+} from '../../shared/types/library';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 50;
@@ -128,6 +139,8 @@ const formatPlayCount = (count: number): string => {
   return `播放 ${safeCount.toLocaleString()} 次`;
 };
 
+const formatCompactCount = (count: number): string => Math.max(0, Math.round(count)).toLocaleString();
+
 const formatDate = (iso: string | null): string => {
   if (!iso) {
     return '暂无';
@@ -139,6 +152,15 @@ const formatDate = (iso: string | null): string => {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(iso));
+};
+
+const formatDayLabel = (date: string): string => {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+
+  return new Intl.DateTimeFormat(undefined, { month: 'numeric', day: 'numeric' }).format(parsed);
 };
 
 const trackFromHistory = (entry: PlaybackHistoryEntry): LibraryTrack => ({
@@ -170,6 +192,7 @@ export const HistoryPage = (): JSX.Element => {
   const queue = usePlaybackQueue();
   const [items, setItems] = useState<PlaybackHistoryEntry[]>([]);
   const [summary, setSummary] = useState<PlaybackHistorySummary | null>(null);
+  const [stats, setStats] = useState<PlaybackStatsDashboard | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -197,6 +220,7 @@ export const HistoryPage = (): JSX.Element => {
       if (!library) {
         setItems([]);
         setSummary(null);
+        setStats(null);
         setError('Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.');
         setIsLoading(false);
         return;
@@ -210,9 +234,10 @@ export const HistoryPage = (): JSX.Element => {
           search,
           ...rangeQuery,
         };
-        const [historyResult, nextSummary] = await Promise.all([
+        const [historyResult, nextSummary, nextStats] = await Promise.all([
           library.getPlaybackHistory(historyQuery),
           library.getPlaybackHistorySummary(historyQuery),
+          library.getPlaybackStatsDashboard?.(historyQuery) ?? Promise.resolve(null),
         ]);
 
         if (requestIdRef.current !== requestId) {
@@ -224,6 +249,7 @@ export const HistoryPage = (): JSX.Element => {
         setTotal(historyResult.total);
         setHasMore(historyResult.hasMore);
         setSummary(nextSummary);
+        setStats(nextStats);
       } catch (loadError) {
         if (requestIdRef.current === requestId) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -268,6 +294,7 @@ export const HistoryPage = (): JSX.Element => {
         setItems((current) => current.filter((item) => item.id !== entry.id));
         setTotal((current) => Math.max(0, current - 1));
         setSummary(await window.echo?.library?.getPlaybackHistorySummary?.({ search, ...historyFilterRange(filter) }) ?? null);
+        setStats(await window.echo?.library?.getPlaybackStatsDashboard?.({ search, ...historyFilterRange(filter) }) ?? null);
       } catch (deleteError) {
         setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
       }
@@ -287,6 +314,7 @@ export const HistoryPage = (): JSX.Element => {
       setTotal(0);
       setHasMore(false);
       setSummary(await window.echo?.library?.getPlaybackHistorySummary?.({ search, ...historyFilterRange(filter) }) ?? null);
+      setStats(await window.echo?.library?.getPlaybackStatsDashboard?.({ search, ...historyFilterRange(filter) }) ?? null);
     } catch (clearError) {
       setError(clearError instanceof Error ? clearError.message : String(clearError));
     }
@@ -305,6 +333,7 @@ export const HistoryPage = (): JSX.Element => {
             .sort((left, right) => right.playCount - left.playCount || Date.parse(right.startedAt) - Date.parse(left.startedAt)),
         );
         setSummary(await window.echo?.library?.getPlaybackHistorySummary?.({ search, ...historyFilterRange(filter) }) ?? null);
+        setStats(await window.echo?.library?.getPlaybackStatsDashboard?.({ search, ...historyFilterRange(filter) }) ?? null);
       } catch (playError) {
         setError(playError instanceof Error ? playError.message : String(playError));
       }
@@ -352,6 +381,8 @@ export const HistoryPage = (): JSX.Element => {
         <HistoryMetric icon={<Music2 size={18} />} label={summaryLabels.tracks} value={`${total.toLocaleString()} 首`} />
         <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.latest} value={formatDate(summary?.rangeLatestPlayedAt ?? null)} />
       </section>
+
+      <PlaybackStatsDashboardView stats={stats} />
 
       <section className="history-list-section" aria-label="播放历史列表">
         {groupedItems.length > 0 ? (
@@ -423,3 +454,151 @@ const HistoryMetric = ({ icon, label, value }: { icon: JSX.Element; label: strin
     <strong>{value}</strong>
   </div>
 );
+
+const PlaybackStatsDashboardView = ({ stats }: { stats: PlaybackStatsDashboard | null }): JSX.Element | null => {
+  if (!stats || stats.totals.playCount <= 0) {
+    return null;
+  }
+
+  return (
+    <section className="history-stats-dashboard" aria-label="播放统计仪表盘">
+      <header className="history-stats-header">
+        <div>
+          <span className="section-kicker">Listening analytics</span>
+          <h2>播放统计仪表盘</h2>
+        </div>
+        <span>{`生成于 ${formatDate(stats.generatedAt)}`}</span>
+      </header>
+
+      <div className="history-stats-hero">
+        <HistoryMetric icon={<BarChart3 size={18} />} label="统计播放" value={`${formatCompactCount(stats.totals.playCount)} 次`} />
+        <HistoryMetric icon={<Trophy size={18} />} label="完整播放" value={`${formatCompactCount(stats.totals.completedCount)} 次`} />
+        <HistoryMetric icon={<Clock3 size={18} />} label="累计时长" value={formatLongDuration(stats.totals.playedSeconds)} />
+        <HistoryMetric icon={<Disc3 size={18} />} label="曲目 / 艺人" value={`${stats.totals.uniqueTracks} / ${stats.totals.uniqueArtists}`} />
+      </div>
+
+      <div className="history-stats-panels">
+        <StatsPanel title="最常听曲目" icon={<Music2 size={16} />}>
+          <TopTrackList tracks={stats.topTracks} />
+        </StatsPanel>
+        <StatsPanel title="最常听艺人" icon={<Radio size={16} />}>
+          <TopArtistList artists={stats.topArtists} />
+        </StatsPanel>
+        <StatsPanel title="音质使用" icon={<Trophy size={16} />}>
+          <BreakdownBars items={stats.qualityBreakdown} />
+        </StatsPanel>
+        <StatsPanel title="格式分布" icon={<Disc3 size={16} />}>
+          <BreakdownBars items={stats.formatBreakdown} />
+        </StatsPanel>
+      </div>
+
+      <StatsPanel className="history-stats-activity-panel" title="近期播放热度" icon={<CalendarDays size={16} />}>
+        <DailyActivityBars days={stats.dailyActivity} />
+      </StatsPanel>
+    </section>
+  );
+};
+
+const StatsPanel = ({
+  children,
+  className,
+  icon,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  icon: JSX.Element;
+  title: string;
+}): JSX.Element => (
+  <section className={`history-stats-panel ${className ?? ''}`.trim()}>
+    <header>
+      {icon}
+      <h3>{title}</h3>
+    </header>
+    {children}
+  </section>
+);
+
+const TopTrackList = ({ tracks }: { tracks: PlaybackStatsTrack[] }): JSX.Element => {
+  if (tracks.length === 0) {
+    return <p className="history-stats-empty">暂无曲目统计</p>;
+  }
+
+  return (
+    <div className="history-stats-list">
+      {tracks.slice(0, 5).map((track, index) => (
+        <article className="history-stats-track" key={track.id}>
+          <span>{index + 1}</span>
+          <div className="history-stats-cover" data-empty={!track.coverThumb}>
+            {track.coverThumb ? <img alt="" src={track.coverThumb} /> : <Music2 size={16} />}
+          </div>
+          <div>
+            <strong>{track.title}</strong>
+            <small>{track.artist || 'Unknown artist'}</small>
+          </div>
+          <em>{`${track.playCount} 次`}</em>
+        </article>
+      ))}
+    </div>
+  );
+};
+
+const TopArtistList = ({ artists }: { artists: PlaybackStatsArtist[] }): JSX.Element => {
+  if (artists.length === 0) {
+    return <p className="history-stats-empty">暂无艺人统计</p>;
+  }
+
+  const maxCount = Math.max(...artists.map((artist) => artist.playCount), 1);
+  return (
+    <div className="history-stats-bars">
+      {artists.slice(0, 6).map((artist) => (
+        <div className="history-stats-bar-row" key={artist.artist}>
+          <span>{artist.artist || 'Unknown artist'}</span>
+          <div className="history-stats-bar-track">
+            <i style={{ width: `${Math.max(6, (artist.playCount / maxCount) * 100)}%` }} />
+          </div>
+          <em>{artist.playCount}</em>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const BreakdownBars = ({ items }: { items: PlaybackStatsBreakdownItem[] }): JSX.Element => {
+  if (items.length === 0) {
+    return <p className="history-stats-empty">暂无分布数据</p>;
+  }
+
+  const maxCount = Math.max(...items.map((item) => item.playCount), 1);
+  return (
+    <div className="history-stats-bars">
+      {items.slice(0, 6).map((item) => (
+        <div className="history-stats-bar-row" key={item.id}>
+          <span>{item.label}</span>
+          <div className="history-stats-bar-track">
+            <i style={{ width: `${Math.max(6, (item.playCount / maxCount) * 100)}%` }} />
+          </div>
+          <em>{item.playCount}</em>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const DailyActivityBars = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
+  if (days.length === 0) {
+    return <p className="history-stats-empty">暂无近期播放</p>;
+  }
+
+  const maxCount = Math.max(...days.map((day) => day.playCount), 1);
+  return (
+    <div className="history-stats-activity">
+      {days.map((day) => (
+        <span className="history-stats-day" key={day.date} title={`${day.date} · ${day.playCount} 次 · ${formatLongDuration(day.playedSeconds)}`}>
+          <i style={{ height: `${Math.max(8, (day.playCount / maxCount) * 100)}%` }} />
+          <em>{formatDayLabel(day.date)}</em>
+        </span>
+      ))}
+    </div>
+  );
+};

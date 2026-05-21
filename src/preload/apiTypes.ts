@@ -35,6 +35,7 @@ import type {
   EqState,
 } from '../shared/types/eq';
 import type { GlobalShortcutAction, GlobalShortcutValidationResult } from '../shared/types/globalShortcuts';
+import type { DesktopLyricsState, DesktopLyricsStylePatch } from '../shared/types/desktopLyrics';
 import type {
   AddLocalAudioFilesToPlaylistResult,
   AlbumOnlineInfo,
@@ -113,6 +114,7 @@ import type {
   PlaybackHistoryEntry,
   PlaybackHistoryQuery,
   PlaybackHistorySummary,
+  PlaybackStatsDashboard,
   StartPlaybackHistoryRequest,
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
@@ -133,6 +135,7 @@ import type {
   PlaybackPrepareLocalFileRequest,
   PlaybackStartRequest,
   PlaybackStatus,
+  PersistedPlaybackSessionV1,
 } from '../shared/types/playback';
 import type { DiagnosticConsoleEntry, DiagnosticConsoleSnapshot, LastCrashSummary, RendererErrorPayload } from '../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../shared/types/discordPresence';
@@ -250,6 +253,17 @@ export type EchoApi = {
     validateGlobalShortcut: (accelerator: string) => Promise<GlobalShortcutValidationResult>;
     onGlobalShortcutCommand: (handler: (action: GlobalShortcutAction) => void) => () => void;
   };
+  desktopLyrics: {
+    show: () => Promise<DesktopLyricsState>;
+    hide: () => Promise<DesktopLyricsState>;
+    getState: () => Promise<DesktopLyricsState>;
+    setLocked: (locked: boolean) => Promise<DesktopLyricsState>;
+    setStyle: (patch: DesktopLyricsStylePatch) => Promise<DesktopLyricsState>;
+    resetBounds: () => Promise<DesktopLyricsState>;
+    getLastAudioStatus: () => Promise<AudioStatus | null>;
+    onStateChanged: (handler: (state: DesktopLyricsState) => void) => () => void;
+    onAudioStatus: (handler: (status: AudioStatus) => void) => () => void;
+  };
   library: {
     chooseFolder: () => Promise<string | null>;
     addFolder: (path: string) => Promise<LibraryFolder>;
@@ -350,6 +364,7 @@ export type EchoApi = {
     recordTrackPlayback: (trackId: string) => Promise<void>;
     getPlaybackHistory: (query?: PlaybackHistoryQuery) => Promise<LibraryPage<PlaybackHistoryEntry>>;
     getPlaybackHistorySummary: (query?: PlaybackHistoryQuery) => Promise<PlaybackHistorySummary>;
+    getPlaybackStatsDashboard: (query?: PlaybackHistoryQuery) => Promise<PlaybackStatsDashboard>;
     deletePlaybackHistoryEntry: (id: string) => Promise<void>;
     clearPlaybackHistory: () => Promise<void>;
     startPlaybackHistory: (request: StartPlaybackHistoryRequest) => Promise<StartPlaybackHistoryResult>;
@@ -425,6 +440,9 @@ export type EchoApi = {
     openLocalAudioFile: () => Promise<string | null>;
     openLocalAudioFiles: () => Promise<string[] | null>;
     resolveLocalAudioFiles: (paths: string[]) => Promise<LocalFileResolveResult>;
+    getQueueSession: () => Promise<PersistedPlaybackSessionV1 | null>;
+    saveQueueSession: (snapshot: PersistedPlaybackSessionV1) => Promise<PersistedPlaybackSessionV1>;
+    clearQueueSession: () => Promise<void>;
     onLocalAudioFilesOpened: (handler: (paths: string[]) => void) => () => void;
     onAutomixAdvance?: (handler: (event: {
       fromTrackId: string | null;

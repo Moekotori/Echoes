@@ -5,6 +5,8 @@ import {
   Check,
   FastForward,
   Disc3,
+  Lock,
+  Monitor,
   Music2,
   Rewind,
   RotateCcw,
@@ -15,6 +17,7 @@ import {
 import type { AudioStatus } from "../../shared/types/audio";
 import type { AppSettings } from "../../shared/types/appSettings";
 import type { AirPlayReceiverStatus } from "../../shared/types/connect";
+import type { DesktopLyricsState } from "../../shared/types/desktopLyrics";
 import type { LibraryTrack } from "../../shared/types/library";
 import type {
   LyricsProviderId,
@@ -1047,6 +1050,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const lyricsAutoAcceptScoreRef = useRef(fallbackLyricsDisplaySettings.lyricsAutoAcceptScore);
   const lyricsDisplaySettingsLoadVersionRef = useRef(0);
   const [isWindowMaximized, setIsWindowMaximized] = useState(isWindowApproximatelyMaximized);
+  const [desktopLyricsState, setDesktopLyricsState] = useState<DesktopLyricsState | null>(null);
   const [lyricsStatus, setLyricsStatus] = useState<string | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
   const [candidates, setCandidates] = useState<LyricsSearchCandidate[]>([]);
@@ -1071,6 +1075,62 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const setLyricsViewMode = useCallback((mode: LyricsViewMode): void => {
     rememberLyricsViewMode(mode);
     setLyricsViewModeState(mode);
+  }, []);
+  useEffect(() => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      return undefined;
+    }
+
+    let disposed = false;
+    void desktopLyrics.getState()
+      .then((state) => {
+        if (!disposed) {
+          setDesktopLyricsState(state);
+        }
+      })
+      .catch(() => undefined);
+
+    const unsubscribe = desktopLyrics.onStateChanged?.((state) => {
+      setDesktopLyricsState(state);
+    }) ?? (() => undefined);
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
+  const toggleDesktopLyrics = useCallback(async (): Promise<void> => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError("Desktop lyrics bridge unavailable");
+      return;
+    }
+
+    try {
+      const state = desktopLyricsState?.visible
+        ? await desktopLyrics.hide()
+        : await desktopLyrics.show();
+      setDesktopLyricsState(state);
+      setError(null);
+    } catch (desktopLyricsError) {
+      setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+    }
+  }, [desktopLyricsState?.visible]);
+  const unlockDesktopLyrics = useCallback(async (): Promise<void> => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError("Desktop lyrics bridge unavailable");
+      return;
+    }
+
+    try {
+      const state = await desktopLyrics.setLocked(false);
+      setDesktopLyricsState(state);
+      setError(null);
+    } catch (desktopLyricsError) {
+      setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+    }
   }, []);
   const clearCopyNotice = useCallback((): void => {
     if (copyNoticeTimerRef.current !== null) {
@@ -3034,20 +3094,47 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     visibleCandidates,
   ]);
 
+  const desktopLyricsVisible = desktopLyricsState?.visible === true;
+  const desktopLyricsLocked = desktopLyricsState?.locked === true;
+
   if (!currentTrack && !filePath && !trackId) {
     return (
       <div className="lyrics-page lyrics-page--empty">
-        <button
-          className="lyrics-back-button"
-          type="button"
-          aria-label="Back"
-          title="Back"
-          onClick={() =>
-            window.dispatchEvent(new Event("app:navigate:lyrics-back"))
-          }
-        >
-          <ArrowLeft size={17} />
-        </button>
+        <div className="lyrics-window-actions">
+          <button
+            className="lyrics-back-button"
+            type="button"
+            aria-label="Back"
+            title="Back"
+            onClick={() =>
+              window.dispatchEvent(new Event("app:navigate:lyrics-back"))
+            }
+          >
+            <ArrowLeft size={17} />
+          </button>
+          <button
+            className="lyrics-desktop-button"
+            type="button"
+            aria-label={desktopLyricsVisible ? "关闭桌面歌词" : "打开桌面歌词"}
+            aria-pressed={desktopLyricsVisible}
+            title={desktopLyricsVisible ? "关闭桌面歌词" : "打开桌面歌词"}
+            onClick={() => void toggleDesktopLyrics()}
+          >
+            <Monitor size={16} />
+            <span>桌面歌词</span>
+          </button>
+          {desktopLyricsLocked ? (
+            <button
+              className="lyrics-desktop-button lyrics-desktop-button--icon"
+              type="button"
+              aria-label="解锁桌面歌词"
+              title="解锁桌面歌词"
+              onClick={() => void unlockDesktopLyrics()}
+            >
+              <Lock size={15} />
+            </button>
+          ) : null}
+        </div>
         <section className="lyrics-no-track">
           <Music2 size={34} />
           <h1>Nothing is playing</h1>

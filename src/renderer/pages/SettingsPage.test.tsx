@@ -157,6 +157,7 @@ const hqPlayerGetSettingsMock = vi.fn();
 const hqPlayerSetSettingsMock = vi.fn();
 const hqPlayerGetStatusMock = vi.fn();
 const hqPlayerTestConnectionMock = vi.fn();
+const openDevConsoleMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -296,10 +297,12 @@ vi.mock('../utils/echoBridge', () => ({
   getDiagnosticsBridge: () => ({
     clearLastCrashSummary: vi.fn(),
     exportDiagnostics: vi.fn().mockResolvedValue('D:\\Echo\\diagnostics.md'),
+    exportDiagnosticsZip: vi.fn().mockResolvedValue('D:\\Echo\\diagnostics.zip'),
     getLastCrashSummary: vi.fn().mockResolvedValue(null),
     openDiagnosticsFolder: vi.fn(),
     openCrashReport: vi.fn().mockResolvedValue('D:\\Echo\\crash-report.md'),
     openAudioCrashReport: vi.fn().mockResolvedValue('D:\\Echo\\audio-crash-report.md'),
+    openDevConsole: openDevConsoleMock,
   }),
   getDownloadsBridge: () => ({
     getSettings: getDownloadSettingsMock,
@@ -487,6 +490,7 @@ beforeEach(() => {
   getChannelBalanceStateMock.mockResolvedValue(settings.channelBalance);
   setChannelBalanceStateMock.mockResolvedValue({ ...settings.channelBalance, enabled: true, monoMode: 'sum' });
   openExternalUrlMock.mockResolvedValue(undefined);
+  openDevConsoleMock.mockResolvedValue(undefined);
   openPluginDirectoryMock.mockResolvedValue(undefined);
   createPluginExampleMock.mockResolvedValue({ pluginId: 'echo.playback-panel', directory: 'D:\\Echo\\plugins\\echo.playback-panel' });
   Object.defineProperty(window.navigator, 'clipboard', {
@@ -650,6 +654,25 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/moekotori/echo/releases'));
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://qm.qq.com/q/KrJE8PIqSQ');
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://discord.gg/g7v4WMRq3K');
+  });
+
+  it('toggles Safe mode from the About diagnostics section', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, safeModeEnabled: false });
+    setSettingsMock.mockResolvedValue({ ...settings, safeModeEnabled: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.about\\.label');
+    const row = screen
+      .getByText('持续开启后，每次启动会自动打开 ECHO Debug Console，并记录启动阶段耗时；只诊断，不关闭功能。')
+      .closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { pressed: false }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ safeModeEnabled: true }));
   });
 
   it('finds status aliases and jumps to the exact Discord presence row', async () => {

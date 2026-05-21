@@ -18,6 +18,7 @@ import { getAudioSession } from '../audio/AudioSession';
 import { getLibraryService } from '../library/LibraryService';
 import { hashText, Logger, sanitizeLogPayload } from './Logger';
 import { getAccountService } from '../accounts/AccountService';
+import { getStartupTimelineSnapshot } from './StartupDiagnostics';
 
 type CrashRecord = {
   type: string;
@@ -982,6 +983,7 @@ export class CrashReportService {
     }
 
     entries.push({ name: 'app-settings.safe.json', content: this.toJsonBuffer(sanitizeLogPayload(getAppSettings())) });
+    entries.push({ name: 'startup-timeline.safe.json', content: this.toJsonBuffer(getStartupTimelineSnapshot()) });
     entries.push({ name: 'accounts-status.safe.json', content: this.toJsonBuffer(this.getSafeAccountStatus()) });
     entries.push({ name: 'library-health.safe.json', content: this.toJsonBuffer(this.getSafeLibraryHealth()) });
     entries.push({ name: 'library-recovery.safe.json', content: this.toJsonBuffer(this.getSafeLibraryRecovery()) });

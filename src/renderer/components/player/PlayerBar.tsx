@@ -19,6 +19,7 @@ import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { openArtistDetailByName } from '../../utils/artistNavigation';
 import { PlayerProgress } from './PlayerProgress';
+import { SegmentLoopPanel } from './SegmentLoopPanel';
 import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
@@ -40,6 +41,7 @@ const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
 const playbackRateChangeDiscontinuitySeconds = 0.35;
+const endedAutoAdvanceGraceSeconds = 5;
 const isStreamingProviderName = (provider: string | null | undefined): provider is StreamingProviderName =>
   streamingProviderNames.includes(provider as StreamingProviderName);
 const isReceiverTrackId = (value: string | null | undefined): value is string =>
@@ -530,6 +532,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     playbackVisualIntent: sharedPlaybackStatus.playbackVisualIntent,
   });
   const filePath = currentTrack?.path ?? playbackAudioStatus?.currentFilePath ?? currentPlaybackStatus?.filePath ?? null;
+  const segmentTrackKey = currentTrack?.stableKey ?? currentTrack?.id ?? trackId ?? filePath ?? null;
   const receiverCurrentUri = receiverStatus?.currentUri ?? null;
   const receiverHasCurrentMedia = Boolean(
     receiverCurrentUri && receiverStatus && ['ready', 'loading', 'playing', 'paused', 'stopped'].includes(receiverStatus.state),
@@ -574,6 +577,18 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
       ? playbackAudioStatus.currentFilePath
       : currentPlaybackStatus?.state === 'ended'
         ? currentPlaybackStatus.filePath
+        : null;
+  const endedStatusPositionSeconds =
+    playbackAudioStatus?.state === 'ended'
+      ? playbackAudioStatus.positionSeconds
+      : currentPlaybackStatus?.state === 'ended'
+        ? currentPlaybackStatus.positionMs / 1000
+        : null;
+  const endedStatusDurationSeconds =
+    playbackAudioStatus?.state === 'ended'
+      ? playbackAudioStatus.durationSeconds
+      : currentPlaybackStatus?.state === 'ended'
+        ? currentPlaybackStatus.durationMs / 1000
         : null;
   const sourcePositionSeconds = activeReceiverStatus
     ? activeReceiverStatus.positionSeconds ?? playbackAudioStatus?.positionSeconds ?? (currentPlaybackStatus?.positionMs ?? 0) / 1000
@@ -1430,9 +1445,21 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
       }
 
       const latestStatus = await playback.getStatus();
-      return latestStatus.state === 'playing' || latestStatus.state === 'loading' ? playback.pause() : playback.play();
+      if (latestStatus.state === 'playing' || latestStatus.state === 'loading') {
+        return playback.pause();
+      }
+
+      if ((latestStatus.state === 'idle' || latestStatus.state === 'stopped' || latestStatus.state === 'ended') && queue.currentItem) {
+        return queue.playQueueItem(queue.currentItem.queueId);
+      }
+
+      if ((latestStatus.state === 'idle' || latestStatus.state === 'stopped' || latestStatus.state === 'ended') && currentTrack) {
+        return queue.playTrack(currentTrack);
+      }
+
+      return playback.play();
     });
-  }, [activeReceiverStatus, currentTrack, isSpotifyCurrentTrack, runPlaybackAction, visualState]);
+  }, [activeReceiverStatus, currentTrack, isSpotifyCurrentTrack, queue, runPlaybackAction, visualState]);
 
   const handlePrevious = useCallback((): void => {
     void runPlaybackAction(queue.playPrevious);
@@ -1541,29 +1568,44 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [handlePlayPause]);
 
-  useEffect(() => {
-    const currentQueueTrackId = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
-    const currentQueueFilePath = queue.currentTrack?.path ?? null;
-    const endedMatchesCurrent =
-      Boolean(endedStatusTrackId && currentQueueTrackId && endedStatusTrackId === currentQueueTrackId) ||
-      Boolean(endedStatusFilePath && currentQueueFilePath && endedStatusFilePath === currentQueueFilePath) ||
-      (!currentQueueTrackId && !currentQueueFilePath);
-    const endedPlaybackKey = endedStatusTrackId ?? endedStatusFilePath ?? queue.currentQueueId ?? null;
+  const currentQueueTrackIdForEndedPlayback = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
+  const currentQueueFilePathForEndedPlayback = queue.currentTrack?.path ?? null;
+  const currentQueueIdForEndedPlayback = queue.currentQueueId;
+  const playNextFromQueue = queue.playNext;
 
-    if (state !== 'ended' || !endedPlaybackKey || !endedMatchesCurrent || handledEndedTrackRef.current === endedPlaybackKey) {
+  useEffect(() => {
+    const endedMatchesCurrent =
+      Boolean(endedStatusTrackId && currentQueueTrackIdForEndedPlayback && endedStatusTrackId === currentQueueTrackIdForEndedPlayback) ||
+      Boolean(endedStatusFilePath && currentQueueFilePathForEndedPlayback && endedStatusFilePath === currentQueueFilePathForEndedPlayback) ||
+      (!currentQueueTrackIdForEndedPlayback && !currentQueueFilePathForEndedPlayback);
+    const endedPlaybackKey = endedStatusTrackId ?? endedStatusFilePath ?? currentQueueIdForEndedPlayback ?? null;
+    const endedAtNaturalEnd =
+      !endedStatusDurationSeconds ||
+      endedStatusDurationSeconds <= 0 ||
+      (endedStatusPositionSeconds !== null &&
+        endedStatusPositionSeconds >= Math.max(0, endedStatusDurationSeconds - endedAutoAdvanceGraceSeconds));
+
+    if (
+      state !== 'ended' ||
+      !endedPlaybackKey ||
+      !endedMatchesCurrent ||
+      !endedAtNaturalEnd ||
+      handledEndedTrackRef.current === endedPlaybackKey
+    ) {
       return;
     }
 
     handledEndedTrackRef.current = endedPlaybackKey;
-    void runPlaybackAction(() => queue.playNext({ autoAdvance: true }));
+    void runPlaybackAction(() => playNextFromQueue({ autoAdvance: true }));
   }, [
+    currentQueueFilePathForEndedPlayback,
+    currentQueueIdForEndedPlayback,
+    currentQueueTrackIdForEndedPlayback,
+    endedStatusDurationSeconds,
     endedStatusFilePath,
+    endedStatusPositionSeconds,
     endedStatusTrackId,
-    queue.currentQueueId,
-    queue.currentTrack?.id,
-    queue.currentTrack?.path,
-    queue.currentTrackId,
-    queue.playNext,
+    playNextFromQueue,
     runPlaybackAction,
     state,
   ]);
@@ -1706,6 +1748,16 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
           durationSeconds={durationSeconds}
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
+        />
+        <SegmentLoopPanel
+          artist={artist}
+          disabled={isAirPlayReceiverPlaybackActive || (!filePath && !isSpotifyCurrentTrack)}
+          durationSeconds={durationSeconds}
+          isPlaying={isPlaying}
+          positionSeconds={positionSeconds}
+          title={title}
+          trackKey={segmentTrackKey}
+          onSeek={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
         />
         {displayError ? <span className="player-error">{displayError}</span> : null}
       </div>

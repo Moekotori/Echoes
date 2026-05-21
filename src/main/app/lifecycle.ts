@@ -31,6 +31,8 @@ import { disposeDefaultAudioSessionGracefully } from '../audio/AudioSession';
 import { closeDefaultLibraryDatabaseManager, getLibraryDatabaseManager } from '../database/LibraryDatabaseManager';
 import { isLibraryRecoveryMode } from './libraryRecoveryMode';
 import { applyNetworkProxySettings } from '../network/proxySettings';
+import { markStartupStage, openSafeModeStartupConsoleIfEnabled } from '../diagnostics/StartupDiagnostics';
+import { restoreDesktopLyricsWindowOnStartup } from './desktopLyricsWindow';
 
 const sendAccountStatusesChanged = (statuses: AccountStatus[]): void => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -116,31 +118,70 @@ export const registerAppLifecycle = (): void => {
   });
 
   app.whenReady().then(async () => {
+    markStartupStage('electron:app-ready');
+    const appSettings = getAppSettings();
+    markStartupStage('settings:loaded', { safeModeEnabled: appSettings.safeModeEnabled === true });
+    openSafeModeStartupConsoleIfEnabled(appSettings, {
+      appVersion: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      userDataPath: app.getPath('userData'),
+    });
+
+    markStartupStage('diagnostics:init:start');
     getCrashReportService().initialize();
+    markStartupStage('diagnostics:init:complete');
+    markStartupStage('data-protection:startup:start');
     const dataProtection = await ensureDataProtection('startup');
-    await applyNetworkProxySettings(getAppSettings()).catch((error) => {
+    markStartupStage('data-protection:startup:complete', {
+      libraryHealth: dataProtection.libraryHealth.status,
+      recoveryAction: dataProtection.recovery.action,
+    });
+    markStartupStage('network-proxy:apply:start');
+    await applyNetworkProxySettings(appSettings).then(() => {
+      markStartupStage('network-proxy:apply:complete', { mode: appSettings.networkProxyMode ?? 'off' });
+    }).catch((error) => {
+      markStartupStage('network-proxy:apply:failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       getCrashReportService().getLogger()?.warn('main', '[Lifecycle] failed to apply network proxy settings', {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    markStartupStage('protocols:register:start');
     registerAudioProtocolHandler();
     registerCoverProtocolHandler();
     registerVideoProtocolHandler();
+    markStartupStage('protocols:register:complete');
+    markStartupStage('startup-integrations:init:start', {
+      libraryRecoveryMode,
+      libraryHealth: dataProtection.libraryHealth.status,
+    });
     if (dataProtection.libraryHealth.status === 'ok' && !libraryRecoveryMode) {
       void initializeSmtcIntegration();
       initializeLastFmIntegration();
       void initializeDiscordPresenceIntegration();
+      markStartupStage('startup-integrations:init:scheduled', { smtc: true, lastfm: true, discord: true });
     } else if (libraryRecoveryMode) {
       getCrashReportService().getLogger()?.info?.('main', '[Lifecycle] library recovery mode is active; skipping library-backed startup integrations');
+      markStartupStage('startup-integrations:init:skipped', { reason: 'library-recovery-mode' });
     } else {
       getCrashReportService().getLogger()?.warn('main', '[Lifecycle] library database is unhealthy; starting without library-backed integrations', {
         status: dataProtection.libraryHealth.status,
         error: dataProtection.libraryHealth.message,
       });
+      markStartupStage('startup-integrations:init:skipped', {
+        reason: 'library-database-unhealthy',
+        status: dataProtection.libraryHealth.status,
+      });
     }
+    markStartupStage('main-window:create:request');
     createMainWindow();
+    markStartupStage('main-window:create:returned');
+    restoreDesktopLyricsWindowOnStartup();
     if (libraryRecoveryMode) {
       notifyLibraryRecoveryMode();
+      markStartupStage('library-recovery:dialog-scheduled');
     }
     if (
       dataProtection.recovery.action === 'protected' ||
@@ -148,6 +189,7 @@ export const registerAppLifecycle = (): void => {
       dataProtection.recovery.action === 'quarantined'
     ) {
       notifyLibraryDatabaseProtected();
+      markStartupStage('library-protection:dialog-scheduled', { recoveryAction: dataProtection.recovery.action });
     }
     if (libraryRecoveryMode) {
       app.on('activate', () => {
@@ -155,24 +197,33 @@ export const registerAppLifecycle = (): void => {
           createMainWindow();
         }
       });
+      markStartupStage('startup:ready', { mode: 'library-recovery' });
       return;
     }
 
     initializeBackgroundPlaybackShortcuts();
-    const appSettings = getAppSettings();
+    markStartupStage('background-shortcuts:initialized');
     if (appSettings.autoAccountCheckOnStartup !== false) {
+      markStartupStage('accounts:startup-check:scheduled');
       void refreshPreviouslyLoggedInAccountsOnStartup().catch(() => undefined);
+    } else {
+      markStartupStage('accounts:startup-check:skipped');
     }
     initializeAutoUpdater(appSettings.autoUpdateEnabled !== false);
+    markStartupStage('auto-updater:initialized', { enabled: appSettings.autoUpdateEnabled !== false });
     initializeDataBackupScheduler();
+    markStartupStage('data-backup:scheduler-initialized');
     dispatchLocalAudioFilesOpened(parseLocalAudioFileArguments(process.argv));
+    markStartupStage('local-files:startup-arguments-dispatched');
 
     app.on('activate', () => {
       if (getMainWindow() === null) {
         createMainWindow();
       }
     });
+    markStartupStage('startup:ready', { mode: 'normal' });
   }).catch((error) => {
+    markStartupStage('startup:failed', { error: error instanceof Error ? error.message : String(error) });
     getCrashReportService().getLogger()?.warn('main', '[Lifecycle] startup failed', {
       error: error instanceof Error ? error.message : String(error),
     });

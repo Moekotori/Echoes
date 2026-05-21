@@ -90,6 +90,7 @@ import type {
   PlaybackHistoryEntry,
   PlaybackHistoryQuery,
   PlaybackHistorySummary,
+  PlaybackStatsDashboard,
   StartPlaybackHistoryRequest,
   StartPlaybackHistoryResult,
   FinishPlaybackHistoryRequest,
@@ -1134,6 +1135,10 @@ export class LibraryService {
 
   getPlaybackHistorySummary(query?: PlaybackHistoryQuery): PlaybackHistorySummary {
     return this.store.getPlaybackHistorySummary(query);
+  }
+
+  getPlaybackStatsDashboard(query?: PlaybackHistoryQuery): PlaybackStatsDashboard {
+    return this.store.getPlaybackStatsDashboard(query);
   }
 
   deletePlaybackHistoryEntry(id: string): void {

@@ -6,13 +6,24 @@ import { registerCoverProtocolScheme } from './protocol/coverProtocol';
 import { initializeProtectedUserDataPath } from './app/dataProtection';
 import { isLibraryRecoveryMode } from './app/libraryRecoveryMode';
 import { initializeDevConsoleCapture } from './diagnostics/DevConsoleService';
+import { markStartupStage } from './diagnostics/StartupDiagnostics';
 
+markStartupStage('main:module-loaded');
 initializeProtectedUserDataPath();
+markStartupStage('main:user-data-path-initialized');
 registerCrashHandlers();
+markStartupStage('main:crash-handlers-registered');
 initializeDevConsoleCapture();
+markStartupStage('main:dev-console-capture-initialized');
 registerCoverProtocolScheme();
+markStartupStage('main:cover-protocol-scheme-registered');
 registerIpc();
+markStartupStage('main:ipc-registered');
 if (!isLibraryRecoveryMode()) {
   startDevApiServer();
+  markStartupStage('main:dev-api-server-started');
+} else {
+  markStartupStage('main:dev-api-server-skipped', { reason: 'library-recovery-mode' });
 }
 registerAppLifecycle();
+markStartupStage('main:lifecycle-registered');

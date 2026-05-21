@@ -2327,6 +2327,52 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('playback stats dashboard aggregates top tracks, artists, formats, and quality', async () => {
+    const harness = createHarness();
+    const firstFile = writeAudioFile(harness.folder, 'Stats HiRes.flac');
+    const secondFile = writeAudioFile(harness.folder, 'Stats Lossy.mp3');
+    harness.metadataService.overrides.set(firstFile, baseMetadata({ title: 'Stats HiRes', artist: 'Blue Artist', album: 'Night Album', duration: 120 }));
+    harness.metadataService.overrides.set(secondFile, baseMetadata({
+      title: 'Stats Lossy',
+      artist: 'Red Artist',
+      album: 'Day Album',
+      duration: 90,
+      codec: 'MP3',
+      sampleRate: 44100,
+      bitDepth: 16,
+      bitrate: 192000,
+    }));
+    harness.addFolder();
+    await harness.scanFolder();
+    const tracks = harness.service.getTracks({ pageSize: 10 }).items;
+    const hiRes = tracks.find((track) => track.title === 'Stats HiRes')!;
+    const lossy = tracks.find((track) => track.title === 'Stats Lossy')!;
+
+    const hiResFirst = harness.service.startPlaybackHistory({ trackId: hiRes.id, sourceType: 'songs', sourceLabel: 'Songs' });
+    const hiResSecond = harness.service.startPlaybackHistory({ trackId: hiRes.id, sourceType: 'songs', sourceLabel: 'Songs' });
+    const lossyFirst = harness.service.startPlaybackHistory({ trackId: lossy.id, sourceType: 'songs', sourceLabel: 'Songs' });
+    harness.service.finishPlaybackHistory({ historyId: hiResFirst.historyId, playedSeconds: 70 });
+    harness.service.finishPlaybackHistory({ historyId: hiResSecond.historyId, playedSeconds: 40 });
+    harness.service.finishPlaybackHistory({ historyId: lossyFirst.historyId, playedSeconds: 35 });
+
+    const stats = harness.service.getPlaybackStatsDashboard();
+
+    expect(stats.totals).toMatchObject({
+      playCount: 3,
+      completedCount: 3,
+      playedSeconds: 145,
+      uniqueTracks: 2,
+      uniqueArtists: 2,
+    });
+    expect(stats.topTracks[0]).toMatchObject({ title: 'Stats HiRes', playCount: 2, playedSeconds: 110 });
+    expect(stats.topArtists[0]).toMatchObject({ artist: 'Blue Artist', playCount: 2 });
+    expect(stats.formatBreakdown.map((item) => item.label)).toContain('FLAC');
+    expect(stats.formatBreakdown.map((item) => item.label)).toContain('MP3');
+    expect(stats.qualityBreakdown.map((item) => item.label)).toEqual(expect.arrayContaining(['Hi-Res', 'Lossy']));
+    expect(stats.dailyActivity.at(-1)).toMatchObject({ playCount: 3, playedSeconds: 145 });
+    harness.cleanup();
+  });
+
   it('getAlbums search matches tracks inside an album', async () => {
     const harness = createHarness();
     const first = writeAudioFile(harness.folder, 'A.flac');

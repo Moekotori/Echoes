@@ -43,6 +43,7 @@ describe('app settings normalization', () => {
     expect(settings.artistWallAlbumFallbackForMissingAvatars).toBe(false);
     expect(settings.autoFetchArtistImages).toBe(false);
     expect(settings.artistImageFetchPaused).toBe(false);
+    expect(settings.safeModeEnabled).toBe(false);
     expect(settings.autoAccountCheckOnStartup).toBe(true);
     expect(settings.spotifyAutoLaunchOfficialPlayer).toBe(true);
     expect(settings.connectAutoStartReceiversEnabled).toBe(false);
@@ -146,6 +147,14 @@ describe('app settings normalization', () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({ coverCacheDir: '   ' }).coverCacheDir).toBeNull();
+  });
+
+  it('normalizes safe mode as an explicit diagnostic opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).safeModeEnabled).toBe(false);
+    expect(normalizeSettings({ safeModeEnabled: true }).safeModeEnabled).toBe(true);
+    expect(normalizeSettings({ safeModeEnabled: 'true' }).safeModeEnabled).toBe(false);
   });
 
   it('normalizes automatic data backup settings safely', async () => {

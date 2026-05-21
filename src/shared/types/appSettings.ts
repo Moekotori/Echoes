@@ -17,6 +17,13 @@ export type ReplayGainMode = 'off' | 'track' | 'album';
 export type NetworkProxyMode = 'off' | 'system' | 'manual' | 'pac';
 export type DataBackupIntervalDays = 3 | 7 | 30;
 
+export type DesktopLyricsBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type NetworkProxyTestResult = {
   ok: boolean;
   mode: NetworkProxyMode;
@@ -167,6 +174,7 @@ export type AppSettings = {
   artistImageFetchPaused?: boolean;
   liveLibraryUpdatesEnabled?: boolean;
   liveLibraryAutoHideDeletedEnabled?: boolean;
+  safeModeEnabled?: boolean;
   autoUpdateEnabled?: boolean;
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
@@ -249,6 +257,14 @@ export type AppSettings = {
   lyricsCoverBlurPx: number;
   lyricsCoverBrightnessPercent: number;
   lyricsBackgroundScalePercent: number;
+  desktopLyricsEnabled?: boolean;
+  desktopLyricsLocked?: boolean;
+  desktopLyricsFontSizePx?: number;
+  desktopLyricsScalePercent?: number;
+  desktopLyricsColor?: string;
+  desktopLyricsStrokeColor?: string;
+  desktopLyricsOpacityPercent?: number;
+  desktopLyricsBounds?: DesktopLyricsBounds | null;
   mvEnabled?: boolean;
   mvEnabledProviders: NetworkMvProviderId[];
   mvProviderOrder: NetworkMvProviderId[];

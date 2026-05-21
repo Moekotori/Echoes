@@ -69,6 +69,7 @@ import type {
   PlaybackHistoryEntry,
   PlaybackHistoryQuery,
   PlaybackHistorySummary,
+  PlaybackStatsDashboard,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
@@ -3192,6 +3193,221 @@ export class LibraryStore {
       rangeCount: Number(rangeRow?.count ?? 0),
       rangePlayedSeconds: Number(rangeRow?.played_seconds ?? 0),
       rangeLatestPlayedAt: textOrNull(rangeRow?.latest),
+    };
+  }
+
+  getPlaybackStatsDashboard(query?: PlaybackHistoryQuery): PlaybackStatsDashboard {
+    const { search, from, to, completedOnly } = pageFromHistoryQuery(query);
+    const searchOptions = this.readSearchOptions();
+    const searchFilter = buildSearchFilter(search, [
+      likePredicate('history.title'),
+      likePredicate('history.artist'),
+      likePredicate("COALESCE(history.album, '')"),
+      likePredicate("COALESCE(history.title_snapshot, '')"),
+      likePredicate("COALESCE(history.artist_snapshot, '')"),
+      likePredicate('history.track_path'),
+    ], searchOptions);
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (searchFilter.sql) {
+      clauses.push(searchFilter.sql);
+      params.push(...searchFilter.params);
+    }
+
+    if (from) {
+      clauses.push('history.started_at >= ?');
+      params.push(from);
+    }
+
+    if (to) {
+      clauses.push('history.started_at < ?');
+      params.push(to);
+    }
+
+    if (completedOnly) {
+      clauses.push('history.completed > 0');
+    }
+
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const historyKeySql = 'COALESCE(history.stable_key, history.track_id, history.track_path)';
+    const totalsRow = this.getRow(
+      `SELECT
+         COUNT(*) AS play_count,
+         COALESCE(SUM(CASE WHEN history.completed > 0 THEN 1 ELSE 0 END), 0) AS completed_count,
+         COALESCE(SUM(history.played_seconds), 0) AS played_seconds,
+         COUNT(DISTINCT ${historyKeySql}) AS unique_tracks,
+         COUNT(DISTINCT COALESCE(NULLIF(TRIM(COALESCE(history.artist_snapshot, history.artist, '')), ''), 'Unknown Artist')) AS unique_artists
+       FROM playback_history AS history
+       ${whereSql}`,
+      ...params,
+    );
+    const topTrackRows = this.allRows(
+      `WITH filtered_history AS (
+         SELECT history.*, ${historyKeySql} AS history_key
+         FROM playback_history AS history
+         ${whereSql}
+       ),
+       grouped_history AS (
+         SELECT
+           history_key,
+           COUNT(*) AS play_count,
+           COALESCE(SUM(CASE WHEN completed > 0 THEN 1 ELSE 0 END), 0) AS completed_count,
+           COALESCE(SUM(played_seconds), 0) AS played_seconds,
+           MAX(started_at) AS last_played_at
+         FROM filtered_history
+         GROUP BY history_key
+       ),
+       latest_history AS (
+         SELECT filtered_history.*
+         FROM filtered_history
+         INNER JOIN grouped_history ON grouped_history.history_key = filtered_history.history_key
+         WHERE filtered_history.id = (
+           SELECT latest.id
+           FROM filtered_history AS latest
+           WHERE latest.history_key = grouped_history.history_key
+           ORDER BY latest.started_at DESC, latest.created_at DESC, latest.id DESC
+           LIMIT 1
+         )
+       )
+       SELECT
+         grouped_history.history_key AS id,
+         latest_history.track_id,
+         latest_history.title_snapshot,
+         latest_history.artist_snapshot,
+         latest_history.album_snapshot,
+         latest_history.title,
+         latest_history.artist,
+         latest_history.album,
+         latest_history.cover_id,
+         latest_history.cover_snapshot,
+         latest_history.duration_seconds,
+         grouped_history.play_count,
+         grouped_history.completed_count,
+         grouped_history.played_seconds,
+         grouped_history.last_played_at
+       FROM grouped_history
+       INNER JOIN latest_history ON latest_history.history_key = grouped_history.history_key
+       ORDER BY grouped_history.play_count DESC, grouped_history.played_seconds DESC, grouped_history.last_played_at DESC
+       LIMIT 8`,
+      ...params,
+    );
+    const topArtistRows = this.allRows(
+      `SELECT
+         COALESCE(NULLIF(TRIM(COALESCE(history.artist_snapshot, history.artist, '')), ''), 'Unknown Artist') AS artist,
+         COUNT(*) AS play_count,
+         COALESCE(SUM(CASE WHEN history.completed > 0 THEN 1 ELSE 0 END), 0) AS completed_count,
+         COALESCE(SUM(history.played_seconds), 0) AS played_seconds
+       FROM playback_history AS history
+       ${whereSql}
+       GROUP BY 1
+       ORDER BY play_count DESC, played_seconds DESC, artist COLLATE NOCASE
+       LIMIT 8`,
+      ...params,
+    );
+    const formatRows = this.allRows(
+      `SELECT
+         CASE
+           WHEN history.media_type = 'streaming' THEN 'Streaming' || CASE WHEN history.provider IS NOT NULL THEN ' · ' || history.provider ELSE '' END
+           WHEN history.media_type = 'remote' THEN 'Remote'
+           WHEN NULLIF(TRIM(COALESCE(tracks.codec, '')), '') IS NOT NULL THEN UPPER(tracks.codec)
+           WHEN history.media_type = 'local' THEN 'Local'
+           ELSE 'Unknown'
+         END AS label,
+         COUNT(*) AS play_count,
+         COALESCE(SUM(history.played_seconds), 0) AS played_seconds
+       FROM playback_history AS history
+       LEFT JOIN tracks ON tracks.id = history.track_id AND tracks.missing = 0
+       ${whereSql}
+       GROUP BY 1
+       ORDER BY play_count DESC, played_seconds DESC, label COLLATE NOCASE
+       LIMIT 8`,
+      ...params,
+    );
+    const qualityRows = this.allRows(
+      `SELECT
+         CASE
+           WHEN history.media_type = 'streaming' THEN 'Streaming'
+           WHEN history.media_type = 'remote' THEN 'Remote'
+           WHEN tracks.sample_rate >= 88200 OR tracks.bit_depth >= 24 THEN 'Hi-Res'
+           WHEN LOWER(COALESCE(tracks.codec, '')) IN ('flac', 'wav', 'wave', 'alac', 'aiff', 'aif', 'ape', 'wv', 'tta', 'dsf', 'dff') THEN 'Lossless'
+           WHEN tracks.bitrate >= 320000 THEN 'High Bitrate'
+           WHEN tracks.codec IS NOT NULL OR tracks.bitrate IS NOT NULL THEN 'Lossy'
+           ELSE 'Unknown'
+         END AS label,
+         COUNT(*) AS play_count,
+         COALESCE(SUM(history.played_seconds), 0) AS played_seconds
+       FROM playback_history AS history
+       LEFT JOIN tracks ON tracks.id = history.track_id AND tracks.missing = 0
+       ${whereSql}
+       GROUP BY 1
+       ORDER BY play_count DESC, played_seconds DESC, label COLLATE NOCASE
+       LIMIT 8`,
+      ...params,
+    );
+    const dayRows = this.allRows(
+      `SELECT
+         substr(history.started_at, 1, 10) AS date,
+         COUNT(*) AS play_count,
+         COALESCE(SUM(history.played_seconds), 0) AS played_seconds
+       FROM playback_history AS history
+       ${whereSql}
+       GROUP BY 1
+       ORDER BY date DESC
+       LIMIT 14`,
+      ...params,
+    );
+
+    return {
+      generatedAt: nowIso(),
+      totals: {
+        playCount: Number(totalsRow?.play_count ?? 0),
+        completedCount: Number(totalsRow?.completed_count ?? 0),
+        playedSeconds: Number(totalsRow?.played_seconds ?? 0),
+        uniqueTracks: Number(totalsRow?.unique_tracks ?? 0),
+        uniqueArtists: Number(totalsRow?.unique_artists ?? 0),
+      },
+      topTracks: topTrackRows.map((row) => {
+        const coverId = textOrNull(row.cover_id);
+        return {
+          id: String(row.id),
+          trackId: textOrNull(row.track_id),
+          title: textOrNull(row.title_snapshot) ?? String(row.title ?? ''),
+          artist: textOrNull(row.artist_snapshot) ?? String(row.artist ?? ''),
+          album: textOrNull(row.album_snapshot) ?? String(row.album ?? ''),
+          coverThumb: coverId ? this.toCoverUrl(coverId, 'thumb') : textOrNull(row.cover_snapshot),
+          playCount: Number(row.play_count ?? 0),
+          completedCount: Number(row.completed_count ?? 0),
+          playedSeconds: Number(row.played_seconds ?? 0),
+          durationSeconds: Number(row.duration_seconds ?? 0),
+          lastPlayedAt: textOrNull(row.last_played_at),
+        };
+      }),
+      topArtists: topArtistRows.map((row) => ({
+        artist: String(row.artist ?? 'Unknown Artist'),
+        playCount: Number(row.play_count ?? 0),
+        completedCount: Number(row.completed_count ?? 0),
+        playedSeconds: Number(row.played_seconds ?? 0),
+      })),
+      formatBreakdown: formatRows.map((row) => ({
+        id: String(row.label ?? 'Unknown'),
+        label: String(row.label ?? 'Unknown'),
+        playCount: Number(row.play_count ?? 0),
+        playedSeconds: Number(row.played_seconds ?? 0),
+      })),
+      qualityBreakdown: qualityRows.map((row) => ({
+        id: String(row.label ?? 'Unknown'),
+        label: String(row.label ?? 'Unknown'),
+        playCount: Number(row.play_count ?? 0),
+        playedSeconds: Number(row.played_seconds ?? 0),
+      })),
+      dailyActivity: dayRows
+        .map((row) => ({
+          date: String(row.date ?? ''),
+          playCount: Number(row.play_count ?? 0),
+          playedSeconds: Number(row.played_seconds ?? 0),
+        }))
+        .reverse(),
     };
   }
 

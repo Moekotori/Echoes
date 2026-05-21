@@ -800,6 +800,56 @@ export type PlaybackHistorySummary = {
   rangeLatestPlayedAt: string | null;
 };
 
+export type PlaybackStatsTrack = {
+  id: string;
+  trackId: string | null;
+  title: string;
+  artist: string;
+  album: string;
+  coverThumb: string | null;
+  playCount: number;
+  completedCount: number;
+  playedSeconds: number;
+  durationSeconds: number;
+  lastPlayedAt: string | null;
+};
+
+export type PlaybackStatsArtist = {
+  artist: string;
+  playCount: number;
+  completedCount: number;
+  playedSeconds: number;
+};
+
+export type PlaybackStatsBreakdownItem = {
+  id: string;
+  label: string;
+  playCount: number;
+  playedSeconds: number;
+};
+
+export type PlaybackStatsDay = {
+  date: string;
+  playCount: number;
+  playedSeconds: number;
+};
+
+export type PlaybackStatsDashboard = {
+  generatedAt: string;
+  totals: {
+    playCount: number;
+    completedCount: number;
+    playedSeconds: number;
+    uniqueTracks: number;
+    uniqueArtists: number;
+  };
+  topTracks: PlaybackStatsTrack[];
+  topArtists: PlaybackStatsArtist[];
+  formatBreakdown: PlaybackStatsBreakdownItem[];
+  qualityBreakdown: PlaybackStatsBreakdownItem[];
+  dailyActivity: PlaybackStatsDay[];
+};
+
 export type LibraryTrack = {
   id: string;
   mediaType?: 'local' | 'remote' | 'streaming';

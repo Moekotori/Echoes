@@ -87,3 +87,49 @@ export type LocalFileResolveResult = {
   tracks: LibraryTrack[];
   rejected: LocalFileOpenRejection[];
 };
+
+export type PersistedPlaybackRepeatMode = 'off' | 'one' | 'all';
+
+export type PersistedQueueSource =
+  | { type: 'songs'; label: string; search?: string; sort?: string; hideDuplicates?: boolean; showDuplicatesOnly?: boolean }
+  | { type: 'album'; label: string; albumId: string }
+  | { type: 'artist'; label: string; artistId?: string }
+  | { type: 'folder'; label: string; folderId: string; path: string; recursive: boolean }
+  | { type: 'streaming'; label: string; provider: string }
+  | { type: 'local-file'; label: string }
+  | { type: 'manual'; label: string };
+
+export type PersistedQueueItem = {
+  queueId: string;
+  track: LibraryTrack;
+  source: PersistedQueueSource;
+  addedAt: string;
+};
+
+export type PersistedPlaybackSessionMode = {
+  isShuffleEnabled: boolean;
+  repeatMode: PersistedPlaybackRepeatMode;
+  automixEnabled: boolean;
+};
+
+export type PersistedPlaybackSessionResume = {
+  queueId: string | null;
+  trackId: string | null;
+  filePath: string;
+  positionMs: number;
+  durationMs: number;
+  state: AudioPlaybackState;
+  updatedAt: string;
+};
+
+export type PersistedPlaybackSessionV1 = {
+  version: 1;
+  items: PersistedQueueItem[];
+  currentQueueId: string | null;
+  currentTrackId: string | null;
+  lastPlayedTrack: LibraryTrack | null;
+  history: PersistedQueueItem[];
+  mode: PersistedPlaybackSessionMode;
+  resume: PersistedPlaybackSessionResume | null;
+  updatedAt: string;
+};

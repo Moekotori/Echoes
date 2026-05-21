@@ -18,6 +18,7 @@ import type {
   LyricsMiniPlayerColorMode,
   NetworkProxyMode,
   RememberedAudioOutput,
+  DesktopLyricsBounds,
   RememberedWindowSize,
   ReplayGainMode,
 } from '../../shared/types/appSettings';
@@ -46,6 +47,8 @@ const imageWallpaperExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const videoWallpaperExtensions = new Set(['.mp4', '.m4v', '.webm']);
 const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWallpaperExtensions]);
 const defaultLyricsColor = '#314054';
+const defaultDesktopLyricsColor = '#FFFFFF';
+const defaultDesktopLyricsStrokeColor = '#111827';
 const defaultLyricsMiniPlayerColor = '#232120';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
@@ -228,6 +231,29 @@ const normalizeRememberedWindowSize = (value: unknown): RememberedWindowSize | n
   };
 };
 
+const normalizeDesktopLyricsBounds = (value: unknown): DesktopLyricsBounds | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const input = value as Partial<DesktopLyricsBounds>;
+  const x = Number(input.x);
+  const y = Number(input.y);
+  const width = Number(input.width);
+  const height = Number(input.height);
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+    return null;
+  }
+
+  return {
+    x: Math.round(clamp(x, -32000, 32000)),
+    y: Math.round(clamp(y, -32000, 32000)),
+    width: Math.round(clamp(width, 360, 1600)),
+    height: Math.round(clamp(height, 84, 320)),
+  };
+};
+
 export const getLyricsWallpaperDirectory = (): string => join(app.getPath('userData'), 'lyrics-wallpapers');
 export const getAppWallpaperDirectory = (): string => join(app.getPath('userData'), 'app-wallpapers');
 
@@ -277,6 +303,7 @@ export const defaultSettings: AppSettings = {
   artistImageFetchPaused: false,
   liveLibraryUpdatesEnabled: false,
   liveLibraryAutoHideDeletedEnabled: false,
+  safeModeEnabled: false,
   autoUpdateEnabled: true,
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: false,
@@ -359,6 +386,14 @@ export const defaultSettings: AppSettings = {
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
   lyricsBackgroundScalePercent: 100,
+  desktopLyricsEnabled: false,
+  desktopLyricsLocked: false,
+  desktopLyricsFontSizePx: 34,
+  desktopLyricsScalePercent: 100,
+  desktopLyricsColor: defaultDesktopLyricsColor,
+  desktopLyricsStrokeColor: defaultDesktopLyricsStrokeColor,
+  desktopLyricsOpacityPercent: 96,
+  desktopLyricsBounds: null,
   mvEnabled: true,
   mvEnabledProviders: ['bilibili', 'youtube'],
   mvProviderOrder: ['bilibili', 'youtube'],
@@ -1092,6 +1127,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   const lyricsCoverBlurPx = Number(settings.lyricsCoverBlurPx);
   const lyricsCoverBrightnessPercent = Number(settings.lyricsCoverBrightnessPercent);
   const lyricsBackgroundScalePercent = Number(settings.lyricsBackgroundScalePercent);
+  const desktopLyricsFontSizePx = Number(settings.desktopLyricsFontSizePx);
+  const desktopLyricsScalePercent = Number(settings.desktopLyricsScalePercent);
+  const desktopLyricsOpacityPercent = Number(settings.desktopLyricsOpacityPercent);
   const lyricsProviderTimeoutMs = Number(settings.lyricsProviderTimeoutMs);
   const lyricsTotalMatchTimeoutMs = Number(settings.lyricsTotalMatchTimeoutMs);
   const mvProviderOrder = normalizeMvProviderList(settings.mvProviderOrder, defaultSettings.mvProviderOrder);
@@ -1143,6 +1181,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     artistImageFetchPaused: settings.artistImageFetchPaused === true,
     liveLibraryUpdatesEnabled: settings.liveLibraryUpdatesEnabled === true,
     liveLibraryAutoHideDeletedEnabled: settings.liveLibraryAutoHideDeletedEnabled === true,
+    safeModeEnabled: settings.safeModeEnabled === true,
     autoUpdateEnabled: settings.autoUpdateEnabled !== false,
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices === true,
@@ -1270,6 +1309,20 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsBackgroundScalePercent: Number.isFinite(lyricsBackgroundScalePercent)
       ? Math.round(clamp(lyricsBackgroundScalePercent, 70, 180))
       : defaultSettings.lyricsBackgroundScalePercent,
+    desktopLyricsEnabled: settings.desktopLyricsEnabled === true,
+    desktopLyricsLocked: settings.desktopLyricsLocked === true,
+    desktopLyricsFontSizePx: Number.isFinite(desktopLyricsFontSizePx)
+      ? Math.round(clamp(desktopLyricsFontSizePx, 18, 72))
+      : defaultSettings.desktopLyricsFontSizePx,
+    desktopLyricsScalePercent: Number.isFinite(desktopLyricsScalePercent)
+      ? Math.round(clamp(desktopLyricsScalePercent, 75, 170))
+      : defaultSettings.desktopLyricsScalePercent,
+    desktopLyricsColor: normalizeHexColor(settings.desktopLyricsColor, defaultDesktopLyricsColor),
+    desktopLyricsStrokeColor: normalizeHexColor(settings.desktopLyricsStrokeColor, defaultDesktopLyricsStrokeColor),
+    desktopLyricsOpacityPercent: Number.isFinite(desktopLyricsOpacityPercent)
+      ? Math.round(clamp(desktopLyricsOpacityPercent, 35, 100))
+      : defaultSettings.desktopLyricsOpacityPercent,
+    desktopLyricsBounds: normalizeDesktopLyricsBounds(settings.desktopLyricsBounds),
     mvEnabled: settings.mvEnabled !== false,
     mvEnabledProviders: normalizeMvProviderList(settings.mvEnabledProviders, defaultSettings.mvEnabledProviders),
     mvProviderOrder: [

@@ -9,6 +9,7 @@ import { ensureTray, isAppQuitRequested } from './tray';
 import { clearMainWindow, setMainWindow } from './windowManager';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { recordRendererConsoleMessage } from '../diagnostics/DevConsoleService';
+import { markStartupStage } from '../diagnostics/StartupDiagnostics';
 
 const mainOutputDir = import.meta.dirname;
 const appIconPath = join(mainOutputDir, '../../software.ico');
@@ -68,6 +69,7 @@ const rememberMainWindowSize = (window: BrowserWindow): void => {
 };
 
 export const createMainWindow = (): BrowserWindow => {
+  markStartupStage('main-window:create:start');
   const initialSize = resolveInitialMainWindowSize();
   const window = new BrowserWindow({
     width: initialSize.width,
@@ -112,6 +114,7 @@ export const createMainWindow = (): BrowserWindow => {
 
   window.once('ready-to-show', () => {
     window.show();
+    markStartupStage('main-window:ready-to-show');
   });
 
   window.on('resize', scheduleRememberSize);
@@ -149,6 +152,7 @@ export const createMainWindow = (): BrowserWindow => {
   setMainWindow(window);
   bindBackgroundPlaybackShortcutsToWindow();
   bindTaskbarPlaybackIntegration(window);
+  markStartupStage('main-window:create:complete', initialSize);
 
   return window;
 };

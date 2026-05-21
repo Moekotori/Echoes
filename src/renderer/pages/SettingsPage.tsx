@@ -907,7 +907,7 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     'health report',
     'library health',
   ],
-  about: ['about', 'version', 'update', 'diagnostics', 'crash', 'repository', '关于', '版本', '更新', '诊断', '崩溃', '仓库'],
+  about: ['about', 'version', 'update', 'diagnostics', 'crash', 'repository', 'safe mode', 'startup', '关于', '版本', '更新', '诊断', '崩溃', '仓库', '慢启动'],
   danger: ['danger', 'reset', 'clear cache', 'delete cache', 'restore defaults', 'rebuild database', 'repair database', 'delete database', 'database recovery', 'database snapshot', 'database health', '危险', '重置', '清空缓存', '恢复默认', '重建数据库', '修复数据库', '删除数据库', '数据库恢复', '曲库恢复', '健康快照'],
 };
 
@@ -3772,6 +3772,14 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
+        id: 'row-safe-mode',
+        sectionKey: 'about',
+        targetId: 'settings-row-safe-mode',
+        title: 'Safe mode',
+        description: '每次启动自动打开调试控制台，并记录启动阶段耗时；只诊断，不降级功能。',
+        terms: ['Safe mode', '安全模式', '启动诊断', '慢启动', '打开控制台', 'startup diagnostics', 'debug console', 'slow startup', 'boot timing'],
+      },
+      {
         id: 'row-dev-console',
         sectionKey: 'about',
         targetId: 'settings-row-dev-console',
@@ -5951,6 +5959,26 @@ export const SettingsPage = (): JSX.Element => {
       setDiagnosticsMessage(null);
       const exportedPath = await diagnostics.exportDiagnostics();
       setDiagnosticsMessage(`Markdown 报告已导出：${exportedPath}`);
+    } catch (diagnosticsError) {
+      setDiagnosticsMessage(diagnosticsError instanceof Error ? diagnosticsError.message : String(diagnosticsError));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  };
+
+  const handleDiagnosticsExportZip = async (): Promise<void> => {
+    try {
+      const diagnostics = getDiagnosticsBridge();
+
+      if (!diagnostics?.exportDiagnosticsZip) {
+        setError('Desktop bridge unavailable. Open ECHO Next in Electron to export diagnostics.');
+        return;
+      }
+
+      setDiagnosticsBusy(true);
+      setDiagnosticsMessage(null);
+      const exportedPath = await diagnostics.exportDiagnosticsZip();
+      setDiagnosticsMessage(`诊断包已导出：${exportedPath}`);
     } catch (diagnosticsError) {
       setDiagnosticsMessage(diagnosticsError instanceof Error ? diagnosticsError.message : String(diagnosticsError));
     } finally {
@@ -10231,6 +10259,56 @@ export const SettingsPage = (): JSX.Element => {
                     <p className="settings-inline-note">更新日志会在 GitHub Release 返回 release notes 后显示。</p>
                   )}
                   {updateStatus?.error ? <p className="settings-inline-error">{updateStatus.error}</p> : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                id="settings-row-safe-mode"
+                highlighted={highlightedSettingId === 'settings-row-safe-mode'}
+                title="Safe mode"
+                description="持续开启后，每次启动会自动打开 ECHO Debug Console，并记录启动阶段耗时；只诊断，不关闭功能。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--diagnostics">
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>状态</em>
+                      <strong>{appSettings?.safeModeEnabled ? '开启' : '关闭'}</strong>
+                    </span>
+                    <span>
+                      <em>生效范围</em>
+                      <strong>每次启动</strong>
+                    </span>
+                    <span>
+                      <em>启动行为</em>
+                      <strong>只诊断</strong>
+                    </span>
+                    <span>
+                      <em>慢阶段阈值</em>
+                      <strong>2000ms</strong>
+                    </span>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>Safe mode</span>
+                      <ToggleButton
+                        active={appSettings?.safeModeEnabled === true}
+                        disabled={!appSettings}
+                        onClick={() => patchAppSettings({ safeModeEnabled: !(appSettings?.safeModeEnabled ?? false) })}
+                      />
+                    </div>
+                    <button className="settings-action-button" type="button" onClick={() => void handleDiagnosticsOpenDevConsole()}>
+                      <Code2 size={15} />
+                      打开控制台
+                    </button>
+                    <button className="settings-action-button" type="button" disabled={diagnosticsBusy} onClick={() => void handleDiagnosticsExportZip()}>
+                      <Download size={15} />
+                      {diagnosticsBusy ? '导出中...' : '导出诊断包'}
+                    </button>
+                  </div>
+                  <p className="settings-inline-note">
+                    下一次启动开始会先弹出调试窗口；启动时间线也会写入安全诊断包里的 startup-timeline.safe.json。
+                  </p>
+                  {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
+                  {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}
                 </div>
               </SettingRow>
               <SettingRow

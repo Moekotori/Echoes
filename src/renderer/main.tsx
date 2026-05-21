@@ -7,6 +7,7 @@ import '@fontsource/outfit/700.css';
 import '@fontsource/outfit/800.css';
 import '@fontsource/outfit/900.css';
 import { App } from './app/App';
+import { DesktopLyricsApp } from './desktop-lyrics/DesktopLyricsApp';
 import {
   applyAppearancePreferences,
   loadPersistedAppearancePreferences,
@@ -30,6 +31,7 @@ import './styles/lyrics.css';
 import './styles/legacy-theme-bridge.css';
 import './styles/ui-polish.css';
 import './styles/theme-presets.css';
+import './styles/desktop-lyrics.css';
 
 const appearancePreferences = readAppearancePreferences();
 const themeMode = readThemeMode();
@@ -103,8 +105,10 @@ void loadPersistedAppearancePreferences()
   .catch(() => undefined);
 void appBridge?.getSettings().then(loadLyricsFontFile).catch(() => undefined);
 
+const isDesktopLyricsWindow = new URLSearchParams(window.location.search).get('desktopLyrics') === '1';
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    {isDesktopLyricsWindow ? <DesktopLyricsApp /> : <App />}
   </React.StrictMode>,
 );

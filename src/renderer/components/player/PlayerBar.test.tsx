@@ -2574,6 +2574,97 @@ describe('PlayerBar', () => {
     expect(screen.getByText('Song 2')).toBeTruthy();
   });
 
+  it('does not auto-play next when an ended status arrives before the track tail', async () => {
+    const firstTrack = makeTrack(1);
+    const secondTrack = makeTrack(2);
+    const statusHandlers: Array<(status: AudioStatus) => void> = [];
+    const playLocalFile = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: secondTrack.id,
+      positionMs: 0,
+      durationMs: secondTrack.duration * 1000,
+      filePath: secondTrack.path,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: firstTrack.id,
+          positionMs: 4000,
+          durationMs: firstTrack.duration * 1000,
+          filePath: firstTrack.path,
+        }),
+        playLocalFile,
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(firstTrack)),
+        onStatus: vi.fn((handler) => {
+          statusHandlers[0] = handler;
+          return () => {
+            statusHandlers.length = 0;
+          };
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[firstTrack, secondTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    expect(statusHandlers[0]).toBeTruthy();
+    statusHandlers[0]?.({
+      ...audioStatus(firstTrack),
+      state: 'ended',
+      positionSeconds: 42,
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(playLocalFile).not.toHaveBeenCalled();
+    expect(screen.getByText('Song 1')).toBeTruthy();
+  });
+
   it('still auto-plays the next queued track when the audio ends after the MV', async () => {
     const firstTrack = makeTrack(1);
     const secondTrack = makeTrack(2);

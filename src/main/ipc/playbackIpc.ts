@@ -11,6 +11,7 @@ import type {
   PlaybackResolvedMediaSource,
   PlaybackStartRequest,
   PlaybackStatus,
+  PersistedPlaybackSessionV1,
 } from '../../shared/types/playback';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AirPlayReceiverState, AirPlayReceiverStatus } from '../../shared/types/connect';
@@ -20,7 +21,8 @@ import type { HqPlayerPlaybackHandoffRequest } from '../../shared/types/hqplayer
 import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
 import type { AudioSessionAutomixRequest, AudioSessionGaplessRequest } from '../audio/audioTypes';
 import { getAudioSession, type AudioErrorRecoveryHandler } from '../audio/AudioSession';
-import { getPlaybackMemoryStore } from '../audio/PlaybackMemoryStore';
+import { getPlaybackMemoryStore, type PlaybackMemory } from '../audio/PlaybackMemoryStore';
+import { getPlaybackSessionStore } from '../audio/PlaybackSessionStore';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { syncSmtcStatus } from '../integrations/smtc/SmtcStatusSync';
 import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
@@ -1121,8 +1123,45 @@ let playbackMemoryRegistered = false;
 let lastPlaybackMemorySaveAt = 0;
 const playbackMemorySaveIntervalMs = 5000;
 
+const playbackMemoryFromQueueSession = (session: PersistedPlaybackSessionV1 | null): PlaybackMemory | null => {
+  const resume = session?.resume;
+  if (!resume) {
+    return null;
+  }
+
+  const resumeItem = session.items.find((item) =>
+    (resume.queueId && item.queueId === resume.queueId) ||
+    (resume.trackId && item.track.id === resume.trackId) ||
+    item.track.path === resume.filePath,
+  );
+
+  return {
+    filePath: resume.filePath,
+    trackId: resume.trackId,
+    positionSeconds: Math.max(0, resume.positionMs / 1000),
+    durationSeconds: Math.max(0, resume.durationMs / 1000),
+    probe: resumeItem
+      ? {
+          durationSeconds: Math.max(0, resumeItem.track.duration),
+          fileSampleRate: resumeItem.track.sampleRate,
+          channels: undefined,
+          codec: resumeItem.track.codec,
+          bitDepth: resumeItem.track.bitDepth,
+          bitrate: resumeItem.track.bitrate,
+        }
+      : undefined,
+    updatedAt: resume.updatedAt,
+  };
+};
+
 export const savePlaybackMemoryNow = (): void => {
-  getPlaybackMemoryStore().save(getAudioSession().getStatus());
+  const status = getAudioSession().getStatus();
+  getPlaybackMemoryStore().save(status);
+  try {
+    getPlaybackSessionStore().saveResumeFromAudioStatus(status);
+  } catch (error) {
+    console.warn(`[playback] Failed to persist queue resume position: ${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 
 const registerPlaybackMemoryPersistence = (): void => {
@@ -1131,7 +1170,13 @@ const registerPlaybackMemoryPersistence = (): void => {
   }
 
   playbackMemoryRegistered = true;
-  const storedMemory = getPlaybackMemoryStore().load();
+  let storedQueueSession: PersistedPlaybackSessionV1 | null = null;
+  try {
+    storedQueueSession = getPlaybackSessionStore().load();
+  } catch (error) {
+    console.warn(`[playback] Failed to load persisted queue session: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const storedMemory = playbackMemoryFromQueueSession(storedQueueSession) ?? getPlaybackMemoryStore().load();
   if (storedMemory) {
     getAudioSession().restorePlaybackMemory(storedMemory);
   }
@@ -1151,6 +1196,13 @@ export const registerPlaybackIpc = (): void => {
   registerPlaybackMemoryPersistence();
   registerExpiredUrlRecovery();
   ipcMain.handle(IpcChannels.PlaybackGetStatus, (): PlaybackStatus => toPlaybackStatus());
+  ipcMain.handle(IpcChannels.PlaybackGetQueueSession, (): PersistedPlaybackSessionV1 | null => getPlaybackSessionStore().load());
+  ipcMain.handle(IpcChannels.PlaybackSaveQueueSession, (_event, snapshot: unknown): PersistedPlaybackSessionV1 =>
+    getPlaybackSessionStore().saveWithAudioStatus(snapshot as PersistedPlaybackSessionV1, getAudioSession().getStatus()),
+  );
+  ipcMain.handle(IpcChannels.PlaybackClearQueueSession, (): void => {
+    getPlaybackSessionStore().clear();
+  });
   ipcMain.handle(IpcChannels.PlaybackPlayLocalFile, async (_event, request: unknown): Promise<PlaybackStatus> => enqueuePlaybackStatusCommand(async () => {
     clearActiveMediaPlayback();
     const playbackRun = beginPlaybackStartRun();
@@ -1335,6 +1387,11 @@ export const registerPlaybackIpc = (): void => {
     getAudioSession().stop();
     getRemoteSourceService().setPlaybackActive(false);
     getPlaybackMemoryStore().clear();
+    try {
+      getPlaybackSessionStore().clearResume();
+    } catch (error) {
+      console.warn(`[playback] Failed to clear queue resume position: ${error instanceof Error ? error.message : String(error)}`);
+    }
     void syncSmtcStatus();
     return toPlaybackStatus();
   }));

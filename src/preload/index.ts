@@ -438,6 +438,7 @@ const emitSystemAudioStatus = (): AudioStatus => {
   for (const handler of audioStatusHandlers) {
     handler(status);
   }
+  ipcRenderer.send(IpcChannels.DesktopLyricsRendererAudioStatus, status);
   return status;
 };
 
@@ -1063,6 +1064,29 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.AppGlobalShortcutCommand, listener);
     },
   },
+  desktopLyrics: {
+    show: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsShow),
+    hide: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsHide),
+    getState: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsGetState),
+    setLocked: (locked) => ipcRenderer.invoke(IpcChannels.DesktopLyricsSetLocked, locked),
+    setStyle: (patch) => ipcRenderer.invoke(IpcChannels.DesktopLyricsSetStyle, patch),
+    resetBounds: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsResetBounds),
+    getLastAudioStatus: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsGetLastAudioStatus),
+    onStateChanged: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: unknown): void => {
+        handler(state as Awaited<ReturnType<EchoApi['desktopLyrics']['getState']>>);
+      };
+      ipcRenderer.on(IpcChannels.DesktopLyricsStateChanged, listener);
+      return () => ipcRenderer.off(IpcChannels.DesktopLyricsStateChanged, listener);
+    },
+    onAudioStatus: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: unknown): void => {
+        handler(status as AudioStatus);
+      };
+      ipcRenderer.on(IpcChannels.DesktopLyricsAudioStatus, listener);
+      return () => ipcRenderer.off(IpcChannels.DesktopLyricsAudioStatus, listener);
+    },
+  },
   library: {
     chooseFolder: () => ipcRenderer.invoke(IpcChannels.LibraryChooseFolder),
     addFolder: (path) => ipcRenderer.invoke(IpcChannels.LibraryAddFolder, path),
@@ -1181,6 +1205,7 @@ const echoApi: EchoApi = {
     recordTrackPlayback: (trackId) => ipcRenderer.invoke(IpcChannels.LibraryRecordTrackPlayback, trackId),
     getPlaybackHistory: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetPlaybackHistory, query),
     getPlaybackHistorySummary: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetPlaybackHistorySummary, query),
+    getPlaybackStatsDashboard: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetPlaybackStatsDashboard, query),
     deletePlaybackHistoryEntry: (id) => ipcRenderer.invoke(IpcChannels.LibraryDeletePlaybackHistoryEntry, id),
     clearPlaybackHistory: () => ipcRenderer.invoke(IpcChannels.LibraryClearPlaybackHistory),
     startPlaybackHistory: (request) => ipcRenderer.invoke(IpcChannels.LibraryStartPlaybackHistory, request),
@@ -1315,6 +1340,9 @@ const echoApi: EchoApi = {
     openLocalAudioFile: () => ipcRenderer.invoke(IpcChannels.PlaybackOpenLocalAudioFile),
     openLocalAudioFiles: () => ipcRenderer.invoke(IpcChannels.PlaybackOpenLocalAudioFiles),
     resolveLocalAudioFiles: (paths) => ipcRenderer.invoke(IpcChannels.PlaybackResolveLocalAudioFiles, paths),
+    getQueueSession: () => ipcRenderer.invoke(IpcChannels.PlaybackGetQueueSession),
+    saveQueueSession: (snapshot) => ipcRenderer.invoke(IpcChannels.PlaybackSaveQueueSession, snapshot),
+    clearQueueSession: () => ipcRenderer.invoke(IpcChannels.PlaybackClearQueueSession),
     onLocalAudioFilesOpened: (handler) => {
       localAudioFileOpenHandlers.add(handler);
       for (const paths of pendingLocalAudioFileOpenEvents.splice(0)) {

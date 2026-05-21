@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AudioStatus } from '../../shared/types/audio';
 import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
 import type { LibraryTrack } from '../../shared/types/library';
+import type { PersistedPlaybackSessionV1 } from '../../shared/types/playback';
 import { PlaybackQueueProvider, isPlaybackCancellationError, usePlaybackQueue } from './PlaybackQueueProvider';
 import { useSharedPlaybackStatus } from './playbackStatusStore';
 
@@ -29,9 +30,41 @@ const makeTrack = (index: number): LibraryTrack => ({
   fieldSources: {},
 });
 
+const makePersistedQueueSession = (
+  tracks: LibraryTrack[],
+  options: Partial<PersistedPlaybackSessionV1> = {},
+): PersistedPlaybackSessionV1 => {
+  const items = tracks.map((track, index) => ({
+    queueId: `queue-${index + 1}`,
+    track,
+    source: { type: 'manual' as const, label: 'Manual queue' },
+    addedAt: `2026-05-21T00:00:0${index}.000Z`,
+  }));
+  const currentItem = items[0] ?? null;
+
+  return {
+    version: 1,
+    items,
+    currentQueueId: currentItem?.queueId ?? null,
+    currentTrackId: currentItem?.track.id ?? null,
+    lastPlayedTrack: currentItem?.track ?? null,
+    history: [],
+    mode: {
+      isShuffleEnabled: false,
+      repeatMode: 'off',
+      automixEnabled: false,
+    },
+    resume: null,
+    updatedAt: '2026-05-21T00:00:00.000Z',
+    ...options,
+  };
+};
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  delete (window as Partial<Window>).echo;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -1594,5 +1627,237 @@ describe('PlaybackQueueProvider playback modes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'remove first' }));
 
     await waitFor(() => expect(screen.getByLabelText('queue-track-ids').textContent).toBe('track-2'));
+  });
+});
+
+describe('PlaybackQueueProvider persisted queue session', () => {
+  const renderSessionProbe = (): void => {
+    const SessionProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+
+      return (
+        <div>
+          <output aria-label="queue-size">{queue.items.length}</output>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <output aria-label="repeat-mode">{queue.repeatMode}</output>
+          <output aria-label="shuffle-mode">{queue.isShuffleEnabled ? 'on' : 'off'}</output>
+          <output aria-label="automix-mode">{queue.automixEnabled ? 'on' : 'off'}</output>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <SessionProbe />
+      </PlaybackQueueProvider>,
+    );
+  };
+
+  it('hydrates queue, current item, and playback mode from the main process session', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+    const session = makePersistedQueueSession(tracks, {
+      currentQueueId: 'queue-2',
+      currentTrackId: tracks[1].id,
+      lastPlayedTrack: tracks[1],
+      mode: {
+        isShuffleEnabled: true,
+        repeatMode: 'one',
+        automixEnabled: true,
+      },
+    });
+
+    window.echo = {
+      playback: {
+        getQueueSession: vi.fn().mockResolvedValue(session),
+        saveQueueSession: vi.fn(async (snapshot) => snapshot),
+      },
+    } as unknown as Window['echo'];
+
+    renderSessionProbe();
+
+    await waitFor(() => expect(screen.getByLabelText('queue-size').textContent).toBe('2'));
+    expect(screen.getByLabelText('current-track').textContent).toBe('track-2');
+    expect(screen.getByLabelText('repeat-mode').textContent).toBe('one');
+    expect(screen.getByLabelText('shuffle-mode').textContent).toBe('on');
+    expect(screen.getByLabelText('automix-mode').textContent).toBe('on');
+  });
+
+  it('does not write an empty queue before main-process hydration finishes', () => {
+    vi.useFakeTimers();
+    const saveQueueSession = vi.fn(async (snapshot) => snapshot);
+    window.echo = {
+      playback: {
+        getQueueSession: vi.fn(() => new Promise<PersistedPlaybackSessionV1 | null>(() => undefined)),
+        saveQueueSession,
+      },
+    } as unknown as Window['echo'];
+
+    renderSessionProbe();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(saveQueueSession).not.toHaveBeenCalled();
+  });
+
+  it('migrates the legacy localStorage active queue into the main process session once', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+    const legacy = makePersistedQueueSession(tracks, {
+      currentQueueId: 'queue-2',
+      currentTrackId: tracks[1].id,
+      lastPlayedTrack: tracks[1],
+      mode: {
+        isShuffleEnabled: true,
+        repeatMode: 'all',
+        automixEnabled: true,
+      },
+    });
+    window.localStorage.setItem('echo-next:playback-queue', JSON.stringify({
+      version: 1,
+      items: legacy.items,
+      currentQueueId: legacy.currentQueueId,
+      currentTrackId: legacy.currentTrackId,
+      lastPlayedTrack: legacy.lastPlayedTrack,
+      history: legacy.history,
+    }));
+    window.localStorage.setItem('echo-next:playback-mode', JSON.stringify({
+      isShuffleEnabled: true,
+      repeatMode: 'all',
+    }));
+    window.localStorage.setItem('echo-next:automix-enabled', 'true');
+
+    const saveQueueSession = vi.fn(async (snapshot) => snapshot);
+    window.echo = {
+      playback: {
+        getQueueSession: vi.fn().mockResolvedValue(null),
+        saveQueueSession,
+      },
+    } as unknown as Window['echo'];
+
+    renderSessionProbe();
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
+    await waitFor(() => expect(saveQueueSession).toHaveBeenCalled());
+    expect(saveQueueSession.mock.calls[0]?.[0]).toMatchObject({
+      currentQueueId: 'queue-2',
+      currentTrackId: 'track-2',
+      mode: {
+        isShuffleEnabled: true,
+        repeatMode: 'all',
+        automixEnabled: true,
+      },
+    });
+    expect(window.localStorage.getItem('echo-next:playback-queue')).toBeNull();
+    expect(window.localStorage.getItem('echo-next:playback-mode')).toBeNull();
+    expect(window.localStorage.getItem('echo-next:automix-enabled')).toBeNull();
+  });
+
+  it('starts the restored current queue item from the persisted resume position', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+    const session = makePersistedQueueSession(tracks, {
+      resume: {
+        queueId: 'queue-1',
+        trackId: 'track-1',
+        filePath: tracks[0].path,
+        positionMs: 42000,
+        durationMs: 120000,
+        state: 'paused',
+        updatedAt: '2026-05-21T00:03:00.000Z',
+      },
+    });
+    const playLocalFile = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: 'track-1',
+      positionMs: 42000,
+      durationMs: 120000,
+      filePath: tracks[0].path,
+    });
+    window.echo = {
+      playback: {
+        getQueueSession: vi.fn().mockResolvedValue(session),
+        saveQueueSession: vi.fn(async (snapshot) => snapshot),
+        playLocalFile,
+      },
+    } as unknown as Window['echo'];
+
+    const PlayProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      return (
+        <div>
+          {queue.items.map((item) => (
+            <button key={item.queueId} type="button" onClick={() => void queue.playQueueItem(item.queueId)}>
+              {item.track.title}
+            </button>
+          ))}
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <PlayProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Track 1' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Track 1' }));
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalled());
+    expect(playLocalFile.mock.calls[0]?.[0].startSeconds).toBe(42);
+  });
+
+  it('does not reuse the resume position for a different queue item', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+    const session = makePersistedQueueSession(tracks, {
+      resume: {
+        queueId: 'queue-1',
+        trackId: 'track-1',
+        filePath: tracks[0].path,
+        positionMs: 42000,
+        durationMs: 120000,
+        state: 'paused',
+        updatedAt: '2026-05-21T00:03:00.000Z',
+      },
+    });
+    const playLocalFile = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: 'track-2',
+      positionMs: 0,
+      durationMs: 120000,
+      filePath: tracks[1].path,
+    });
+    window.echo = {
+      playback: {
+        getQueueSession: vi.fn().mockResolvedValue(session),
+        saveQueueSession: vi.fn(async (snapshot) => snapshot),
+        playLocalFile,
+      },
+    } as unknown as Window['echo'];
+
+    const PlayProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      return (
+        <div>
+          {queue.items.map((item) => (
+            <button key={item.queueId} type="button" onClick={() => void queue.playQueueItem(item.queueId)}>
+              {item.track.title}
+            </button>
+          ))}
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <PlayProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Track 2' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Track 2' }));
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalled());
+    expect(playLocalFile.mock.calls[0]?.[0].startSeconds).toBeUndefined();
   });
 });

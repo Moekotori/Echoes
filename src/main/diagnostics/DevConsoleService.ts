@@ -51,7 +51,8 @@ const pushEntry = (
     entries.splice(0, entries.length - maxEntries);
   }
 
-  for (const window of BrowserWindow.getAllWindows()) {
+  const windows = typeof BrowserWindow?.getAllWindows === 'function' ? BrowserWindow.getAllWindows() : [];
+  for (const window of windows) {
     if (window.isDestroyed()) {
       continue;
     }
@@ -76,6 +77,9 @@ const pushEntry = (
 
   return entry;
 };
+
+export const recordDevConsoleSystemEntry = (message: string): DiagnosticConsoleEntry =>
+  pushEntry('system', 'info', message);
 
 const textFromChunk = (chunk: unknown, encoding?: BufferEncoding): string => {
   if (typeof chunk === 'string') {
