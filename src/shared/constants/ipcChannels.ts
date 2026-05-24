@@ -354,6 +354,7 @@ export const IpcChannels = {
   PlaybackLocalAudioFilesOpened: 'playback:local-audio-files-opened',
   PlaybackAutomixAdvance: 'playback:automix-advance',
   SmtcGetDiagnostics: 'smtc:get-diagnostics',
+  SmtcSetLyricsProgress: 'smtc:set-lyrics-progress',
   SmtcCommand: 'smtc:command',
   DiscordPresenceGetStatus: 'discord-presence:get-status',
   DiscordPresenceSetEnabled: 'discord-presence:set-enabled',

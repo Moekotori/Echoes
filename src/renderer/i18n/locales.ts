@@ -106,6 +106,8 @@ export type TranslationKey =
   | 'audioDrawer.option.automixDescription'
   | 'audioDrawer.option.rememberOutput'
   | 'audioDrawer.option.rememberOutputDescription'
+  | 'audioDrawer.option.fixedVolume'
+  | 'audioDrawer.option.fixedVolumeDescription'
   | 'audioDrawer.option.showAsioPanelSettings'
   | 'audioDrawer.option.showAsioPanelSettingsDescription'
   | 'audioDrawer.option.alsaShared'
@@ -1310,6 +1312,8 @@ const zhCN: TranslationMap = {
   'audioDrawer.option.automixDescription': '默认关闭。开启后会在队列连续播放时自动把当前歌曲尾段与下一首重叠淡入淡出。',
   'audioDrawer.option.rememberOutput': '保存输出设置',
   'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
+  'audioDrawer.option.fixedVolume': '固定音量',
+  'audioDrawer.option.fixedVolumeDescription': '像 Roon Fixed Volume 一样锁定 ECHO 音量控制为 100%；ReplayGain 仍会独立生效。',
   'audioDrawer.option.showAsioPanelSettings': '是否显示 ASIO 面板设置',
   'audioDrawer.option.showAsioPanelSettingsDescription': '默认关闭。开启后才在 ASIO 设备下显示“打开 ASIO 面板”按钮。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -2544,6 +2548,8 @@ const zhTW: TranslationMap = {
   'audioDrawer.option.automixDescription': '預設關閉。開啟後會在佇列連續播放時自動把目前歌曲尾段與下一首重疊淡入淡出。',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
   'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
+  'audioDrawer.option.fixedVolume': '固定音量',
+  'audioDrawer.option.fixedVolumeDescription': '像 Roon Fixed Volume 一樣鎖定 ECHO 音量控制為 100%；ReplayGain 仍會獨立生效。',
   'audioDrawer.option.showAsioPanelSettings': '是否顯示 ASIO 面板設定',
   'audioDrawer.option.showAsioPanelSettingsDescription': '預設關閉。開啟後才會在 ASIO 裝置下顯示「開啟 ASIO 面板」按鈕。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -3453,6 +3459,8 @@ const jaJP: TranslationMap = {
   'audioDrawer.option.automixDescription': '既定ではオフです。オンにすると、キュー再生中に現在の曲の終端と次の曲を自動で重ねてクロスフェードします。',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
   'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
+  'audioDrawer.option.fixedVolume': '固定音量',
+  'audioDrawer.option.fixedVolumeDescription': 'Roon Fixed Volume のように ECHO の音量操作を 100% に固定します。ReplayGain は引き続き独立して有効です。',
   'audioDrawer.option.showAsioPanelSettings': 'ASIO パネル設定を表示する',
   'audioDrawer.option.showAsioPanelSettingsDescription': '既定ではオフです。オンにすると ASIO デバイスの下に「ASIO パネルを開く」ボタンを表示します。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -4435,6 +4443,8 @@ const enUS: TranslationMap = {
   'audioDrawer.option.automixDescription': 'Off by default. When enabled, continuous queue playback overlaps the current outro with the next intro using an automatic crossfade.',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
   'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
+  'audioDrawer.option.fixedVolume': 'Fixed Volume',
+  'audioDrawer.option.fixedVolumeDescription': 'Locks ECHO volume control at 100% like Roon Fixed Volume; ReplayGain still applies independently.',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Off by default. When enabled, ASIO devices show an Open ASIO Panel button.',
   'audioDrawer.option.alsaShared': 'ALSA',

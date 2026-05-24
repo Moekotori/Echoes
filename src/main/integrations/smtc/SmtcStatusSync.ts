@@ -4,6 +4,7 @@ import type { BrowserWindow } from 'electron';
 import { IpcChannels } from '../../../shared/constants/ipcChannels';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { SmtcCommand, SmtcDiagnosticEvent, SmtcDiagnostics, SmtcEnabledActions, SmtcPlaybackState, SmtcService, SmtcTrackMetadata } from './SmtcService';
+import type { SmtcLyricsProgress } from '../../../shared/types/smtc';
 import { getMainWindow } from '../../app/windowManager';
 import { getAppSettings } from '../../app/appSettings';
 import { getAudioSession } from '../../audio/AudioSession';
@@ -21,6 +22,8 @@ type SmtcSyncState = {
   lastMetadataTrackId: string | null;
   lastMetadataTitle: string | null;
   lastMetadataArtist: string | null;
+  lastLyricsProgressKey: string | null;
+  lyricsProgress: SmtcLyricsProgress | null;
   lastPlaybackState: SmtcPlaybackState | null;
   lastPlaybackStateAt: string | null;
   lastTimelineSyncAt: number;
@@ -43,6 +46,8 @@ const state: SmtcSyncState = {
   lastMetadataTrackId: null,
   lastMetadataTitle: null,
   lastMetadataArtist: null,
+  lastLyricsProgressKey: null,
+  lyricsProgress: null,
   lastPlaybackState: null,
   lastPlaybackStateAt: null,
   lastTimelineSyncAt: 0,
@@ -85,6 +90,75 @@ const logInfo = (message: string, payload?: unknown): void => {
 };
 
 const safeNumber = (value: number): number => (Number.isFinite(value) && value > 0 ? value : 0);
+
+const cleanSmtcText = (value: string | null | undefined): string | null => {
+  const text = value?.replace(/\s+/gu, ' ').trim();
+  return text ? text.slice(0, 160) : null;
+};
+
+const lyricsProgressKey = (progress: SmtcLyricsProgress | null): string | null => {
+  if (!progress?.lineText) {
+    return null;
+  }
+
+  return [
+    progress.trackId ?? '',
+    progress.lineIndex ?? '',
+    progress.lineCount ?? '',
+    progress.lineStartMs ?? '',
+    cleanSmtcText(progress.lineText) ?? '',
+  ].join('|');
+};
+
+const normalizeSmtcLyricsProgress = (value: SmtcLyricsProgress | null): SmtcLyricsProgress | null => {
+  if (!value) {
+    return null;
+  }
+
+  const lineText = cleanSmtcText(value.lineText);
+  if (!lineText) {
+    return null;
+  }
+
+  const numberOrNull = (numberValue: number | null): number | null =>
+    typeof numberValue === 'number' && Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
+  const lineIndex = numberOrNull(value.lineIndex);
+  const lineCount = numberOrNull(value.lineCount);
+
+  return {
+    trackId: cleanSmtcText(value.trackId),
+    lineText,
+    lineIndex,
+    lineCount,
+    lineStartMs: numberOrNull(value.lineStartMs),
+    positionSeconds: numberOrNull(value.positionSeconds),
+    durationSeconds: numberOrNull(value.durationSeconds),
+  };
+};
+
+const shouldApplyLyricsProgress = (progress: SmtcLyricsProgress | null, status: AudioStatus): boolean =>
+  Boolean(
+    progress?.lineText &&
+      (!progress.trackId || !status.currentTrackId || progress.trackId === status.currentTrackId),
+  );
+
+const appendLyricsProgressToArtist = (artist: string, progress: SmtcLyricsProgress | null, status: AudioStatus): string => {
+  if (!shouldApplyLyricsProgress(progress, status)) {
+    return artist;
+  }
+
+  const lineText = cleanSmtcText(progress?.lineText);
+  if (!lineText) {
+    return artist;
+  }
+
+  const lineNumber =
+    typeof progress?.lineIndex === 'number' && typeof progress.lineCount === 'number' && progress.lineCount > 0
+      ? `${Math.min(progress.lineIndex + 1, progress.lineCount)}/${progress.lineCount}`
+      : null;
+  const suffix = lineNumber ? `Lyrics ${lineNumber}: ${lineText}` : `Lyrics: ${lineText}`;
+  return `${artist} · ${suffix}`;
+};
 
 const resolveCoverPath = (coverId: string | null): string | null => {
   if (!coverId) {
@@ -144,12 +218,13 @@ export const createSmtcMetadataFromStatus = (status: AudioStatus): SmtcTrackMeta
 
   const fileTitle = status.currentFilePath ? basename(status.currentFilePath) : 'ECHO Next';
   const title = track?.title?.trim() || status.currentTrackTitle?.trim() || fileTitle;
-  const artist =
+  const baseArtist =
     track?.artist?.trim() ||
     track?.albumArtist?.trim() ||
     status.currentTrackArtist?.trim() ||
     status.currentTrackAlbumArtist?.trim() ||
     (status.currentFilePath ? 'Local file' : 'ECHO Next');
+  const artist = appendLyricsProgressToArtist(baseArtist, state.lyricsProgress, status);
   const album = track?.album?.trim() || status.currentTrackAlbum?.trim() || null;
   const albumArtist = track?.albumArtist?.trim() || status.currentTrackAlbumArtist?.trim() || null;
 
@@ -269,6 +344,8 @@ export const disposeSmtcIntegration = async (): Promise<void> => {
   state.lastMetadataTrackId = null;
   state.lastMetadataTitle = null;
   state.lastMetadataArtist = null;
+  state.lastLyricsProgressKey = null;
+  state.lyricsProgress = null;
   state.lastPlaybackState = null;
   state.lastPlaybackStateAt = null;
   state.lastTimelineSyncAt = 0;
@@ -280,6 +357,19 @@ export const disposeSmtcIntegration = async (): Promise<void> => {
   state.lastCommandAt = null;
   state.lastError = null;
   state.recentErrors = [];
+};
+
+export const syncSmtcLyricsProgress = async (progress: SmtcLyricsProgress | null): Promise<void> => {
+  const normalized = normalizeSmtcLyricsProgress(progress);
+  const nextKey = lyricsProgressKey(normalized);
+  if (nextKey === state.lastLyricsProgressKey) {
+    return;
+  }
+
+  state.lastLyricsProgressKey = nextKey;
+  state.lyricsProgress = normalized;
+  state.lastMetadataKey = null;
+  await syncSmtcStatus();
 };
 
 const reserveSmtcRecoveryAttempt = (now = Date.now()): boolean => {

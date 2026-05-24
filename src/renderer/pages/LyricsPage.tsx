@@ -31,7 +31,7 @@ import { streamingProviderNames } from "../../shared/types/streaming";
 import type { PlaybackStatus } from "../../shared/types/playback";
 import { decodeTextFileBytes } from "../../shared/utils/decodeTextFile";
 import { shouldShowRomanizationForLyrics } from "../../shared/utils/lyricsLanguage";
-import { LyricsView, getActiveLyricIndex } from "../components/lyrics/LyricsView";
+import { LyricsView, getActiveLyricIndex, getEstimatedPlainLyricIndex } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import {
   suggestLyricsSmartAlignment,
@@ -1074,6 +1074,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [, setIsCustomLyricsApplying] = useState(false);
   const [isCustomLyricsDragging, setIsCustomLyricsDragging] = useState(false);
   const lyricsRequestRef = useRef(0);
+  const smtcLyricsProgressKeyRef = useRef<string | null>(null);
   const albumNavigationTimeoutRef = useRef<number | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
   const setLyricsViewMode = useCallback((mode: LyricsViewMode): void => {
@@ -1604,6 +1605,65 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     baseMvAudioClock,
   ]);
   const lyricsPositionSeconds = seekPreviewSeconds ?? mvAudioClock.positionSeconds;
+  const smtcLyricsProgress = useMemo(() => {
+    if (!lyricsDisplaySettings.lyricsEnabled || effectiveDisplayedLyrics.lines.length === 0) {
+      return null;
+    }
+
+    const positionMs =
+      lyricsPositionSeconds * 1000 +
+      (lyricsDisplaySettings.lyricsTimelineCorrectionEnabled !== false ? lyricsDisplaySettings.lyricsGlobalSyncOffsetMs : 0);
+    const lineIndex =
+      effectiveDisplayedLyrics.kind === "synced"
+        ? getActiveLyricIndex(effectiveDisplayedLyrics.lines, positionMs, effectiveDisplayedLyrics.offsetMs)
+        : effectiveDisplayedLyrics.kind === "plain"
+          ? getEstimatedPlainLyricIndex(effectiveDisplayedLyrics.lines, positionMs, displayDurationSeconds * 1000)
+          : -1;
+    const line = lineIndex >= 0 ? effectiveDisplayedLyrics.lines[lineIndex] : null;
+    const lineText = line?.text?.replace(/\s+/gu, " ").trim() ?? "";
+    if (!lineText) {
+      return null;
+    }
+
+    return {
+      trackId: trackId ?? null,
+      lineText,
+      lineIndex,
+      lineCount: effectiveDisplayedLyrics.lines.length,
+      lineStartMs: line?.timeMs ?? null,
+      positionSeconds: lyricsPositionSeconds,
+      durationSeconds: displayDurationSeconds,
+    };
+  }, [
+    displayDurationSeconds,
+    effectiveDisplayedLyrics,
+    lyricsDisplaySettings.lyricsEnabled,
+    lyricsDisplaySettings.lyricsGlobalSyncOffsetMs,
+    lyricsDisplaySettings.lyricsTimelineCorrectionEnabled,
+    lyricsPositionSeconds,
+    trackId,
+  ]);
+
+  useEffect(() => {
+    const nextKey = smtcLyricsProgress
+      ? `${smtcLyricsProgress.trackId ?? ""}|${smtcLyricsProgress.lineIndex ?? ""}|${smtcLyricsProgress.lineStartMs ?? ""}|${smtcLyricsProgress.lineText}`
+      : null;
+    if (nextKey === smtcLyricsProgressKeyRef.current) {
+      return;
+    }
+
+    smtcLyricsProgressKeyRef.current = nextKey;
+    void window.echo?.smtc?.setLyricsProgress?.(smtcLyricsProgress ?? null).catch(() => undefined);
+  }, [smtcLyricsProgress]);
+
+  useEffect(
+    () => () => {
+      smtcLyricsProgressKeyRef.current = null;
+      void window.echo?.smtc?.setLyricsProgress?.(null).catch(() => undefined);
+    },
+    [],
+  );
+
   const activeSearchProviders = useMemo<LyricsProviderId[]>(() => {
     const enabled = (lyricsDisplaySettings.lyricsEnabledProviders?.length
       ? lyricsDisplaySettings.lyricsEnabledProviders

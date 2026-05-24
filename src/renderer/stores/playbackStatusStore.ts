@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { AudioPlaybackState, AudioStatus } from '../../shared/types/audio';
+import { hqPlayerConnectDeviceId, type ConnectSessionStatus } from '../../shared/types/connect';
 import type { PlaybackStatus } from '../../shared/types/playback';
 
 type PlaybackVisualIntent = {
@@ -39,6 +40,8 @@ const listeners = new Set<() => void>();
 
 let pollTimer: number | null = null;
 let unsubscribeAudioStatus: (() => void) | undefined;
+let unsubscribeConnectStatus: (() => void) | undefined;
+let activeHqPlayerConnectStatus: ConnectSessionStatus | null = null;
 let refreshRequestId = 0;
 
 const getSnapshot = (): PlaybackStatusSnapshot => snapshot;
@@ -75,6 +78,55 @@ const getActionableAudioStatusError = (error: string | null | undefined): string
 
 const shouldIgnoreAudioStatusPatch = (audioStatus: AudioStatus): boolean =>
   audioStatus.state === 'error' && Boolean(audioStatus.error) && !getActionableAudioStatusError(audioStatus.error);
+
+const connectStateToPlaybackState = (status: ConnectSessionStatus): AudioPlaybackState => {
+  switch (status.state) {
+    case 'playing':
+      return 'playing';
+    case 'paused':
+      return 'paused';
+    case 'stopped':
+      return 'stopped';
+    case 'error':
+      return 'error';
+    case 'idle':
+      return 'idle';
+    default:
+      return 'loading';
+  }
+};
+
+const isHqPlayerConnectStatus = (status: ConnectSessionStatus | null | undefined): status is ConnectSessionStatus =>
+  status?.protocol === 'hqplayer' && status.deviceId === hqPlayerConnectDeviceId;
+
+const shouldTreatHqPlayerAsActivePlayback = (status: ConnectSessionStatus | null | undefined): boolean =>
+  isHqPlayerConnectStatus(status) && ['connecting', 'ready', 'playing', 'paused'].includes(status.state);
+
+const playbackStatusFromConnectStatus = (status: ConnectSessionStatus): PlaybackStatus => ({
+  state: connectStateToPlaybackState(status),
+  currentTrackId: status.currentTrackId,
+  positionMs: Math.round(Math.max(0, status.positionSeconds) * 1000),
+  durationMs: Math.round(Math.max(0, status.durationSeconds || status.metadata?.durationSeconds || 0) * 1000),
+  filePath: null,
+});
+
+const applyConnectStatus = (connectStatus: ConnectSessionStatus): PlaybackStatusSnapshot => {
+  activeHqPlayerConnectStatus = shouldTreatHqPlayerAsActivePlayback(connectStatus) ? connectStatus : null;
+
+  if (!isHqPlayerConnectStatus(connectStatus)) {
+    return snapshot;
+  }
+
+  if (!shouldTreatHqPlayerAsActivePlayback(connectStatus) && connectStatus.state !== 'stopped' && connectStatus.state !== 'error') {
+    return snapshot;
+  }
+
+  return setPlaybackStatusSnapshot({
+    audioStatus: null,
+    playbackStatus: playbackStatusFromConnectStatus(connectStatus),
+    error: connectStatus.error,
+  });
+};
 
 const shouldClearVisualIntentForPatch = (
   patch: Partial<Omit<PlaybackStatusSnapshot, 'version'>>,
@@ -186,13 +238,18 @@ export const refreshPlaybackStatus = async (): Promise<PlaybackStatusSnapshot> =
   refreshRequestId = requestId;
 
   try {
-    const [playbackStatus, audioStatus] = await Promise.all([
+    const [playbackStatus, audioStatus, connectStatus] = await Promise.all([
       echo.playback.getStatus(),
       echo.audio.getStatus(),
+      echo.connect?.getStatus?.().catch(() => null) ?? Promise.resolve(null),
     ]);
 
     if (refreshRequestId !== requestId) {
       return snapshot;
+    }
+
+    if (connectStatus && isHqPlayerConnectStatus(connectStatus)) {
+      return applyConnectStatus(connectStatus);
     }
 
     return setPlaybackStatusSnapshot({
@@ -256,11 +313,24 @@ const ensureStarted = (): void => {
   }
 
   unsubscribeAudioStatus = window.echo?.audio?.onStatus?.((audioStatus) => {
+    if (shouldTreatHqPlayerAsActivePlayback(activeHqPlayerConnectStatus)) {
+      return;
+    }
+
     refreshRequestId += 1;
     setPlaybackStatusSnapshot({
       audioStatus: shouldIgnoreAudioStatusPatch(audioStatus) ? null : audioStatus,
       error: getActionableAudioStatusError(audioStatus.error),
     });
+  });
+  unsubscribeConnectStatus = window.echo?.connect?.onStatus?.((connectStatus) => {
+    if (!isHqPlayerConnectStatus(connectStatus)) {
+      activeHqPlayerConnectStatus = null;
+      return;
+    }
+
+    refreshRequestId += 1;
+    applyConnectStatus(connectStatus);
   });
   document.addEventListener('visibilitychange', handleVisibilityChange);
   void refreshPlaybackStatus();
@@ -275,6 +345,9 @@ const stopIfUnused = (): void => {
   clearPolling();
   unsubscribeAudioStatus?.();
   unsubscribeAudioStatus = undefined;
+  unsubscribeConnectStatus?.();
+  unsubscribeConnectStatus = undefined;
+  activeHqPlayerConnectStatus = null;
   snapshot = {
     audioStatus: null,
     playbackStatus: null,

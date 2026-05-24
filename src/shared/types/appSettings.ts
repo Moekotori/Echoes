@@ -294,6 +294,7 @@ export type AppSettings = {
   mvAllow60fps: boolean;
   channelBalance: ChannelBalanceState;
   playerVolume: number;
+  fixedVolumeEnabled?: boolean;
   gaplessPlaybackEnabled?: boolean;
   replayGainEnabled?: boolean;
   replayGainMode?: ReplayGainMode;

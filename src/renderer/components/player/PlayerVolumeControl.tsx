@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WheelEvent } from 'react';
-import { Volume1, Volume2, VolumeX } from 'lucide-react';
+import { Lock, Volume1, Volume2, VolumeX } from 'lucide-react';
 import type { AudioStatus } from '../../../shared/types/audio';
 import { formatPercent } from './playerFormat';
 
@@ -11,6 +11,8 @@ type PlayerVolumeControlProps = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onCommitVolume?: (volume: number) => Promise<void>;
+  fixedVolumeEnabled?: boolean;
+  onFixedVolumeChange?: (enabled: boolean) => void;
 };
 
 const volumeFromStatus = (status: AudioStatus | null): number => {
@@ -33,6 +35,8 @@ export const PlayerVolumeControl = ({
   isOpen,
   onOpenChange,
   onCommitVolume,
+  fixedVolumeEnabled = false,
+  onFixedVolumeChange,
 }: PlayerVolumeControlProps): JSX.Element => {
   const [volume, setVolume] = useState(volumeFromStatus(status));
   const [shouldRenderPopover, setShouldRenderPopover] = useState(isOpen);
@@ -60,12 +64,17 @@ export const PlayerVolumeControl = ({
   }, [isOpen, shouldRenderPopover]);
 
   useEffect(() => {
+    if (fixedVolumeEnabled) {
+      setVolume(1);
+      return;
+    }
+
     if (isInteractingRef.current || pendingCommitRef.current !== null) {
       return;
     }
 
     setVolume(volumeFromStatus(status));
-  }, [status]);
+  }, [fixedVolumeEnabled, status]);
 
   useEffect(() => {
     const getSettings = window.echo?.app?.getSettings;
@@ -82,10 +91,12 @@ export const PlayerVolumeControl = ({
           return;
         }
 
-        const safeVolume = Math.max(0, Math.min(1, settings.playerVolume));
+        const fixedVolume = settings.fixedVolumeEnabled === true;
+        const safeVolume = fixedVolume ? 1 : Math.max(0, Math.min(1, settings.playerVolume));
         setVolume(safeVolume);
         const nextStatus = await audio.setOutput({ volume: safeVolume });
         if (!isCancelled) {
+          onFixedVolumeChange?.(fixedVolume);
           onStatusChange(nextStatus);
         }
       })
@@ -94,7 +105,7 @@ export const PlayerVolumeControl = ({
     return () => {
       isCancelled = true;
     };
-  }, [onStatusChange]);
+  }, [onFixedVolumeChange, onStatusChange]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -134,6 +145,11 @@ export const PlayerVolumeControl = ({
 
   const commitVolume = useCallback(
     async (nextVolume: number): Promise<void> => {
+      if (fixedVolumeEnabled) {
+        setVolume(1);
+        return;
+      }
+
       const audio = window.echo?.audio;
       const safeVolume = Math.max(0, Math.min(1, nextVolume));
       setVolume(safeVolume);
@@ -180,19 +196,52 @@ export const PlayerVolumeControl = ({
         onError(error instanceof Error ? error.message : String(error));
       }
     },
-    [onCommitVolume, onError, onStatusChange],
+    [fixedVolumeEnabled, onCommitVolume, onError, onStatusChange],
   );
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     event.preventDefault();
     onOpenChange(true);
+    if (fixedVolumeEnabled) {
+      return;
+    }
     const direction = event.deltaY > 0 ? -1 : 1;
     void commitVolume(volume + direction * 0.03);
   };
 
   const finishInteraction = (nextVolume: number): void => {
     isInteractingRef.current = false;
+    if (fixedVolumeEnabled) {
+      setVolume(1);
+      return;
+    }
     void commitVolume(nextVolume);
+  };
+
+  const toggleFixedVolume = async (): Promise<void> => {
+    const nextFixedVolumeEnabled = !fixedVolumeEnabled;
+    const setSettings = window.echo?.app?.setSettings;
+    const audio = window.echo?.audio;
+
+    onFixedVolumeChange?.(nextFixedVolumeEnabled);
+    if (nextFixedVolumeEnabled) {
+      setVolume(1);
+    }
+
+    try {
+      const nextSettings = await setSettings?.({
+        fixedVolumeEnabled: nextFixedVolumeEnabled,
+        ...(nextFixedVolumeEnabled ? { playerVolume: 1 } : {}),
+      });
+      window.dispatchEvent(new CustomEvent('settings:changed', { detail: nextSettings ?? { fixedVolumeEnabled: nextFixedVolumeEnabled } }));
+      if (nextFixedVolumeEnabled && audio) {
+        const nextStatus = await audio.setOutput({ volume: 1 });
+        onStatusChange(nextStatus);
+      }
+    } catch (error) {
+      onFixedVolumeChange?.(!nextFixedVolumeEnabled);
+      onError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
@@ -212,6 +261,7 @@ export const PlayerVolumeControl = ({
           <span>{formatPercent(volume)}</span>
           <input
             aria-label="Volume level"
+            disabled={fixedVolumeEnabled}
             max={1}
             min={0}
             onChange={(event) => setVolume(Number(event.currentTarget.value))}
@@ -234,6 +284,16 @@ export const PlayerVolumeControl = ({
             type="range"
             value={volume}
           />
+          <button
+            className={`volume-fixed-button ${fixedVolumeEnabled ? 'volume-fixed-button--active' : ''}`}
+            type="button"
+            aria-pressed={fixedVolumeEnabled}
+            aria-label={fixedVolumeEnabled ? '关闭固定音量' : '开启固定音量'}
+            title={fixedVolumeEnabled ? '固定音量已开启' : '固定音量'}
+            onClick={() => void toggleFixedVolume()}
+          >
+            <Lock size={14} />
+          </button>
         </div>
       ) : null}
     </div>

@@ -24,7 +24,7 @@ import { useI18n } from '../i18n/I18nProvider';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import { clearSongsFirstPageSnapshot } from '../stores/songsFirstPageSnapshot';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
-import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
+import { setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import { albumDetailNavigationEvent } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent } from '../utils/artistNavigation';
 
@@ -1513,9 +1513,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       <AudioSettingsDrawer
         isOpen={isAudioDrawerOpen}
         status={audioDrawerStatus}
-        automixEnabled={playbackQueue.automixEnabled}
+        hqPlayerTakeoverEnabled={playbackQueue.hqPlayerTakeoverEnabled}
+        hqPlayerTrack={playbackQueue.currentTrack ?? playbackQueue.lastPlayedTrack}
         onClose={() => setIsAudioDrawerOpen(false)}
-        onAutomixEnabledChange={playbackQueue.setAutomixEnabled}
+        onActivateHqPlayerTakeover={async () => {
+          const status = await playbackQueue.activateHqPlayerTakeover();
+          if (status) {
+            setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+          }
+        }}
+        onHqPlayerTakeoverEnabledChange={playbackQueue.setHqPlayerTakeoverEnabled}
         onStatusChange={setAudioDrawerStatus}
       />
       <LyricsSettingsDrawer isOpen={isLyricsDrawerOpen} onClose={() => setIsLyricsDrawerOpen(false)} />

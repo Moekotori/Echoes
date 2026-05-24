@@ -502,9 +502,29 @@ html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:ha
 }
 
 .lyrics-drawer-range[hidden],
+.lyrics-style-range-grid[hidden],
 .lyrics-color-panel[hidden],
 .lyrics-font-panel[hidden] {
   display: none;
+}
+
+.settings-lyrics-panel .lyrics-style-range-grid,
+.settings-lyrics-panel .lyrics-delay-range-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.settings-lyrics-panel .lyrics-style-range-grid .lyrics-drawer-range,
+.settings-lyrics-panel .lyrics-delay-range-grid .lyrics-drawer-range {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .settings-lyrics-panel .lyrics-style-range-grid,
+  .settings-lyrics-panel .lyrics-delay-range-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lyrics-color-panel,
@@ -644,6 +664,53 @@ html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:ha
 
 .lyrics-source-option svg {
   color: var(--theme-success-text);
+}
+
+.settings-lyrics-panel .lyrics-source-panel {
+  gap: 12px;
+  color: var(--theme-page-text);
+  border-color: rgba(120, 73, 92, 0.12);
+  background: rgba(255, 250, 252, 0.72);
+}
+
+.settings-lyrics-panel .lyrics-source-panel strong {
+  color: var(--echo-heading-text);
+}
+
+.settings-lyrics-panel .lyrics-source-panel p,
+.settings-lyrics-panel .lyrics-source-option small {
+  color: rgba(73, 54, 66, 0.72);
+}
+
+.settings-lyrics-panel .lyrics-source-grid {
+  gap: 6px;
+}
+
+.settings-lyrics-panel .lyrics-source-option {
+  min-height: 48px;
+  border-color: rgba(120, 73, 92, 0.1);
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.settings-lyrics-panel .lyrics-source-option[data-enabled="true"] {
+  border-color: rgba(190, 75, 121, 0.2);
+  background: rgba(255, 247, 251, 0.92);
+}
+
+.settings-lyrics-panel .lyrics-source-drag-handle {
+  color: rgba(73, 54, 66, 0.58);
+}
+
+.settings-lyrics-panel .lyrics-source-option input {
+  background: rgba(109, 126, 150, 0.22);
+}
+
+.settings-lyrics-panel .lyrics-source-option input::before {
+  background: #ffffff;
+}
+
+.settings-lyrics-panel .lyrics-source-option input:checked {
+  background: rgba(91, 151, 220, 0.72);
 }
 
 .lyrics-background-controls {
@@ -1032,6 +1099,23 @@ html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:ha
   font-size: 12px;
   font-style: normal;
   font-weight: 760;
+}
+
+.lyrics-font-picker-button {
+  width: fit-content;
+  max-width: min(320px, 100%);
+  min-height: 32px;
+  justify-content: flex-start;
+  padding: 7px 10px;
+}
+
+.lyrics-font-picker-button em {
+  display: none;
+}
+
+.lyrics-font-modal-backdrop {
+  background: rgba(255, 246, 250, 0.34);
+  backdrop-filter: none;
 }
 
 .lyrics-font-actions {

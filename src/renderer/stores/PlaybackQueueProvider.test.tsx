@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AudioStatus } from '../../shared/types/audio';
-import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
+import { hqPlayerConnectDeviceId, type ConnectSessionStatus } from '../../shared/types/connect';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { PersistedPlaybackSessionV1 } from '../../shared/types/playback';
 import { PlaybackQueueProvider, isPlaybackCancellationError, usePlaybackQueue } from './PlaybackQueueProvider';
@@ -139,6 +139,84 @@ describe('PlaybackQueueProvider playback history session', () => {
       filePath: track.path,
       positionSeconds: 0,
     })));
+    expect(playLocalFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps queue navigation on HQPlayer after takeover even when Connect status is idle', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const playLocalFile = vi.fn();
+    const connectTrack = vi.fn().mockImplementation(async (request: { track: LibraryTrack }) => ({
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      state: 'playing',
+      currentTrackId: request.track.id,
+      metadata: null,
+      positionSeconds: 0,
+      durationSeconds: request.track.duration,
+      latencyMs: 9,
+      error: null,
+      updatedAt: '2026-05-21T01:00:00.000Z',
+    }));
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+      },
+      connect: {
+        getStatus: vi.fn().mockResolvedValue({
+          deviceId: null,
+          protocol: null,
+          state: 'idle',
+          currentTrackId: null,
+          metadata: null,
+          positionSeconds: 0,
+          durationSeconds: 0,
+          latencyMs: null,
+          error: null,
+          updatedAt: '2026-05-21T01:00:00.000Z',
+        }),
+        connect: connectTrack,
+      },
+    } as unknown as Window['echo'];
+
+    const ActivateAndAdvance = (): JSX.Element => {
+      const { activateHqPlayerTakeover, playNext, replaceQueue } = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        replaceQueue([first, second], { startTrackId: first.id });
+        void (async () => {
+          await activateHqPlayerTakeover();
+          await playNext();
+        })();
+      }, [activateHqPlayerTakeover, playNext, replaceQueue]);
+
+      return <span hidden />;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <ActivateAndAdvance />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(connectTrack).toHaveBeenCalledTimes(2));
+    expect(connectTrack.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      deviceId: hqPlayerConnectDeviceId,
+      track: first,
+      filePath: first.path,
+    }));
+    expect(connectTrack.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      deviceId: hqPlayerConnectDeviceId,
+      track: second,
+      filePath: second.path,
+    }));
     expect(playLocalFile).not.toHaveBeenCalled();
   });
 
@@ -1203,6 +1281,105 @@ describe('PlaybackQueueProvider playback history session', () => {
     });
     expect(screen.getByLabelText('shared-error').textContent).toBe('native_writable_error: device failed');
     expect(screen.getByLabelText('shared-audio-state').textContent).toBe('error');
+  });
+
+  it('uses HQPlayer Connect status as the shared playback clock while ignoring stale local audio status', async () => {
+    const track = makeTrack(1);
+    let emitAudioStatus: ((status: AudioStatus) => void) | null = null;
+    let emitConnectStatus: ((status: ConnectSessionStatus) => void) | null = null;
+    const hqStatus: ConnectSessionStatus = {
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      state: 'playing',
+      currentTrackId: track.id,
+      metadata: {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        durationSeconds: track.duration,
+        coverHttpUrl: '',
+      },
+      positionSeconds: 12.345,
+      durationSeconds: track.duration,
+      latencyMs: 8,
+      error: null,
+      updatedAt: '2026-05-24T15:10:00.000Z',
+    };
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'paused',
+          currentTrackId: track.id,
+          positionMs: 0,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'paused',
+          currentTrackId: track.id,
+          currentFilePath: track.path,
+          positionSeconds: 0,
+          durationSeconds: track.duration,
+          error: null,
+        }),
+        onStatus: vi.fn((listener: (status: AudioStatus) => void) => {
+          emitAudioStatus = listener;
+          return () => undefined;
+        }),
+      },
+      connect: {
+        getStatus: vi.fn().mockResolvedValue(hqStatus),
+        onStatus: vi.fn((listener: (status: ConnectSessionStatus) => void) => {
+          emitConnectStatus = listener;
+          return () => undefined;
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const StatusProbe = (): JSX.Element => {
+      const status = useSharedPlaybackStatus();
+
+      return (
+        <div>
+          <output aria-label="shared-state">{status.playbackStatus?.state ?? ''}</output>
+          <output aria-label="shared-position">{status.playbackStatus?.positionMs ?? ''}</output>
+          <output aria-label="shared-audio-state">{status.audioStatus?.state ?? ''}</output>
+        </div>
+      );
+    };
+
+    render(<StatusProbe />);
+
+    await waitFor(() => expect(screen.getByLabelText('shared-state').textContent).toBe('playing'));
+    expect(screen.getByLabelText('shared-position').textContent).toBe('12345');
+    expect(screen.getByLabelText('shared-audio-state').textContent).toBe('');
+
+    if (!emitAudioStatus || !emitConnectStatus) {
+      throw new Error('status listeners were not captured');
+    }
+
+    act(() => {
+      emitAudioStatus?.({
+        state: 'paused',
+        currentTrackId: track.id,
+        currentFilePath: track.path,
+        positionSeconds: 0,
+        durationSeconds: track.duration,
+        error: null,
+      } as AudioStatus);
+    });
+    expect(screen.getByLabelText('shared-state').textContent).toBe('playing');
+    expect(screen.getByLabelText('shared-position').textContent).toBe('12345');
+    expect(screen.getByLabelText('shared-audio-state').textContent).toBe('');
+
+    act(() => {
+      emitConnectStatus?.({ ...hqStatus, positionSeconds: 14.25 });
+    });
+    await waitFor(() => expect(screen.getByLabelText('shared-position').textContent).toBe('14250'));
   });
 });
 

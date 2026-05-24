@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AudioSettingsDrawer } from './AudioSettingsDrawer';
@@ -178,6 +179,7 @@ const renderDrawer = (
   resetEngine = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
   forceRestart = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
   restartWindowsAudioService = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+  extraProps: Partial<ComponentProps<typeof AudioSettingsDrawer>> = {},
 ): void => {
   window.echo = {
     app: {
@@ -199,6 +201,32 @@ const renderDrawer = (
       forceRestart,
       restartWindowsAudioService,
     },
+    connect: {
+      getStatus: vi.fn().mockResolvedValue({
+        deviceId: null,
+        protocol: null,
+        state: 'idle',
+        currentTrackId: null,
+        metadata: null,
+        positionSeconds: 0,
+        durationSeconds: 0,
+        latencyMs: null,
+        error: null,
+        updatedAt: '2026-05-24T00:00:00.000Z',
+      }),
+      disconnect: vi.fn().mockResolvedValue({
+        deviceId: null,
+        protocol: null,
+        state: 'idle',
+        currentTrackId: null,
+        metadata: null,
+        positionSeconds: 0,
+        durationSeconds: 0,
+        latencyMs: null,
+        error: null,
+        updatedAt: '2026-05-24T00:00:00.000Z',
+      }),
+    },
   } as unknown as Window['echo'];
 
   render(
@@ -207,6 +235,7 @@ const renderDrawer = (
       status={status}
       onClose={vi.fn()}
       onStatusChange={vi.fn()}
+      {...extraProps}
     />,
   );
 };
@@ -297,6 +326,64 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       button.className.includes('audio-device-pill'),
     )).toBe(true);
     expect(screen.getByText('Most stable for headphones, Bluetooth, and computer speakers')).toBeTruthy();
+  });
+
+  it('lets users leave HQPlayer takeover before choosing local output devices', async () => {
+    const setOutput = vi.fn().mockResolvedValue({
+      ...baseStatus,
+      outputMode: 'asio',
+      outputDeviceName: asioDevice.name,
+    });
+    const onHqPlayerTakeoverEnabledChange = vi.fn();
+
+    renderDrawer(baseStatus, setOutput, undefined, undefined, undefined, {
+      hqPlayerTakeoverEnabled: true,
+      onHqPlayerTakeoverEnabledChange,
+    });
+    vi.mocked(window.echo!.connect!.getStatus).mockResolvedValue({
+      deviceId: 'hqplayer:local-desktop',
+      protocol: 'hqplayer',
+      state: 'playing',
+      currentTrackId: 'track-1',
+      metadata: null,
+      positionSeconds: 1,
+      durationSeconds: 10,
+      latencyMs: null,
+      error: null,
+      updatedAt: '2026-05-24T00:00:00.000Z',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /取消 HQPlayer 接管/ }));
+    await waitFor(() => expect(window.echo?.connect?.disconnect).toHaveBeenCalled());
+    expect(onHqPlayerTakeoverEnabledChange).toHaveBeenCalledWith(false);
+    expect(setOutput).not.toHaveBeenCalled();
+
+    cleanup();
+    onHqPlayerTakeoverEnabledChange.mockClear();
+
+    renderDrawer(baseStatus, setOutput, undefined, undefined, undefined, {
+      hqPlayerTakeoverEnabled: true,
+      onHqPlayerTakeoverEnabledChange,
+    });
+    vi.mocked(window.echo!.connect!.getStatus).mockResolvedValue({
+      deviceId: 'hqplayer:local-desktop',
+      protocol: 'hqplayer',
+      state: 'playing',
+      currentTrackId: 'track-1',
+      metadata: null,
+      positionSeconds: 1,
+      durationSeconds: 10,
+      latencyMs: null,
+      error: null,
+      updatedAt: '2026-05-24T00:00:00.000Z',
+    });
+
+    const asioButton = await screen.findByRole('button', { name: /TEAC ASIO/ });
+    fireEvent.click(asioButton);
+
+    await waitFor(() => expect(window.echo?.connect?.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith(expect.objectContaining({ outputMode: 'asio' })));
+    expect(onHqPlayerTakeoverEnabledChange).toHaveBeenCalledWith(false);
   });
 
   it('keeps advanced output collapsed by default and remembers when opened', () => {

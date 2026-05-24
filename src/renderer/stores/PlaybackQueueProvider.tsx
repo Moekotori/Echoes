@@ -97,6 +97,24 @@ type PlaybackModeMemory = {
   repeatMode: RepeatMode;
 };
 
+const hqPlayerTakeoverStorageKey = 'echo-next.hqplayer-takeover-enabled';
+
+const readHqPlayerTakeoverEnabled = (): boolean => {
+  try {
+    return window.localStorage.getItem(hqPlayerTakeoverStorageKey) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const writeHqPlayerTakeoverEnabled = (enabled: boolean): void => {
+  try {
+    window.localStorage.setItem(hqPlayerTakeoverStorageKey, enabled ? 'true' : 'false');
+  } catch {
+    // UI routing preference only.
+  }
+};
+
 type PlaybackQueueMemory = {
   version: 1;
   items: QueueItem[];
@@ -122,6 +140,7 @@ type PlayTrackOptions = {
   replaceQueueWith?: LibraryTrack[];
   forceNewQueueItem?: boolean;
   routeToConnectOutput?: boolean;
+  forceHqPlayerConnect?: boolean;
   startSeconds?: number;
   forceRefresh?: boolean;
 };
@@ -132,6 +151,7 @@ type PlayNextOptions = {
 
 type PlayLocalTrackOptions = {
   routeToConnectOutput?: boolean;
+  forceHqPlayerConnect?: boolean;
   startSeconds?: number;
   forceRefresh?: boolean;
 };
@@ -148,6 +168,7 @@ type PlaybackQueueContextValue = {
   isShuffleEnabled: boolean;
   repeatMode: RepeatMode;
   automixEnabled: boolean;
+  hqPlayerTakeoverEnabled: boolean;
   gaplessPlaybackEnabled: boolean;
   canGoPrevious: boolean;
   canGoNext: boolean;
@@ -164,6 +185,8 @@ type PlaybackQueueContextValue = {
   openTemporaryLocalFiles: (paths: string[]) => Promise<LocalFileResolveResult>;
   playPrevious: () => Promise<PlaybackStatus | null>;
   playNext: (options?: PlayNextOptions) => Promise<PlaybackStatus | null>;
+  activateHqPlayerTakeover: () => Promise<PlaybackStatus | null>;
+  setHqPlayerTakeoverEnabled: (enabled: boolean) => void;
   setAutomixEnabled: (enabled: boolean) => void;
   setCurrentTrackId: (trackId: string | null) => void;
   updateCurrentTrackSnapshot: (
@@ -831,6 +854,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const [isShuffleEnabled, setIsShuffleEnabled] = useState(initialSession.mode.isShuffleEnabled);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(initialSession.mode.repeatMode);
   const [automixEnabled, setAutomixEnabledState] = useState(initialSession.automixEnabled);
+  const [hqPlayerTakeoverEnabled, setHqPlayerTakeoverEnabledState] = useState(readHqPlayerTakeoverEnabled);
   const [gaplessPlaybackEnabled, setGaplessPlaybackEnabledState] = useState(false);
 
   const itemsRef = useRef(items);
@@ -841,6 +865,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const resumeMemoryRef = useRef(resumeMemory);
   const repeatModeRef = useRef(repeatMode);
   const automixEnabledRef = useRef(automixEnabled);
+  const hqPlayerTakeoverEnabledRef = useRef(hqPlayerTakeoverEnabled);
   const gaplessPlaybackEnabledRef = useRef(gaplessPlaybackEnabled);
   const isShuffleEnabledRef = useRef(isShuffleEnabled);
   const playbackHistorySessionRef = useRef<PlaybackHistorySession | null>(null);
@@ -883,6 +908,12 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const setResumeMemory = useCallback((resume: PersistedPlaybackSessionResume | null): void => {
     resumeMemoryRef.current = resume;
     setResumeMemoryState(resume);
+  }, []);
+
+  const setHqPlayerTakeoverEnabled = useCallback((enabled: boolean): void => {
+    hqPlayerTakeoverEnabledRef.current = enabled;
+    setHqPlayerTakeoverEnabledState(enabled);
+    writeHqPlayerTakeoverEnabled(enabled);
   }, []);
 
   const setRepeatModeInternal = useCallback((mode: RepeatMode): void => {
@@ -1559,7 +1590,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     return status?.protocol === 'hqplayer' && status.deviceId === hqPlayerConnectDeviceId;
   }, []);
 
-  const playConnectOutputTrack = useCallback(async (item: QueueItem, requestToken: number, startSeconds = 0): Promise<PlaybackStatus | null> => {
+  const playConnectOutputTrack = useCallback(async (item: QueueItem, requestToken: number, startSeconds = 0, forceHqPlayerConnect = false): Promise<PlaybackStatus | null> => {
     const connect = window.echo?.connect;
     if (!connect?.getStatus || !connect.connect) {
       return null;
@@ -1570,12 +1601,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       throw new Error(playbackCancellationErrorMessage);
     }
 
-    if (status?.protocol !== 'hqplayer' || status.deviceId !== hqPlayerConnectDeviceId) {
+    const deviceId =
+      forceHqPlayerConnect || (status?.protocol === 'hqplayer' && status.deviceId === hqPlayerConnectDeviceId)
+        ? hqPlayerConnectDeviceId
+        : null;
+
+    if (!deviceId) {
       return null;
     }
 
     const nextStatus = await connect.connect({
-      deviceId: status.deviceId,
+      deviceId,
       track: item.track,
       filePath: item.track.path,
       positionSeconds: startSeconds,
@@ -1615,11 +1651,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           await pauseSpotifyPlayback(previousItem.track).catch(() => undefined);
         }
 
-        const connectOutputStatus = options.routeToConnectOutput === true
-          ? await playConnectOutputTrack(item, requestToken, resumeStartSeconds ?? 0)
+        const shouldForceHqPlayerConnect = options.forceHqPlayerConnect === true || hqPlayerTakeoverEnabledRef.current;
+        const shouldRouteToConnectOutput =
+          options.routeToConnectOutput === true || (options.routeToConnectOutput !== false && shouldForceHqPlayerConnect);
+        const connectOutputStatus = shouldRouteToConnectOutput
+          ? await playConnectOutputTrack(item, requestToken, resumeStartSeconds ?? 0, shouldForceHqPlayerConnect)
           : null;
         if (connectOutputStatus) {
           return connectOutputStatus;
+        }
+        if (shouldForceHqPlayerConnect) {
+          throw new Error('HQPlayer 接管不可用：没有可用的 HQPlayer Connect 通道。');
         }
 
         const output = await resolvePlaybackSpeedOutput();
@@ -2011,6 +2053,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         const itemToPlay = nextItems.find((item) => item.track.id === track.id) ?? nextItems[0] ?? createQueueItem(track, source);
         const status = await playLocalTrack(itemToPlay, {
           routeToConnectOutput: options.routeToConnectOutput !== false,
+          forceHqPlayerConnect: options.forceHqPlayerConnect,
           startSeconds: options.startSeconds,
           forceRefresh: options.forceRefresh,
         });
@@ -2028,6 +2071,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           : existingItem ?? createQueueItem(track, source);
       const status = await playLocalTrack(itemToPlay, {
         routeToConnectOutput: options.routeToConnectOutput !== false,
+        forceHqPlayerConnect: options.forceHqPlayerConnect,
         startSeconds: options.startSeconds,
         forceRefresh: options.forceRefresh,
       });
@@ -2110,7 +2154,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     const activeCurrentQueueId = currentQueueIdRef.current;
     const currentIndex = findCurrentIndex(current, activeCurrentQueueId, currentTrackIdRef.current);
     const activeItem = currentIndex >= 0 ? current[currentIndex] : findItemByQueueId(current, activeCurrentQueueId);
-    const routeToConnectOutput = options.autoAdvance !== true || (await isHqPlayerConnectOutputActive());
+    const routeToConnectOutput =
+      options.autoAdvance !== true ||
+      hqPlayerTakeoverEnabledRef.current ||
+      (await isHqPlayerConnectOutputActive());
 
     const repeatCurrentItem = async (): Promise<PlaybackStatus | null> => {
       if (activeItem) {
@@ -2185,6 +2232,30 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     commitPlayedItem(target, status);
     return status;
   }, [commitPlayedItem, fetchLibraryRandomQueueRefresh, fetchLibraryShuffleTarget, isHqPlayerConnectOutputActive, playLocalTrack, playTrack, setHistory, setItems]);
+
+  const activateHqPlayerTakeover = useCallback(async (): Promise<PlaybackStatus | null> => {
+    const activeItem =
+      findItemByQueueId(itemsRef.current, currentQueueIdRef.current) ??
+      (currentTrackIdRef.current
+        ? itemsRef.current.find((item) => item.track.id === currentTrackIdRef.current) ?? null
+        : null);
+
+    if (activeItem) {
+      const status = await playLocalTrack(activeItem, { routeToConnectOutput: true, forceHqPlayerConnect: true });
+      commitPlayedItem(activeItem, status, { recordHistory: false });
+      setHqPlayerTakeoverEnabled(true);
+      return status;
+    }
+
+    const fallbackTrack = lastPlayedTrackRef.current;
+    if (!fallbackTrack) {
+      throw new Error('没有可交给 HQPlayer 的当前歌曲。');
+    }
+
+    const status = await playTrack(fallbackTrack, { routeToConnectOutput: true, forceHqPlayerConnect: true });
+    setHqPlayerTakeoverEnabled(true);
+    return status;
+  }, [commitPlayedItem, playLocalTrack, playTrack, setHqPlayerTakeoverEnabled]);
 
   const setCurrentTrackId = useCallback(
     (trackId: string | null): void => {
@@ -2337,6 +2408,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       isShuffleEnabled,
       repeatMode,
       automixEnabled,
+      hqPlayerTakeoverEnabled,
       gaplessPlaybackEnabled,
       canGoPrevious,
       canGoNext,
@@ -2353,6 +2425,8 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       openTemporaryLocalFiles,
       playPrevious,
       playNext,
+      activateHqPlayerTakeover,
+      setHqPlayerTakeoverEnabled,
       setAutomixEnabled,
       setCurrentTrackId,
       updateCurrentTrackSnapshot,
@@ -2372,7 +2446,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       currentTrack,
       currentTrackId,
       history,
+      activateHqPlayerTakeover,
       automixEnabled,
+      hqPlayerTakeoverEnabled,
       gaplessPlaybackEnabled,
       isShuffleEnabled,
       items,
@@ -2382,6 +2458,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       playPrevious,
       playQueueItem,
       playTrack,
+      setHqPlayerTakeoverEnabled,
       openTemporaryLocalFiles,
       playTrackNext,
       removeQueueItem,

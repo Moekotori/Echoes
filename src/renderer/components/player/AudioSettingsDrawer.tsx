@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   AudioLines,
-  Blend,
+  Cable,
   Check,
   ChevronDown,
   Clipboard,
@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus } from '../../../shared/types/audio';
+import { hqPlayerConnectDeviceId } from '../../../shared/types/connect';
+import type { LibraryTrack } from '../../../shared/types/library';
 import {
   detectRendererPlatform,
   isAdvancedNativeOutputPlatform,
@@ -40,9 +42,11 @@ import { formatAudioDiagnostics } from './audioDiagnosticsFormat';
 type AudioSettingsDrawerProps = {
   isOpen: boolean;
   status: AudioStatus | null;
-  automixEnabled?: boolean;
+  hqPlayerTakeoverEnabled?: boolean;
+  hqPlayerTrack?: LibraryTrack | null;
   onClose: () => void;
-  onAutomixEnabledChange?: (enabled: boolean) => void;
+  onActivateHqPlayerTakeover?: () => Promise<void> | void;
+  onHqPlayerTakeoverEnabledChange?: (enabled: boolean) => void;
   onStatusChange: (status: AudioStatus) => void;
 };
 
@@ -255,6 +259,25 @@ const formatCodecLine = (status: AudioStatus | null, copy: AudioDrawerCopy): str
   const codec = status?.codec?.toUpperCase() ?? copy.noTrack;
 
   return [codec, bitrate].filter(Boolean).join(' / ');
+};
+
+const formatHqPlayerTrackLine = (track: LibraryTrack | null, fallback: string): string => {
+  if (!track) {
+    return fallback;
+  }
+
+  const bitrate = formatBitrate(track.bitrate);
+  const codec = track.codec?.toUpperCase() ?? null;
+  const quality = [codec, bitrate].filter(Boolean).join(' / ');
+  return quality || track.title || fallback;
+};
+
+const formatHqPlayerTrackTitle = (track: LibraryTrack | null): string => {
+  if (!track) {
+    return '等待 HQPlayer 曲目';
+  }
+
+  return [track.title, track.artist].filter(Boolean).join(' - ') || track.id;
 };
 
 const isHiResAudio = (status: AudioStatus | null): boolean =>
@@ -688,9 +711,11 @@ const getCurrentBackend = (status: AudioStatus | null, copy: AudioDrawerCopy): s
 export const AudioSettingsDrawer = ({
   isOpen,
   status,
-  automixEnabled = false,
+  hqPlayerTakeoverEnabled = false,
+  hqPlayerTrack = null,
   onClose,
-  onAutomixEnabledChange = () => undefined,
+  onActivateHqPlayerTakeover,
+  onHqPlayerTakeoverEnabledChange = () => undefined,
   onStatusChange,
 }: AudioSettingsDrawerProps): JSX.Element | null => {
   const { t } = useI18n();
@@ -746,6 +771,7 @@ export const AudioSettingsDrawer = ({
   const [isMotionOpen, setIsMotionOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [hqPlayerTakeoverBusy, setHqPlayerTakeoverBusy] = useState(false);
   const [useJuceOutput, setUseJuceOutput] = useState(status?.useJuceOutputRequested === true);
   const [useJuceDecode, setUseJuceDecode] = useState(status?.useJuceDecodeRequested === true);
   const [useDsdDop, setUseDsdDop] = useState(status?.dsdOutputModeRequested === 'dop');
@@ -753,6 +779,7 @@ export const AudioSettingsDrawer = ({
   const [asioUnavailableFallbackEnabled, setAsioUnavailableFallbackEnabled] = useState(false);
   const [soxrFallbackEnabled, setSoxrFallbackEnabled] = useState(true);
   const [releaseExclusiveOnPauseExperimentalEnabled, setReleaseExclusiveOnPauseExperimentalEnabled] = useState(false);
+  const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
   const [hiddenDeviceMenu, setHiddenDeviceMenu] = useState<HiddenDeviceMenu>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
@@ -784,7 +811,7 @@ export const AudioSettingsDrawer = ({
   const windowsAudioServiceRestartAvailable = rendererPlatform === 'win32';
   const systemAudioPlatformLabel = useMemo(() => getSystemAudioPlatformLabel(rendererPlatform), [rendererPlatform]);
   const wasapiExclusive = outputMode === 'exclusive';
-  const systemAudioActive = outputMode === 'system' || status?.outputMode === 'system';
+  const systemAudioActive = !hqPlayerTakeoverEnabled && (outputMode === 'system' || status?.outputMode === 'system');
   const lockWasapiExclusive = !advancedNativeOutputAvailable || outputMode === 'asio' || outputMode === 'system';
   const statusDevice = useMemo(() => {
     if (!status) {
@@ -804,6 +831,10 @@ export const AudioSettingsDrawer = ({
 
   const engineBadges = useMemo(() => {
     const badges: Array<{ label: string; tone: 'ready' | 'warning' | 'neutral' | 'gold' }> = [];
+    if (hqPlayerTakeoverEnabled) {
+      badges.push({ label: 'HQPlayer', tone: 'ready' });
+    }
+
     const hasEq = status?.dspActive || status?.eqEnabled || status?.warnings.some((warning) => /eq|equalizer/i.test(warning));
 
     if (hasEq) {
@@ -863,40 +894,69 @@ export const AudioSettingsDrawer = ({
     }
 
     return badges;
-  }, [copy, effectiveSharedSampleRate, status]);
+  }, [copy, effectiveSharedSampleRate, hqPlayerTakeoverEnabled, status]);
 
   const engineSignalDetails = useMemo(
-    () => [
-      { label: t('audioDrawer.meter.source'), value: formatSourceQuality(status, copy) },
-      { label: t('audioDrawer.meter.chain'), value: getPlaybackChainText(status, copy) },
-      { label: 'EQ', value: getEqSignalText(status, copy) },
-      { label: status?.activeDsdOutputMode === 'dop' ? 'DoP' : t('audioDrawer.meter.resample'), value: getResampleSignalText(status, effectiveSharedSampleRate, copy) },
-      { label: t('audioDrawer.meter.direct'), value: getDirectSignalText(status, effectiveSharedSampleRate, copy) },
-      { label: t('audioDrawer.meter.latency'), value: getNativeLatencyText(status, t('settings.playback.stability.value.unknown')) },
-      { label: t('settings.playback.stability.field.sharedStabilityTier'), value: getSharedStabilityText(status, t('settings.playback.stability.value.unknown')) },
-    ],
-    [copy, effectiveSharedSampleRate, status, t],
+    () => hqPlayerTakeoverEnabled
+      ? [
+          { label: t('audioDrawer.meter.source'), value: formatHqPlayerTrackTitle(hqPlayerTrack) },
+          { label: t('audioDrawer.meter.chain'), value: 'ECHO Connect -> HQPlayer' },
+          { label: 'EQ', value: '由 HQPlayer 处理' },
+          { label: t('audioDrawer.meter.resample'), value: '由 HQPlayer 决定' },
+          { label: t('audioDrawer.meter.direct'), value: '外部渲染器' },
+          { label: t('audioDrawer.meter.latency'), value: 'HQPlayer buffer' },
+          { label: t('settings.playback.stability.field.sharedStabilityTier'), value: 'ECHO 本机输出已释放' },
+        ]
+      : [
+          { label: t('audioDrawer.meter.source'), value: formatSourceQuality(status, copy) },
+          { label: t('audioDrawer.meter.chain'), value: getPlaybackChainText(status, copy) },
+          { label: 'EQ', value: getEqSignalText(status, copy) },
+          { label: status?.activeDsdOutputMode === 'dop' ? 'DoP' : t('audioDrawer.meter.resample'), value: getResampleSignalText(status, effectiveSharedSampleRate, copy) },
+          { label: t('audioDrawer.meter.direct'), value: getDirectSignalText(status, effectiveSharedSampleRate, copy) },
+          { label: t('audioDrawer.meter.latency'), value: getNativeLatencyText(status, t('settings.playback.stability.value.unknown')) },
+          { label: t('settings.playback.stability.field.sharedStabilityTier'), value: getSharedStabilityText(status, t('settings.playback.stability.value.unknown')) },
+        ],
+    [copy, effectiveSharedSampleRate, hqPlayerTakeoverEnabled, hqPlayerTrack, status, t],
   );
-  const engineRatePath = useMemo(() => formatRatePath(status, effectiveSharedSampleRate, copy), [copy, effectiveSharedSampleRate, status]);
+  const engineRatePath = useMemo(
+    () => hqPlayerTakeoverEnabled
+      ? [formatRate(hqPlayerTrack?.sampleRate), 'HQPlayer'].filter(Boolean).join(' -> ') || '由 HQPlayer 决定'
+      : formatRatePath(status, effectiveSharedSampleRate, copy),
+    [copy, effectiveSharedSampleRate, hqPlayerTakeoverEnabled, hqPlayerTrack?.sampleRate, status],
+  );
   const currentOutputName = useMemo(
-    () => getCurrentOutputName(status, statusDevice?.name ?? defaultSharedDevice?.name, copy),
-    [copy, defaultSharedDevice?.name, status, statusDevice?.name],
+    () => hqPlayerTakeoverEnabled ? 'HQPlayer' : getCurrentOutputName(status, statusDevice?.name ?? defaultSharedDevice?.name, copy),
+    [copy, defaultSharedDevice?.name, hqPlayerTakeoverEnabled, status, statusDevice?.name],
   );
 
   const currentOutput = useMemo(() => {
     const currentMode = status?.outputMode ?? outputMode;
     const name = currentOutputName;
 
+    if (hqPlayerTakeoverEnabled) {
+      return {
+        name,
+        mode: currentMode,
+        modeLabel: '外部渲染器',
+        backend: 'HQPlayer Connect',
+        sampleRate: formatRate(hqPlayerTrack?.sampleRate),
+        bitPerfect: '由 HQPlayer 负责输出',
+        highlight: true,
+        Icon: Cable,
+      };
+    }
+
     return {
       name,
       mode: currentMode,
+      modeLabel: formatMode(currentMode, copy),
       backend: getCurrentBackend(status, copy),
       sampleRate: formatRate(getOutputSampleRate(status, effectiveSharedSampleRate)),
       bitPerfect: status?.bitPerfectCandidate ? copy.bitPerfectReady : status?.bitPerfectDisabledReason ?? copy.standardPath,
       highlight: shouldHighlightCurrentOutput(currentMode, status?.outputBackend),
       Icon: getDeviceIcon(name, currentMode),
     };
-  }, [copy, currentOutputName, effectiveSharedSampleRate, outputMode, status]);
+  }, [copy, currentOutputName, effectiveSharedSampleRate, hqPlayerTakeoverEnabled, hqPlayerTrack?.sampleRate, outputMode, status]);
   const currentLatencyProfile = status?.latencyProfile ?? readRememberedAudioOutput().latencyProfile ?? 'lowLatency';
   const supportedLatencyProfile = resolveSupportedLatencyProfile(outputMode, currentLatencyProfile);
   const currentAsioBufferFrames =
@@ -999,6 +1059,7 @@ export const AudioSettingsDrawer = ({
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);
         setSoxrFallbackEnabled(settings.audioSoxrFallbackEnabled !== false);
         setReleaseExclusiveOnPauseExperimentalEnabled(settings.audioReleaseExclusiveOnPauseExperimentalEnabled === true);
+        setFixedVolumeEnabled(settings.fixedVolumeEnabled === true);
       })
       .catch(() => undefined);
     void loadPersistedHiddenDeviceKeys().then(setHiddenDeviceKeys).catch(() => setHiddenDeviceKeys(readHiddenDeviceKeys()));
@@ -1097,6 +1158,7 @@ export const AudioSettingsDrawer = ({
   const applyOutput = useCallback(
     async (settings: AudioOutputSettings): Promise<void> => {
       const audio = window.echo?.audio;
+      const shouldLeaveHqPlayerTakeover = hqPlayerTakeoverEnabled && settings.outputMode !== undefined;
 
       if (!audio) {
         setError(copy.desktopBridgeUnavailable);
@@ -1107,6 +1169,14 @@ export const AudioSettingsDrawer = ({
       setError(null);
       const previousMode = outputMode;
       try {
+        if (shouldLeaveHqPlayerTakeover) {
+          const connect = window.echo?.connect;
+          const connectStatus = await connect?.getStatus?.().catch(() => null);
+          if (connectStatus?.protocol === 'hqplayer' && connectStatus.deviceId === hqPlayerConnectDeviceId && connect?.disconnect) {
+            await withTimeout(connect.disconnect(), 3_500, 'HQPlayer stop timed out').catch(() => undefined);
+          }
+        }
+
         const settingsWithFallback: AudioOutputSettings = { ...settings };
         if (settings.asioUnavailableFallbackEnabled !== undefined) {
           settingsWithFallback.asioUnavailableFallbackEnabled = settings.asioUnavailableFallbackEnabled;
@@ -1140,6 +1210,9 @@ export const AudioSettingsDrawer = ({
           ),
         );
         onStatusChange(nextStatus);
+        if (shouldLeaveHqPlayerTakeover) {
+          onHqPlayerTakeoverEnabledChange(false);
+        }
       } catch (applyError) {
         setError(applyError instanceof Error ? applyError.message : String(applyError));
         try {
@@ -1165,7 +1238,9 @@ export const AudioSettingsDrawer = ({
       asioNativeDsdExperimentalEnabled,
       asioUnavailableFallbackEnabled,
       copy.desktopBridgeUnavailable,
+      hqPlayerTakeoverEnabled,
       onStatusChange,
+      onHqPlayerTakeoverEnabledChange,
       outputMode,
       persistOutput,
       releaseExclusiveOnPauseExperimentalEnabled,
@@ -1235,6 +1310,37 @@ export const AudioSettingsDrawer = ({
     void applyOutput(settings);
   };
 
+  const handleHqPlayerTakeover = useCallback(async (): Promise<void> => {
+    if (hqPlayerTakeoverEnabled) {
+      setError(null);
+      const connect = window.echo?.connect;
+      const connectStatus = await connect?.getStatus?.().catch(() => null);
+      if (connectStatus?.protocol === 'hqplayer' && connectStatus.deviceId === hqPlayerConnectDeviceId && connect?.disconnect) {
+        await withTimeout(connect.disconnect(), 3_500, 'HQPlayer stop timed out').catch((disconnectError) => {
+          setError(disconnectError instanceof Error ? disconnectError.message : String(disconnectError));
+        });
+      }
+      onHqPlayerTakeoverEnabledChange(false);
+      return;
+    }
+
+    if (!onActivateHqPlayerTakeover) {
+      setError('HQPlayer 接管不可用。');
+      return;
+    }
+
+    setHqPlayerTakeoverBusy(true);
+    setError(null);
+    try {
+      await onActivateHqPlayerTakeover();
+      onHqPlayerTakeoverEnabledChange(true);
+    } catch (takeoverError) {
+      setError(takeoverError instanceof Error ? takeoverError.message : String(takeoverError));
+    } finally {
+      setHqPlayerTakeoverBusy(false);
+    }
+  }, [hqPlayerTakeoverEnabled, onActivateHqPlayerTakeover, onHqPlayerTakeoverEnabledChange]);
+
   const openAsioControlPanel = async (device: AudioDeviceInfo): Promise<void> => {
     const audio = window.echo?.audio;
     if (!audio?.openAsioControlPanel) {
@@ -1303,6 +1409,26 @@ export const AudioSettingsDrawer = ({
       },
       enabled,
     );
+  };
+
+  const toggleFixedVolume = async (enabled: boolean): Promise<void> => {
+    const app = window.echo?.app;
+    const audio = window.echo?.audio;
+
+    setFixedVolumeEnabled(enabled);
+    try {
+      const nextSettings = await app?.setSettings?.({
+        fixedVolumeEnabled: enabled,
+        ...(enabled ? { playerVolume: 1 } : {}),
+      });
+      window.dispatchEvent(new CustomEvent('settings:changed', { detail: nextSettings ?? { fixedVolumeEnabled: enabled } }));
+      if (enabled && audio) {
+        onStatusChange(await audio.setOutput({ volume: 1 }));
+      }
+    } catch (fixedVolumeError) {
+      setFixedVolumeEnabled(!enabled);
+      setError(fixedVolumeError instanceof Error ? fixedVolumeError.message : String(fixedVolumeError));
+    }
   };
 
   const toggleJuceOutput = (enabled: boolean): void => {
@@ -1540,7 +1666,7 @@ export const AudioSettingsDrawer = ({
             </span>
             <div>
               <span>HiFi Engine</span>
-              <strong>{formatCodecLine(status, copy)}</strong>
+              <strong>{hqPlayerTakeoverEnabled ? formatHqPlayerTrackLine(hqPlayerTrack, 'HQPlayer 接管中') : formatCodecLine(status, copy)}</strong>
             </div>
             <RefreshCw size={15} />
           </div>
@@ -1551,7 +1677,7 @@ export const AudioSettingsDrawer = ({
             </span>
             <span>
               <em>{t('audioDrawer.meter.mode')}</em>
-              <strong>{formatMode(status?.outputMode ?? outputMode, copy)}</strong>
+              <strong>{currentOutput.modeLabel}</strong>
             </span>
             <span>
               <em>{t('audioDrawer.meter.rate')}</em>
@@ -1578,7 +1704,29 @@ export const AudioSettingsDrawer = ({
           <span className="audio-engine-meter__hint">{t('audioDrawer.note.engine')}</span>
         </button>
 
-        <AudioProfessionalStatusPanel status={status} />
+        {hqPlayerTakeoverEnabled ? (
+          <section className="audio-professional-status audio-professional-status--drawer" aria-label={t('audioProfessional.title')}>
+            <header className="audio-professional-status__header">
+              <span className="audio-professional-status__icon">
+                <Cable size={18} />
+              </span>
+              <div>
+                <h3>{t('audioProfessional.title')}</h3>
+                <p>HQPlayer Connect / 外部渲染器 / ECHO 本机输出已释放</p>
+              </div>
+            </header>
+            <div className="audio-professional-status__badges">
+              <em data-tone="good">接管中</em>
+              <em data-tone="neutral">外部输出</em>
+            </div>
+            <p className="audio-professional-status__issue" data-tone="warning">
+              <strong>当前曲目</strong>
+              <span>{formatHqPlayerTrackTitle(hqPlayerTrack)}</span>
+            </p>
+          </section>
+        ) : (
+          <AudioProfessionalStatusPanel status={status} />
+        )}
 
         <div className="audio-professional-status-actions">
           <button className="audio-diagnostics-copy-button" type="button" onClick={() => void refresh()} disabled={isBusy}>
@@ -1609,7 +1757,7 @@ export const AudioSettingsDrawer = ({
             <div className="audio-current-output-card__body">
               <strong title={currentOutput.name}>{currentOutput.name}</strong>
               <span>
-                {formatMode(currentOutput.mode, copy)} / {currentOutput.sampleRate || copy.ratePending}
+                {currentOutput.modeLabel} / {currentOutput.sampleRate || copy.ratePending}
               </span>
               <span>
                 {currentOutput.backend} / {currentOutput.bitPerfect}
@@ -1617,6 +1765,24 @@ export const AudioSettingsDrawer = ({
             </div>
             <em>{t('audioDrawer.device.selected')}</em>
           </div>
+        </section>
+
+        <section className="audio-drawer-section">
+          <button
+            className={`audio-device-pill ${hqPlayerTakeoverEnabled ? 'active' : ''}`}
+            type="button"
+            title="HQPlayer 接管"
+            disabled={hqPlayerTakeoverBusy}
+            onClick={() => void handleHqPlayerTakeover()}
+          >
+            <Cable size={15} />
+            <span>
+              <strong>{hqPlayerTakeoverEnabled ? '取消 HQPlayer 接管' : 'HQPlayer 接管'}</strong>
+              <small>{hqPlayerTakeoverEnabled ? '退出接管后可重新选择本机输出设备' : '接管后播放、上一首、下一首都会优先交给 HQPlayer'}</small>
+            </span>
+            <em>{hqPlayerTakeoverEnabled ? '退出接管' : '外部输出'}</em>
+            {hqPlayerTakeoverEnabled ? <Check size={15} /> : null}
+          </button>
         </section>
 
         <section className="audio-drawer-section">
@@ -1640,7 +1806,7 @@ export const AudioSettingsDrawer = ({
             {systemAudioActive ? <Check size={15} /> : null}
           </button>
           <button
-            className={`audio-device-pill ${!status?.outputDeviceName && outputMode !== 'asio' && outputMode !== 'system' ? 'active' : ''}`}
+            className={`audio-device-pill ${!hqPlayerTakeoverEnabled && !status?.outputDeviceName && outputMode !== 'asio' && outputMode !== 'system' ? 'active' : ''}`}
             type="button"
             title={copy.systemDefaultOutput}
             disabled={isBusy}
@@ -1652,11 +1818,11 @@ export const AudioSettingsDrawer = ({
               <small>{wasapiExclusive ? t('audioDrawer.mode.exclusiveCandidate') : copy.shared} / {t('audioDrawer.device.systemSelectedRoute')}</small>
             </span>
             <em>{wasapiExclusive ? copy.exclusive : copy.shared}</em>
-            {outputMode !== 'asio' && outputMode !== 'system' && !status?.outputDeviceName ? <Check size={15} /> : null}
+            {!hqPlayerTakeoverEnabled && outputMode !== 'asio' && outputMode !== 'system' && !status?.outputDeviceName ? <Check size={15} /> : null}
           </button>
           {sharedDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.systemDevices')}</p> : null}
           {sharedDevices.map((device) => {
-            const isActive = deviceMatchesStatus(device, status, outputMode);
+            const isActive = !hqPlayerTakeoverEnabled && deviceMatchesStatus(device, status, outputMode);
             const DeviceIcon = getDeviceIcon(device.name, wasapiExclusive ? 'exclusive' : 'shared');
             const sampleRate = formatRate(device.sharedDeviceSampleRate ?? device.sampleRate);
 
@@ -1700,37 +1866,6 @@ export const AudioSettingsDrawer = ({
           ) : null}
         </section>
 
-        <section className="audio-drawer-section">
-          <div className="audio-drawer-section-title">
-            <Blend size={17} />
-            <h3>{t('audioDrawer.section.automix')}</h3>
-          </div>
-          <label className="audio-toggle-row">
-            <span>
-              <Blend size={17} />
-              <strong>{t('audioDrawer.option.automix')}</strong>
-            </span>
-            <input
-              type="checkbox"
-              checked={automixEnabled}
-              onChange={(event) => onAutomixEnabledChange(event.currentTarget.checked)}
-            />
-          </label>
-          <p>{t('audioDrawer.option.automixDescription')}</p>
-          {status?.automix?.active ? (
-            <p className="audio-section-note">
-              {t('audioDrawer.option.automixActive')}
-              {status.automix.transitionMode
-                ? ` ${status.automix.engine ?? 'fallback'} / ${status.automix.transitionMode} / ${
-                    status.automix.overlapSeconds?.toFixed(1) ?? '?'
-                  }s / tempo ${status.automix.tempoRatio?.toFixed(3) ?? '1.000'} / ${
-                    status.automix.plannedTrackCount ?? 0
-                  } tracks`
-                : ''}
-            </p>
-          ) : null}
-        </section>
-
         {advancedNativeOutputAvailable ? (
           <section className="audio-drawer-section">
             <div className="audio-drawer-section-title">
@@ -1742,7 +1877,7 @@ export const AudioSettingsDrawer = ({
             {asioDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.asioDevices')}</p> : null}
             {asioDevices.map((device) => {
               const defaultRouteDevice = createAsioRouteDevice(device, 0);
-              const isActive = deviceMatchesStatus(defaultRouteDevice, status, 'asio');
+              const isActive = !hqPlayerTakeoverEnabled && deviceMatchesStatus(defaultRouteDevice, status, 'asio');
               const DeviceIcon = getDeviceIcon(device.name, 'asio');
               const routeCount = Math.max(0, Math.floor((device.asioOutputChannels ?? 0) / 2));
               const routeStarts = shouldShowAsioAdvancedRoutes(device)
@@ -1780,7 +1915,7 @@ export const AudioSettingsDrawer = ({
                     <div className="audio-asio-routes" aria-label={t('audioDrawer.asioRoutes.title')}>
                       {routeStarts.map((start) => {
                         const routeDevice = createAsioRouteDevice(device, start);
-                        const routeActive = deviceMatchesStatus(routeDevice, status, 'asio');
+                        const routeActive = !hqPlayerTakeoverEnabled && deviceMatchesStatus(routeDevice, status, 'asio');
                         return (
                           <button
                             className={`audio-asio-route ${routeActive ? 'active' : ''}`}
@@ -2042,6 +2177,19 @@ export const AudioSettingsDrawer = ({
             />
           </label>
           <p>{t('audioDrawer.option.rememberOutputDescription')}</p>
+
+          <label className="audio-toggle-row">
+            <span>
+              <Lock size={17} />
+              <strong>{t('audioDrawer.option.fixedVolume')}</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={fixedVolumeEnabled}
+              onChange={(event) => void toggleFixedVolume(event.currentTarget.checked)}
+            />
+          </label>
+          <p>{t('audioDrawer.option.fixedVolumeDescription')}</p>
 
           <button className="audio-diagnostics-copy-button" type="button" disabled={resetBusy || isBusy} onClick={() => void resetAudioEngine()}>
             <RefreshCw size={16} />

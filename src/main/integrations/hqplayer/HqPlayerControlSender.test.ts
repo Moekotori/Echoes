@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HqPlayerPlaybackControlPlan } from '../../../shared/types/hqplayer';
-import { probeHqPlayerControlEndpoint, sendHqPlayerPlaybackControlPlan } from './HqPlayerControlSender';
+import { probeHqPlayerControlEndpoint, sendHqPlayerPlaybackControlPlan, sendHqPlayerStopCommand } from './HqPlayerControlSender';
 
 const servers: Server[] = [];
 
@@ -225,6 +225,27 @@ describe('HqPlayerControlSender', () => {
       command: 'PlayNextURI+Play+Seek',
     });
     expect(server.received.join('')).toContain('<Seek position="12"');
+  });
+
+  it('sends Stop to end an active HQPlayer session', async () => {
+    const server = await createTcpServer((data, socket) => {
+      if (data.includes('<Stop')) {
+        socket.end('<?xml version="1.0"?><Stop result="OK"/>\n');
+      }
+    });
+
+    const result = await sendHqPlayerStopCommand({
+      connectionMode: 'localDesktop',
+      host: '127.0.0.1',
+      port: server.port,
+    }, { timeoutMs: 250 });
+
+    expect(result).toMatchObject({
+      state: 'sent',
+      reason: null,
+      command: 'Stop',
+    });
+    expect(server.received.join('')).toContain('<Stop');
   });
 
   it('reports timeout when HQPlayer accepts the socket but does not answer', async () => {

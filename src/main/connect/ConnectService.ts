@@ -35,7 +35,7 @@ type ConnectEvents = {
 
 type HqPlayerConnectService = Pick<
   HqPlayerService,
-  'getSettings' | 'setSettings' | 'getStatus' | 'testConnection' | 'createPlaybackHandoff' | 'sendLastPlaybackControl'
+  'getSettings' | 'setSettings' | 'getStatus' | 'testConnection' | 'createPlaybackHandoff' | 'sendLastPlaybackControl' | 'seekPlayback' | 'stopPlayback'
 >;
 
 type HqPlayerConnectSettings = ReturnType<HqPlayerConnectService['getSettings']>;
@@ -294,6 +294,10 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
 
   async disconnect(): Promise<ConnectSessionStatus> {
     this.stopHqPlayerStatusSync();
+    if (this.session.protocol === 'hqplayer' && this.session.deviceId === hqPlayerConnectDeviceId) {
+      await this.hqPlayerService.stopPlayback().catch(() => undefined);
+    }
+
     const activeDevice = this.activeDlnaDevice();
     if (activeDevice) {
       await stopDlna(activeDevice).catch(() => undefined);
@@ -318,6 +322,17 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   }
 
   async stop(): Promise<ConnectSessionStatus> {
+    if (this.session.protocol === 'hqplayer' && this.session.deviceId === hqPlayerConnectDeviceId) {
+      const send = await this.hqPlayerService.stopPlayback();
+      if (send.state !== 'sent') {
+        throw new Error(send.message ?? hqPlayerReasonText(send.reason));
+      }
+
+      this.stopHqPlayerStatusSync();
+      this.setSession({ ...this.getStatus(), state: 'stopped', positionSeconds: 0, error: null, updatedAt: new Date().toISOString() });
+      return this.getStatus();
+    }
+
     const device = this.requireActiveDlnaDevice();
     await stopDlna(device);
     this.setSession({ ...this.getStatus(), state: 'stopped', positionSeconds: 0, error: null, updatedAt: new Date().toISOString() });
@@ -325,6 +340,18 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   }
 
   async seek(positionSeconds: number): Promise<ConnectSessionStatus> {
+    if (this.session.protocol === 'hqplayer' && this.session.deviceId === hqPlayerConnectDeviceId) {
+      const safePosition = Math.max(0, positionSeconds);
+      const send = await this.hqPlayerService.seekPlayback(safePosition);
+      if (send.state !== 'sent') {
+        throw new Error(send.message ?? hqPlayerReasonText(send.reason));
+      }
+
+      this.setSession({ ...this.session, positionSeconds: safePosition, error: null, updatedAt: new Date().toISOString() });
+      void this.syncHqPlayerSessionStatus();
+      return this.getStatus();
+    }
+
     const device = this.requireActiveDlnaDevice();
     const safePosition = Math.max(0, positionSeconds);
     await seekDlna(device, formatSeekTarget(safePosition));

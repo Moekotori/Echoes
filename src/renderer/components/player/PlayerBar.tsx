@@ -85,6 +85,23 @@ const readAudioAnalysisEnabledPatch = (patch: unknown): boolean | null => {
   return typeof value === 'boolean' ? value : null;
 };
 
+const readFixedVolumeEnabled = (settings: unknown): boolean => {
+  if (!settings || typeof settings !== 'object') {
+    return false;
+  }
+
+  return (settings as { fixedVolumeEnabled?: unknown }).fixedVolumeEnabled === true;
+};
+
+const readFixedVolumeEnabledPatch = (patch: unknown): boolean | null => {
+  if (!patch || typeof patch !== 'object') {
+    return null;
+  }
+
+  const value = (patch as { fixedVolumeEnabled?: unknown }).fixedVolumeEnabled;
+  return typeof value === 'boolean' ? value : null;
+};
+
 type PlayerDownloadNotice = {
   tone: 'info' | 'success' | 'error';
   title: string;
@@ -371,6 +388,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
   const [smtcEnabled, setSmtcEnabled] = useState(true);
   const [audioAnalysisEnabled, setAudioAnalysisEnabled] = useState<boolean | null>(null);
+  const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
   const [streamingDownloadJobId, setStreamingDownloadJobId] = useState<string | null>(null);
   const [streamingDownloadNotice, setStreamingDownloadNotice] = useState<PlayerDownloadNotice | null>(null);
   const [isStreamingDownloadResolving, setIsStreamingDownloadResolving] = useState(false);
@@ -819,10 +837,11 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
   useEffect(() => {
     let cancelled = false;
 
-    const refreshAudioAnalysisSetting = (): void => {
+    const refreshPlayerAudioSettings = (): void => {
       const getSettings = window.echo?.app?.getSettings;
       if (typeof getSettings !== 'function') {
         setAudioAnalysisEnabled(true);
+        setFixedVolumeEnabled(false);
         return;
       }
 
@@ -830,27 +849,33 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
         .then((settings) => {
           if (!cancelled) {
             setAudioAnalysisEnabled(readAudioAnalysisEnabled(settings));
+            setFixedVolumeEnabled(readFixedVolumeEnabled(settings));
           }
         })
         .catch(() => {
           if (!cancelled) {
             setAudioAnalysisEnabled(true);
+            setFixedVolumeEnabled(false);
           }
         });
     };
 
     const handleSettingsChanged = (event: Event): void => {
       if (event instanceof CustomEvent) {
-        const patchedValue = readAudioAnalysisEnabledPatch(event.detail);
-        if (patchedValue !== null) {
-          setAudioAnalysisEnabled(patchedValue);
+        const audioAnalysisPatch = readAudioAnalysisEnabledPatch(event.detail);
+        if (audioAnalysisPatch !== null) {
+          setAudioAnalysisEnabled(audioAnalysisPatch);
+        }
+        const fixedVolumePatch = readFixedVolumeEnabledPatch(event.detail);
+        if (fixedVolumePatch !== null) {
+          setFixedVolumeEnabled(fixedVolumePatch);
         }
       }
 
-      refreshAudioAnalysisSetting();
+      refreshPlayerAudioSettings();
     };
 
-    refreshAudioAnalysisSetting();
+    refreshPlayerAudioSettings();
     window.addEventListener('settings:changed', handleSettingsChanged);
 
     return () => {
@@ -1413,6 +1438,16 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
 
+    if (queue.hqPlayerTakeoverEnabled) {
+      if (visualState === 'playing' || visualState === 'loading') {
+        setError('HQPlayer 接管中，ECHO 已避免抢占本机音频设备。');
+        return;
+      }
+
+      await runPlaybackAction(queue.activateHqPlayerTakeover);
+      return;
+    }
+
     if (isSpotifyCurrentTrack && currentTrack) {
       await runPlaybackAction(() =>
         visualState === 'playing' || visualState === 'loading'
@@ -1596,7 +1631,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     async (nextPositionSeconds: number): Promise<void> => {
       const playback = window.echo?.playback;
 
-      if (!playback || durationSeconds <= 0) {
+      if (durationSeconds <= 0) {
         setSeekPreviewSeconds(null);
         return;
       }
@@ -1616,6 +1651,42 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
           setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
           dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
           return;
+        }
+
+        if (queue.hqPlayerTakeoverEnabled) {
+          const connect = window.echo?.connect;
+          if (!connect?.seek) {
+            throw new Error('HQPlayer 接管中，Connect seek 不可用。');
+          }
+
+          const connectStatus = await connect.seek(safePositionSeconds);
+          const nextStatus: PlaybackStatus = {
+            state:
+              connectStatus.state === 'playing'
+                ? 'playing'
+                : connectStatus.state === 'paused'
+                  ? 'paused'
+                  : connectStatus.state === 'stopped'
+                    ? 'stopped'
+                    : connectStatus.state === 'error'
+                      ? 'error'
+                      : state,
+            currentTrackId: connectStatus.currentTrackId ?? trackId,
+            positionMs: Math.round(Math.max(0, connectStatus.positionSeconds || safePositionSeconds) * 1000),
+            durationMs: Math.round(Math.max(0, connectStatus.durationSeconds || durationSeconds) * 1000),
+            filePath,
+          };
+          setPlaybackStatus(nextStatus);
+          setPlaybackStatusSnapshot({
+            playbackStatus: nextStatus,
+            error: null,
+          });
+          dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? trackId ?? null);
+          return;
+        }
+
+        if (!playback) {
+          throw new Error('Desktop bridge unavailable');
         }
 
         const status = await playback.seek(safePositionSeconds);
@@ -1647,7 +1718,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
         setSeekPreviewSeconds(null);
       }
     },
-    [currentTrack, durationSeconds, filePath, isSpotifyCurrentTrack, refreshStatus, trackId],
+    [currentTrack, durationSeconds, filePath, isSpotifyCurrentTrack, queue.hqPlayerTakeoverEnabled, refreshStatus, state, trackId],
   );
 
   return (
@@ -1729,8 +1800,10 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
       <div className="output-status">
         <PlayerVolumeControl
           status={audioStatus}
+          fixedVolumeEnabled={fixedVolumeEnabled}
           isOpen={openPopover === 'volume'}
           onError={setError}
+          onFixedVolumeChange={setFixedVolumeEnabled}
           onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'volume' : null)}
           onStatusChange={setAudioStatus}
           onCommitVolume={isSpotifyCurrentTrack ? setSpotifyVolume : undefined}

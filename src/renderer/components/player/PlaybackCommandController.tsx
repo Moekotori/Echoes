@@ -215,6 +215,15 @@ export const PlaybackCommandController = (): null => {
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
 
+    if (queue.hqPlayerTakeoverEnabled) {
+      if (visualState === 'playing' || visualState === 'loading') {
+        return;
+      }
+
+      await runPlaybackAction(queue.activateHqPlayerTakeover);
+      return;
+    }
+
     if (isSpotifyCurrentTrack && queue.currentTrack) {
       await runPlaybackAction(() =>
         visualState === 'playing' || visualState === 'loading'
@@ -247,6 +256,10 @@ export const PlaybackCommandController = (): null => {
   }, [queue.playNext, runPlaybackAction]);
 
   const handleStop = useCallback((): void => {
+    if (queue.hqPlayerTakeoverEnabled) {
+      return;
+    }
+
     if (isSpotifyCurrentTrack && queue.currentTrack) {
       void runPlaybackAction(() => stopSpotifyPlayback(queue.currentTrack!));
       return;
@@ -258,12 +271,20 @@ export const PlaybackCommandController = (): null => {
     }
 
     void runPlaybackAction(() => playback.stop());
-  }, [isSpotifyCurrentTrack, queue.currentTrack, runPlaybackAction]);
+  }, [isSpotifyCurrentTrack, queue.currentTrack, queue.hqPlayerTakeoverEnabled, runPlaybackAction]);
 
   const handleVolumeStep = useCallback(
     async (delta: number): Promise<void> => {
       const audio = window.echo?.audio;
       if (!audio) {
+        return;
+      }
+
+      const getSettings = window.echo?.app?.getSettings;
+      const settings = typeof getSettings === 'function' ? await getSettings().catch(() => null) : null;
+      if (settings?.fixedVolumeEnabled === true) {
+        await audio.setOutput({ volume: 1 });
+        await refreshPlaybackStatus();
         return;
       }
 
@@ -298,7 +319,11 @@ export const PlaybackCommandController = (): null => {
       return;
     }
 
-    await audio.setOutput({ volume: 0 });
+    const getSettings = window.echo?.app?.getSettings;
+    const settings = typeof getSettings === 'function' ? await getSettings().catch(() => null) : null;
+    if (settings?.fixedVolumeEnabled !== true) {
+      await audio.setOutput({ volume: 0 });
+    }
     void window.echo?.app?.minimize?.();
     await refreshPlaybackStatus();
   }, []);
@@ -307,7 +332,7 @@ export const PlaybackCommandController = (): null => {
     async (nextPositionSeconds: number): Promise<void> => {
       const playback = window.echo?.playback;
 
-      if (!playback || durationSeconds <= 0) {
+      if (durationSeconds <= 0) {
         return;
       }
 
@@ -316,6 +341,37 @@ export const PlaybackCommandController = (): null => {
         const status = await seekSpotifyPlayback(queue.currentTrack, safePositionSeconds);
         setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
+        return;
+      }
+
+      if (queue.hqPlayerTakeoverEnabled) {
+        const connectStatus = await window.echo?.connect?.seek?.(safePositionSeconds);
+        if (!connectStatus) {
+          return;
+        }
+
+        const nextStatus: PlaybackStatus = {
+          state:
+            connectStatus.state === 'playing'
+              ? 'playing'
+              : connectStatus.state === 'paused'
+                ? 'paused'
+                : connectStatus.state === 'stopped'
+                  ? 'stopped'
+                  : connectStatus.state === 'error'
+                    ? 'error'
+                    : state,
+          currentTrackId: connectStatus.currentTrackId ?? queue.currentTrackId,
+          positionMs: Math.round(Math.max(0, connectStatus.positionSeconds || safePositionSeconds) * 1000),
+          durationMs: Math.round(Math.max(0, connectStatus.durationSeconds || durationSeconds) * 1000),
+          filePath: queue.currentTrack?.path ?? null,
+        };
+        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
+        dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? queue.currentTrackId ?? null);
+        return;
+      }
+
+      if (!playback) {
         return;
       }
 
@@ -330,14 +386,14 @@ export const PlaybackCommandController = (): null => {
       dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
       await refreshPlaybackStatus();
     },
-    [durationSeconds, isSpotifyCurrentTrack, queue.currentTrack, queue.currentTrackId],
+    [durationSeconds, isSpotifyCurrentTrack, queue.currentTrack, queue.currentTrackId, queue.hqPlayerTakeoverEnabled, state],
   );
 
   const handleSmtcCommand = useCallback(
     (command: SmtcCommand): void => {
       const playback = window.echo?.playback;
 
-      if (!playback) {
+      if (!playback && !queue.hqPlayerTakeoverEnabled) {
         return;
       }
 
@@ -355,25 +411,34 @@ export const PlaybackCommandController = (): null => {
 
       if (command === 'play') {
         if (!isPlaying) {
+          if (queue.hqPlayerTakeoverEnabled) {
+            void runPlaybackAction(queue.activateHqPlayerTakeover);
+            return;
+          }
+
           if (isSpotifyCurrentTrack && queue.currentTrack) {
             void runPlaybackAction(() => resumeSpotifyPlayback(queue.currentTrack!));
             return;
           }
 
           void runPlaybackAction(() =>
-            (state === 'idle' || state === 'stopped') && queue.currentTrack ? queue.playTrack(queue.currentTrack) : playback.play(),
+            (state === 'idle' || state === 'stopped') && queue.currentTrack ? queue.playTrack(queue.currentTrack) : playback!.play(),
           );
         }
         return;
       }
 
       if (command === 'pause') {
+        if (queue.hqPlayerTakeoverEnabled) {
+          return;
+        }
+
         if (isSpotifyCurrentTrack && queue.currentTrack) {
           void runPlaybackAction(() => pauseSpotifyPlayback(queue.currentTrack!));
           return;
         }
 
-        void runPlaybackAction(() => playback.pause());
+        void runPlaybackAction(() => playback!.pause());
         return;
       }
 

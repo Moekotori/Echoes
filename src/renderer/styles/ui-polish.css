@@ -311,6 +311,13 @@ html[data-theme="dark"] .sidebar-folder:hover {
   background: var(--echo-polish-surface-strong);
 }
 
+.settings-library-lab-panel,
+.settings-cache-panel--bpm-analysis {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .settings-page {
   background: transparent;
 }
@@ -1012,6 +1019,179 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
   justify-self: stretch;
 }
 
+.settings-page #settings-sec-integrations > .section-title {
+  order: -100;
+}
+
+.settings-page #settings-sec-integrations > .settings-account-panel {
+  order: -90;
+  padding: 0 0 14px;
+  border-top: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-panel-border) 70%, transparent);
+}
+
+.settings-page .settings-account-panel-header {
+  padding: 0;
+}
+
+.settings-page .settings-account-panel-header p {
+  color: var(--theme-muted-text);
+}
+
+.settings-page .settings-account-row {
+  border-color: color-mix(in srgb, var(--theme-panel-border) 72%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-bg) 26%, transparent), transparent 46%),
+    color-mix(in srgb, var(--theme-panel-bg) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-panel-bg-muted) 72%, transparent);
+}
+
+.settings-page .settings-account-summary h3,
+.settings-page .settings-account-panel-header h3 {
+  color: var(--echo-heading-text);
+}
+
+.settings-page .settings-account-summary p,
+.settings-page .settings-account-browser-field span,
+.settings-page .settings-account-meta,
+.settings-page .settings-account-note {
+  color: var(--theme-muted-text);
+}
+
+.settings-page .settings-account-cookie-field input,
+.settings-page .settings-account-browser-field select {
+  color: var(--theme-page-text);
+  border-color: color-mix(in srgb, var(--theme-panel-border) 78%, transparent);
+  background: color-mix(in srgb, var(--theme-field-bg) 82%, transparent);
+  box-shadow: none;
+}
+
+.settings-page .setting-row--shortcut {
+  width: min(1040px, 100%);
+  grid-template-columns: minmax(220px, 300px) minmax(220px, 320px) minmax(220px, 320px);
+  align-items: center;
+  justify-content: start;
+  gap: 30px;
+}
+
+.settings-page .setting-row--shortcut > :not(.setting-info) {
+  justify-self: stretch;
+}
+
+.settings-page .setting-row--shortcut-header > span {
+  justify-self: start;
+}
+
+.settings-page #settings-sec-shortcuts .setting-row--compact-panel {
+  width: min(1040px, 100%);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 620px);
+  justify-content: start;
+}
+
+.settings-page #settings-row-mysterious-key {
+  grid-template-columns: minmax(230px, 300px) minmax(0, 520px);
+  justify-content: start;
+}
+
+.settings-page #settings-row-mysterious-key > .settings-cache-panel--download {
+  width: min(520px, 100%);
+  max-width: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg) 64%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-panel-bg-muted) 88%, transparent);
+}
+
+.settings-page #settings-row-mysterious-key .settings-input-field {
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-page #settings-row-mysterious-key .settings-input-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+}
+
+.settings-page #settings-row-mysterious-key .settings-chip-row {
+  max-width: none;
+  justify-content: flex-end;
+}
+
+.settings-page #settings-row-mysterious-key .settings-mysterious-key-accepted {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-page #settings-row-mysterious-key .settings-action-button {
+  min-height: 30px;
+  border-radius: 7px;
+}
+
+.settings-page .setting-row--package-export {
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 520px);
+  align-items: start;
+}
+
+.settings-page .settings-package-export-panel {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 10px;
+  justify-self: end;
+}
+
+.settings-page .settings-package-export-panel .settings-chip-row {
+  max-width: none;
+  justify-content: flex-end;
+}
+
+.settings-page .settings-package-export-panel .settings-inline-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border) 74%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg) 56%, transparent);
+  color: var(--theme-muted-text);
+  text-align: left;
+}
+
+.settings-page .setting-row--theme-presets,
+.settings-page .setting-row--theme-custom {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.settings-page .setting-row--theme-presets > :not(.setting-info),
+.settings-page .setting-row--theme-custom > :not(.setting-info) {
+  justify-self: stretch;
+}
+
+.settings-page .settings-theme-preset-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  align-items: start;
+}
+
+.settings-page .settings-theme-preset-card {
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.settings-page .settings-theme-preset-preview {
+  min-height: 48px;
+}
+
+.settings-page .settings-theme-custom-panel [hidden] {
+  display: none !important;
+}
+
 @media (max-width: 980px) {
   .nav-item {
     padding-inline: 6px;
@@ -1019,6 +1199,76 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 
   .player-bar {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr) auto;
+  }
+
+  .settings-page {
+    padding-inline: 34px;
+  }
+
+  .settings-header {
+    grid-template-columns: auto minmax(280px, 1fr);
+  }
+
+  .settings-search {
+    width: 100%;
+  }
+
+  .settings-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    align-self: stretch;
+    gap: 5px;
+    overflow-x: auto;
+    padding: 0 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: inherit;
+    box-shadow: none;
+  }
+
+  .settings-nav-item {
+    width: max-content;
+    min-width: max-content;
+    min-height: 44px;
+    grid-template-columns: 26px max-content;
+    align-items: center;
+    padding: 8px 11px;
+    white-space: nowrap;
+  }
+
+  .settings-nav-desc {
+    display: none;
+  }
+
+  .settings-page .setting-row--shortcut,
+  .settings-page #settings-sec-shortcuts .setting-row--compact-panel {
+    width: 100%;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .settings-page .setting-row--shortcut-header {
+    display: none;
+  }
+
+  .settings-page #settings-row-mysterious-key,
+  .settings-page .setting-row--package-export {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .settings-page #settings-row-mysterious-key > .settings-cache-panel--download,
+  .settings-page .settings-package-export-panel {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .settings-page .settings-package-export-panel .settings-chip-row {
+    justify-content: flex-start;
   }
 }
 

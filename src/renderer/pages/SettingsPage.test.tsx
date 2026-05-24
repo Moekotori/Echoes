@@ -656,10 +656,12 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.about\\.label');
+    fireEvent.click(screen.getByRole('button', { name: /爱发电/ }));
     fireEvent.click(screen.getByRole('button', { name: /查看历史更新日志/ }));
     fireEvent.click(screen.getByRole('button', { name: /加入 QQ 群聊/ }));
     fireEvent.click(screen.getByRole('button', { name: /加入 Discord/ }));
 
+    await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://afdian.com/a/echonext'));
     await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/moekotori/echo/releases'));
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://qm.qq.com/q/KrJE8PIqSQ');
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://discord.gg/g7v4WMRq3K');
@@ -676,6 +678,8 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.about\\.label');
+    fireEvent.click(screen.getByRole('button', { name: /合作伙伴/ }));
+    await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://www.doubao.com/chat/'));
     const row = screen
       .getByText('持续开启后，每次启动会先打开异常记录器；只显示异常、渲染器错误、音频错误和慢启动阶段，不混入普通播放日志。')
       .closest('.setting-row') as HTMLElement;
@@ -1433,6 +1437,12 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
 
     const row = (await screen.findByText('settings.playback.hqplayer.title')).closest('.setting-row') as HTMLElement;
+    const collapseButton = within(row).getByRole('button', { name: '折叠' });
+    expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(collapseButton);
+    expect(within(row).queryByLabelText('settings.playback.hqplayer.host')).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: '展开' }));
+    expect(within(row).getByLabelText('settings.playback.hqplayer.host')).toBeTruthy();
     fireEvent.click(within(row).getByText('settings.playback.hqplayer.enable').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
     fireEvent.click(within(row).getByRole('button', { name: 'settings.playback.hqplayer.mode.remote' }));
     fireEvent.click(within(row).getByRole('button', { name: 'settings.playback.hqplayer.defaultBackend.ask' }));

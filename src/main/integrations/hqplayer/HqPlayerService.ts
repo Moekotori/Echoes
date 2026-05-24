@@ -21,6 +21,8 @@ import { createHqPlayerPlaybackControlPlan } from './HqPlayerControlAdapter';
 import {
   createSkippedHqPlayerControlSendResult,
   probeHqPlayerControlEndpoint,
+  sendHqPlayerSeekCommand,
+  sendHqPlayerStopCommand,
   sendHqPlayerPlaybackControlPlan,
 } from './HqPlayerControlSender';
 import { getHqPlayerMediaServer, type HqPlayerMediaServerBridge, type HqPlayerMediaServerInput } from './HqPlayerMediaServer';
@@ -181,6 +183,22 @@ export class HqPlayerService {
     const send = control.state === 'prepared'
       ? await this.controlSender(control)
       : createSkippedHqPlayerControlSendResult(control.endpoint, control.reason ?? 'handoff_not_ready');
+    this.rememberPlaybackControlSend(send);
+    return send;
+  }
+
+  async seekPlayback(positionSeconds: number): Promise<HqPlayerPlaybackControlSendResult> {
+    const settings = this.store.read();
+    const endpoint = toEndpoint(settings);
+    const send = await sendHqPlayerSeekCommand(endpoint, positionSeconds);
+    this.rememberPlaybackControlSend(send);
+    return send;
+  }
+
+  async stopPlayback(): Promise<HqPlayerPlaybackControlSendResult> {
+    const settings = this.store.read();
+    const endpoint = toEndpoint(settings);
+    const send = await sendHqPlayerStopCommand(endpoint);
     this.rememberPlaybackControlSend(send);
     return send;
   }

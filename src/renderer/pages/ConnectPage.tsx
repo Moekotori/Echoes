@@ -17,6 +17,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { AppSettings } from '../../shared/types/appSettings';
+import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus } from '../../shared/types/connect';
 import type {
   HqPlayerConnectionMode,
@@ -427,7 +428,7 @@ export const ConnectPage = (): JSX.Element => {
   const [hqPlayerTestResult, setHqPlayerTestResult] = useState<HqPlayerConnectionTestResult | null>(null);
   const [hqPlayerLastHandoff, setHqPlayerLastHandoff] = useState<HqPlayerPlaybackHandoffPlan | null>(null);
   const [hqPlayerLastControl, setHqPlayerLastControl] = useState<HqPlayerPlaybackControlPlan | null>(null);
-  const [hqPlayerBusy, setHqPlayerBusy] = useState<'test' | null>(null);
+  const [hqPlayerBusy, setHqPlayerBusy] = useState<'settings' | 'test' | null>(null);
 
   const activeDevice = useMemo(
     () => devices.find((device) => device.id === status.deviceId) ?? null,
@@ -672,6 +673,31 @@ export const ConnectPage = (): JSX.Element => {
     }
   }, [hqPlayerEffectiveDraft, saveHqPlayerSettings]);
 
+  const toggleHqPlayerEnabled = useCallback(async (): Promise<void> => {
+    const nextSettings = hqPlayerDraft.enabled
+      ? { ...hqPlayerEffectiveDraft, enabled: false }
+      : createHqPlayerConnectSettings(hqPlayerEffectiveDraft);
+
+    setHqPlayerBusy('settings');
+    setError(null);
+    try {
+      if (hqPlayerDraft.enabled) {
+        const connect = window.echo?.connect;
+        const connectStatus = await connect?.getStatus?.().catch(() => null);
+        if (connectStatus?.protocol === 'hqplayer' && connectStatus.deviceId === hqPlayerConnectDeviceId && connect?.disconnect) {
+          setStatus(await connect.disconnect());
+        }
+      }
+
+      await saveHqPlayerSettings(nextSettings);
+      setDevices(await window.echo?.connect?.refresh?.() ?? devices);
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : String(toggleError));
+    } finally {
+      setHqPlayerBusy(null);
+    }
+  }, [devices, hqPlayerDraft.enabled, hqPlayerEffectiveDraft, saveHqPlayerSettings]);
+
   const toggleReceiver = useCallback(async (): Promise<void> => {
     const connect = window.echo?.connect;
     if (!connect?.setReceiverEnabled) {
@@ -885,10 +911,9 @@ export const ConnectPage = (): JSX.Element => {
                   aria-label="启用 HQPlayer"
                   aria-pressed={hqPlayerDraft.enabled}
                   className={`toggle-btn ${hqPlayerDraft.enabled ? 'active' : ''}`}
+                  disabled={hqPlayerBusy === 'settings'}
                   type="button"
-                  onClick={() => patchHqPlayerDraft(
-                    hqPlayerDraft.enabled ? { enabled: false } : createHqPlayerConnectSettings(hqPlayerEffectiveDraft),
-                  )}
+                  onClick={() => void toggleHqPlayerEnabled()}
                 >
                   <span />
                 </button>

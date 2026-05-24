@@ -10,7 +10,7 @@ import type {
   PlaybackStartRequest,
   PlaybackStatus,
 } from '../shared/types/playback';
-import type { SmtcCommand } from '../shared/types/smtc';
+import type { SmtcCommand, SmtcLyricsProgress } from '../shared/types/smtc';
 import type { UpdateStatus } from '../shared/types/updates';
 import type { DiagnosticConsoleEntry } from '../shared/types/diagnostics';
 import { calculateReplayGain, dbToLinearGain, type ReplayGainCalculation, type ReplayGainTrackData } from '../shared/utils/replayGain';
@@ -1530,6 +1530,7 @@ const echoApi: EchoApi = {
   },
   smtc: {
     getDiagnostics: () => ipcRenderer.invoke(IpcChannels.SmtcGetDiagnostics),
+    setLyricsProgress: (progress: SmtcLyricsProgress | null) => ipcRenderer.invoke(IpcChannels.SmtcSetLyricsProgress, progress),
     onCommand: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, command: SmtcCommand): void => {
         handler(command);

@@ -167,7 +167,7 @@ import type {
   PluginRunCommandRequest,
   PluginSummary,
 } from '../shared/types/plugins';
-import type { SmtcCommand, SmtcDiagnostics } from '../shared/types/smtc';
+import type { SmtcCommand, SmtcDiagnostics, SmtcLyricsProgress } from '../shared/types/smtc';
 import type {
   LyricsEmbedToTrackRequest,
   LyricsEmbedToTrackResult,
@@ -561,6 +561,7 @@ export type EchoApi = {
   };
   smtc: {
     getDiagnostics: () => Promise<SmtcDiagnostics>;
+    setLyricsProgress: (progress: SmtcLyricsProgress | null) => Promise<void>;
     onCommand: (handler: (command: SmtcCommand) => void) => () => void;
   };
   discordPresence: {

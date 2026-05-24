@@ -595,6 +595,7 @@ const DailyActivityBars = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element 
     <div className="history-stats-activity">
       {days.map((day) => (
         <span className="history-stats-day" key={day.date} title={`${day.date} · ${day.playCount} 次 · ${formatLongDuration(day.playedSeconds)}`}>
+          <strong>{formatCompactCount(day.playCount)}</strong>
           <i style={{ height: `${Math.max(8, (day.playCount / maxCount) * 100)}%` }} />
           <em>{formatDayLabel(day.date)}</em>
         </span>

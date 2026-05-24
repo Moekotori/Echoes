@@ -214,6 +214,11 @@ const installEchoBridge = (
       refresh: vi.fn().mockResolvedValue([hqPlayerDevice]),
       getStatus: vi.fn().mockResolvedValue(initialConnectStatus),
       connect: vi.fn().mockResolvedValue(hqPlayerConnectStatus),
+      disconnect: vi.fn().mockResolvedValue(connectStatus),
+      play: vi.fn(),
+      pause: vi.fn(),
+      stop: vi.fn(),
+      setVolume: vi.fn(),
       onStatus: vi.fn(() => () => undefined),
       getReceiverStatus: vi.fn().mockResolvedValue({
         enabled: false,
@@ -398,6 +403,22 @@ describe('ConnectPage HQPlayer controls', () => {
     await screen.findByText('HQPlayer Desktop');
     await waitFor(() => expect(bridge.hqPlayer.getStatus).toHaveBeenCalled());
     expect(bridge.hqPlayer.testConnection).not.toHaveBeenCalled();
+  });
+
+  it('stops the active HQPlayer session when HQPlayer is disabled', async () => {
+    const bridge = installEchoBridge(hqStatus('available'), hqSettings, hqPlayerConnectStatus);
+    render(<ConnectPage />);
+
+    await screen.findByText('HQPlayer Desktop');
+    const hqPlayerToggle = screen
+      .getAllByRole('button', { name: /HQPlayer/u })
+      .find((button) => button.className.includes('toggle-btn'));
+    expect(hqPlayerToggle).toBeTruthy();
+
+    fireEvent.click(hqPlayerToggle as HTMLButtonElement);
+
+    await waitFor(() => expect(bridge.connect.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(bridge.hqPlayer.setSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: false })));
   });
 
   it('disables unsupported transport controls while HQPlayer is the active output', async () => {

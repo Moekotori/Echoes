@@ -17,11 +17,13 @@ import {
   Info,
   Keyboard,
   Link2,
+  Lock,
   MessageSquare,
   Palette,
   Pause,
   Play,
   Power,
+  RotateCcw,
   RotateCw,
   Search,
   Save,
@@ -150,8 +152,6 @@ import {
   getLibraryBridge,
   getPluginsBridge,
 } from '../utils/echoBridge';
-
-const isDevBuild = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
 const normalizeAsioOutputChannelStart = (value: unknown): number | undefined => {
   const numeric = Number(value);
@@ -3333,6 +3333,8 @@ export const SettingsPage = (): JSX.Element => {
   const [activeSection, setActiveSection] = useState<SettingsNavKey>(() => readInitialSettingsSection());
   const [settingsQuery, setSettingsQuery] = useState('');
   const [highlightedSettingId, setHighlightedSettingId] = useState<string | null>(null);
+  const [mysteriousKeyVisible, setMysteriousKeyVisible] = useState(false);
+  const mysteriousKeyUnlockNoticeShownRef = useRef(false);
   const [status, setStatus] = useState<AudioStatus | null>(null);
   const [audioDiagnosticsCopied, setAudioDiagnosticsCopied] = useState(false);
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
@@ -3345,6 +3347,7 @@ export const SettingsPage = (): JSX.Element => {
   const [hqPlayerStatus, setHqPlayerStatus] = useState<HqPlayerStatus | null>(null);
   const [hqPlayerBusy, setHqPlayerBusy] = useState<'save' | 'test' | null>(null);
   const [hqPlayerTestResult, setHqPlayerTestResult] = useState<HqPlayerConnectionTestResult | null>(null);
+  const [hqPlayerExpanded, setHqPlayerExpanded] = useState(true);
   const [selectedThemePreset, setSelectedThemePreset] = useState<AppThemePreset>(() => readThemePreset());
   const [themeCustomThemes, setThemeCustomThemes] = useState<AppThemeCustomTheme[]>(() => readThemeCustomThemes());
   const [activeThemeCustomId, setActiveThemeCustomId] = useState<string | null>(() => readThemeCustomId());
@@ -3669,6 +3672,14 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
+        id: 'row-fixed-volume',
+        sectionKey: 'playback',
+        targetId: 'settings-row-fixed-volume',
+        title: '固定音量',
+        description: '锁定 ECHO 音量控制为 100%，ReplayGain 仍独立生效。',
+        terms: ['固定音量', 'fixed volume', 'roon', '音量锁定', 'volume lock', 'ReplayGain'],
+      },
+      {
         id: 'row-gapless-playback',
         sectionKey: 'playback',
         targetId: 'settings-row-gapless-playback',
@@ -3815,7 +3826,7 @@ export const SettingsPage = (): JSX.Element => {
         targetId: 'settings-row-mysterious-key',
         title: 'Mysterious key',
         description: 'Enter a special key to unlock hidden capabilities.',
-        terms: ['Mysterious key', 'key', 'secret', 'unlock', 'hidden', '神秘钥匙', '密钥'],
+        terms: ['Mysterious key', 'key', 'secret', 'unlock', 'hidden', 'zimin', '神秘钥匙', '密钥'],
       },
       {
         id: 'row-streaming-download-actions',
@@ -3859,11 +3870,29 @@ export const SettingsPage = (): JSX.Element => {
       },
     ];
 
-    const entries = [...rowEntries, ...sectionEntries];
+    const entries = [...rowEntries, ...sectionEntries].filter(
+      (entry) => mysteriousKeyVisible || entry.targetId !== 'settings-row-mysterious-key',
+    );
     return windowsIntegrationAvailable
       ? entries
       : entries.filter((entry) => entry.targetId !== 'settings-row-smtc' && entry.targetId !== 'settings-row-taskbar-playback');
-  }, [t, windowsIntegrationAvailable]);
+  }, [mysteriousKeyVisible, t, windowsIntegrationAvailable]);
+
+  const mysteriousKeySearchUnlocked = activeSection === 'general' && normalizeSettingsSearchText(settingsQuery) === 'zimin';
+
+  useEffect(() => {
+    if (!mysteriousKeySearchUnlocked) {
+      return;
+    }
+
+    setMysteriousKeyVisible(true);
+    if (mysteriousKeyUnlockNoticeShownRef.current) {
+      return;
+    }
+
+    mysteriousKeyUnlockNoticeShownRef.current = true;
+    window.dispatchEvent(new CustomEvent('app:show-chrome-notice', { detail: 'Mysterious key 已解锁。' }));
+  }, [mysteriousKeySearchUnlocked]);
 
   const settingsSearchResults = useMemo<SettingsSearchResult[]>(() => {
     const query = normalizeSettingsSearchText(settingsQuery);
@@ -6211,6 +6240,12 @@ export const SettingsPage = (): JSX.Element => {
     patchAppSettings({ downloadsFeatureUnlocked: true });
   };
 
+  const handleDownloadFeatureRelease = (): void => {
+    setDownloadUnlockInput('');
+    setDownloadUnlockMessage(null);
+    patchAppSettings({ downloadsFeatureUnlocked: false });
+  };
+
   const handleDownloadUnlockKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'Enter') {
       handleDownloadFeatureUnlock();
@@ -7933,48 +7968,61 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
-              <SettingRow
-                id="settings-row-mysterious-key"
-                highlighted={highlightedSettingId === 'settings-row-mysterious-key'}
-                className="setting-row--full setting-row--compact-panel"
-                title="Mysterious key"
-                description="Enter a special key to unlock hidden capabilities."
-              >
-                {downloadsFeatureUnlocked ? (
-                  <div className="settings-inline-toggle settings-inline-toggle--compact">
-                    <span>Accepted</span>
-                    <Check size={16} />
-                  </div>
-                ) : (
-                  <div className="settings-cache-panel settings-cache-panel--download">
-                    <label className="settings-input-field" htmlFor="mysterious-key">
-                      <input
-                        id="mysterious-key"
-                        type="text"
-                        value={downloadUnlockInput}
-                        onChange={(event) => {
-                          setDownloadUnlockInput(event.target.value);
-                          setDownloadUnlockMessage(null);
-                        }}
-                        onKeyDown={handleDownloadUnlockKeyDown}
-                        placeholder="Enter key"
-                      />
-                    </label>
-                    <div className="settings-chip-row settings-chip-row--left">
+              {mysteriousKeyVisible ? (
+                <SettingRow
+                  id="settings-row-mysterious-key"
+                  highlighted={highlightedSettingId === 'settings-row-mysterious-key'}
+                  className="setting-row--full setting-row--compact-panel"
+                  title="Mysterious key"
+                  description="Enter a special key to unlock hidden capabilities."
+                >
+                  {downloadsFeatureUnlocked ? (
+                    <div className="settings-mysterious-key-accepted">
+                      <div className="settings-inline-toggle settings-inline-toggle--compact">
+                        <span>Accepted</span>
+                        <Check size={16} />
+                      </div>
                       <button
                         className="settings-action-button"
                         type="button"
-                        disabled={!appSettings || !downloadUnlockInput.trim()}
-                        onClick={handleDownloadFeatureUnlock}
+                        disabled={!appSettings}
+                        onClick={handleDownloadFeatureRelease}
                       >
-                        <Check size={15} />
-                        Apply
+                        <RotateCcw size={15} />
+                        释放
                       </button>
                     </div>
-                    {downloadUnlockMessage ? <p className="settings-inline-note">{downloadUnlockMessage}</p> : null}
-                  </div>
-                )}
-              </SettingRow>
+                  ) : (
+                    <div className="settings-cache-panel settings-cache-panel--download">
+                      <label className="settings-input-field" htmlFor="mysterious-key">
+                        <input
+                          id="mysterious-key"
+                          type="text"
+                          value={downloadUnlockInput}
+                          onChange={(event) => {
+                            setDownloadUnlockInput(event.target.value);
+                            setDownloadUnlockMessage(null);
+                          }}
+                          onKeyDown={handleDownloadUnlockKeyDown}
+                          placeholder="Enter key"
+                        />
+                      </label>
+                      <div className="settings-chip-row settings-chip-row--left">
+                        <button
+                          className="settings-action-button"
+                          type="button"
+                          disabled={!appSettings || !downloadUnlockInput.trim()}
+                          onClick={handleDownloadFeatureUnlock}
+                        >
+                          <Check size={15} />
+                          Apply
+                        </button>
+                      </div>
+                      {downloadUnlockMessage ? <p className="settings-inline-note">{downloadUnlockMessage}</p> : null}
+                    </div>
+                  )}
+                </SettingRow>
+              ) : null}
               <SettingRow title={t('settings.general.backup.title')} description={t('settings.general.backup.description')}>
                 <div className="settings-chip-row">
                   <button
@@ -8072,25 +8120,28 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
+                className="setting-row--package-export"
                 title="一键导出 / 迁移 ECHO 数据包"
                 description="导出设置、曲库索引、歌单快照、封面缓存路径和账号状态说明。不会复制音乐文件，也不会导出登录密钥。"
               >
-                <div className="settings-chip-row">
-                  <button
-                    className="settings-action-button"
-                    type="button"
-                    disabled={settingsBackupBusy !== null}
-                    onClick={() => void handleExportDataPackage()}
-                  >
-                    <Download size={15} />
-                    {settingsBackupBusy === 'dataPackage' ? '打包中...' : '导出 ECHO 数据包'}
-                  </button>
-                  <button className="settings-action-button" type="button" disabled={databaseProtectionBusy} onClick={() => void handleOpenDataProtectionFolder()}>
-                    <FolderOpen size={15} />
-                    恢复入口
-                  </button>
+                <div className="settings-package-export-panel">
+                  <div className="settings-chip-row">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={settingsBackupBusy !== null}
+                      onClick={() => void handleExportDataPackage()}
+                    >
+                      <Download size={15} />
+                      {settingsBackupBusy === 'dataPackage' ? '打包中...' : '导出 ECHO 数据包'}
+                    </button>
+                    <button className="settings-action-button" type="button" disabled={databaseProtectionBusy} onClick={() => void handleOpenDataProtectionFolder()}>
+                      <FolderOpen size={15} />
+                      恢复入口
+                    </button>
+                  </div>
+                  <p className="settings-inline-note">恢复前请先在危险区创建健康快照；迁移包里的 RESTORE.md 会说明每个文件的用途。</p>
                 </div>
-                <p className="settings-inline-note">恢复前请先在危险区创建健康快照；迁移包里的 RESTORE.md 会说明每个文件的用途。</p>
               </SettingRow>
             </SettingSection>
 
@@ -8243,6 +8294,32 @@ export const SettingsPage = (): JSX.Element => {
                       {item.label}
                     </ChipButton>
                   ))}
+                </div>
+              </SettingRow>
+              <SettingRow
+                id="settings-row-fixed-volume"
+                highlighted={highlightedSettingId === 'settings-row-fixed-volume'}
+                title="固定音量"
+                description="像 Roon Fixed Volume 一样锁定 ECHO 音量控制为 100%；ReplayGain 仍会独立生效。"
+              >
+                <div className="settings-chip-row">
+                  <StatusText tone={appSettings?.fixedVolumeEnabled ? 'good' : 'muted'}>
+                    {appSettings?.fixedVolumeEnabled ? '已固定' : '可调音量'}
+                  </StatusText>
+                  <ToggleButton
+                    active={appSettings?.fixedVolumeEnabled ?? false}
+                    disabled={!appSettings}
+                    onClick={() => {
+                      const enabled = !(appSettings?.fixedVolumeEnabled ?? false);
+                      patchAppSettings({
+                        fixedVolumeEnabled: enabled,
+                        ...(enabled ? { playerVolume: 1 } : {}),
+                      });
+                      if (enabled) {
+                        void getAudioBridge()?.setOutput({ volume: 1 }).then(setStatus).catch(() => undefined);
+                      }
+                    }}
+                  />
                 </div>
               </SettingRow>
               <SettingRow
@@ -8501,93 +8578,107 @@ export const SettingsPage = (): JSX.Element => {
                       <RotateCw className={hqPlayerBusy === 'test' ? 'spinning-icon' : undefined} size={15} />
                       {hqPlayerBusy === 'test' ? t('settings.playback.hqplayer.testing') : t('settings.playback.hqplayer.test')}
                     </button>
+                    <button
+                      aria-controls="settings-hqplayer-body"
+                      aria-expanded={hqPlayerExpanded}
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => setHqPlayerExpanded((current) => !current)}
+                    >
+                      <ChevronDown size={15} />
+                      {hqPlayerExpanded ? '折叠' : '展开'}
+                    </button>
                   </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    {hqPlayerConnectionModes.map((mode) => (
-                      <ChipButton
-                        active={hqPlayerDraft.connectionMode === mode}
-                        key={mode}
-                        onClick={() => patchHqPlayerDraft({ connectionMode: mode })}
-                      >
-                        {t(getHqPlayerConnectionModeKey(mode))}
-                      </ChipButton>
-                    ))}
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    {hqPlayerDefaultBackends.map((backend) => (
-                      <ChipButton
-                        active={hqPlayerDraft.defaultPlaybackBackend === backend}
-                        key={backend}
-                        onClick={() => patchHqPlayerDraft({ defaultPlaybackBackend: backend })}
-                      >
-                        {t(getHqPlayerBackendKey(backend))}
-                      </ChipButton>
-                    ))}
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <label className="settings-number-field">
-                      <span>{t('settings.playback.hqplayer.host')}</span>
-                      <input
-                        aria-label={t('settings.playback.hqplayer.host')}
-                        type="text"
-                        value={hqPlayerDraft.host}
-                        onChange={(event) => patchHqPlayerDraft({ host: event.currentTarget.value })}
-                      />
-                    </label>
-                    <label className="settings-number-field">
-                      <span>{t('settings.playback.hqplayer.port')}</span>
-                      <input
-                        aria-label={t('settings.playback.hqplayer.port')}
-                        type="number"
-                        min={1}
-                        max={65535}
-                        value={hqPlayerDraft.port ?? ''}
-                        onChange={(event) => patchHqPlayerDraft({ port: parseHqPlayerPort(event.currentTarget.value) })}
-                      />
-                    </label>
-                    <label className="settings-number-field">
-                      <span>{t('settings.playback.hqplayer.profileName')}</span>
-                      <input
-                        aria-label={t('settings.playback.hqplayer.profileName')}
-                        type="text"
-                        value={hqPlayerDraft.profileName ?? ''}
-                        onChange={(event) => patchHqPlayerDraft({ profileName: event.currentTarget.value.trim() || null })}
-                      />
-                    </label>
-                    <div className="settings-inline-toggle">
-                      <span>{t('settings.playback.hqplayer.mediaServer')}</span>
-                      <ToggleButton
-                        active={hqPlayerDraft.mediaServerEnabled}
-                        disabled={!appSettings}
-                        onClick={() => patchHqPlayerDraft({ mediaServerEnabled: !hqPlayerDraft.mediaServerEnabled })}
-                      />
+                  {hqPlayerExpanded ? (
+                    <div id="settings-hqplayer-body" className="settings-cache-panel settings-cache-panel--bare">
+                      <div className="settings-chip-row settings-chip-row--left">
+                        {hqPlayerConnectionModes.map((mode) => (
+                          <ChipButton
+                            active={hqPlayerDraft.connectionMode === mode}
+                            key={mode}
+                            onClick={() => patchHqPlayerDraft({ connectionMode: mode })}
+                          >
+                            {t(getHqPlayerConnectionModeKey(mode))}
+                          </ChipButton>
+                        ))}
+                      </div>
+                      <div className="settings-chip-row settings-chip-row--left">
+                        {hqPlayerDefaultBackends.map((backend) => (
+                          <ChipButton
+                            active={hqPlayerDraft.defaultPlaybackBackend === backend}
+                            key={backend}
+                            onClick={() => patchHqPlayerDraft({ defaultPlaybackBackend: backend })}
+                          >
+                            {t(getHqPlayerBackendKey(backend))}
+                          </ChipButton>
+                        ))}
+                      </div>
+                      <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                        <label className="settings-number-field">
+                          <span>{t('settings.playback.hqplayer.host')}</span>
+                          <input
+                            aria-label={t('settings.playback.hqplayer.host')}
+                            type="text"
+                            value={hqPlayerDraft.host}
+                            onChange={(event) => patchHqPlayerDraft({ host: event.currentTarget.value })}
+                          />
+                        </label>
+                        <label className="settings-number-field">
+                          <span>{t('settings.playback.hqplayer.port')}</span>
+                          <input
+                            aria-label={t('settings.playback.hqplayer.port')}
+                            type="number"
+                            min={1}
+                            max={65535}
+                            value={hqPlayerDraft.port ?? ''}
+                            onChange={(event) => patchHqPlayerDraft({ port: parseHqPlayerPort(event.currentTarget.value) })}
+                          />
+                        </label>
+                        <label className="settings-number-field">
+                          <span>{t('settings.playback.hqplayer.profileName')}</span>
+                          <input
+                            aria-label={t('settings.playback.hqplayer.profileName')}
+                            type="text"
+                            value={hqPlayerDraft.profileName ?? ''}
+                            onChange={(event) => patchHqPlayerDraft({ profileName: event.currentTarget.value.trim() || null })}
+                          />
+                        </label>
+                        <div className="settings-inline-toggle">
+                          <span>{t('settings.playback.hqplayer.mediaServer')}</span>
+                          <ToggleButton
+                            active={hqPlayerDraft.mediaServerEnabled}
+                            disabled={!appSettings}
+                            onClick={() => patchHqPlayerDraft({ mediaServerEnabled: !hqPlayerDraft.mediaServerEnabled })}
+                          />
+                        </div>
+                      </div>
+                      <div className="settings-status-grid">
+                        <span>
+                          <em>{t('settings.playback.hqplayer.field.status')}</em>
+                          <strong>{t(getHqPlayerStatusKey(hqPlayerState))}</strong>
+                        </span>
+                        <span>
+                          <em>{t('settings.playback.hqplayer.field.endpoint')}</em>
+                          <strong>{hqPlayerEndpointLabel}</strong>
+                        </span>
+                        <span>
+                          <em>{t('settings.playback.hqplayer.field.defaultBackend')}</em>
+                          <strong>{t(getHqPlayerBackendKey(hqPlayerDraft.defaultPlaybackBackend))}</strong>
+                        </span>
+                        <span>
+                          <em>{t('settings.playback.hqplayer.field.lastChecked')}</em>
+                          <strong>{hqPlayerCheckedLabel}</strong>
+                        </span>
+                      </div>
+                      {hqPlayerTestResult ? (
+                        <p className={hqPlayerTestResult.ok ? 'settings-inline-note' : 'settings-inline-error'}>
+                          {t(hqPlayerTestResult.ok ? 'settings.playback.hqplayer.result.ok' : 'settings.playback.hqplayer.result.failed')}
+                          {hqPlayerTestResult.error ? `: ${hqPlayerTestResult.error}` : ''}
+                        </p>
+                      ) : null}
+                      <p className="settings-inline-note">{t('settings.playback.hqplayer.note')}</p>
                     </div>
-                  </div>
-                  <div className="settings-status-grid">
-                    <span>
-                      <em>{t('settings.playback.hqplayer.field.status')}</em>
-                      <strong>{t(getHqPlayerStatusKey(hqPlayerState))}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.playback.hqplayer.field.endpoint')}</em>
-                      <strong>{hqPlayerEndpointLabel}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.playback.hqplayer.field.defaultBackend')}</em>
-                      <strong>{t(getHqPlayerBackendKey(hqPlayerDraft.defaultPlaybackBackend))}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.playback.hqplayer.field.lastChecked')}</em>
-                      <strong>{hqPlayerCheckedLabel}</strong>
-                    </span>
-                  </div>
-                  {hqPlayerTestResult ? (
-                    <p className={hqPlayerTestResult.ok ? 'settings-inline-note' : 'settings-inline-error'}>
-                      {t(hqPlayerTestResult.ok ? 'settings.playback.hqplayer.result.ok' : 'settings.playback.hqplayer.result.failed')}
-                      {hqPlayerTestResult.error ? `: ${hqPlayerTestResult.error}` : ''}
-                    </p>
                   ) : null}
-                  <p className="settings-inline-note">{t('settings.playback.hqplayer.note')}</p>
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.playback.wireless.title')} description={t('settings.playback.wireless.description')}>
@@ -10389,7 +10480,7 @@ export const SettingsPage = (): JSX.Element => {
                 title="BPM / Offset 分析"
                 description="默认开启。开启后只会在播放当前歌曲时低优先级分析缺失 BPM，并把检测到的 BPM 写入歌曲标签；手动按钮仍可一次性补齐缺失 BPM。"
               >
-                <div className="settings-cache-panel">
+                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
                       <span>启用 BPM 分析</span>
@@ -10528,6 +10619,14 @@ export const SettingsPage = (): JSX.Element => {
                     <button
                       className="settings-action-button"
                       type="button"
+                      onClick={() => void handleOpenExternalUrl('https://afdian.com/a/echonext')}
+                    >
+                      <ExternalLink size={15} />
+                      爱发电
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
                       onClick={() => void handleOpenExternalUrl('https://github.com/moekotori/echo/releases')}
                     >
                       <History size={15} />
@@ -10607,6 +10706,19 @@ export const SettingsPage = (): JSX.Element => {
                   <p className="settings-inline-note">
                     早期 PowerShell 只盯 exceptions.safe.log：警告显示黄色，错误和致命错误显示红色；完整启动时间线仍会写入安全诊断包里的 startup-timeline.safe.json。
                   </p>
+                  <p className="settings-inline-note">
+                    提问前请先打开此功能并导出 log；如果只有口头阐述，请向我的合作伙伴提问。
+                  </p>
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl('https://www.doubao.com/chat/')}
+                    >
+                      <ExternalLink size={15} />
+                      合作伙伴
+                    </button>
+                  </div>
                   {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
                   {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}
                 </div>
@@ -10697,15 +10809,6 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                   {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}
                 </div>
-              </SettingRow>
-              <SettingRow title={t('settings.about.devMode.title')} description={t('settings.about.devMode.description')}>
-                <StatusText>{isDevBuild ? t('common.dev') : t('common.build')}</StatusText>
-              </SettingRow>
-              <SettingRow title={t('settings.about.nativeSqlite.title')} description={t('settings.about.nativeSqlite.description')}>
-                <StatusText tone="good">{t('common.ready')}</StatusText>
-              </SettingRow>
-              <SettingRow title={t('settings.about.audioHost.title')} description={t('settings.about.audioHost.description')}>
-                <StatusText tone={status?.host ? 'neutral' : 'muted'}>{status?.host ?? t('common.checking')}</StatusText>
               </SettingRow>
             </SettingSection>
 

@@ -182,7 +182,7 @@ export type HqPlayerPlaybackControlSendResult = {
   state: HqPlayerPlaybackControlSendState;
   reason: HqPlayerPlaybackControlSendReason | null;
   transport: 'official-control-tcp';
-  command: 'PlayNextURI+Play' | 'PlayNextURI+Play+Seek' | 'none';
+  command: 'PlayNextURI+Play' | 'PlayNextURI+Play+Seek' | 'Seek' | 'Stop' | 'none';
   endpoint: HqPlayerEndpoint;
   startedAt: string;
   finishedAt: string;

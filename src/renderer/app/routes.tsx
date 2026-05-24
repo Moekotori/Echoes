@@ -100,14 +100,6 @@ export const appRoutes: AppRoute[] = [
     element: <SongsPage />,
   },
   {
-    id: 'inbox',
-    label: '收件箱',
-    description: '每次扫描新增歌曲。',
-    icon: Inbox,
-    placement: 'main',
-    element: <InboxPage />,
-  },
-  {
     id: 'downloads',
     label: 'Downloads',
     labelKey: 'route.downloads.label',
@@ -217,6 +209,14 @@ export const appRoutes: AppRoute[] = [
     icon: EchoPlaylistsIcon,
     placement: 'main',
     element: <PlaylistsPage />,
+  },
+  {
+    id: 'inbox',
+    label: '收件箱',
+    description: '每次扫描新增歌曲。',
+    icon: Inbox,
+    placement: 'main',
+    element: <InboxPage />,
   },
   {
     id: 'plugins',

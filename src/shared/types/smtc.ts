@@ -21,6 +21,16 @@ export type SmtcTrackMetadata = {
   coverUrl: string | null;
 };
 
+export type SmtcLyricsProgress = {
+  trackId: string | null;
+  lineText: string | null;
+  lineIndex: number | null;
+  lineCount: number | null;
+  lineStartMs: number | null;
+  positionSeconds: number | null;
+  durationSeconds: number | null;
+};
+
 export type SmtcEnabledActions = {
   play: boolean;
   pause: boolean;

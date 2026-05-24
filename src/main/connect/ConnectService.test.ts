@@ -145,6 +145,16 @@ const createHqPlayerService = (initial: Partial<HqPlayerSettings> = {}) => {
       reason: null,
       message: null,
     }),
+    seekPlayback: vi.fn().mockResolvedValue({
+      state: 'sent',
+      reason: null,
+      message: null,
+    }),
+    stopPlayback: vi.fn().mockResolvedValue({
+      state: 'sent',
+      reason: null,
+      message: null,
+    }),
   };
 };
 
@@ -311,6 +321,64 @@ describe('ConnectService HQPlayer output device', () => {
     expect(mocks.audioSession.pause.mock.invocationCallOrder[0]).toBeLessThan(
       hqPlayer.sendLastPlaybackControl.mock.invocationCallOrder[0],
     );
+  });
+
+  it('seeks the active HQPlayer session through HQPlayer control instead of DLNA', async () => {
+    const { ConnectService } = await import('./ConnectService');
+    const hqPlayer = createHqPlayerService();
+    const service = new ConnectService(hqPlayer);
+
+    await service.connect({
+      deviceId: hqPlayerConnectDeviceId,
+      track: localTrack,
+      filePath: localTrack.path,
+    });
+
+    await expect(service.seek(42.6)).resolves.toMatchObject({
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      positionSeconds: 42.6,
+    });
+    expect(hqPlayer.seekPlayback).toHaveBeenCalledWith(42.6);
+  });
+
+  it('stops HQPlayer playback before disconnecting the active HQPlayer session', async () => {
+    const { ConnectService } = await import('./ConnectService');
+    const hqPlayer = createHqPlayerService();
+    const service = new ConnectService(hqPlayer);
+
+    await service.connect({
+      deviceId: hqPlayerConnectDeviceId,
+      track: localTrack,
+      filePath: localTrack.path,
+    });
+
+    await expect(service.disconnect()).resolves.toMatchObject({
+      deviceId: null,
+      protocol: null,
+      state: 'idle',
+    });
+    expect(hqPlayer.stopPlayback).toHaveBeenCalledOnce();
+  });
+
+  it('routes stop to HQPlayer control when HQPlayer is the active output', async () => {
+    const { ConnectService } = await import('./ConnectService');
+    const hqPlayer = createHqPlayerService();
+    const service = new ConnectService(hqPlayer);
+
+    await service.connect({
+      deviceId: hqPlayerConnectDeviceId,
+      track: localTrack,
+      filePath: localTrack.path,
+    });
+
+    await expect(service.stop()).resolves.toMatchObject({
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      state: 'stopped',
+      positionSeconds: 0,
+    });
+    expect(hqPlayer.stopPlayback).toHaveBeenCalledOnce();
   });
 
   it('keeps HQPlayer connection failures visible on the Connect session', async () => {

@@ -7,9 +7,9 @@ dist/
 .DS_Store
 
 # Local Codex workspace state
-.codex/
-.codex-tmp/
-.codex-backups/
+/.codex/
+/.codex-tmp/
+/.codex-backups/
 
 # Native/Electron build outputs
 native/**/build/

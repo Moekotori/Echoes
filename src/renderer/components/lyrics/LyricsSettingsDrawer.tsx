@@ -1925,8 +1925,10 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
           </div>
           ) : null}
 
-          {showPersistentControls && isSecondaryLyricsSizeOpen ? (
-            <label className="lyrics-drawer-range lyrics-secondary-size-range" hidden={!isLyricsStyleControlsOpen}>
+          {showPersistentControls ? (
+            <div className="lyrics-style-range-grid" hidden={!isLyricsStyleControlsOpen}>
+          {isSecondaryLyricsSizeOpen ? (
+            <label className="lyrics-drawer-range lyrics-secondary-size-range">
               <span>
                 <strong>
                   <Type size={15} />
@@ -1945,8 +1947,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
             </label>
           ) : null}
 
-          {showPersistentControls ? (
-          <label className="lyrics-drawer-range" hidden={!isLyricsStyleControlsOpen}>
+          <label className="lyrics-drawer-range">
             <span>
               <strong>
                 <Type size={15} />
@@ -1963,10 +1964,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => patchSettingsDebounced({ lyricsFontSizePx: Number(event.currentTarget.value) })}
             />
           </label>
-          ) : null}
-
-          {showPersistentControls ? (
-          <label className="lyrics-drawer-range" hidden={!isLyricsStyleControlsOpen}>
+          <label className="lyrics-drawer-range">
             <span>
               <strong>
                 <SlidersHorizontal size={15} />
@@ -1983,10 +1981,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => patchSettingsDebounced({ lyricsLineSpacingPercent: Number(event.currentTarget.value) })}
             />
           </label>
-          ) : null}
-
-          {showPersistentControls ? (
-          <label className="lyrics-drawer-range" hidden={!isLyricsStyleControlsOpen}>
+          <label className="lyrics-drawer-range">
             <span>
               <strong>
                 <Type size={15} />
@@ -2003,10 +1998,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => patchSettingsDebounced({ lyricsLineMaxChars: Number(event.currentTarget.value) })}
             />
           </label>
-          ) : null}
-
-          {showPersistentControls ? (
-          <label className="lyrics-drawer-range" hidden={!isLyricsStyleControlsOpen}>
+          <label className="lyrics-drawer-range">
             <span>
               <strong>
                 <EyeOff size={15} />
@@ -2023,6 +2015,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => patchSettingsDebounced({ lyricsContextOpacityPercent: Number(event.currentTarget.value) })}
             />
           </label>
+            </div>
           ) : null}
 
           {showPersistentControls ? (
@@ -2372,6 +2365,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
             <h3>匹配与延迟</h3>
           </div>
 
+          <div className="lyrics-delay-range-grid">
           <label className="lyrics-drawer-range">
             <span>
               <strong>新歌词默认延迟</strong>
@@ -2401,6 +2395,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => void patchSettings({ lyricsGlobalSyncOffsetMs: Number(event.currentTarget.value) })}
             />
           </label>
+          </div>
 
           <label className="audio-toggle-row">
             <span>
