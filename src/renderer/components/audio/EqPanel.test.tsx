@@ -95,7 +95,7 @@ const renderEqPanel = (status: AudioStatus | null = audioStatus): ReturnType<typ
   );
 
 const showAdvancedEqTools = async (): Promise<void> => {
-  fireEvent.click(await screen.findByRole('button', { name: 'Advanced' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'PEQ Console' }));
 };
 
 beforeEach(() => {
@@ -165,8 +165,10 @@ describe('EqPanel', () => {
     renderEqPanel();
 
     await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
-    expect(screen.getByText('10-band Graphic EQ')).toBeTruthy();
-    expect(screen.getByText('HiFi DSP panel')).toBeTruthy();
+    expect(screen.getByText('Parametric EQ Workbench')).toBeTruthy();
+    expect(screen.getByText('Realtime PEQ, headroom management, and output profiles')).toBeTruthy();
+    expect(screen.getByText('Signal Path')).toBeTruthy();
+    expect(screen.getByText('Selected band console')).toBeTruthy();
     expect(screen.getAllByText('Headroom').length).toBeGreaterThan(0);
     expect(screen.getByText('Bit-perfect')).toBeTruthy();
   });
@@ -174,7 +176,7 @@ describe('EqPanel', () => {
   it('hides advanced EQ workbench controls until explicitly enabled', async () => {
     renderEqPanel();
 
-    expect(await screen.findByRole('button', { name: 'Advanced' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'PEQ Console' })).toBeTruthy();
     expect(screen.queryByLabelText('Unlock frequency')).toBeNull();
     expect(screen.queryByLabelText('Q')).toBeNull();
     expect(screen.queryByLabelText('EQ profile name')).toBeNull();
@@ -348,7 +350,7 @@ describe('EqPanel', () => {
     });
 
     expect(await screen.findByText('Input peak')).toBeTruthy();
-    expect(screen.getByText('-5.2 dB')).toBeTruthy();
+    expect(screen.getAllByText('-5.2 dB').length).toBeGreaterThan(0);
     expect(screen.getByText('Est. output peak')).toBeTruthy();
     expect(screen.getAllByText('Headroom').length).toBeGreaterThan(0);
     expect(screen.getByText(/pre-native \+ DSP estimate/)).toBeTruthy();

@@ -6,7 +6,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { SettingsPage } from './SettingsPage';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadSettings } from '../../shared/types/downloads';
-import { createDefaultGlobalShortcuts, createRecommendedGlobalShortcuts } from '../../shared/types/globalShortcuts';
+import {
+  createDefaultGlobalShortcuts,
+  createDefaultLocalShortcuts,
+  createRecommendedGlobalShortcuts,
+  createRecommendedLocalShortcuts,
+} from '../../shared/types/globalShortcuts';
 import type { HqPlayerConnectionTestResult, HqPlayerSettings, HqPlayerStatus } from '../../shared/types/hqplayer';
 import type { LibraryDatabaseProtectionStatus } from '../../shared/types/library';
 import type { MvSettings } from '../../shared/types/mv';
@@ -73,6 +78,7 @@ const settings: AppSettings = {
   },
   playerVolume: 1,
   backgroundSpacePauseEnabled: false,
+  localShortcuts: createDefaultLocalShortcuts(),
   globalShortcuts: createDefaultGlobalShortcuts(),
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -218,7 +224,7 @@ const playbackStatus = {
   outputMode: 'shared',
   sharedBackend: 'auto',
   useJuceOutputRequested: true,
-  useJuceDecodeRequested: false,
+  useJuceDecodeRequested: true,
   activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
@@ -569,6 +575,9 @@ const clickSettingsNav = (labelPattern: string): void => {
   fireEvent.click(within(nav).getByRole('button', { name: new RegExp(labelPattern) }));
 };
 
+const getShortcutScope = (row: HTMLElement, scope: 'local' | 'global'): HTMLElement =>
+  within(row).getByRole('group', { name: `settings.shortcuts.scope.${scope}` });
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -668,7 +677,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.about\\.label');
     const row = screen
-      .getByText('持续开启后，每次启动会自动打开 ECHO Debug Console，并记录启动阶段耗时；只诊断，不关闭功能。')
+      .getByText('持续开启后，每次启动会先打开异常记录器；只显示异常、渲染器错误、音频错误和慢启动阶段，不混入普通播放日志。')
       .closest('.setting-row') as HTMLElement;
     fireEvent.click(within(row).getByRole('button', { pressed: false }));
 
@@ -1273,6 +1282,24 @@ describe('SettingsPage', () => {
     expect(screen.getByText('下载路径已更新。')).toBeTruthy();
   });
 
+  it('toggles streaming download actions from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, streamingDownloadActionsEnabled: false });
+    setSettingsMock.mockResolvedValue({ ...settings, streamingDownloadActionsEnabled: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.library\\.label');
+    const row = screen.getByRole('heading', { name: /流媒体下载按钮/ }).closest('.setting-row') as HTMLElement;
+    expect(within(row).getByText('已隐藏')).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { pressed: false }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ streamingDownloadActionsEnabled: true }));
+  });
+
   it('saves the lyrics player bar drawer setting from Settings', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -1473,7 +1500,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     const row = screen.getByText('settings.shortcuts.action.playPause.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, altKey: true });
 
     const expectedShortcuts = {
@@ -1488,7 +1515,7 @@ describe('SettingsPage', () => {
       globalShortcuts: expectedShortcuts,
       ...patch,
     }));
-    fireEvent.click(within(row).getByRole('button', { pressed: false }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { pressed: false }));
 
     await waitFor(() =>
       expect(setSettingsMock).toHaveBeenCalledWith({
@@ -1512,7 +1539,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     const row = screen.getByText('settings.shortcuts.action.previousTrack.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent.keyDown(window, { code: 'F13', key: 'F13' });
 
     await waitFor(() =>
@@ -1520,6 +1547,45 @@ describe('SettingsPage', () => {
         globalShortcuts: {
           ...createDefaultGlobalShortcuts(),
           previousTrack: { enabled: false, accelerator: 'F13' },
+        },
+      }),
+    );
+  });
+
+  it('records and enables a focused-window shortcut from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.nextTrack.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(getShortcutScope(row, 'local')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.keyDown(window, { code: 'KeyD', key: 'd' });
+
+    const expectedShortcuts = {
+      ...createDefaultLocalShortcuts(),
+      nextTrack: { enabled: false, accelerator: 'D' },
+    };
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ localShortcuts: expectedShortcuts }));
+
+    setSettingsMock.mockClear();
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({
+      ...settings,
+      localShortcuts: expectedShortcuts,
+      ...patch,
+    }));
+    fireEvent.click(within(getShortcutScope(row, 'local')).getByRole('button', { pressed: false }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        localShortcuts: {
+          ...expectedShortcuts,
+          nextTrack: { enabled: true, accelerator: 'D' },
         },
       }),
     );
@@ -1537,7 +1603,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     const row = screen.getByText('settings.shortcuts.action.nextTrack.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent.mouseDown(window, { button: 3 });
 
     await waitFor(() =>
@@ -1565,7 +1631,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('settings.shortcuts.action.speedDown.title')).toBeTruthy();
 
     const row = screen.getByText('settings.shortcuts.action.speedUp.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent(window, new MouseEvent('auxclick', { button: 4, bubbles: true, cancelable: true }));
 
     await waitFor(() =>
@@ -1590,7 +1656,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     const row = screen.getByText('settings.shortcuts.action.speedUp.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent.keyDown(window, { code: 'Equal', key: '+', ctrlKey: true, altKey: true, shiftKey: true });
 
     await waitFor(() =>
@@ -1615,7 +1681,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     const row = screen.getByText('settings.shortcuts.action.previousTrack.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.click(within(getShortcutScope(row, 'global')).getByRole('button', { name: 'settings.shortcuts.action.record' }));
     fireEvent.keyDown(window, { code: 'BrowserBack', key: 'BrowserBack' });
 
     await waitFor(() =>
@@ -1628,7 +1694,7 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('restores recommended global shortcuts without enabling them', async () => {
+  it('restores recommended local and global shortcuts', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
     setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
@@ -1641,7 +1707,12 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
     fireEvent.click(screen.getByRole('button', { name: 'settings.shortcuts.action.restoreRecommended' }));
 
-    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ globalShortcuts: createRecommendedGlobalShortcuts() }));
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        localShortcuts: createRecommendedLocalShortcuts(),
+        globalShortcuts: createRecommendedGlobalShortcuts(),
+      }),
+    );
   });
 
   it('syncs the playback output select from the active device name when the host has no device id', async () => {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, webUtils } from 'electron';
 
 const listeners = new Map<string, (...args: unknown[]) => void>();
 let exposedApi: EchoApi | null = null;
@@ -28,6 +28,9 @@ class FakeAudio {
   src = '';
   volume = 1;
   playbackRate = 1;
+  preservesPitch = true;
+  mozPreservesPitch = true;
+  webkitPreservesPitch = true;
   duration = 12;
   networkState = 1;
   readyState = 0;
@@ -103,6 +106,9 @@ vi.mock('electron', () => ({
       exposedApi = api;
     },
   },
+  webUtils: {
+    getPathForFile: vi.fn(() => ''),
+  },
   ipcRenderer: {
     invoke: vi.fn(),
     on: vi.fn((channel: string, listener: (...args: unknown[]) => void) => {
@@ -131,6 +137,8 @@ describe('preload SMTC API', () => {
     window.localStorage.clear();
     vi.stubGlobal('Audio', FakeAudio);
     vi.mocked(ipcRenderer.invoke).mockReset();
+    vi.mocked(webUtils.getPathForFile).mockReset();
+    vi.mocked(webUtils.getPathForFile).mockReturnValue('');
     vi.resetModules();
     await import('./index');
   });
@@ -148,6 +156,12 @@ describe('preload SMTC API', () => {
 
     unsubscribe();
     expect(listeners.has(IpcChannels.SmtcCommand)).toBe(false);
+  });
+
+  it('exposes SMTC diagnostics through IPC', async () => {
+    await exposedApi!.smtc.getDiagnostics();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.SmtcGetDiagnostics);
   });
 
   it('subscribes to audio status updates and unsubscribes cleanly', () => {
@@ -218,12 +232,14 @@ describe('preload SMTC API', () => {
 
   it('exposes the dropped import path classifier', async () => {
     await exposedApi!.library.classifyImportPaths(['D:\\Music']);
+    await exposedApi!.library.chooseImportFiles();
     await exposedApi!.library.resolveLyricsBackgroundCover('track-1');
     await exposedApi!.library.getLibraryInboxBatches();
     await exposedApi!.library.getLibraryInboxTracks({ scope: 'latest', filter: 'all' });
     await exposedApi!.library.createPlaylistFromLibraryInbox({ scope: 'latest', filter: 'missing_cover' });
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryClassifyImportPaths, ['D:\\Music']);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryChooseImportFiles);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryResolveLyricsBackgroundCover, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetInboxBatches);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LibraryGetInboxTracks, { scope: 'latest', filter: 'all' });
@@ -236,7 +252,21 @@ describe('preload SMTC API', () => {
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(
       IpcChannels.LibraryImportDroppedFiles,
-      [{ name: 'song.flac', type: 'audio/flac', bytes: new Uint8Array([1, 2, 3]) }],
+      [{ name: 'song.flac', type: 'audio/flac', path: null, bytes: new Uint8Array([1, 2, 3]) }],
+    );
+  });
+
+  it('serializes dropped file paths without reading large file bytes when Electron exposes a path', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'beatmap.osz', { type: 'application/x-osu-beatmap-archive' });
+    const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
+    vi.mocked(webUtils.getPathForFile).mockReturnValue('D:\\Maps\\beatmap.osz');
+
+    await exposedApi!.library.importDroppedFiles([file]);
+
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+      IpcChannels.LibraryImportDroppedFiles,
+      [{ name: 'beatmap.osz', type: 'application/x-osu-beatmap-archive', path: 'D:\\Maps\\beatmap.osz', bytes: null }],
     );
   });
 
@@ -368,6 +398,47 @@ describe('preload SMTC API', () => {
       replayGainMode: 'track',
       replayGainAppliedDb: -6,
     });
+  });
+
+  it('lets system Nightcore pitch follow playback speed like osu!', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, settings?: unknown) => {
+      if (channel === IpcChannels.AudioSetOutput) {
+        const output = settings as { playbackRate?: number; playbackSpeedMode?: string; outputMode?: string };
+        return Promise.resolve({
+          outputMode: output.outputMode ?? 'system',
+          playbackRate: output.playbackRate ?? 1,
+          playbackSpeedMode: output.playbackSpeedMode ?? 'nightcore',
+          volume: 1,
+          warnings: [],
+        });
+      }
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/nightcore-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+
+    await exposedApi!.audio.setOutput({ outputMode: 'system', playbackRate: 1.25, playbackSpeedMode: 'nightcore' });
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\song.mp3',
+      trackId: 'track-nightcore',
+      probe: { durationSeconds: 10 },
+    });
+
+    expect(fakeAudioInstances[0].playbackRate).toBe(1.25);
+    expect(fakeAudioInstances[0].preservesPitch).toBe(false);
+    expect(fakeAudioInstances[0].mozPreservesPitch).toBe(false);
+    expect(fakeAudioInstances[0].webkitPreservesPitch).toBe(false);
+
+    await exposedApi!.audio.setOutput({ outputMode: 'system', playbackRate: 1.25, playbackSpeedMode: 'speed' });
+
+    expect(fakeAudioInstances[0].playbackRate).toBe(1.25);
+    expect(fakeAudioInstances[0].preservesPitch).toBe(true);
   });
 
   it('rejects a system audio seek when HTMLAudio stays at the old position', async () => {
@@ -705,6 +776,7 @@ describe('preload SMTC API', () => {
     await exposedApi!.lyrics.getForTrack('track-1');
     await exposedApi!.lyrics.searchCandidates('track-1');
     await exposedApi!.lyrics.applyCandidate('track-1', 'candidate-1');
+    await exposedApi!.lyrics.embedToTrack?.('track-1', { candidateId: 'candidate-1' });
     await exposedApi!.lyrics.applyCustomLrc?.('track-1', '[00:01.00]Line', 'custom.lrc');
     await exposedApi!.lyrics.markInstrumental('track-1');
     await exposedApi!.lyrics.rejectCandidate('candidate-1');
@@ -714,6 +786,7 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsGetForTrack, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsSearchCandidates, 'track-1', undefined, undefined);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCandidate, 'track-1', 'candidate-1');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsEmbedToTrack, 'track-1', { candidateId: 'candidate-1' });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCustomLrc, 'track-1', '[00:01.00]Line', 'custom.lrc');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsMarkInstrumental, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsRejectCandidate, 'candidate-1');

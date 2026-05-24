@@ -239,7 +239,9 @@ export const initializeAutoUpdater = (enabled: boolean): void => {
   });
 
   if (!app.isPackaged) {
-    console.info('[auto-updater] skipped update check outside packaged builds');
+    if (process.env.ECHO_VERBOSE_APP_LOGS === '1') {
+      console.info('[auto-updater] skipped update check outside packaged builds');
+    }
     return;
   }
 

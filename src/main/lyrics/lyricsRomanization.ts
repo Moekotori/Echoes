@@ -1,4 +1,9 @@
 import type { LyricLine } from '../../shared/types/lyrics';
+import {
+  hasJapaneseKanaSignal,
+  hasKanaText,
+  shouldRomanizeJapaneseLine,
+} from '../../shared/utils/lyricsLanguage';
 
 type KuroshiroInstance = {
   convert: (text: string, options: { to: 'romaji'; mode: 'spaced'; romajiSystem: 'hepburn' }) => Promise<string>;
@@ -7,10 +12,9 @@ type KuroshiroInstance = {
 type KuroshiroConstructor = new () => { init: (analyzer: unknown) => Promise<void> } & KuroshiroInstance;
 type KuromojiAnalyzerConstructor = new () => unknown;
 
-const japanesePattern = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/u;
 let kuroshiroPromise: Promise<KuroshiroInstance | null> | null = null;
 
-export const hasJapaneseText = (text: string): boolean => japanesePattern.test(text);
+export const hasJapaneseText = (text: string): boolean => hasKanaText(text);
 
 const normalizeRomanization = (value: string): string | null => {
   const normalized = value
@@ -60,7 +64,10 @@ const resolveDefaultExport = <T>(moduleValue: unknown): T | null => {
 };
 
 export const fillMissingRomanization = async (lines: LyricLine[]): Promise<LyricLine[]> => {
-  const missingJapaneseLines = lines.filter((line) => !line.romanization && hasJapaneseText(line.text));
+  const lyricsHaveJapaneseKana = hasJapaneseKanaSignal(lines);
+  const missingJapaneseLines = lines.filter(
+    (line) => !line.romanization && shouldRomanizeJapaneseLine(line.text, lyricsHaveJapaneseKana),
+  );
   if (missingJapaneseLines.length === 0) {
     return lines;
   }
@@ -101,4 +108,5 @@ export const fillMissingRomanization = async (lines: LyricLine[]): Promise<Lyric
 };
 
 export const hasMissingRomanization = (lines: LyricLine[]): boolean =>
-  lines.some((line) => !line.romanization && hasJapaneseText(line.text));
+  hasJapaneseKanaSignal(lines) &&
+  lines.some((line) => !line.romanization && shouldRomanizeJapaneseLine(line.text, true));

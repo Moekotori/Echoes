@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { Download, ListPlus, Loader2, MoreHorizontal, Music2 } from 'lucide-react';
 import { isDisplayableBpmAnalysis } from '../../../shared/constants/audioAnalysis';
 import type { LibraryTrack } from '../../../shared/types/library';
+import { isDsdCodec, isHiResAudioSpec } from '../../../shared/utils/audioQuality';
 
 export type HifiTagKind = 'flac' | 'lossless' | 'depth' | 'rate' | 'bitrate' | 'bpm' | 'dsf' | 'hires';
 
@@ -47,14 +48,14 @@ const tagsFromTrack = (track: LibraryTrack): HifiTag[] => {
   if (codec) {
     tags.push({
       label: codec,
-      kind: codec === 'FLAC' ? 'flac' : codec === 'DSF' || codec === 'DFF' ? 'dsf' : 'lossless',
+      kind: codec === 'FLAC' ? 'flac' : isDsdCodec(codec) ? 'dsf' : 'lossless',
     });
   }
 
   if (track.bitDepth && track.sampleRate) {
     tags.push({
       label: `${track.bitDepth}bit / ${track.sampleRate >= 1000 ? `${Math.round(track.sampleRate / 1000)}kHz` : `${track.sampleRate}Hz`}`,
-      kind: track.sampleRate >= 88200 || track.bitDepth >= 24 ? 'hires' : 'depth',
+      kind: isHiResAudioSpec(track) ? 'hires' : 'depth',
     });
   } else if (track.sampleRate) {
     tags.push({

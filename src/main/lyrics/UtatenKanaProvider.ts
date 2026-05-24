@@ -1,5 +1,10 @@
 import type { LyricLine, LyricsQuery } from '../../shared/types/lyrics';
 import { fetchWithNetworkProxy } from '../network/networkFetch';
+import {
+  hasJapaneseKanaSignal,
+  hasKanaText,
+  shouldRomanizeJapaneseLine,
+} from '../../shared/utils/lyricsLanguage';
 import type { LyricsProviderSearchRequest } from './LyricsProvider';
 import { buildNormalizedLyricsQuery } from './lyricsQueryBuilder';
 import { similarity } from './lyricsScoring';
@@ -32,8 +37,6 @@ const utatenUserAgent = 'ECHO-Next/1.0.1 (lyrics kana lookup)';
 const defaultTimeoutMs = 2500;
 const maxSearchVariants = 2;
 const maxResultPages = 2;
-const japaneseTextPattern = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const kanaPattern = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
 
 const decodeHtmlEntities = (value: string): string =>
   value
@@ -243,25 +246,32 @@ export const parseUtatenLyricPage = (
 };
 
 export const hasJapaneseLyricsText = (lines: LyricLine[]): boolean =>
-  lines.some((line) => japaneseTextPattern.test(line.text));
+  hasJapaneseKanaSignal(lines);
 
 const hasMissingKana = (lines: LyricLine[]): boolean =>
-  lines.some((line) => !line.kana?.trim() && japaneseTextPattern.test(line.text));
+  hasJapaneseKanaSignal(lines) &&
+  lines.some((line) => !line.kana?.trim() && shouldRomanizeJapaneseLine(line.text, true));
 
 const normalizeLineForKanaMatch = (value: string): string =>
   normalizeTextForIdentity(value).replace(/\s+/gu, '');
 
 const isUsefulKana = (line: UtatenKanaLine): boolean =>
-  kanaPattern.test(line.kana) &&
+  hasKanaText(line.kana) &&
   normalizeLineForKanaMatch(line.kana) !== normalizeLineForKanaMatch(line.text);
 
 export const applyUtatenKanaLines = (
   lines: LyricLine[],
   utatenLines: UtatenKanaLine[],
 ): LyricLine[] => {
+  const lyricsHaveJapaneseKana = hasJapaneseKanaSignal(lines);
   const targetIndexes = lines
     .map((line, index) => ({ line, index }))
-    .filter(({ line }) => !line.kana?.trim() && japaneseTextPattern.test(line.text) && normalizeLineForKanaMatch(line.text).length >= 2);
+    .filter(
+      ({ line }) =>
+        !line.kana?.trim() &&
+        shouldRomanizeJapaneseLine(line.text, lyricsHaveJapaneseKana) &&
+        normalizeLineForKanaMatch(line.text).length >= 2,
+    );
   if (targetIndexes.length === 0 || utatenLines.length === 0) {
     return lines;
   }

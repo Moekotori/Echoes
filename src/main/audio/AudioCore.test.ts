@@ -127,6 +127,39 @@ class FakeDecoder {
   }
 }
 
+class DelayedReadyDecoder extends FakeDecoder {
+  private resolveReady: (() => void) | null = null;
+  private stream: PassThrough | null = null;
+
+  override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+    this.decodeRequests.push(request);
+    const stream = new PassThrough();
+    this.stream = stream;
+    const ready = new Promise<void>((resolve) => {
+      this.resolveReady = resolve;
+    });
+
+    return {
+      stream,
+      ready,
+      done: new Promise(() => undefined),
+      stop: vi.fn(() => {
+        stream.destroy();
+      }),
+    };
+  }
+
+  releaseReady(): void {
+    if (!this.stream || !this.resolveReady) {
+      throw new Error('decoder ready was not pending');
+    }
+
+    this.stream.write(pcmBuffer([0, 0]));
+    this.resolveReady();
+    this.resolveReady = null;
+  }
+}
+
 class FakeJuceDecoder {
   readonly decodeRequests: PcmDecodeRequest[] = [];
 
@@ -161,6 +194,44 @@ class FakeJuceDecoder {
         : lowerPath.endsWith('.mp3')
           ? 'juce-windows-media-mp3'
           : 'juce-wav',
+    };
+  }
+}
+
+class ReadyFailingJuceDecoder extends FakeJuceDecoder {
+  constructor(private readonly readyError: Error = new Error('resident decode server exited before ready')) {
+    super();
+  }
+
+  override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+    this.decodeRequests.push(request);
+    const stream = new PassThrough();
+
+    return {
+      stream,
+      stop: vi.fn(() => {
+        stream.destroy();
+      }),
+      ready: Promise.reject(this.readyError),
+      done: Promise.resolve(),
+      decoderBackendImpl: 'juce-flac',
+    };
+  }
+}
+
+class LongRunningJuceDecoder extends FakeJuceDecoder {
+  override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+    this.decodeRequests.push(request);
+    const stream = new PassThrough();
+
+    return {
+      stream,
+      stop: vi.fn(() => {
+        stream.destroy();
+      }),
+      ready: Promise.resolve(),
+      done: new Promise(() => undefined),
+      decoderBackendImpl: 'juce-flac',
     };
   }
 }
@@ -539,6 +610,16 @@ class ConfigurableStartupFailingBridge extends EventEmitter {
   }
 }
 
+const createAudioSessionForTest = (dependencies: AudioSessionDependencies): AudioSession => {
+  const session = new AudioSession(dependencies);
+
+  if (!dependencies.juceDecoder) {
+    (session as unknown as { outputSettings: { useJuceDecode: boolean } }).outputSettings.useJuceDecode = false;
+  }
+
+  return session;
+};
+
 const createSessionHarness = (
   probes: AudioProbeResult[],
   readySampleRates: number[] = [],
@@ -548,7 +629,7 @@ const createSessionHarness = (
   const decoder = new FakeDecoder(new Map(probes.map((item) => [item.filePath, item])));
   const bridges: FakeBridge[] = [];
   let bridgeIndex = 0;
-  const session = new AudioSession({
+  const session = createAudioSessionForTest({
     decoder,
     deviceService: {
       listDevices: () => devices,
@@ -562,6 +643,9 @@ const createSessionHarness = (
     logger: noopLogger,
     ...sessionOptions,
   });
+  if (!sessionOptions.juceDecoder) {
+    (session as unknown as { outputSettings: { useJuceDecode: boolean } }).outputSettings.useJuceDecode = false;
+  }
 
   return { decoder, bridges, session };
 };
@@ -575,7 +659,7 @@ const createLongRunningSessionHarness = (
   const decoder = new PcmChunkDecoder(new Map(probes.map((item) => [item.filePath, item])), [pcmBuffer([0, 0, 0, 0])]);
   const bridges: FakeBridge[] = [];
   let bridgeIndex = 0;
-  const session = new AudioSession({
+  const session = createAudioSessionForTest({
     decoder,
     deviceService: {
       listDevices: () => devices,
@@ -589,6 +673,9 @@ const createLongRunningSessionHarness = (
     logger: noopLogger,
     ...sessionOptions,
   });
+  if (!sessionOptions.juceDecoder) {
+    (session as unknown as { outputSettings: { useJuceDecode: boolean } }).outputSettings.useJuceDecode = false;
+  }
 
   return { decoder, bridges, session };
 };
@@ -614,7 +701,7 @@ describe('AudioSession stability cleanup', () => {
   it('removes the EqBridge state listener when disposed', () => {
     const eqBridge = getEqBridge();
     const before = eqBridge.listenerCount('state');
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map()),
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -657,7 +744,7 @@ describe('AudioSession stability cleanup', () => {
 
   it('surfaces decoder stream errors in AudioSession status', async () => {
     const decoder = new StreamErrorDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -680,7 +767,7 @@ describe('AudioSession stability cleanup', () => {
     const decoder = new PcmChunkDecoder(new Map([['broken.flac', probe('broken.flac', 44100)]]), [pcmBuffer([0, 0, 0, 0])]);
     const bridge = new FakeBridge();
     const ended = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -710,7 +797,7 @@ describe('AudioSession stability cleanup', () => {
   it('waits for the PCM stream tail before closing native input when the decoder exits first', async () => {
     const decoder = new EarlyDoneDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
     const bridge = new FakeBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -740,7 +827,7 @@ describe('AudioSession stability cleanup', () => {
   it('surfaces native writable errors in AudioSession status', async () => {
     const decoder = new PcmChunkDecoder(new Map([['song.flac', probe('song.flac', 44100)]]), [pcmBuffer([0, 0, 0, 0])]);
     const bridge = new WritableErrorBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -880,7 +967,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
   it('exposes pre-native PCM level telemetry after volume is applied', async () => {
     const decoder = new PcmChunkDecoder(new Map([['meter.flac', probe('meter.flac', 44100)]]), [pcmBuffer([1, -1])]);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -899,7 +986,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
   it('raises realtime clipping risk from estimated output level and clip count', async () => {
     const decoder = new PcmChunkDecoder(new Map([['hot.flac', probe('hot.flac', 44100)]]), [pcmBuffer([1, 0.5])]);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -920,7 +1007,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
   it('resets level telemetry on stop', async () => {
     const decoder = new PcmChunkDecoder(new Map([['reset.flac', probe('reset.flac', 44100)]]), [pcmBuffer([0.5, -0.5])]);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -1348,11 +1435,99 @@ describe('Audio Core sample-rate regression guard', () => {
       playbackSpeedMode: 'nightcore',
       requestedOutputSampleRate: 48000,
       sharedMixSampleRate: 48000,
+      bufferSizeFrames: 8192,
+      fifoCapacityMs: 3000,
+      startupPrebufferMs: 900,
+      startupPrebufferTimeoutMs: 5000,
     });
     expect(status.currentFilePath).toBe(streamUrl);
     expect(status.currentTrackId).toBe('remote:source-1:track-1');
     expect(status.fileSampleRate).toBeNull();
     expect(status.warnings).toContain('file_sample_rate_unknown_using_44100_fallback');
+  });
+
+  it('keeps HTTP stream playback loading until the decoder produces PCM', async () => {
+    const streamUrl = 'https://cdn.example.test/song.flac';
+    const decoder = new DelayedReadyDecoder(new Map());
+    const bridges: FakeBridge[] = [];
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = new FakeBridge();
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+    (session as unknown as { outputSettings: { useJuceDecode: boolean } }).outputSettings.useJuceDecode = false;
+
+    try {
+      const play = session.playLocalFile({
+        filePath: streamUrl,
+        trackId: 'streaming:netease:track',
+        probe: { durationSeconds: 180, codec: 'flac', bitrate: 999000 },
+        output: { outputMode: 'shared' },
+      });
+
+      await expect.poll(() => decoder.decodeRequests.length).toBe(1);
+      expect(session.getStatus().state).toBe('loading');
+      expect(bridges[0].startOptions).toMatchObject({
+        bufferSizeFrames: 8192,
+        fifoCapacityMs: 3000,
+        startupPrebufferMs: 900,
+        startupPrebufferTimeoutMs: 5000,
+      });
+
+      decoder.releaseReady();
+      await expect(play).resolves.toMatchObject({ state: 'playing', currentTrackId: 'streaming:netease:track' });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('keeps HTTP stream seek loading until the decoder produces PCM', async () => {
+    const streamUrl = 'https://cdn.example.test/song.flac';
+    const decoder = new DelayedReadyDecoder(new Map());
+    const bridges: FakeBridge[] = [];
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = new FakeBridge();
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+    (session as unknown as { outputSettings: { useJuceDecode: boolean } }).outputSettings.useJuceDecode = false;
+
+    try {
+      const play = session.playLocalFile({
+        filePath: streamUrl,
+        trackId: 'streaming:netease:track',
+        probe: { durationSeconds: 180, codec: 'flac', bitrate: 999000 },
+        output: { outputMode: 'shared' },
+      });
+      await expect.poll(() => decoder.decodeRequests.length).toBe(1);
+      decoder.releaseReady();
+      await expect(play).resolves.toMatchObject({ state: 'playing' });
+
+      const seek = session.seek(42);
+      await expect.poll(() => decoder.decodeRequests.length).toBe(2);
+      expect(session.getStatus()).toMatchObject({ state: 'loading', positionSeconds: 42 });
+
+      bridges[0].positionSeconds = 99;
+      expect(session.getStatus()).toMatchObject({ state: 'loading', positionSeconds: 42 });
+
+      decoder.releaseReady();
+      await expect(seek).resolves.toMatchObject({ state: 'playing', positionSeconds: 42 });
+      expect(bridges[0].positionSeconds).toBe(42);
+    } finally {
+      session.dispose();
+    }
   });
 
   it('playLocalFile uses partial HTTP stream probe hints without local metadata probing', async () => {
@@ -1566,7 +1741,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const fallbackBridge = new FakeBridge(48000);
     const bridges = [failingBridge, fallbackBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1596,7 +1771,7 @@ describe('Audio Core sample-rate regression guard', () => {
     );
     const reportAudioError = vi.fn();
     const recoverAudioError = vi.fn(() => true);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(44100),
@@ -1634,7 +1809,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const fallbackBridge = new FakeBridge(48000);
     const bridges = [failingBridge, fallbackBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1665,7 +1840,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const safeBridge = new FakeBridge(48000);
     const bridges = [failingBridge, safeBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1707,7 +1882,7 @@ describe('Audio Core sample-rate regression guard', () => {
     );
     const safeBridge = new FakeBridge(48000);
     const bridges = [failingBridge, safeBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1737,7 +1912,7 @@ describe('Audio Core sample-rate regression guard', () => {
     );
     const defaultJuceBridge = new FakeBridge(48000);
     const bridges = [failingJuceBridge, defaultJuceBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1770,7 +1945,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const safeBridge = new FakeBridge(48000);
     const bridges = [defaultBridge, safeBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1809,7 +1984,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const safeBridge = new ConfigurableStartupFailingBridge(crashMessage);
     const bridges = [defaultBridge, safeBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1836,7 +2011,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const decoder = new FakeDecoder(new Map());
     const bridges: FakeBridge[] = [];
     let listCalls = 0;
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: {
         listDevices: () => {
@@ -1911,7 +2086,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const failingBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
     const fallbackBridge = new FakeBridge(48000);
     const bridges = [failingBridge, fallbackBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -1941,7 +2116,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const sharedBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
     const safeBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
     const bridges = [exclusiveBridge, sharedBridge, safeBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -2002,7 +2177,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.useJuceOutputRequested).toBe(true);
   });
 
-  it('keeps JUCE decode disabled by default even for local WAV', async () => {
+  it('uses JUCE decode by default for local WAV when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([{ ...probe('pilot.wav', 48000), codec: 'WAV' }], [48000], [], {
       juceDecoder,
@@ -2013,13 +2188,13 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared' },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(0);
-    expect(decoder.decodeRequests).toHaveLength(1);
-    expect(status.useJuceDecodeRequested).toBe(false);
-    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-wav');
   });
 
-  it('keeps JUCE decode disabled by default even for local FLAC', async () => {
+  it('uses JUCE decode by default for local FLAC when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
       juceDecoder,
@@ -2030,13 +2205,13 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared' },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(0);
-    expect(decoder.decodeRequests).toHaveLength(1);
-    expect(status.useJuceDecodeRequested).toBe(false);
-    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-flac');
   });
 
-  it('keeps JUCE decode disabled by default even for local MP3', async () => {
+  it('uses JUCE Windows Media decode by default for local MP3 when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([{ ...probe('pilot.mp3', 48000), codec: 'MP3' }], [48000], [], {
       juceDecoder,
@@ -2045,6 +2220,50 @@ describe('Audio Core sample-rate regression guard', () => {
     const status = await session.playLocalFile({
       filePath: 'pilot.mp3',
       output: { outputMode: 'shared' },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-windows-media-mp3');
+  });
+
+  it('reuses the resident JUCE decode server across seek without reopening the output clock', async () => {
+    const juceDecoder = new LongRunningJuceDecoder();
+    const { bridges, decoder, session } = createSessionHarness([probe('seek.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const firstStatus = await session.playLocalFile({
+      filePath: 'seek.flac',
+      output: { outputMode: 'shared', playbackRate: 1.25, playbackSpeedMode: 'nightcore' },
+    });
+    const seekStatus = await session.seek(12.5);
+
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(juceDecoder.decodeRequests).toHaveLength(2);
+    expect(juceDecoder.decodeRequests[0]).toMatchObject({ filePath: 'seek.flac', startSeconds: 0 });
+    expect(juceDecoder.decodeRequests[1]).toMatchObject({ filePath: 'seek.flac', startSeconds: 12.5 });
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(bridges[0].positionSeconds).toBe(12.5);
+    expect(bridges[0].startOptions).toMatchObject({
+      playbackRate: 1.25,
+      playbackSpeedMode: 'nightcore',
+    });
+    expect(firstStatus.activeDecodeBackendImpl).toBe('juce-flac');
+    expect(seekStatus.activeDecodeBackendImpl).toBe('juce-flac');
+  });
+
+  it('keeps FFmpeg decode when the local decode fast path is manually disabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('disabled.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'disabled.flac',
+      output: { outputMode: 'shared', useJuceDecode: false },
     });
 
     expect(juceDecoder.decodeRequests).toHaveLength(0);
@@ -2122,6 +2341,40 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
 
+  it('falls back to FFmpeg when resident JUCE decode exits before ready', async () => {
+    const juceDecoder = new ReadyFailingJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('resident-fail.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'resident-fail.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
+  });
+
+  it('falls back to FFmpeg when resident JUCE decode exceeds the first PCM startup budget', async () => {
+    const juceDecoder = new ReadyFailingJuceDecoder(new Error('echo-audio-host juce_decode_timeout_waiting_for_first_pcm'));
+    const { decoder, session } = createSessionHarness([probe('slow-first-pcm.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'slow-first-pcm.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
+  });
+
   it('falls back to FFmpeg when opt-in JUCE MP3 decode fails before PCM starts', async () => {
     const juceDecoder = new FakeJuceDecoder(new Error('juce windows media mp3 open failed'));
     const { decoder, session } = createSessionHarness([{ ...probe('song.mp3', 48000), codec: 'MP3' }], [48000], [], {
@@ -2148,6 +2401,64 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.m4a',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps FFmpeg SOXR decode when local playback needs resampling', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('resample.flac', 44100)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'resample.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests[0]).toMatchObject({
+      filePath: 'resample.flac',
+      decoderOutputSampleRate: 48000,
+      resamplerEngine: 'soxr',
+    });
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps FFmpeg decode for local files that need request headers', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('headers.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'headers.flac',
+      inputHeaders: { Authorization: 'Bearer token' },
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests[0]?.inputHeaders).toEqual({ Authorization: 'Bearer token' });
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps DSD PCM decode on FFmpeg even when resident JUCE decode is enabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([dsdProbe('native-dsd.dsf')], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'native-dsd.dsf',
       output: { outputMode: 'shared', useJuceDecode: true },
     });
 
@@ -2225,7 +2536,7 @@ describe('Audio Core sample-rate regression guard', () => {
       throw new Error('ASIO fallback enumeration should be lazy');
     });
     const bridge = new FakeBridge(96000);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 96000)]])),
       deviceService: { listDevices },
       createBridge: () => bridge,
@@ -2271,7 +2582,7 @@ describe('Audio Core sample-rate regression guard', () => {
       openedDeviceBufferFrames: 512,
       bufferSizeFallback: true,
     });
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 48000)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -2480,7 +2791,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const failingBridge = new ConfigurableStartupFailingBridge('ASIO native DSD open failed: unsupported format');
     const fallbackBridge = new FakeBridge();
     const bridgeQueue = [failingBridge, fallbackBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([[filePath, dsdProbe(filePath)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridgeQueue.shift() as unknown as FakeBridge,
@@ -3090,7 +3401,7 @@ describe('Audio Core sample-rate regression guard', () => {
       openedDeviceBufferFrames: 4096,
       bufferSizeFallback: true,
     });
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['fallback.flac', probe('fallback.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -3110,7 +3421,7 @@ describe('Audio Core sample-rate regression guard', () => {
   it('reports ASIO sample-rate mismatch when the driver opens at a different hardware sample rate', async () => {
     const decoder = new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 44100)]]));
     const bridge = new FakeBridge(48000);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -3161,7 +3472,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const failingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
     const fallbackBridge = new FakeBridge(44100);
     const bridges = [failingBridge, fallbackBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: {
         listDevices: () => devices,
@@ -3201,7 +3512,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const safeBridge = new FakeBridge(48000);
     const bridges = [failingBridge, failingDefaultAsioBridge, safeBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3266,7 +3577,7 @@ describe('Audio Core sample-rate regression guard', () => {
       secondDefaultFailingBridge,
       secondSafeBridge,
     ];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3296,7 +3607,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const firstSafeBridge = new FakeBridge(48000);
     const secondSafeBridge = new FakeBridge(48000);
     const bridges = [failingBridge, failingDefaultAsioBridge, firstSafeBridge, secondSafeBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3336,7 +3647,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const failingBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
     const nativeBridge = new FakeBridge(44100, { backendImpl });
     const bridges = [failingBridge, nativeBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['juce.flac', probe('juce.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3368,7 +3679,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
   it('uses the legacy ASIO SDK directly even when JUCE output is requested', async () => {
     const bridge = new FakeBridge(44100, { backendImpl: 'legacy-asio-sdk' });
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -3397,13 +3708,44 @@ describe('Audio Core sample-rate regression guard', () => {
     await expect(session.disposeGracefully()).resolves.toBeUndefined();
   });
 
+  it('exposes native output format from native ready metadata', async () => {
+    const bridge = new FakeBridge(48000, { format: 'pcm16' });
+    const session = createAudioSessionForTest({
+      decoder: new FakeDecoder(new Map([['format.flac', probe('format.flac', 48000)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    const status = await session.playLocalFile({ filePath: 'format.flac', output: { outputMode: 'exclusive' } });
+
+    expect(status.nativeOutputFormat).toBe('pcm16');
+    expect(session.getStatus().nativeOutputFormat).toBe('pcm16');
+    expect(session.getDiagnostics().nativeOutputFormat).toBe('pcm16');
+    await expect(session.disposeGracefully()).resolves.toBeUndefined();
+  });
+
+  it('reports null native output format when old native hosts omit ready metadata', async () => {
+    const { session } = createSessionHarness([probe('missing-format.flac', 48000)], [], [], {
+      disableWatchdogTimer: true,
+    });
+
+    const status = await session.playLocalFile({ filePath: 'missing-format.flac', output: { outputMode: 'exclusive' } });
+
+    expect(status.nativeOutputFormat).toBeNull();
+    expect(session.getStatus().nativeOutputFormat).toBeNull();
+    expect(session.getDiagnostics().nativeOutputFormat).toBeNull();
+    await expect(session.disposeGracefully()).resolves.toBeUndefined();
+  });
+
   it('uses safe shared output when JUCE output and its native retry both fail', async () => {
     const failingJuceBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
     const failingNativeBridge = new ConfigurableStartupFailingBridge('native output open failed');
     const safeBridge = new FakeBridge(48000, { backendImpl: 'legacy-wasapi-shared' });
     const bridges = [failingJuceBridge, failingNativeBridge, safeBridge];
     const reportAudioError = vi.fn();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['juce-safe.flac', probe('juce-safe.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3494,7 +3836,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const firstBridge = new GracefulFakeBridge(44100);
     const resumedBridge = new GracefulFakeBridge(44100);
     const bridges = [firstBridge, resumedBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as GracefulFakeBridge,
@@ -3530,7 +3872,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const refusedExclusiveBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: exclusive_denied');
     const sharedBridge = new FakeBridge(48000);
     const bridges = [firstBridge, refusedExclusiveBridge, sharedBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as unknown as FakeBridge,
@@ -3560,7 +3902,7 @@ describe('Audio Core sample-rate regression guard', () => {
     const delayedPrewarmBridge = new DelayedReadyBridge(48000);
     const resumedBridge = new FakeBridge(48000);
     const bridges = [initialBridge, delayedPrewarmBridge, resumedBridge];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges.shift() as FakeBridge,
@@ -4065,7 +4407,7 @@ describe('AudioSession playback watchdog', () => {
   it('surfaces watchdog checker failures through normal audio errors', async () => {
     const reportAudioError = vi.fn();
     const bridge = new ThrowingPositionBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -4102,7 +4444,7 @@ describe('AudioSession playback watchdog', () => {
     const secondBridge = new FakeBridge();
     const bridges = [firstBridge, recoveryBridge, secondBridge];
     let bridgeIndex = 0;
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridges[bridgeIndex++] ?? new FakeBridge(),
@@ -4172,7 +4514,7 @@ describe('AudioSession playback watchdog', () => {
   it('does not restart live AirPlay PCM streams through the file decoder during recovery or seek', async () => {
     const decoder = new FakeDecoder(new Map());
     const bridge = new FakeBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -4254,7 +4596,7 @@ describe('AudioSession playback watchdog', () => {
       resolveStop = () => resolve(undefined);
     }));
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => {
@@ -4309,7 +4651,7 @@ describe('AudioSession playback watchdog', () => {
 
     const pendingDecoder = new PendingProbeDecoder(new Map());
     const loadingBridges: FakeBridge[] = [];
-    const loadingSession = new AudioSession({
+    const loadingSession = createAudioSessionForTest({
       decoder: pendingDecoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => {
@@ -4527,7 +4869,20 @@ describe('AudioSession playback watchdog', () => {
   });
 
   it('falls back from unstable exclusive output to shared after repeated native underruns', async () => {
-    const { bridges, session } = createSessionHarness([probe('exclusive.flac', 48000)], [], [], {
+    const exclusiveProbe = { ...probe('exclusive.flac', 48000), bitDepth: 16 };
+    const decoder = new FakeDecoder(new Map([['exclusive.flac', exclusiveProbe]]));
+    const bridges: FakeBridge[] = [];
+    const readyBridges = [new FakeBridge(48000, { format: 'pcm16' }), new FakeBridge(48000)];
+    let bridgeIndex = 0;
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = readyBridges[bridgeIndex++] ?? new FakeBridge(48000);
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
       disableWatchdogTimer: true,
     });
 
@@ -4556,6 +4911,23 @@ describe('AudioSession playback watchdog', () => {
     expect(session.getStatus().outputMode).toBe('shared');
     expect(session.getStatus().warnings).toContain('exclusive_output_unstable');
     expect(session.getStatus().warnings).toContain('exclusive_output_fell_back_to_shared');
+    const fallbackEvent = session.getDiagnostics().recentPlaybackEvents?.find(
+      (event) => event.kind === 'watchdog_recovery' && event.reason === 'exclusive_output_unstable',
+    );
+    expect(fallbackEvent?.details).toMatchObject({
+      bitDepth: 16,
+      fileSampleRate: 48000,
+      decoderOutputSampleRate: 48000,
+      requestedOutputSampleRate: 48000,
+      actualDeviceSampleRate: 48000,
+      nativeOutputFormat: 'pcm16',
+      nativeBufferedMs: 0,
+      nativeUnderrunCallbacks: 3,
+      nativeUnderrunFrames: 512,
+      nativeUnderrunCallbackDelta: 3,
+      nativeUnderrunFrameDelta: 512,
+    });
+    expect(fallbackEvent?.details?.nativeUnderrunWindowMs).toEqual(expect.any(Number));
   });
 
   it('upgrades ASIO output after repeated native underruns', async () => {
@@ -5677,8 +6049,6 @@ describe('NativeOutputBridge graceful shutdown', () => {
     expect(resolved).toBe(false);
 
     child.emit('exit', 0, null);
-    await Promise.resolve();
-    expect(resolved).toBe(false);
     await stopped;
     expect(resolved).toBe(true);
   });
@@ -5756,7 +6126,7 @@ describe('NativeOutputBridge graceful shutdown', () => {
 
 describe('AudioSession host availability', () => {
   it('reports unavailable when echo-audio-host is missing without throwing', () => {
-    const unavailableSession = new AudioSession({
+    const unavailableSession = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map()),
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -5768,7 +6138,7 @@ describe('AudioSession host availability', () => {
   });
 
   it('returns isolated status snapshots without sharing nested objects', () => {
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map()),
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -5810,7 +6180,7 @@ describe('AudioSession host availability', () => {
 describe('AudioSession graceful output cleanup', () => {
   it('stopResourcesGracefully calls bridge.stopGracefully when available', async () => {
     const bridge = new GracefulFakeBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -5826,7 +6196,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('resetEngine gracefully releases the active host and clears error state', async () => {
     const bridge = new GracefulFakeBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -5847,7 +6217,7 @@ describe('AudioSession graceful output cleanup', () => {
   it('forceRestart waits for host exit, refreshes devices, clears recovery caches, and emits session-reset', async () => {
     const bridge = new GracefulFakeBridge();
     const refresh = vi.fn(async () => []);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [], refresh },
       createBridge: () => bridge,
@@ -5886,7 +6256,7 @@ describe('AudioSession graceful output cleanup', () => {
     const order: string[] = [];
     let index = 0;
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 44100)],
         ['second.flac', probe('second.flac', 48000)],
@@ -5917,7 +6287,7 @@ describe('AudioSession graceful output cleanup', () => {
   it('waits for WASAPI shared host shutdown before starting replacement shared output', async () => {
     const bridges: GracefulFakeBridge[] = [];
     let resolveStop = (): void => undefined;
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 44100)],
         ['second.flac', probe('second.flac', 48000)],
@@ -5967,7 +6337,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('waits for DirectSound shared host shutdown before starting replacement output', async () => {
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 44100)],
         ['second.flac', probe('second.flac', 48000)],
@@ -6009,7 +6379,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('waits for WASAPI shared host exit before switching to ASIO output', async () => {
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 48000)],
         ['second.flac', probe('second.flac', 48000)],
@@ -6038,7 +6408,7 @@ describe('AudioSession graceful output cleanup', () => {
     const order: string[] = [];
     let index = 0;
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 48000)],
         ['second.flac', probe('second.flac', 48000)],
@@ -6068,7 +6438,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('waits for ASIO host exit before switching to WASAPI exclusive output', async () => {
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 48000)],
         ['second.flac', probe('second.flac', 48000)],
@@ -6095,7 +6465,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('does not shorten graceful stop when changing rate on the same ASIO output', async () => {
     const bridges: GracefulFakeBridge[] = [];
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([
         ['first.flac', probe('first.flac', 96000)],
         ['second.flac', probe('second.flac', 192000)],
@@ -6118,7 +6488,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('disposeGracefully clears watchdog and stops bridge', async () => {
     const bridge = new GracefulFakeBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -6135,7 +6505,7 @@ describe('AudioSession graceful output cleanup', () => {
 
   it('dispose remains safe and sync', async () => {
     const bridge = new ThrowingStopBridge();
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -6152,7 +6522,7 @@ describe('AudioSession graceful output cleanup', () => {
   it('cleanup failure does not throw out of disposeGracefully', async () => {
     const bridge = new GracefulFakeBridge();
     bridge.stopGracefully.mockRejectedValueOnce(new Error('cleanup failed'));
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => bridge,
@@ -6179,7 +6549,7 @@ describe('AudioSession graceful output cleanup', () => {
     ];
     const listDevices = vi.fn(() => nativeDevices);
     const listDevicesAsync = vi.fn(async () => nativeDevices);
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map()),
       deviceService: { listDevices, listDevicesAsync },
       createBridge: () => new FakeBridge(),
@@ -6506,7 +6876,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
 
   it('surfaces decoder errors in AudioSession status', async () => {
     const decoder = new FailingDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
       createBridge: () => new FakeBridge(),
@@ -6552,7 +6922,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     });
 
     await expect(run.done).rejects.toThrow(
-      'ffmpeg_exit_code_1; ffmpeg="test-ffmpeg"; args="-hide_banner -loglevel error -nostdin -ss 0 -i broken.flac -vn -f f32le -ac 2 -ar 44100 pipe:1"; kind="input_invalid"; stderr="Invalid data found when processing input"',
+      'ffmpeg_exit_code_1; ffmpeg="test-ffmpeg"; args="-hide_banner -loglevel error -nostdin -nostats -ss 0 -i broken.flac -map 0:a:0 -vn -sn -dn -f f32le -ac 2 -ar 44100 pipe:1"; kind="input_invalid"; stderr="Invalid data found when processing input"',
     );
   });
 
@@ -6584,6 +6954,8 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     await expect(run.done).resolves.toBeUndefined();
     expect(spawnedArgs).not.toContain('-reconnect');
     expect(spawnedArgs).not.toContain('-rw_timeout');
+    expect(spawnedArgs).toContain('-nostats');
+    expect(spawnedArgs).toEqual(expect.arrayContaining(['-map', '0:a:0', '-vn', '-sn', '-dn']));
   });
 
   it('builds Automix ffmpeg filters that skip next-track leading silence and use smooth curves', async () => {
@@ -6639,6 +7011,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
 
     await expect(run.done).resolves.toBeUndefined();
     const filter = spawnedArgs[spawnedArgs.indexOf('-filter_complex') + 1];
+    expect(spawnedArgs).toEqual(expect.arrayContaining(['-map', '[aout]', '-vn', '-sn', '-dn']));
     expect(filter).toContain('atrim=0:98.000');
     expect(filter).toContain('areverse,silenceremove=start_periods=1:start_duration=0.180:start_threshold=-42dB,areverse');
     expect(filter).toContain('silenceremove=start_periods=1:start_duration=0.035:start_threshold=-48dB');
@@ -6725,6 +7098,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     await expect(run.done).resolves.toBeUndefined();
     const filter = spawnedArgs[spawnedArgs.indexOf('-filter_complex') + 1];
     expect(spawnedArgs.filter((arg) => arg === '-i')).toHaveLength(3);
+    expect(spawnedArgs).toEqual(expect.arrayContaining(['-map', '[aout]', '-vn', '-sn', '-dn']));
     expect(filter).toContain('[s0][s1]acrossfade=d=10.000:c1=hsin:c2=hsin[m1]');
     expect(filter).toContain('[m1][s2]acrossfade=d=9.000:c1=hsin:c2=hsin[aout]');
     expect(filter).toContain('[1:a]atrim=0:149.000');
@@ -6782,6 +7156,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     const filter = spawnedArgs[spawnedArgs.indexOf('-filter_complex') + 1];
     expect(run.replayGainAppliedInStream).toBe(true);
     expect(spawnedArgs.filter((arg) => arg === '-i')).toHaveLength(3);
+    expect(spawnedArgs).toEqual(expect.arrayContaining(['-map', '[aout]', '-vn', '-sn', '-dn']));
     expect(spawnedArgs[spawnedArgs.indexOf('-ss') + 1]).toBe('10');
     expect(filter).toContain('[g0][g1][g2]concat=n=3:v=0:a=1[aout]');
     expect(filter).toContain('[0:a]atrim=0:110.000,asetpts=PTS-STARTPTS,volume=-3.000dB[g0]');
@@ -6865,7 +7240,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
     );
     await expect(run.done).rejects.toThrow('Cookie: <redacted>');
     await expect(run.done).rejects.not.toThrow('MUSIC_U=secret');
-    expect(logs.join('\n')).toContain('Cookie: <redacted>');
+    expect(logs.join('\n')).not.toContain('Cookie: MUSIC_U=secret');
     expect(logs.join('\n')).not.toContain('MUSIC_U=secret');
   });
 
@@ -7680,7 +8055,7 @@ describe('NativeOutputBridge diagnostics', () => {
   });
 
   it('propagates native host startup failures into AudioSession status', async () => {
-    const session = new AudioSession({
+    const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
       createBridge: () => new StartupFailingBridge(),

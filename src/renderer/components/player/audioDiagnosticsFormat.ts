@@ -21,6 +21,7 @@ export const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string =>
     ['latencyProfile', diagnostics.latencyProfile],
     ['outputBackend', diagnostics.outputBackend],
     ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
+    ['nativeOutputFormat', diagnostics.nativeOutputFormat],
     ['useJuceOutputRequested', diagnostics.useJuceOutputRequested],
     ['activeDecodeBackendImpl', diagnostics.activeDecodeBackendImpl],
     ['useJuceDecodeRequested', diagnostics.useJuceDecodeRequested],

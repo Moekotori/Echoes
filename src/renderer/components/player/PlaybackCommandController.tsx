@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlaybackStatus } from '../../../shared/types/playback';
-import type { GlobalShortcutAction } from '../../../shared/types/globalShortcuts';
+import {
+  createDefaultGlobalShortcuts,
+  createDefaultLocalShortcuts,
+  globalShortcutActions,
+  validateGlobalShortcutAccelerator,
+  type GlobalShortcutAction,
+  type GlobalShortcutSettings,
+  type LocalShortcutSettings,
+} from '../../../shared/types/globalShortcuts';
 import type { SmtcCommand } from '../../../shared/types/smtc';
-import { isSpotifyTrack, pauseSpotifyPlayback, resumeSpotifyPlayback, seekSpotifyPlayback } from '../../integrations/spotify/spotifyPlayback';
+import {
+  isSpotifyTrack,
+  pauseSpotifyPlayback,
+  resumeSpotifyPlayback,
+  seekSpotifyPlayback,
+  stopSpotifyPlayback,
+} from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { shouldSuppressAudioHostError } from './audioErrorFormat';
@@ -13,6 +27,158 @@ const clampPlaybackRate = (value: number): number => Math.max(0.5, Math.min(2, v
 const openAudioSettingsEvent = 'app:open-audio-settings';
 const openMvSettingsEvent = 'app:open-mv-settings';
 const openLyricsSettingsEvent = 'app:open-lyrics-settings';
+const localShortcutUnavailableActions = new Set<GlobalShortcutAction>(['showMainWindow']);
+const shortcutRecordingFlag = 'echoShortcutRecording';
+
+const shortcutKeyAliases = new Map<string, string>([
+  [' ', 'Space'],
+  ['Spacebar', 'Space'],
+  ['ArrowLeft', 'Left'],
+  ['ArrowRight', 'Right'],
+  ['ArrowUp', 'Up'],
+  ['ArrowDown', 'Down'],
+  ['Escape', 'Esc'],
+  ['+', 'Plus'],
+  ['Add', 'Plus'],
+  ['NumpadAdd', 'Plus'],
+  ['Subtract', '-'],
+  ['NumpadSubtract', '-'],
+  ['Multiply', '*'],
+  ['NumpadMultiply', '*'],
+  ['Divide', '/'],
+  ['NumpadDivide', '/'],
+  ['Decimal', '.'],
+  ['NumpadDecimal', '.'],
+  ['MediaPlayPause', 'MediaPlayPause'],
+  ['MediaNextTrack', 'MediaNextTrack'],
+  ['MediaPreviousTrack', 'MediaPreviousTrack'],
+  ['MediaStop', 'MediaStop'],
+]);
+
+const isTextEditingElement = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const editableTarget = target.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]');
+  if (editableTarget) {
+    return true;
+  }
+
+  return target.isContentEditable;
+};
+
+const isShortcutTextTarget = (event: KeyboardEvent): boolean => {
+  const path = event.composedPath();
+  if (path.some((target) => isTextEditingElement(target))) {
+    return true;
+  }
+
+  return isTextEditingElement(document.activeElement);
+};
+
+const normalizeShortcutEventKey = (event: KeyboardEvent): string | null => {
+  const code = event.code;
+  const aliasedCode = shortcutKeyAliases.get(code);
+  if (aliasedCode) {
+    return aliasedCode;
+  }
+
+  if (/^Key[A-Z]$/u.test(code)) {
+    return code.slice(3);
+  }
+
+  if (/^Digit[0-9]$/u.test(code)) {
+    return code.slice(5);
+  }
+
+  if (/^Numpad[0-9]$/u.test(code)) {
+    return code.slice(6);
+  }
+
+  const aliased = shortcutKeyAliases.get(event.key);
+  if (aliased) {
+    return aliased;
+  }
+
+  if (event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift' || event.key === 'Meta') {
+    return null;
+  }
+
+  return event.key.length === 1 ? event.key.toUpperCase() : event.key;
+};
+
+const acceleratorFromKeyboardEvent = (event: KeyboardEvent): string | null => {
+  const key = normalizeShortcutEventKey(event);
+  if (!key) {
+    return null;
+  }
+
+  const modifiers = [
+    event.ctrlKey ? 'Ctrl' : null,
+    event.altKey ? 'Alt' : null,
+    event.shiftKey ? 'Shift' : null,
+    event.metaKey ? 'Command' : null,
+  ].filter((item): item is string => Boolean(item));
+
+  const validation = validateGlobalShortcutAccelerator([...modifiers, key].join('+'));
+  return validation.valid ? validation.accelerator : null;
+};
+
+const acceleratorFromMouseEvent = (event: MouseEvent): string | null => {
+  switch (event.button) {
+    case 1:
+      return 'MouseButton3';
+    case 3:
+      return 'MouseButton4';
+    case 4:
+      return 'MouseButton5';
+    default:
+      return null;
+  }
+};
+
+const isShortcutRecording = (): boolean => document.body?.dataset[shortcutRecordingFlag] === 'true';
+
+const buildLocalShortcutMap = (
+  localShortcuts: LocalShortcutSettings,
+  globalShortcuts: GlobalShortcutSettings,
+): Map<string, GlobalShortcutAction> => {
+  const globalAccelerators = new Set<string>();
+  for (const action of globalShortcutActions) {
+    const binding = globalShortcuts[action];
+    if (binding.enabled && binding.accelerator) {
+      const validation = validateGlobalShortcutAccelerator(binding.accelerator);
+      if (validation.valid && validation.accelerator) {
+        globalAccelerators.add(validation.accelerator.toLowerCase());
+      }
+    }
+  }
+
+  const shortcuts = new Map<string, GlobalShortcutAction>();
+  for (const action of globalShortcutActions) {
+    if (localShortcutUnavailableActions.has(action)) {
+      continue;
+    }
+
+    const binding = localShortcuts[action];
+    if (!binding.enabled || !binding.accelerator) {
+      continue;
+    }
+
+    const validation = validateGlobalShortcutAccelerator(binding.accelerator);
+    if (!validation.valid || !validation.accelerator) {
+      continue;
+    }
+
+    const acceleratorKey = validation.accelerator.toLowerCase();
+    if (!globalAccelerators.has(acceleratorKey) && !shortcuts.has(acceleratorKey)) {
+      shortcuts.set(acceleratorKey, action);
+    }
+  }
+
+  return shortcuts;
+};
 
 const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
   window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
@@ -22,6 +188,8 @@ export const PlaybackCommandController = (): null => {
   const queue = usePlaybackQueue();
   const sharedPlaybackStatus = useSharedPlaybackStatus();
   const [smtcEnabled, setSmtcEnabled] = useState(true);
+  const [localShortcuts, setLocalShortcuts] = useState<LocalShortcutSettings>(() => createDefaultLocalShortcuts());
+  const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcutSettings>(() => createDefaultGlobalShortcuts());
   const playbackStatus = sharedPlaybackStatus.playbackStatus;
   const audioStatus = sharedPlaybackStatus.audioStatus;
   const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
@@ -61,6 +229,10 @@ export const PlaybackCommandController = (): null => {
     }
 
     await runPlaybackAction(async () => {
+      if (visualState === 'playing' || visualState === 'loading') {
+        return playback.pause();
+      }
+
       const latestStatus = await playback.getStatus();
       return latestStatus.state === 'playing' || latestStatus.state === 'loading' ? playback.pause() : playback.play();
     });
@@ -75,13 +247,18 @@ export const PlaybackCommandController = (): null => {
   }, [queue.playNext, runPlaybackAction]);
 
   const handleStop = useCallback((): void => {
+    if (isSpotifyCurrentTrack && queue.currentTrack) {
+      void runPlaybackAction(() => stopSpotifyPlayback(queue.currentTrack!));
+      return;
+    }
+
     const playback = window.echo?.playback;
     if (!playback) {
       return;
     }
 
     void runPlaybackAction(() => playback.stop());
-  }, [runPlaybackAction]);
+  }, [isSpotifyCurrentTrack, queue.currentTrack, runPlaybackAction]);
 
   const handleVolumeStep = useCallback(
     async (delta: number): Promise<void> => {
@@ -122,6 +299,7 @@ export const PlaybackCommandController = (): null => {
     }
 
     await audio.setOutput({ volume: 0 });
+    void window.echo?.app?.minimize?.();
     await refreshPlaybackStatus();
   }, []);
 
@@ -298,11 +476,15 @@ export const PlaybackCommandController = (): null => {
         .then((settings) => {
           if (!cancelled) {
             setSmtcEnabled(settings.smtcEnabled !== false);
+            setLocalShortcuts(settings.localShortcuts ?? createDefaultLocalShortcuts());
+            setGlobalShortcuts(settings.globalShortcuts ?? createDefaultGlobalShortcuts());
           }
         })
         .catch(() => {
           if (!cancelled) {
             setSmtcEnabled(true);
+            setLocalShortcuts(createDefaultLocalShortcuts());
+            setGlobalShortcuts(createDefaultGlobalShortcuts());
           }
         });
     };
@@ -325,6 +507,48 @@ export const PlaybackCommandController = (): null => {
     const unsubscribe = window.echo?.app?.onGlobalShortcutCommand?.(handleGlobalShortcutCommand);
     return () => unsubscribe?.();
   }, [handleGlobalShortcutCommand]);
+
+  const localShortcutMap = useMemo(
+    () => buildLocalShortcutMap(localShortcuts, globalShortcuts),
+    [globalShortcuts, localShortcuts],
+  );
+
+  useEffect(() => {
+    const handleLocalShortcutAccelerator = (accelerator: string | null, event: Event): void => {
+      if (!accelerator || isShortcutRecording()) {
+        return;
+      }
+
+      const action = localShortcutMap.get(accelerator.toLowerCase());
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      handleGlobalShortcutCommand(action);
+    };
+
+    const handleLocalShortcutKeyDown = (event: KeyboardEvent): void => {
+      if (event.repeat || isShortcutTextTarget(event)) {
+        return;
+      }
+
+      handleLocalShortcutAccelerator(acceleratorFromKeyboardEvent(event), event);
+    };
+
+    const handleLocalShortcutMouseDown = (event: MouseEvent): void => {
+      handleLocalShortcutAccelerator(acceleratorFromMouseEvent(event), event);
+    };
+
+    window.addEventListener('keydown', handleLocalShortcutKeyDown, true);
+    window.addEventListener('mousedown', handleLocalShortcutMouseDown, true);
+
+    return () => {
+      window.removeEventListener('keydown', handleLocalShortcutKeyDown, true);
+      window.removeEventListener('mousedown', handleLocalShortcutMouseDown, true);
+    };
+  }, [handleGlobalShortcutCommand, localShortcutMap]);
 
   useEffect(() => {
     if (!smtcEnabled) {

@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFile as copyFileAsync, rm as rmAsync, writeFile as writeFileAsync } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
-import { isScannableAudioExtension } from '../../shared/constants/audioExtensions';
+import { isScannableAudioExtension, SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type {
   DuplicateTrackMode,
@@ -60,6 +61,7 @@ import {
 } from '../app/dataProtection';
 import { getLibraryDatabaseManager } from '../database/LibraryDatabaseManager';
 import { closeDefaultLibraryService, getLibraryService } from '../library/LibraryService';
+import { importOsuArchiveAsMp3Queued, isOsuArchivePath } from '../library/OsuArchiveImport';
 import { closeDefaultRemoteSourceService, getRemoteSourceService } from '../library/remote/RemoteSourceService';
 import { closeDefaultLyricsService } from '../lyrics/LyricsService';
 import { closeDefaultMvService } from '../mv/MvService';
@@ -68,6 +70,7 @@ import { createLibraryHealthReport, writeLibraryHealthReportMarkdown } from '../
 import { closeDefaultStreamingService, getStreamingService } from '../streaming/StreamingService';
 import { decodeM3u8ProviderTrackId } from '../streaming/M3u8Playlist';
 import { createLibraryRecoveryRelaunchArgs } from '../app/libraryRecoveryMode';
+import { getDownloadService } from '../downloads/DownloadService';
 
 const sortValues = new Set<LibrarySort>([
   'default',
@@ -185,6 +188,7 @@ export const classifyImportPaths = (paths: string[]): ImportPathClassification =
   const classification: ImportPathClassification = {
     folders: [],
     audioFiles: [],
+    osuArchives: [],
     unsupportedFiles: [],
     missingPaths: [],
   };
@@ -200,6 +204,11 @@ export const classifyImportPaths = (paths: string[]): ImportPathClassification =
 
       if (fileStat.isFile() && isScannableAudioExtension(filePath)) {
         classification.audioFiles.push(filePath);
+        continue;
+      }
+
+      if (fileStat.isFile() && isOsuArchivePath(filePath)) {
+        classification.osuArchives.push(filePath);
         continue;
       }
 
@@ -940,7 +949,8 @@ const normalizeReplayGainAnalysisStartOptions = (value: unknown): ReplayGainAnal
 type DroppedFilePayload = {
   name: string;
   type: string;
-  bytes: Uint8Array;
+  path: string | null;
+  bytes: Uint8Array | null;
 };
 
 const sanitizeFileName = (value: string): string => {
@@ -967,6 +977,57 @@ const uniqueOutputPath = (directory: string, fileName: string): string => {
   return candidate;
 };
 
+const getImportOutputDirectory = (): string => {
+  const configuredDirectory = getDownloadService().getSettings().outputDirectory;
+  if (configuredDirectory && existsSync(configuredDirectory)) {
+    try {
+      if (statSync(configuredDirectory).isDirectory()) {
+        return configuredDirectory;
+      }
+    } catch {
+      // Fall back to the OS downloads folder below.
+    }
+  }
+
+  return app.getPath('downloads');
+};
+
+const importOsuArchiveFile = async (
+  service: ReturnType<typeof getLibraryService>,
+  archivePath: string,
+  outputDirectory: string,
+): Promise<ImportAudioFilesResult['tracks'][number]> => {
+  const imported = await importOsuArchiveAsMp3Queued({
+    archivePath,
+    outputDirectory,
+  });
+
+  return service.importAudioFile(imported.outputPath, {
+    folderPath: outputDirectory,
+    metadata: {
+      title: imported.tags.title,
+      artist: imported.tags.artist,
+      album: imported.tags.album,
+      albumArtist: imported.tags.albumArtist,
+    },
+  });
+};
+
+const chooseImportFiles = async (): Promise<string[] | null> => {
+  const result = await dialog.showOpenDialog({
+    title: '导入音乐或 osu! 谱面',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      {
+        name: 'Audio and osu! beatmaps',
+        extensions: [...SUPPORTED_AUDIO_DIALOG_EXTENSIONS, 'osz'],
+      },
+    ],
+  });
+
+  return result.canceled || result.filePaths.length === 0 ? null : result.filePaths;
+};
+
 const normalizeDroppedFiles = (value: unknown): DroppedFilePayload[] => {
   if (!Array.isArray(value)) {
     throw new Error('files must be an array');
@@ -979,14 +1040,17 @@ const normalizeDroppedFiles = (value: unknown): DroppedFilePayload[] => {
 
     const input = item as Record<string, unknown>;
     const bytes = input.bytes;
-    if (typeof input.name !== 'string' || !(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    const path = typeof input.path === 'string' && input.path.trim() ? resolve(input.path.trim()) : null;
+    const hasBytes = bytes instanceof Uint8Array && bytes.byteLength > 0;
+    if (typeof input.name !== 'string' || (!path && !hasBytes)) {
       return [];
     }
 
     return [{
       name: input.name,
       type: typeof input.type === 'string' ? input.type : '',
-      bytes,
+      path,
+      bytes: hasBytes ? bytes : null,
     }];
   });
 };
@@ -998,7 +1062,8 @@ const importDroppedFiles = async (value: unknown): Promise<{
   importedTrackIds: string[];
   outputDirectory: string;
 }> => {
-  const outputDirectory = app.getPath('downloads');
+  const outputDirectory = getImportOutputDirectory();
+  const service = getLibraryService();
   const files = normalizeDroppedFiles(value);
   const importedTrackIds: string[] = [];
   let ignoredCount = 0;
@@ -1008,15 +1073,41 @@ const importDroppedFiles = async (value: unknown): Promise<{
 
   for (const file of files) {
     const fileName = sanitizeFileName(file.name);
-    if (!isScannableAudioExtension(fileName)) {
+    const inputPath = file.path;
+    const pathForExtension = inputPath ?? fileName;
+    if (isOsuArchivePath(pathForExtension)) {
+      let temporaryArchivePath: string | null = null;
+      try {
+        const archivePath = inputPath ?? uniqueOutputPath(outputDirectory, fileName.toLowerCase().endsWith('.osz') ? fileName : `${fileName}.osz`);
+        if (!inputPath) {
+          temporaryArchivePath = archivePath;
+          await writeFileAsync(archivePath, Buffer.from(file.bytes ?? new Uint8Array()));
+        }
+        const track = await importOsuArchiveFile(service, archivePath, outputDirectory);
+        importedTrackIds.push(track.id);
+      } catch {
+        failedCount += 1;
+      } finally {
+        if (temporaryArchivePath) {
+          await rmAsync(temporaryArchivePath, { force: true, maxRetries: 3, retryDelay: 50 });
+        }
+      }
+      continue;
+    }
+
+    if (!isScannableAudioExtension(pathForExtension)) {
       ignoredCount += 1;
       continue;
     }
 
     const outputPath = uniqueOutputPath(outputDirectory, fileName);
     try {
-      writeFileSync(outputPath, Buffer.from(file.bytes));
-      const track = await getLibraryService().importAudioFile(outputPath, { folderPath: outputDirectory });
+      if (inputPath) {
+        await copyFileAsync(inputPath, outputPath);
+      } else {
+        await writeFileAsync(outputPath, Buffer.from(file.bytes ?? new Uint8Array()));
+      }
+      const track = await service.importAudioFile(outputPath, { folderPath: outputDirectory });
       importedTrackIds.push(track.id);
     } catch {
       failedCount += 1;
@@ -1035,12 +1126,22 @@ const importDroppedFiles = async (value: unknown): Promise<{
 const addLocalAudioFilesToPlaylist = async (playlistId: string, paths: string[]): Promise<AddLocalAudioFilesToPlaylistResult> => {
   const service = getLibraryService();
   const classification = classifyImportPaths(paths);
+  const osuOutputDirectory = getImportOutputDirectory();
   const trackIds: string[] = [];
   let failedCount = 0;
 
   for (const filePath of classification.audioFiles) {
     try {
       const track = await service.importAudioFile(filePath);
+      trackIds.push(track.id);
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  for (const filePath of classification.osuArchives) {
+    try {
+      const track = await importOsuArchiveFile(service, filePath, osuOutputDirectory);
       trackIds.push(track.id);
     } catch {
       failedCount += 1;
@@ -1062,12 +1163,21 @@ const addLocalAudioFilesToPlaylist = async (playlistId: string, paths: string[])
 const importAudioFiles = async (paths: string[]): Promise<ImportAudioFilesResult> => {
   const service = getLibraryService();
   const classification = classifyImportPaths(paths);
+  const osuOutputDirectory = getImportOutputDirectory();
   const tracks: ImportAudioFilesResult['tracks'] = [];
   let failedCount = 0;
 
   for (const filePath of classification.audioFiles) {
     try {
       tracks.push(await service.importAudioFile(filePath));
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  for (const filePath of classification.osuArchives) {
+    try {
+      tracks.push(await importOsuArchiveFile(service, filePath, osuOutputDirectory));
     } catch {
       failedCount += 1;
     }
@@ -1339,7 +1449,7 @@ const importPlaylistFile = async (): Promise<ImportPlaylistFileResult | null> =>
   const localPlaylist = parseLocalM3uPlaylistFile(filePath, content);
   const localClassification = classifyImportPaths(localPlaylist.paths);
 
-  if (localClassification.audioFiles.length > 0) {
+  if (localClassification.audioFiles.length > 0 || localClassification.osuArchives.length > 0) {
     const service = getLibraryService();
     const playlist = service.createPlaylist({ name: localPlaylist.title });
     const imported = await addLocalAudioFilesToPlaylist(playlist.id, localPlaylist.paths);
@@ -1379,6 +1489,7 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryClassifyImportPaths, (_event, paths: unknown) =>
     classifyImportPaths(normalizePathList(paths)),
   );
+  ipcMain.handle(IpcChannels.LibraryChooseImportFiles, () => chooseImportFiles());
   ipcMain.handle(IpcChannels.LibraryImportDroppedFiles, (_event, files: unknown) => importDroppedFiles(files));
   ipcMain.handle(IpcChannels.LibraryImportAudioFiles, (_event, paths: unknown) => importAudioFiles(normalizePathList(paths)));
   ipcMain.handle(IpcChannels.LibraryGetFolders, () => getLibraryService().getFolders());
@@ -1935,10 +2046,6 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibrarySearchNetworkTagCandidates, (_event, request: unknown) =>
     {
       const settings = getAppSettings();
-      if (!settings.networkMetadataEnabled) {
-        throw new Error('网络来源暂时不可用，请稍后再试。');
-      }
-
       const normalized = normalizeNetworkTagCandidateSearchRequest(request);
       return getLibraryService().searchNetworkTagCandidates({
         ...normalized,

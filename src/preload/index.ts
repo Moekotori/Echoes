@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
 import type { AudioOutputSettings, AudioStatus, ChannelBalanceMonoMode, ChannelBalanceState, PlaybackSpeedMode } from '../shared/types/audio';
@@ -36,6 +36,11 @@ const automixAdvanceHandlers = new Set<(event: AutomixAdvancePayload) => void>()
 type SystemPlaybackSource = PlaybackResolvedMediaSource & {
   trackId?: string | null;
   replayGain?: ReplayGainTrackData | null;
+};
+
+type PitchControlAudioElement = HTMLAudioElement & {
+  mozPreservesPitch?: boolean;
+  webkitPreservesPitch?: boolean;
 };
 
 type SystemMediaPlaybackContext = {
@@ -438,7 +443,9 @@ const emitSystemAudioStatus = (): AudioStatus => {
   for (const handler of audioStatusHandlers) {
     handler(status);
   }
-  ipcRenderer.send(IpcChannels.DesktopLyricsRendererAudioStatus, status);
+  if (typeof ipcRenderer.send === 'function') {
+    ipcRenderer.send(IpcChannels.DesktopLyricsRendererAudioStatus, status);
+  }
   return status;
 };
 
@@ -576,6 +583,11 @@ const applySystemElementOutput = (): void => {
   }
 
   systemAudioElement.playbackRate = systemOutputSettings.playbackRate;
+  const preservesPitch = systemOutputSettings.playbackSpeedMode === 'speed';
+  const pitchElement = systemAudioElement as PitchControlAudioElement;
+  pitchElement.preservesPitch = preservesPitch;
+  pitchElement.mozPreservesPitch = preservesPitch;
+  pitchElement.webkitPreservesPitch = preservesPitch;
   if (systemAudioGainNode) {
     systemAudioElement.volume = systemOutputSettings.volume;
     systemAudioGainNode.gain.value = replayGainLinearGain();
@@ -913,6 +925,14 @@ const isSystemOutputRequest = (settings: unknown): boolean =>
 const shouldUseSystemAudioMode = (): boolean =>
   systemAudioModeActive || lastNativeAudioStatus?.outputMode === 'system';
 
+const shouldUseSystemAudioForPlayback = async (output?: AudioOutputSettings): Promise<boolean> => {
+  if (isSystemOutputRequest(output) || shouldUseSystemAudioMode()) {
+    return true;
+  }
+
+  return refreshSystemAudioModeActive();
+};
+
 const refreshSystemAudioModeActive = async (): Promise<boolean> => {
   if (systemAudioModeActive) {
     return true;
@@ -1089,15 +1109,20 @@ const echoApi: EchoApi = {
   },
   library: {
     chooseFolder: () => ipcRenderer.invoke(IpcChannels.LibraryChooseFolder),
+    chooseImportFiles: () => ipcRenderer.invoke(IpcChannels.LibraryChooseImportFiles),
     addFolder: (path) => ipcRenderer.invoke(IpcChannels.LibraryAddFolder, path),
     classifyImportPaths: (paths) => ipcRenderer.invoke(IpcChannels.LibraryClassifyImportPaths, paths),
     importDroppedFiles: async (files) => {
       const payload = await Promise.all(
-        Array.from(files ?? []).map(async (file) => ({
-          name: file.name,
-          type: file.type,
-          bytes: new Uint8Array(await file.arrayBuffer()),
-        })),
+        Array.from(files ?? []).map(async (file) => {
+          const path = webUtils?.getPathForFile(file) || null;
+          return {
+            name: file.name,
+            type: file.type,
+            path,
+            bytes: path ? null : new Uint8Array(await file.arrayBuffer()),
+          };
+        }),
       );
       return ipcRenderer.invoke(IpcChannels.LibraryImportDroppedFiles, payload);
     },
@@ -1270,12 +1295,12 @@ const echoApi: EchoApi = {
   },
   playback: {
     getStatus: () => systemAudioModeActive ? Promise.resolve(toSystemPlaybackStatus()) : ipcRenderer.invoke(IpcChannels.PlaybackGetStatus),
-    playLocalFile: (request) =>
-      shouldUseSystemAudioMode()
+    playLocalFile: async (request) =>
+      await shouldUseSystemAudioForPlayback(request.output)
         ? playLocalFileWithSystemAudio(request)
         : ipcRenderer.invoke(IpcChannels.PlaybackPlayLocalFile, request),
-    playMediaItem: (request) =>
-      shouldUseSystemAudioMode()
+    playMediaItem: async (request) =>
+      await shouldUseSystemAudioForPlayback(request.output)
         ? playMediaItemWithSystemAudio(request)
         : ipcRenderer.invoke(IpcChannels.PlaybackPlayMediaItem, request),
     prepareMediaItem: (request) => ipcRenderer.invoke(IpcChannels.PlaybackPrepareMediaItem, request),
@@ -1445,6 +1470,7 @@ const echoApi: EchoApi = {
       ipcRenderer.invoke(IpcChannels.LyricsSearchCandidatesForSnapshot, request, searchText, providerId),
     applyCandidate: (trackId, candidateId) => ipcRenderer.invoke(IpcChannels.LyricsApplyCandidate, trackId, candidateId),
     applyCandidateForSnapshot: (request, candidateId) => ipcRenderer.invoke(IpcChannels.LyricsApplyCandidateForSnapshot, request, candidateId),
+    embedToTrack: (trackId, request) => ipcRenderer.invoke(IpcChannels.LyricsEmbedToTrack, trackId, request),
     applyCustomLrc: (trackId, lrcText, fileName) => ipcRenderer.invoke(IpcChannels.LyricsApplyCustomLrc, trackId, lrcText, fileName),
     markInstrumental: (trackId) => ipcRenderer.invoke(IpcChannels.LyricsMarkInstrumental, trackId),
     rejectCandidate: (candidateId) => ipcRenderer.invoke(IpcChannels.LyricsRejectCandidate, candidateId),
@@ -1471,6 +1497,7 @@ const echoApi: EchoApi = {
     openExternal: (videoId) => ipcRenderer.invoke(IpcChannels.MvOpenExternal, videoId),
   },
   smtc: {
+    getDiagnostics: () => ipcRenderer.invoke(IpcChannels.SmtcGetDiagnostics),
     onCommand: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, command: SmtcCommand): void => {
         handler(command);

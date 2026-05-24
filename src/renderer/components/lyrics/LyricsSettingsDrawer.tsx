@@ -9,6 +9,8 @@ import {
   Globe2,
   GripVertical,
   Image as ImageIcon,
+  Lock,
+  Monitor,
   Music2,
   Palette,
   RefreshCw,
@@ -23,6 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { AppSettings } from '../../../shared/types/appSettings';
+import type { DesktopLyricsState, DesktopLyricsStylePatch } from '../../../shared/types/desktopLyrics';
 import type { MvSettings } from '../../../shared/types/mv';
 import type { LyricsProviderId, LyricsSearchCandidate, LyricsSource, TrackLyrics } from '../../../shared/types/lyrics';
 import { registerAppearanceFontFile } from '../../preferences/appearancePreferences';
@@ -44,6 +47,8 @@ type LocalFontData = {
 type NavigatorWithLocalFonts = Navigator & {
   queryLocalFonts?: () => Promise<LocalFontData[]>;
 };
+
+type LyricsFontPickerTarget = 'lyrics' | 'desktopLyrics';
 
 const drawerExitAnimationMs = 320;
 
@@ -91,6 +96,8 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsCoverBlurPx'
   | 'lyricsCoverBrightnessPercent'
   | 'lyricsBackgroundScalePercent'
+  | 'desktopLyricsFontFamily'
+  | 'desktopLyricsFontFilePath'
 >;
 
 const fallbackSettings: LyricsDrawerSettings = {
@@ -136,6 +143,8 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
   lyricsBackgroundScalePercent: 100,
+  desktopLyricsFontFamily: 'Outfit',
+  desktopLyricsFontFilePath: null,
 };
 
 const colorSwatches = ['#314054', '#FFFFFF', '#F6D365', '#8FCFBD', '#A8C7FA', '#FF8A80'];
@@ -387,6 +396,8 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsCoverBlurPx: settings.lyricsCoverBlurPx,
   lyricsCoverBrightnessPercent: settings.lyricsCoverBrightnessPercent,
   lyricsBackgroundScalePercent: settings.lyricsBackgroundScalePercent,
+  desktopLyricsFontFamily: settings.desktopLyricsFontFamily ?? fallbackSettings.desktopLyricsFontFamily,
+  desktopLyricsFontFilePath: settings.desktopLyricsFontFilePath ?? fallbackSettings.desktopLyricsFontFilePath,
 });
 
 export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSettingsPanelProps): JSX.Element => {
@@ -398,6 +409,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   const [isLyricsStyleControlsOpen, setIsLyricsStyleControlsOpen] = useState(true);
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackLyricsFontFamilies);
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
+  const [fontPickerTarget, setFontPickerTarget] = useState<LyricsFontPickerTarget>('lyrics');
   const [fontPickerQuery, setFontPickerQuery] = useState('');
   const [isBackgroundControlsOpen, setIsBackgroundControlsOpen] = useState(true);
   const [lyricsReadabilityEnhanced, setLyricsReadabilityEnhanced] = useState(false);
@@ -406,6 +418,8 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   const [activeLyricsCandidateSource, setActiveLyricsCandidateSource] = useState('all');
   const [lyricsCandidateStatus, setLyricsCandidateStatus] = useState<string | null>(null);
   const [isLyricsCandidateLoading, setIsLyricsCandidateLoading] = useState(false);
+  const [desktopLyricsState, setDesktopLyricsState] = useState<DesktopLyricsState | null>(null);
+  const [isDesktopLyricsBusy, setIsDesktopLyricsBusy] = useState(false);
   const [applyingLyricsCandidateId, setApplyingLyricsCandidateId] = useState<string | null>(null);
   const [isMarkingInstrumental, setIsMarkingInstrumental] = useState(false);
   const [currentLyricsKind, setCurrentLyricsKind] = useState<TrackLyrics['kind'] | null>(null);
@@ -421,6 +435,16 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   const lyricsContextOpacityPercent = effectiveSettings.lyricsContextOpacityPercent ?? fallbackSettings.lyricsContextOpacityPercent;
   const lyricsLineMaxChars = effectiveSettings.lyricsLineMaxChars ?? fallbackSettings.lyricsLineMaxChars ?? 0;
   const lyricsFontFamily = effectiveSettings.lyricsFontFamily ?? fallbackSettings.lyricsFontFamily ?? 'Microsoft YaHei';
+  const desktopLyricsFontFamily =
+    desktopLyricsState?.settings.desktopLyricsFontFamily ??
+    effectiveSettings.desktopLyricsFontFamily ??
+    fallbackSettings.desktopLyricsFontFamily ??
+    'Outfit';
+  const desktopLyricsFontFilePath =
+    desktopLyricsState?.settings.desktopLyricsFontFilePath ??
+    effectiveSettings.desktopLyricsFontFilePath ??
+    fallbackSettings.desktopLyricsFontFilePath ??
+    null;
   const wordHighlightClarityPercent = effectiveSettings.lyricsWordHighlightClarityPercent ?? fallbackSettings.lyricsWordHighlightClarityPercent ?? 70;
   const wordHighlightClarityLabel =
     wordHighlightClarityPercent === fallbackSettings.lyricsWordHighlightClarityPercent ? '正常' : `${wordHighlightClarityPercent}%`;
@@ -457,6 +481,9 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   const thresholdPercent = Math.round(effectiveSettings.lyricsAutoAcceptScore * 100);
   const miniPlayerOpacityPercent = effectiveSettings.lyricsPlayerBarDrawerOpacityPercent ?? fallbackSettings.lyricsPlayerBarDrawerOpacityPercent;
   const miniPlayerColor = effectiveSettings.lyricsPlayerBarDrawerColor ?? fallbackSettings.lyricsPlayerBarDrawerColor ?? '#232120';
+  const hasDesktopLyricsBridge = Boolean(window.echo?.desktopLyrics);
+  const desktopLyricsVisible = desktopLyricsState?.visible === true;
+  const desktopLyricsLocked = desktopLyricsState?.locked === true;
   const offsetSeconds = useMemo(() => (effectiveSettings.lyricsDefaultOffsetMs / 1000).toFixed(1), [effectiveSettings.lyricsDefaultOffsetMs]);
   const isSecondaryLyricsSizeOpen = effectiveSettings.lyricsRomanizationEnabled || effectiveSettings.lyricsTranslationEnabled;
   const globalSyncOffsetSeconds = useMemo(
@@ -504,7 +531,33 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   );
 
   useEffect(() => {
-    if (!showPersistentControls || !isLyricsStyleControlsOpen) {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setDesktopLyricsState(null);
+      return undefined;
+    }
+
+    let disposed = false;
+    void desktopLyrics.getState()
+      .then((state) => {
+        if (!disposed) {
+          setDesktopLyricsState(state);
+        }
+      })
+      .catch(() => undefined);
+
+    const unsubscribe = desktopLyrics.onStateChanged?.((state) => {
+      setDesktopLyricsState(state);
+    }) ?? (() => undefined);
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showPersistentControls || (!isLyricsStyleControlsOpen && !isFontPickerOpen)) {
       return undefined;
     }
 
@@ -534,7 +587,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     return () => {
       cancelled = true;
     };
-  }, [isLyricsStyleControlsOpen, showPersistentControls]);
+  }, [isFontPickerOpen, isLyricsStyleControlsOpen, showPersistentControls]);
 
   const loadCurrentLyricsProvider = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
@@ -766,6 +819,100 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
       });
   }, [lyricsReadabilityEnhanced]);
 
+  const patchDesktopLyricsStyle = useCallback((patch: DesktopLyricsStylePatch): void => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError('Desktop lyrics bridge unavailable');
+      return;
+    }
+
+    setIsDesktopLyricsBusy(true);
+    setSettings((current) => ({ ...(current ?? fallbackSettings), ...(patch as Partial<LyricsDrawerSettings>) }));
+    setDesktopLyricsState((current) =>
+      current
+        ? {
+            ...current,
+            settings: {
+              ...current.settings,
+              ...patch,
+            },
+          }
+        : current,
+    );
+
+    void desktopLyrics.setStyle(patch)
+      .then((state) => {
+        setDesktopLyricsState(state);
+        setSettings((current) => ({
+          ...(current ?? fallbackSettings),
+          desktopLyricsFontFamily: state.settings.desktopLyricsFontFamily ?? fallbackSettings.desktopLyricsFontFamily,
+          desktopLyricsFontFilePath: state.settings.desktopLyricsFontFilePath ?? fallbackSettings.desktopLyricsFontFilePath,
+        }));
+        setError(null);
+      })
+      .catch((desktopLyricsError) => {
+        setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+      })
+      .finally(() => setIsDesktopLyricsBusy(false));
+  }, []);
+
+  const setDesktopLyricsVisible = useCallback((visible: boolean): void => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError('Desktop lyrics bridge unavailable');
+      return;
+    }
+
+    setIsDesktopLyricsBusy(true);
+    void (visible ? desktopLyrics.show() : desktopLyrics.hide())
+      .then((state) => {
+        setDesktopLyricsState(state);
+        setError(null);
+      })
+      .catch((desktopLyricsError) => {
+        setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+      })
+      .finally(() => setIsDesktopLyricsBusy(false));
+  }, []);
+
+  const setDesktopLyricsLocked = useCallback((locked: boolean): void => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError('Desktop lyrics bridge unavailable');
+      return;
+    }
+
+    setIsDesktopLyricsBusy(true);
+    void desktopLyrics.setLocked(locked)
+      .then((state) => {
+        setDesktopLyricsState(state);
+        setError(null);
+      })
+      .catch((desktopLyricsError) => {
+        setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+      })
+      .finally(() => setIsDesktopLyricsBusy(false));
+  }, []);
+
+  const resetDesktopLyricsPosition = useCallback((): void => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      setError('Desktop lyrics bridge unavailable');
+      return;
+    }
+
+    setIsDesktopLyricsBusy(true);
+    void desktopLyrics.resetBounds()
+      .then((state) => {
+        setDesktopLyricsState(state);
+        setError(null);
+      })
+      .catch((desktopLyricsError) => {
+        setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
+      })
+      .finally(() => setIsDesktopLyricsBusy(false));
+  }, []);
+
   useEffect(() => {
     return () => {
       if (debouncedSaveTimerRef.current !== null) {
@@ -782,19 +929,31 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     };
   }, []);
 
-  const applyLyricsFontFamily = useCallback((value: string): void => {
+  const openFontPicker = useCallback((target: LyricsFontPickerTarget): void => {
+    setFontPickerTarget(target);
+    setFontPickerQuery('');
+    setIsFontPickerOpen(true);
+  }, []);
+
+  const applySelectedFontFamily = useCallback((value: string): void => {
     const fontFamily = sanitizeFontFamily(value);
-    if (!fontFamily || fontFamily === lyricsFontFamily) {
+    const currentFontFamily = fontPickerTarget === 'desktopLyrics' ? desktopLyricsFontFamily : lyricsFontFamily;
+    if (!fontFamily || fontFamily === currentFontFamily) {
       setIsFontPickerOpen(false);
       return;
     }
 
     setFontFamilies((current) => Array.from(new Set([...current, fontFamily])).sort((a, b) => a.localeCompare(b)));
     setIsFontPickerOpen(false);
-    void patchSettings({ lyricsFontFamily: fontFamily, lyricsFontFilePath: null });
-  }, [lyricsFontFamily, patchSettings]);
+    if (fontPickerTarget === 'desktopLyrics') {
+      patchDesktopLyricsStyle({ desktopLyricsFontFamily: fontFamily, desktopLyricsFontFilePath: null });
+      return;
+    }
 
-  const chooseLyricsFontFile = useCallback(async (): Promise<void> => {
+    void patchSettings({ lyricsFontFamily: fontFamily, lyricsFontFilePath: null });
+  }, [desktopLyricsFontFamily, fontPickerTarget, lyricsFontFamily, patchDesktopLyricsStyle, patchSettings]);
+
+  const chooseFontFileForTarget = useCallback(async (target: LyricsFontPickerTarget): Promise<void> => {
     const app = window.echo?.app;
     if (!app?.chooseFontFile) {
       setError('Desktop bridge unavailable');
@@ -808,16 +967,23 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         return;
       }
 
-      const fontFamily = await registerAppearanceFontFile('lyrics', fontFile);
+      const fontFamily = await registerAppearanceFontFile(target, fontFile);
       setFontFamilies((current) => Array.from(new Set([...current, fontFamily])).sort((a, b) => a.localeCompare(b)));
       setIsFontPickerOpen(false);
-      await patchSettings({ lyricsFontFamily: fontFamily, lyricsFontFilePath: fontFile.path });
+      if (target === 'desktopLyrics') {
+        patchDesktopLyricsStyle({
+          desktopLyricsFontFamily: fontFamily,
+          desktopLyricsFontFilePath: fontFile.path,
+        });
+      } else {
+        await patchSettings({ lyricsFontFamily: fontFamily, lyricsFontFilePath: fontFile.path });
+      }
     } catch (fontError) {
       setError(fontError instanceof Error ? fontError.message : String(fontError));
     } finally {
       setIsBusy(false);
     }
-  }, [patchSettings]);
+  }, [patchDesktopLyricsStyle, patchSettings]);
 
   const chooseWallpaper = useCallback(async (): Promise<void> => {
     const app = window.echo?.app;
@@ -1253,6 +1419,125 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
           <p>关闭后歌词页不会加载、搜索或匹配歌词。</p>
 
           {showPersistentControls ? (
+            <>
+              <label className="audio-toggle-row">
+                <span>
+                  <Monitor size={17} />
+                  <strong>桌面歌词</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={desktopLyricsVisible}
+                  disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                  onChange={(event) => setDesktopLyricsVisible(event.currentTarget.checked)}
+                />
+              </label>
+              <p>开启后用独立透明窗口在桌面置顶显示当前歌词。</p>
+
+              <div className="lyrics-font-panel lyrics-desktop-font-panel">
+                <div className="lyrics-color-panel__header">
+                  <span>
+                    <Type size={15} />
+                    <strong>桌面歌词字体</strong>
+                  </span>
+                  <em title={desktopLyricsFontFilePath ?? undefined}>
+                    {desktopLyricsFontFilePath ? '自定义字体' : '系统字体'}
+                  </em>
+                </div>
+                <button
+                  className="lyrics-font-picker-button"
+                  type="button"
+                  disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                  onClick={() => openFontPicker('desktopLyrics')}
+                >
+                  <span style={{ fontFamily: `"${desktopLyricsFontFamily}", "Outfit", var(--echo-font-family)` }}>
+                    {desktopLyricsFontFamily}
+                  </span>
+                  <em>默认 Outfit，可换系统字体</em>
+                </button>
+                <div className="lyrics-font-actions">
+                  <button
+                    className="audio-device-pill"
+                    type="button"
+                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                    onClick={() => openFontPicker('desktopLyrics')}
+                  >
+                    <Check size={15} />
+                    <span>
+                      <strong>应用系统字体</strong>
+                      <small>只影响桌面歌词</small>
+                    </span>
+                    <em>Fonts</em>
+                  </button>
+                  <button
+                    className="audio-device-pill"
+                    type="button"
+                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                    onClick={() => void chooseFontFileForTarget('desktopLyrics')}
+                  >
+                    <Upload size={15} />
+                    <span>
+                      <strong>导入桌面歌词字体</strong>
+                      <small>TTF / OTF / WOFF / WOFF2</small>
+                    </span>
+                    <em>Choose</em>
+                  </button>
+                  <button
+                    className="audio-device-pill"
+                    type="button"
+                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                    onClick={() => {
+                      setIsFontPickerOpen(false);
+                      patchDesktopLyricsStyle({
+                        desktopLyricsFontFamily: fallbackSettings.desktopLyricsFontFamily,
+                        desktopLyricsFontFilePath: fallbackSettings.desktopLyricsFontFilePath,
+                      });
+                    }}
+                  >
+                    <RotateCcw size={15} />
+                    <span>
+                      <strong>恢复桌面歌词默认字体</strong>
+                      <small>{fallbackSettings.desktopLyricsFontFamily}</small>
+                    </span>
+                    <em>Reset</em>
+                  </button>
+                </div>
+              </div>
+
+              {desktopLyricsVisible ? (
+                <>
+                  <label className="audio-toggle-row">
+                    <span>
+                      <Lock size={17} />
+                      <strong>锁定桌面歌词</strong>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={desktopLyricsLocked}
+                      disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                      onChange={(event) => setDesktopLyricsLocked(event.currentTarget.checked)}
+                    />
+                  </label>
+                  <p>锁定后鼠标会穿透桌面歌词，避免挡住桌面操作；回到这里可解锁。</p>
+                  <button
+                    className="audio-device-pill"
+                    type="button"
+                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                    onClick={resetDesktopLyricsPosition}
+                  >
+                    <RotateCcw size={15} />
+                    <span>
+                      <strong>重置桌面歌词位置</strong>
+                      <small>移回屏幕下方中央</small>
+                    </span>
+                    <em>Reset</em>
+                  </button>
+                </>
+              ) : null}
+            </>
+          ) : null}
+
+          {showPersistentControls ? (
           <label className="mv-threshold-control lyrics-match-threshold-control">
             <span className="mv-threshold-copy">
               <strong>歌词匹配度设置</strong>
@@ -1549,10 +1834,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               className="lyrics-font-picker-button"
               type="button"
               disabled={isBusy}
-              onClick={() => {
-                setFontPickerQuery('');
-                setIsFontPickerOpen(true);
-              }}
+              onClick={() => openFontPicker('lyrics')}
             >
               <span style={{ fontFamily: `"${lyricsFontFamily}", var(--echo-font-family)` }}>{lyricsFontFamily}</span>
               <em>选择已安装字体</em>
@@ -1562,10 +1844,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                 className="audio-device-pill"
                 type="button"
                 disabled={isBusy}
-                onClick={() => {
-                  setFontPickerQuery('');
-                  setIsFontPickerOpen(true);
-                }}
+                onClick={() => openFontPicker('lyrics')}
               >
                 <Check size={15} />
                 <span>
@@ -1574,7 +1853,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                 </span>
                 <em>Fonts</em>
               </button>
-              <button className="audio-device-pill" type="button" disabled={isBusy} onClick={() => void chooseLyricsFontFile()}>
+              <button className="audio-device-pill" type="button" disabled={isBusy} onClick={() => void chooseFontFileForTarget('lyrics')}>
                 <Upload size={15} />
                 <span>
                   <strong>导入字体文件</strong>
@@ -2142,12 +2421,12 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
 
         {isFontPickerOpen ? (
           <LyricsFontPickerModal
-            currentFont={lyricsFontFamily}
+            currentFont={fontPickerTarget === 'desktopLyrics' ? desktopLyricsFontFamily : lyricsFontFamily}
             fonts={fontFamilies}
             isBusy={isBusy}
-            onChooseFile={() => void chooseLyricsFontFile()}
+            onChooseFile={() => void chooseFontFileForTarget(fontPickerTarget)}
             onClose={() => setIsFontPickerOpen(false)}
-            onSelect={applyLyricsFontFamily}
+            onSelect={applySelectedFontFamily}
             query={fontPickerQuery}
             setQuery={setFontPickerQuery}
           />

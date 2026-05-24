@@ -97,6 +97,10 @@ describe('SMTC service', () => {
       }),
     ).not.toThrow();
     expect(() => service.dispose()).not.toThrow();
+    expect(service.getDiagnostics()).toMatchObject({
+      hostState: 'disabled',
+      lastError: null,
+    });
   });
 
   it('returns a no-op service outside Windows', () => {

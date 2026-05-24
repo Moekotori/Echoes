@@ -139,6 +139,7 @@ const mvSyncProfiles: Record<NonNullable<MvSettings['syncMode']>, { toleranceSec
   balanced: { toleranceSeconds: 0.7, hardSeekSeconds: 2.5, maxRateDelta: 0.1 },
   precise: { toleranceSeconds: 0.3, hardSeekSeconds: 1.2, maxRateDelta: 0.15 },
 };
+const directBilibiliStreamingSyncProfile = { toleranceSeconds: 0.18, hardSeekSeconds: 0.75, maxRateDelta: 0.18 };
 const playbackSeekedEvent = 'playback:seeked';
 const mvEndedBeforeAudioEvent = 'mv:ended-before-audio';
 const lyricsSmartReadableVideoSampleEvent = 'lyrics:smart-readable-video-sample';
@@ -286,6 +287,65 @@ const playVideo = (video: HTMLVideoElement): void => {
 
 const streamingTrackKey = (target: { provider: StreamingProviderName; providerTrackId: string }): string =>
   `streaming:${target.provider}:${target.providerTrackId}`;
+
+const bilibiliVideoIdFromStreamingTarget = (target: { provider: StreamingProviderName; providerTrackId: string }): string | null => {
+  if (target.provider !== 'bilibili') {
+    return null;
+  }
+
+  const rawId = target.providerTrackId.trim();
+  if (!rawId) {
+    return null;
+  }
+
+  if (/^https?:\/\//iu.test(rawId)) {
+    try {
+      return new URL(rawId).pathname.match(/\/video\/((?:BV[A-Za-z0-9]+)|(?:av\d+))/iu)?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  return rawId.match(/^BV[A-Za-z0-9]+$/iu)?.[0] ?? rawId.match(/^av\d+$/iu)?.[0] ?? null;
+};
+
+const bilibiliVideoUrlFromStreamingTarget = (target: { provider: StreamingProviderName; providerTrackId: string }): string | null => {
+  if (target.provider !== 'bilibili') {
+    return null;
+  }
+
+  const rawId = target.providerTrackId.trim();
+  if (/^https?:\/\//iu.test(rawId)) {
+    return rawId;
+  }
+
+  const videoId = bilibiliVideoIdFromStreamingTarget(target);
+  return videoId ? `https://www.bilibili.com/video/${encodeURIComponent(videoId)}` : null;
+};
+
+const shouldUseDirectBilibiliStreamingVideo = (
+  video: TrackVideo | null,
+  target: { provider: StreamingProviderName; providerTrackId: string },
+): boolean => {
+  const videoId = bilibiliVideoIdFromStreamingTarget(target);
+  if (!videoId) {
+    return false;
+  }
+
+  return video?.provider !== 'bilibili' || video.sourceId !== videoId;
+};
+
+const isDirectBilibiliStreamingVideo = (
+  video: TrackVideo | null,
+  target: { provider: StreamingProviderName; providerTrackId: string } | null | undefined,
+): boolean => {
+  if (!video || video.provider !== 'bilibili' || !target) {
+    return false;
+  }
+
+  const videoId = bilibiliVideoIdFromStreamingTarget(target);
+  return Boolean(videoId && video.sourceId === videoId);
+};
 
 const snapshotSearchRequestForTrack = ({
   artist,
@@ -671,7 +731,7 @@ export const MvPanel = ({
         setIsLoading(false);
       }
     }
-  }, [getTemporaryPlayableForActiveTrack, loadSettings, resolveNetworkVideo, searchCandidatesForActiveTrack, streamingTarget, trackId]);
+  }, [currentTrack, getTemporaryPlayableForActiveTrack, loadSettings, resolveNetworkVideo, searchCandidatesForActiveTrack, streamingTarget, trackId]);
 
   useEffect(() => {
     if (!streamingTarget) {
@@ -694,6 +754,10 @@ export const MvPanel = ({
 
       const mvApi = window.echo?.mv;
       let video = await mvApi?.getSelected?.(effectiveTrackId) ?? null;
+      const directBilibiliUrl = bilibiliVideoUrlFromStreamingTarget(streamingTarget);
+      if (directBilibiliUrl && mvApi?.bindUrl && shouldUseDirectBilibiliStreamingVideo(video, streamingTarget)) {
+        video = await mvApi.bindUrl(effectiveTrackId, directBilibiliUrl);
+      }
       if (!video && mvApi?.searchNetworkCandidatesForSnapshot) {
         let streamingMvItems: StreamingMvItem[] = [];
         try {
@@ -1018,7 +1082,8 @@ export const MvPanel = ({
   }, [trackId]);
 
   const syncVideoElementToAudio = useCallback((video: HTMLVideoElement | null, options: { force?: boolean; bypassCooldown?: boolean; recordCooldown?: boolean } = {}): boolean => {
-    const followMusicProgress = settingsRef.current.restartAudioOnLoad;
+    const directBilibiliStreamingVideo = isDirectBilibiliStreamingVideo(selectedVideo, streamingTarget);
+    const followMusicProgress = settingsRef.current.restartAudioOnLoad || directBilibiliStreamingVideo;
     if (!followMusicProgress || !video || videoSeekingRef.current) {
       return false;
     }
@@ -1026,7 +1091,8 @@ export const MvPanel = ({
     const targetTime = targetVideoTimeForAudio(video, audioClockRef.current, selectedVideo?.offsetMs ?? 0);
     const signedDrift = getVideoSignedDriftSeconds(video, targetTime);
     const drift = Math.abs(signedDrift);
-    const syncProfile = syncProfileForSettings(settingsRef.current);
+    const syncProfile = directBilibiliStreamingVideo ? directBilibiliStreamingSyncProfile : syncProfileForSettings(settingsRef.current);
+    const syncCooldownMs = directBilibiliStreamingVideo ? 150 : mvSyncCorrectionCooldownMs;
     const now = Date.now();
 
     if (!options.force && drift <= syncProfile.toleranceSeconds) {
@@ -1034,7 +1100,7 @@ export const MvPanel = ({
       return false;
     }
 
-    if (!options.force && !options.bypassCooldown && now - lastVideoSyncAtRef.current < mvSyncCorrectionCooldownMs) {
+    if (!options.force && !options.bypassCooldown && now - lastVideoSyncAtRef.current < syncCooldownMs) {
       return false;
     }
 
@@ -1058,7 +1124,7 @@ export const MvPanel = ({
     } catch {
       return false;
     }
-  }, [selectedVideo?.offsetMs]);
+  }, [applyVideoPlaybackRate, selectedVideo, streamingTarget]);
 
   const syncVideoToAudio = useCallback((options: { force?: boolean; bypassCooldown?: boolean } = {}): boolean => {
     const foregroundSynced = syncVideoElementToAudio(videoRef.current, options);

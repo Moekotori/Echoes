@@ -48,6 +48,14 @@ const frameTypeBeginSession = 1;
 const frameTypePcmF32Le = 2;
 const frameTypeEndSession = 3;
 const frameTypeShutdown = 4;
+const decodeServerMagic = 'ECDS';
+const decodeServerVersion = 1;
+const decodeFrameTypeStart = 1;
+const decodeFrameTypeShutdown = 3;
+const decodeFrameTypeReady = 101;
+const decodeFrameTypePcmF32Le = 102;
+const decodeFrameTypeEnd = 103;
+const decodeFrameTypeError = 104;
 
 const normalizeExitCode = (code) =>
   typeof code === 'number' && code > 0x7fffffff ? code - 0x1_0000_0000 : code;
@@ -66,6 +74,21 @@ const createFrame = (type, sessionId, payload = Buffer.alloc(0)) =>
   payload.length > 0
     ? Buffer.concat([createFrameHeader(type, sessionId, payload.length), payload])
     : createFrameHeader(type, sessionId, 0);
+
+const createDecodeFrameHeader = (type, sessionId, payloadBytes) => {
+  const header = Buffer.alloc(16);
+  header.write(decodeServerMagic, 0, 'ascii');
+  header.writeUInt8(decodeServerVersion, 4);
+  header.writeUInt8(type, 5);
+  header.writeUInt32LE(sessionId >>> 0, 8);
+  header.writeUInt32LE(Math.max(0, payloadBytes) >>> 0, 12);
+  return header;
+};
+
+const createDecodeFrame = (type, sessionId, payload = Buffer.alloc(0)) =>
+  payload.length > 0
+    ? Buffer.concat([createDecodeFrameHeader(type, sessionId, payload.length), payload])
+    : createDecodeFrameHeader(type, sessionId, 0);
 
 const createPcm = ({ sampleRate = 48000, seconds = 0.1, channels = 2 } = {}) => {
   const frames = Math.floor(seconds * sampleRate);
@@ -138,7 +161,161 @@ const runDecodePcmFixture = ({ fixturePath, fixture, sampleRate, label, exactByt
   console.log(`[smoke:audio-host] JUCE ${label} decode PCM OK`);
 };
 
-const runJuceDecodeSmoke = () => {
+const runDecodeServerFixtureSequence = async ({ fixtures, sampleRate }) => {
+  const child = spawn(hostPath, ['-decode-server'], {
+    cwd: projectRoot,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let pending = Buffer.alloc(0);
+  let stderr = '';
+  let stdinError = '';
+  let sessionId = 0;
+  const sessions = new Map();
+
+  const rejectAll = (error) => {
+    for (const session of sessions.values()) {
+      session.reject(error);
+    }
+    sessions.clear();
+  };
+
+  const parseFrames = () => {
+    while (pending.length >= 16) {
+      if (pending.toString('ascii', 0, 4) !== decodeServerMagic) {
+        rejectAll(new Error(`invalid decode server magic; stderr=${stderr}`));
+        child.kill('SIGKILL');
+        return;
+      }
+
+      const version = pending.readUInt8(4);
+      if (version !== decodeServerVersion) {
+        rejectAll(new Error(`unsupported decode server version ${version}; stderr=${stderr}`));
+        child.kill('SIGKILL');
+        return;
+      }
+
+      const type = pending.readUInt8(5);
+      const activeSessionId = pending.readUInt32LE(8);
+      const payloadBytes = pending.readUInt32LE(12);
+      if (pending.length < 16 + payloadBytes) {
+        return;
+      }
+
+      const payload = pending.subarray(16, 16 + payloadBytes);
+      pending = pending.subarray(16 + payloadBytes);
+      const session = sessions.get(activeSessionId);
+      if (!session) {
+        continue;
+      }
+
+      if (type === decodeFrameTypeReady) {
+        session.ready = true;
+      } else if (type === decodeFrameTypePcmF32Le) {
+        session.pcmBytes += payload.length;
+      } else if (type === decodeFrameTypeEnd) {
+        sessions.delete(activeSessionId);
+        session.resolve(session);
+      } else if (type === decodeFrameTypeError) {
+        sessions.delete(activeSessionId);
+        session.reject(new Error(`decode server error for ${session.label}: ${payload.toString('utf8')}; stderr=${stderr}`));
+      }
+    }
+  };
+
+  child.stdout.on('data', (chunk) => {
+    pending = pending.length > 0 ? Buffer.concat([pending, chunk]) : chunk;
+    parseFrames();
+  });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  child.stdin.on('error', (error) => {
+    stdinError = error instanceof Error ? error.message : String(error);
+  });
+  child.once('exit', (code) => {
+    if (sessions.size > 0) {
+      rejectAll(new Error(`decode server exited with ${code}; stderr=${stderr}; stdinError=${stdinError}`));
+    }
+  });
+
+  const decode = async ({ fixturePath, fixture, label, exactBytes = true }) => {
+    const activeSessionId = ++sessionId;
+    const frameBytes = fixture.channels * Float32Array.BYTES_PER_ELEMENT;
+    const expectedBytes = fixture.frames * frameBytes;
+    const session = {
+      label,
+      ready: false,
+      pcmBytes: 0,
+      resolve: null,
+      reject: null,
+    };
+    const promise = new Promise((resolve, reject) => {
+      session.resolve = resolve;
+      session.reject = reject;
+    });
+    sessions.set(activeSessionId, session);
+
+    const timer = setTimeout(() => {
+      sessions.delete(activeSessionId);
+      session.reject(new Error(`decode server timed out for ${label}; stderr=${stderr}; stdinError=${stdinError}`));
+    }, 10000);
+
+    const payload = Buffer.from(JSON.stringify({
+      filePath: fixturePath,
+      startSeconds: 0,
+      sampleRate,
+      channels: fixture.channels,
+    }), 'utf8');
+    child.stdin.write(createDecodeFrame(decodeFrameTypeStart, activeSessionId, payload), (error) => {
+      if (error) {
+        sessions.delete(activeSessionId);
+        session.reject(error);
+      }
+    });
+
+    const result = await promise.finally(() => clearTimeout(timer));
+    if (!result.ready) {
+      fail(`decode server ${label} did not report ready; stderr=${stderr}`);
+    }
+    if (exactBytes && result.pcmBytes !== expectedBytes) {
+      fail(`decode server ${label} returned ${result.pcmBytes} bytes, expected ${expectedBytes}; stderr=${stderr}`);
+    }
+    if (!exactBytes && (result.pcmBytes <= 0 || result.pcmBytes % frameBytes !== 0)) {
+      fail(`decode server ${label} returned invalid f32le byte count ${result.pcmBytes}; frameBytes=${frameBytes}; stderr=${stderr}`);
+    }
+  };
+
+  try {
+    for (const fixture of fixtures) {
+      await decode(fixture);
+    }
+  } finally {
+    if (!child.stdin.destroyed && !child.stdin.writableEnded) {
+      child.stdin.write(createDecodeFrame(decodeFrameTypeShutdown, 0));
+      child.stdin.end();
+    }
+  }
+
+  const exitCode = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(-1);
+    }, 10000);
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 0);
+    });
+  });
+
+  if (exitCode !== 0) {
+    fail(`decode server exited with ${exitCode}; stderr=${stderr}; stdinError=${stdinError}`);
+  }
+
+  console.log(`[smoke:audio-host] resident JUCE decode server OK (${fixtures.length} requests, pid ${child.pid ?? 'n/a'})`);
+};
+
+const runJuceDecodeSmoke = async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'echo-juce-decode-'));
   const wavPath = join(tempDir, 'juce-decode-smoke.wav');
   const flacPath = join(tempDir, 'juce-decode-smoke.flac');
@@ -175,6 +352,14 @@ const runJuceDecodeSmoke = () => {
     }
 
     runDecodePcmFixture({ fixturePath: mp3Path, fixture, sampleRate, label: 'MP3', exactBytes: false });
+    await runDecodeServerFixtureSequence({
+      sampleRate,
+      fixtures: [
+        { fixturePath: wavPath, fixture, label: 'WAV' },
+        { fixturePath: flacPath, fixture, label: 'FLAC' },
+        { fixturePath: mp3Path, fixture, label: 'MP3', exactBytes: false },
+      ],
+    });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -350,7 +535,7 @@ if (devices.length === 0) {
 
 console.log(`[smoke:audio-host] listed ${devices.length} output devices`);
 
-runJuceDecodeSmoke();
+await runJuceDecodeSmoke();
 
 if (process.platform === 'win32') {
   const initTimeoutResult = await runPcmHost(['-sr', '48000', '-ch', '2'], {

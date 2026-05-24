@@ -133,6 +133,44 @@ describe('TsCoverExtractor', () => {
     expect(result.sourceHash).toBe(hashBytes(folderCover));
   });
 
+  it('finds common case-insensitive sidecar cover names for WAV folders', async () => {
+    const root = makeTempRoot();
+    const musicRoot = join(root, 'music');
+    const cacheRoot = join(root, 'cover-cache');
+    mkdirSync(musicRoot, { recursive: true });
+    const filePath = join(musicRoot, 'song.wav');
+    const folderCover = await coverPng('#55aaee');
+    writeFileSync(filePath, 'fake audio');
+    writeFileSync(join(musicRoot, 'AlbumArtSmall.JPG'), folderCover);
+
+    const result = await new TsCoverExtractor().extract(filePath, {
+      cacheRoot,
+      metadata: metadataWithCover(),
+    });
+
+    expect(result.source).toBe('folder');
+    expect(result.sourceHash).toBe(hashBytes(folderCover));
+  });
+
+  it('uses same-name sidecar artwork after standard cover names', async () => {
+    const root = makeTempRoot();
+    const musicRoot = join(root, 'music');
+    const cacheRoot = join(root, 'cover-cache');
+    mkdirSync(musicRoot, { recursive: true });
+    const filePath = join(musicRoot, 'song.wav');
+    const sameNameCover = await coverPng('#aa55ee');
+    writeFileSync(filePath, 'fake audio');
+    writeFileSync(join(musicRoot, 'song.png'), sameNameCover);
+
+    const result = await new TsCoverExtractor().extract(filePath, {
+      cacheRoot,
+      metadata: metadataWithCover(),
+    });
+
+    expect(result.source).toBe('folder');
+    expect(result.sourceHash).toBe(hashBytes(sameNameCover));
+  });
+
   it('skips oversized embedded covers before sharp processes them', async () => {
     const root = makeTempRoot();
     const cacheRoot = join(root, 'cover-cache');

@@ -1220,9 +1220,10 @@ export const registerPlaybackIpc = (): void => {
       void syncSmtcStatus();
       return toPlaybackStatus();
     } catch (error) {
-      if (!isSupersededPlaybackRun(error)) {
-        reportPlaybackAudioError(error, 'play-local-file-ipc', { request });
+      if (isSupersededPlaybackRun(error)) {
+        return toPlaybackStatus();
       }
+      reportPlaybackAudioError(error, 'play-local-file-ipc', { request });
       throw error;
     }
   }));
@@ -1297,10 +1298,12 @@ export const registerPlaybackIpc = (): void => {
         return status;
       });
     } catch (error) {
+      if (isSupersededPlaybackRun(error)) {
+        return toPlaybackStatus();
+      }
+
       if ((item.mediaType !== 'streaming' && item.mediaType !== 'remote') || !isLikelyExpiredUrlError(error)) {
-        if (!isSupersededPlaybackRun(error)) {
-          reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
-        }
+        reportPlaybackAudioError(error, 'play-media-item-ipc', { request: rawRequest });
         throw error;
       }
 
@@ -1337,9 +1340,10 @@ export const registerPlaybackIpc = (): void => {
           return status;
         });
       } catch (retryError) {
-        if (!isSupersededPlaybackRun(retryError)) {
-          reportPlaybackAudioError(retryError, 'play-media-item-retry-ipc', { request: rawRequest });
+        if (isSupersededPlaybackRun(retryError)) {
+          return toPlaybackStatus();
         }
+        reportPlaybackAudioError(retryError, 'play-media-item-retry-ipc', { request: rawRequest });
         throw retryError;
       }
     }

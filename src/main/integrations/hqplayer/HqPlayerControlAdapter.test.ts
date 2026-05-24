@@ -34,6 +34,7 @@ describe('HqPlayerControlAdapter', () => {
         expiresAt: '2026-05-20T11:00:00.000Z',
         durationSeconds: 180,
         startSeconds: 14,
+        mediaServer: null,
         streaming: {
           provider: 'netease',
           providerTrackId: 'song-1',

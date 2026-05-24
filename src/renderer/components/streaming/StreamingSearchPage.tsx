@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowLeft, Check, ChevronDown, Disc3, Download, Link, ListPlus, Loader2, Play, Radio, Search, UserRound } from 'lucide-react';
+import type { AppSettings } from '../../../shared/types/appSettings';
 import type { DownloadJob, DownloadJobStatus } from '../../../shared/types/downloads';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type {
@@ -20,7 +21,7 @@ import type {
 import { streamingStableKey } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
-import { getDownloadsBridge, getStreamingBridge } from '../../utils/echoBridge';
+import { getAppBridge, getDownloadsBridge, getStreamingBridge } from '../../utils/echoBridge';
 import {
   readStreamingSearchMemory,
   updateStreamingSearchMemory,
@@ -50,7 +51,8 @@ const defaultCover = `data:image/svg+xml;utf8,${encodeURIComponent(
 
 const hiddenProviderTabs = new Set<StreamingProviderName>(['mock', 'm3u8']);
 const providerPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'soundcloud', 'spotify', 'bilibili'];
-const unsupportedDownloadProviders = new Set<StreamingProviderName>(['spotify']);
+const unsupportedDownloadProviders = new Set<StreamingProviderName>(['spotify', 'bilibili']);
+const qualitySwitchPlaybackStates = new Set(['loading', 'playing']);
 const emptyTracks: StreamingTrack[] = [];
 const emptyAlbums: StreamingAlbum[] = [];
 const emptyArtists: StreamingArtist[] = [];
@@ -104,6 +106,8 @@ const streamingTrackWebUrl = (track: StreamingTrack): string | null => {
       return track.providerTrackId.startsWith('http')
         ? track.providerTrackId
         : `https://soundcloud.com/search/sounds?q=${encodeURIComponent(track.title ? `${track.artist} ${track.title}` : track.providerTrackId)}`;
+    case 'bilibili':
+      return `https://www.bilibili.com/video/${encodeURIComponent(track.providerTrackId)}`;
     default:
       return null;
   }
@@ -144,6 +148,37 @@ const safeStreamingArtistName = (artist: Pick<StreamingArtist, 'name' | 'provide
   const name = typeof artist.name === 'string' ? artist.name.trim() : '';
   const fallback = typeof artist.providerArtistId === 'string' ? artist.providerArtistId.trim() : '';
   return name || fallback || 'Unknown Artist';
+};
+
+const isUsefulStreamingArtistName = (value: string | null | undefined, providerArtistId: string): value is string => {
+  const candidate = value?.trim();
+  if (!candidate || candidate === 'Unknown Artist') {
+    return false;
+  }
+
+  return candidate.normalize('NFKC').toLocaleLowerCase() !== providerArtistId.trim().normalize('NFKC').toLocaleLowerCase();
+};
+
+const safeStreamingArtistDetailName = (artist: StreamingArtist | StreamingArtistDetail): string => {
+  const providerArtistId = typeof artist.providerArtistId === 'string' ? artist.providerArtistId.trim() : '';
+  if (isUsefulStreamingArtistName(artist.name, providerArtistId)) {
+    return artist.name.trim();
+  }
+
+  const detail = artist as Partial<StreamingArtistDetail>;
+  const topTracks = Array.isArray(detail.topTracks) ? detail.topTracks : [];
+  const albums = Array.isArray(detail.albums) ? detail.albums : [];
+  const matchingTrackArtist = topTracks
+    .flatMap((track) => streamingTrackArtists(track))
+    .find((trackArtist) => trackArtist.providerArtistId === providerArtistId);
+  const candidates = [
+    matchingTrackArtist?.name,
+    ...albums.map((album) => album.artist),
+    ...topTracks.flatMap((track) => streamingTrackArtists(track).map((trackArtist) => trackArtist.name)),
+    ...topTracks.map((track) => track.artist),
+  ];
+  const inferredName = candidates.find((candidate): candidate is string => isUsefulStreamingArtistName(candidate, providerArtistId));
+  return inferredName ?? safeStreamingArtistName(artist);
 };
 
 const streamingArtistInitial = (name: string): string => Array.from(name.trim())[0]?.toUpperCase() ?? '?';
@@ -189,6 +224,7 @@ export const StreamingSearchPage = (): JSX.Element => {
   const [provider, setProvider] = useState<StreamingProviderName>(initialMemory.provider);
   const [quality, setQuality] = useState<QualityPreference>(initialMemory.quality);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  const [streamingDownloadActionsEnabled, setStreamingDownloadActionsEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<StreamingMediaType>(initialMemory.activeTab);
   const [input, setInput] = useState(initialMemory.input);
   const [query, setQuery] = useState(initialMemory.query);
@@ -246,6 +282,20 @@ export const StreamingSearchPage = (): JSX.Element => {
   const artists = result?.artists ?? emptyArtists;
   const playlists = result?.playlists ?? emptyPlaylists;
   const resultCount = activeTab === 'album' ? albums.length : activeTab === 'artist' ? artists.length : activeTab === 'playlist' ? playlists.length : tracks.length;
+  const activeTabLabel = tabs.find((tab) => tab.key === activeTab)?.label ?? '结果';
+  const resultSummary = query
+    ? isLoading && resultCount === 0
+      ? '正在搜索'
+      : `${resultCount} 项结果`
+    : '准备搜索';
+  const searchStateMessage =
+    isLoading && resultCount === 0
+      ? '正在搜索...'
+      : !isLoading && query && resultCount === 0 && !error
+        ? `没有找到匹配的${activeTab === 'album' ? '专辑' : activeTab === 'artist' ? '歌手' : activeTab === 'playlist' ? '歌单' : '流媒体歌曲'}。`
+        : !query && activeTab !== 'playlist'
+          ? '输入关键词开始搜索。播放时才会解析真实地址，队列不会保存临时 URL。'
+          : null;
   const currentStableKey = queue.currentTrack?.mediaType === 'streaming' ? queue.currentTrack.stableKey ?? queue.currentTrack.id : null;
   const virtualizer = useVirtualizer({
     count: tracks.length,
@@ -298,6 +348,31 @@ export const StreamingSearchPage = (): JSX.Element => {
 
     return () => window.clearTimeout(timer);
   }, [input]);
+
+  useEffect(() => {
+    const app = getAppBridge();
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'streamingDownloadActionsEnabled')) {
+        return;
+      }
+
+      setStreamingDownloadActionsEnabled(settings.streamingDownloadActionsEnabled === true);
+    };
+
+    void app?.getSettings?.().then(applySettings).catch(() => undefined);
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent && event.detail && typeof event.detail === 'object') {
+        applySettings(event.detail as Partial<AppSettings>);
+        return;
+      }
+
+      void app?.getSettings?.().then(applySettings).catch(() => undefined);
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => window.removeEventListener('settings:changed', handleSettingsChanged);
+  }, []);
 
   useEffect(() => {
     const streaming = getStreamingBridge();
@@ -516,6 +591,58 @@ export const StreamingSearchPage = (): JSX.Element => {
     setFailedCoverUrls((current) => (current[stableKey] === coverUrl ? current : { ...current, [stableKey]: coverUrl }));
   }, []);
 
+  const handleQualityChange = useCallback(
+    (nextQuality: QualityPreference): void => {
+      setQuality(nextQuality);
+      setQualityMenuOpen(false);
+
+      const currentTrack = queue.currentTrack;
+      const playbackQuality = qualityToPlaybackQuality(nextQuality);
+      if (
+        !currentTrack ||
+        currentTrack.mediaType !== 'streaming' ||
+        currentTrack.provider !== provider ||
+        currentTrack.streamingQuality === playbackQuality
+      ) {
+        return;
+      }
+
+      const playback = window.echo?.playback;
+      if (!playback?.getStatus) {
+        return;
+      }
+
+      void (async () => {
+        const status = await playback.getStatus();
+        if (
+          status.currentTrackId !== currentTrack.id ||
+          !qualitySwitchPlaybackStates.has(status.state)
+        ) {
+          return;
+        }
+
+        await queue.playTrack(
+          { ...currentTrack, streamingQuality: playbackQuality },
+          {
+            source,
+            startSeconds: Math.max(0, status.positionMs / 1000),
+            forceRefresh: true,
+          },
+        );
+        setActionError(null);
+        setActionMessage(`已切换音质：${qualities.find((item) => item.key === nextQuality)?.label ?? playbackQuality}`);
+      })().catch((qualityError) => {
+        if (isPlaybackCancellationError(qualityError)) {
+          return;
+        }
+
+        setActionError(qualityError instanceof Error ? qualityError.message : '切换音质失败');
+        setActionMessage(null);
+      });
+    },
+    [provider, queue, source],
+  );
+
   const handlePlay = useCallback(
     async (track: StreamingTrack): Promise<void> => {
       if (resolvingTrackKey === track.stableKey) {
@@ -619,6 +746,7 @@ export const StreamingSearchPage = (): JSX.Element => {
         streamingProvider: track.provider,
         streamingProviderTrackId: track.providerTrackId,
         streamingStableKey: track.stableKey,
+        downloadAuthorizationToken: source.downloadAuthorizationToken,
       });
       setDownloadJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
       setDownloadJobIdsByTrackKey((current) => ({ ...current, [track.stableKey]: job.id }));
@@ -922,9 +1050,10 @@ export const StreamingSearchPage = (): JSX.Element => {
 
     try {
       setArtistDetailError(null);
+      const detailName = safeStreamingArtistDetailName(detail);
       await queue.playTrack(firstTrack, {
         replaceQueueWith: playableTracks,
-        source: { type: 'streaming' as const, label: `${detail.name} / ${detail.provider}`, provider: detail.provider },
+        source: { type: 'streaming' as const, label: `${detailName} / ${detail.provider}`, provider: detail.provider },
       });
     } catch (playError) {
       if (isPlaybackCancellationError(playError)) {
@@ -942,7 +1071,7 @@ export const StreamingSearchPage = (): JSX.Element => {
 
     const artistSource = {
       type: 'streaming' as const,
-      label: `${safeStreamingArtistName(selectedArtistDetail)} / ${selectedArtistDetail.provider}`,
+      label: `${safeStreamingArtistDetailName(selectedArtistDetail)} / ${selectedArtistDetail.provider}`,
       provider: selectedArtistDetail.provider,
     };
     const topTracks = Array.isArray(selectedArtistDetail.topTracks) ? selectedArtistDetail.topTracks : [];
@@ -957,7 +1086,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       return null;
     }
 
-    const artistName = safeStreamingArtistName(artist);
+    const artistName = safeStreamingArtistDetailName(artist);
     const artistProvider = artist.provider ?? provider;
     const topTracks = Array.isArray(selectedArtistDetail?.topTracks) ? selectedArtistDetail.topTracks : [];
     const artistAlbums = Array.isArray(selectedArtistDetail?.albums) ? selectedArtistDetail.albums : [];
@@ -1241,14 +1370,19 @@ export const StreamingSearchPage = (): JSX.Element => {
         <div className="streaming-hero-copy">
           <span className="streaming-kicker">
             <Radio size={16} />
-            Streaming Hub
+            Streaming
           </span>
-          <h1>发现、排队、播放流媒体音乐</h1>
-          <p>网易云音乐和 QQ 音乐通过主进程接入，播放地址只在播放前临时解析。ECHO 不提供任何跳过会员下载或播放音乐的服务；如果发现播放异常，请先检查会员状态。</p>
+          <h1>流媒体音乐</h1>
+          <p>搜索在线曲库，播放前临时解析音频地址。</p>
+        </div>
+        <div className="streaming-hero-meter" aria-label="当前流媒体状态">
+          <span>当前来源</span>
+          <strong>{currentProvider?.displayName ?? provider}</strong>
+          <small>{activeTabLabel} · {resultSummary}</small>
         </div>
       </header>
 
-      <section className="streaming-command-bar">
+      <section className="streaming-command-panel">
         <label className="search-box streaming-search-box">
           <Search size={19} />
           <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="搜索歌曲、歌手、专辑" />
@@ -1261,6 +1395,16 @@ export const StreamingSearchPage = (): JSX.Element => {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="streaming-toolbar">
+        <nav className="streaming-result-tabs" aria-label="结果类型">
+          {tabs.map((tab) => (
+            <button key={tab.key} type="button" data-active={tab.key === activeTab} onClick={() => setActiveTab(tab.key)}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
         <div className="streaming-quality-select">
           <button type="button" aria-expanded={qualityMenuOpen} onClick={() => setQualityMenuOpen((open) => !open)}>
             <span>音质</span>
@@ -1275,10 +1419,7 @@ export const StreamingSearchPage = (): JSX.Element => {
                   type="button"
                   role="option"
                   aria-selected={item.key === quality}
-                  onClick={() => {
-                    setQuality(item.key);
-                    setQualityMenuOpen(false);
-                  }}
+                  onClick={() => handleQualityChange(item.key)}
                 >
                   <span>
                     <strong>{item.label}</strong>
@@ -1292,23 +1433,16 @@ export const StreamingSearchPage = (): JSX.Element => {
         </div>
       </section>
 
-      <nav className="streaming-result-tabs" aria-label="结果类型">
-        {tabs.map((tab) => (
-          <button key={tab.key} type="button" data-active={tab.key === activeTab} onClick={() => setActiveTab(tab.key)}>
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? <div className="streaming-state streaming-state--error">{error}</div> : null}
-      {actionError ? <div className="streaming-state streaming-state--error">{actionError}</div> : null}
-      {actionMessage ? <div className="streaming-state streaming-state--success">{actionMessage}</div> : null}
-      {isLoading && resultCount === 0 ? <div className="streaming-state">正在搜索...</div> : null}
-      {!isLoading && query && resultCount === 0 && !error ? <div className="streaming-state">没有找到匹配的{activeTab === 'album' ? '专辑' : activeTab === 'artist' ? '歌手' : activeTab === 'playlist' ? '歌单' : '流媒体歌曲'}。</div> : null}
-      {!query && activeTab !== 'playlist' ? <div className="streaming-state">输入关键词开始搜索。播放时才会解析真实地址，队列不会保存临时 URL。</div> : null}
+      <div className="streaming-state-stack">
+        {error ? <div className="streaming-state streaming-state--error">{error}</div> : null}
+        {actionError ? <div className="streaming-state streaming-state--error">{actionError}</div> : null}
+        {actionMessage ? <div className="streaming-state streaming-state--success">{actionMessage}</div> : null}
+      </div>
 
       <div className="streaming-results-shell">
-        {activeTab === 'playlist' ? (
+        {searchStateMessage ? (
+          <div className="streaming-results-empty">{searchStateMessage}</div>
+        ) : activeTab === 'playlist' ? (
           <div className="streaming-playlist-panel">
             <form
               className="streaming-playlist-import"
@@ -1317,26 +1451,26 @@ export const StreamingSearchPage = (): JSX.Element => {
                 void handleImportPlaylist();
               }}
             >
-            <div className="streaming-playlist-import-copy">
-              <span>
+              <div className="streaming-playlist-import-copy">
+                <span>
+                  <Link size={18} />
+                  添加流媒体歌单
+                </span>
+                <p>粘贴网易云音乐或 QQ 音乐歌单链接，导入后会保存到本地播放列表，重开软件也不会消失。</p>
+              </div>
+              <label>
                 <Link size={18} />
-                添加流媒体歌单
-              </span>
-              <p>粘贴网易云音乐或 QQ 音乐歌单链接，导入后会保存到本地播放列表，重开软件也不会消失。</p>
-            </div>
-            <label>
-              <Link size={18} />
-              <input
-                value={playlistUrl}
-                onChange={(event) => setPlaylistUrl(event.target.value)}
-                placeholder="粘贴歌单链接，例如 https://music.163.com/#/playlist?id=..."
-                disabled={isImportingPlaylist}
-              />
-            </label>
-            <button type="submit" disabled={!playlistUrl.trim() || isImportingPlaylist}>
-              {isImportingPlaylist ? <Loader2 className="spinning-icon" size={16} /> : <ListPlus size={16} />}
-              <span>{isImportingPlaylist ? '正在添加' : '添加歌单'}</span>
-            </button>
+                <input
+                  value={playlistUrl}
+                  onChange={(event) => setPlaylistUrl(event.target.value)}
+                  placeholder="粘贴歌单链接，例如 https://music.163.com/#/playlist?id=..."
+                  disabled={isImportingPlaylist}
+                />
+              </label>
+              <button type="submit" disabled={!playlistUrl.trim() || isImportingPlaylist}>
+                {isImportingPlaylist ? <Loader2 className="spinning-icon" size={16} /> : <ListPlus size={16} />}
+                <span>{isImportingPlaylist ? '正在添加' : '添加歌单'}</span>
+              </button>
             </form>
             {playlists.length > 0 ? (
               <div className="streaming-discovery-list" aria-label="歌单搜索结果">
@@ -1413,7 +1547,7 @@ export const StreamingSearchPage = (): JSX.Element => {
                         <button type="button" title="加入队列" onClick={() => handleAddToQueue(track)} disabled={!track.playable}>
                           {isQueued ? <Check size={16} /> : <ListPlus size={16} />}
                         </button>
-                        {!unsupportedDownloadProviders.has(track.provider) ? (
+                        {streamingDownloadActionsEnabled && !unsupportedDownloadProviders.has(track.provider) ? (
                           <button type="button" title="下载" onClick={() => void handleDownload(track)} disabled={isDownloading}>
                             {isDownloading ? <Loader2 className="spinning-icon" size={16} /> : <Download size={16} />}
                           </button>

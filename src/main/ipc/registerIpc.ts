@@ -50,6 +50,7 @@ import { registerHqPlayerIpc } from './hqPlayerIpc';
 import { registerPlaybackIpc } from './playbackIpc';
 import { registerPluginIpc } from './pluginIpc';
 import { registerRemoteSourcesIpc } from './remoteSourcesIpc';
+import { registerSmtcIpc } from './smtcIpc';
 import { registerStreamingIpc } from './streamingIpc';
 
 const fontMimeTypes: Record<string, string> = {
@@ -539,6 +540,7 @@ export const registerIpc = (): void => {
   registerMvIpc();
   registerHqPlayerIpc();
   registerRemoteSourcesIpc();
+  registerSmtcIpc();
   registerStreamingIpc();
   registerPlaybackIpc();
   registerAudioIpc();

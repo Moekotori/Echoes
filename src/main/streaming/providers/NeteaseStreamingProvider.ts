@@ -43,7 +43,7 @@ type NeteaseApi = {
   artist_top_song?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   artists?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   cloudsearch?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
-  likelist?: (request: Record<string, unknown>) => Promise<{ body?: { ids?: unknown[]; checkPoint?: unknown[]; code?: number } }>;
+  likelist?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   login_status?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   playlist_track_all?: (request: Record<string, unknown>) => Promise<{ body?: { songs?: unknown[] } }>;
   recommend_songs?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
@@ -51,6 +51,7 @@ type NeteaseApi = {
   song_url?: (request: Record<string, unknown>) => Promise<{ body?: { data?: unknown[] } }>;
   song_url_v1?: (request: Record<string, unknown>) => Promise<{ body?: { data?: unknown[] } }>;
   user_account?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
+  user_playlist?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
 };
 type NeteaseResolvedSource = {
   url: string;
@@ -443,12 +444,128 @@ const neteaseUserIdFromBody = (value: unknown): string | null => {
   const data = asRecord(body.data);
   const account = asRecord(body.account ?? data.account);
   const profile = asRecord(body.profile ?? data.profile);
-  return text(profile.userId) ?? text(account.id) ?? text(account.userId);
+  const bindings = Array.isArray(body.bindings) ? body.bindings : Array.isArray(data.bindings) ? data.bindings : [];
+  return (
+    neteaseIdText(profile.userId) ??
+    neteaseIdText(profile.userid) ??
+    neteaseIdText(account.id) ??
+    neteaseIdText(account.userId) ??
+    neteaseIdText(account.userid) ??
+    bindings.map((binding) => neteaseIdText(asRecord(binding).userId ?? asRecord(binding).userid)).find(Boolean) ??
+    collectNeteaseUserIds(value)[0] ??
+    null
+  );
+};
+
+const neteaseIdText = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+
+  return text(value);
+};
+
+const uniqueTexts = (values: Array<string | null>): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+
+    seen.add(value);
+    result.push(value);
+  }
+
+  return result;
+};
+
+const collectNeteaseUserIds = (value: unknown, depth = 0): string[] => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return uniqueTexts(value.flatMap((item) => collectNeteaseUserIds(item, depth + 1)));
+  }
+
+  const record = asRecord(value);
+  const direct = neteaseIdText(record.userId ?? record.userid);
+  return uniqueTexts([direct, ...Object.values(record).flatMap((item) => collectNeteaseUserIds(item, depth + 1))]);
+};
+
+const neteaseIdsFromArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return uniqueTexts(
+    value.map((item) => {
+      const record = asRecord(item);
+      return neteaseIdText(record.id ?? record.songId ?? record.trackId ?? item);
+    }),
+  );
+};
+
+const collectNeteaseLikedIds = (value: unknown, depth = 0): string[] => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return uniqueTexts(value.flatMap((item) => collectNeteaseLikedIds(item, depth + 1)));
+  }
+
+  const record = asRecord(value);
+  const direct: string[] = [];
+  const likedIdKeys = new Set(['ids', 'checkPoint', 'songIds', 'trackIds']);
+  for (const [key, item] of Object.entries(record)) {
+    if (likedIdKeys.has(key) && Array.isArray(item)) {
+      direct.push(...neteaseIdsFromArray(item));
+    }
+  }
+
+  return uniqueTexts([...direct, ...Object.values(record).flatMap((item) => collectNeteaseLikedIds(item, depth + 1))]);
+};
+
+const neteasePlaylistTrackIds = (value: unknown): string[] => {
+  const root = asRecord(value);
+  const data = asRecord(root.data);
+  const playlist = asRecord(root.playlist ?? data.playlist ?? root.result ?? data.result ?? value);
+  return uniqueTexts([
+    ...neteaseIdsFromArray(playlist.trackIds),
+    ...neteaseIdsFromArray(playlist.tracks),
+    ...neteaseIdsFromArray(playlist.songs),
+  ]);
+};
+
+const neteasePlaylistRecords = (value: unknown, depth = 0): Record<string, unknown>[] => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => neteasePlaylistRecords(item, depth + 1));
+  }
+
+  const record = asRecord(value);
+  const id = neteaseIdText(record.id ?? record.playlistId);
+  const name = text(record.name);
+  const current = id && name ? [record] : [];
+  return [...current, ...Object.values(record).flatMap((item) => neteasePlaylistRecords(item, depth + 1))];
+};
+
+const neteaseLikedPlaylistId = (value: unknown): string | null => {
+  const playlists = neteasePlaylistRecords(value);
+  const liked =
+    playlists.find((playlist) => integer(playlist.specialType) === 5) ??
+    playlists.find((playlist) => /我喜欢|我喜歡|喜欢的音乐|喜歡的音樂|liked|favorite/iu.test(text(playlist.name) ?? ''));
+  return liked ? neteaseIdText(liked.id ?? liked.playlistId) : null;
 };
 
 const assertNeteaseWriteSuccess = (value: unknown): void => {
   const body = asRecord(value);
-  const rawCode = body.code;
+  const rawCode = body.code ?? asRecord(body.data).code;
   const code = rawCode === undefined || rawCode === null || rawCode === '' ? null : Number(rawCode);
   if (code !== null && Number.isFinite(code) && code !== 200) {
     throw new Error(text(body.message) ?? text(body.msg) ?? `NetEase returned ${code}.`);
@@ -467,13 +584,13 @@ export class NeteaseStreamingProvider implements StreamingProvider {
       supportsPlayback: true,
       supportsLyrics: true,
       supportsMv: true,
-      requiresAccount: true,
+      requiresAccount: false,
       accountConnected: status.connected,
       accountDisplayName: status.displayName,
       accountUsername: status.username,
       accountAvatarUrl: status.avatarUrl,
-      status: status.connected ? 'ready' : 'needs_account',
-      statusMessage: status.connected ? '已连接网易云音乐账号' : '可搜索公开结果，登录后播放能力更完整',
+      status: 'ready',
+      statusMessage: status.connected ? '已连接网易云音乐账号' : '公开搜索、歌词和元数据可用。登录后可播放会员内容并下载歌曲。',
     };
   }
 
@@ -748,17 +865,43 @@ export class NeteaseStreamingProvider implements StreamingProvider {
 
     const userId = await this.resolveUserId(cookie);
     const ncm = getNcmApi();
-    if (!ncm?.song_like) {
-      throw new Error('NetEase like API is unavailable.');
+    let lastError: unknown = null;
+
+    if (ncm?.song_like) {
+      try {
+        const response = await ncm.song_like({
+          id,
+          uid: userId,
+          like: input.liked,
+          cookie,
+        });
+        assertNeteaseWriteSuccess(response.body);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
     }
 
-    const response = await ncm.song_like({
-      id,
-      uid: userId,
-      like: input.liked,
-      cookie,
-    });
-    assertNeteaseWriteSuccess(response.body);
+    try {
+      const params = new URLSearchParams({
+        trackId: String(id),
+        id: String(id),
+        userid: userId,
+        uid: userId,
+        like: String(input.liked),
+        csrf_token: cookieValue(cookie, '__csrf') ?? cookieValue(cookie, 'csrf') ?? '',
+      });
+      const response = await jsonFetch(`https://music.163.com/api/song/like?${params.toString()}`, {
+        headers: neteaseHeaders(cookie),
+        timeoutMs: 12_000,
+      });
+      assertNeteaseWriteSuccess(response);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('NetEase like API is unavailable.');
   }
 
   async getDailyRecommendPlaylist(): Promise<StreamingPlaylistDetail> {
@@ -833,11 +976,13 @@ export class NeteaseStreamingProvider implements StreamingProvider {
 
   private async resolveUserId(cookie: string): Promise<string> {
     const ncm = getNcmApi();
-    const bodies: unknown[] = [];
 
     if (ncm?.login_status) {
       try {
-        bodies.push((await ncm.login_status({ cookie })).body);
+        const userId = neteaseUserIdFromBody((await ncm.login_status({ cookie })).body);
+        if (userId) {
+          return userId;
+        }
       } catch {
         // Try the older account endpoint below.
       }
@@ -845,28 +990,39 @@ export class NeteaseStreamingProvider implements StreamingProvider {
 
     if (ncm?.user_account) {
       try {
-        bodies.push((await ncm.user_account({ cookie })).body);
+        const userId = neteaseUserIdFromBody((await ncm.user_account({ cookie })).body);
+        if (userId) {
+          return userId;
+        }
       } catch {
         // Fall back to the public endpoint below.
       }
     }
 
-    try {
-      bodies.push(
-        await jsonFetch('https://music.163.com/api/nuser/account/get', {
-          headers: neteaseHeaders(cookie),
-          timeoutMs: 12_000,
-        }),
-      );
-    } catch {
-      // The API wrappers above may already have succeeded.
+    const accountUrls = ['https://music.163.com/api/w/nuser/account/get', 'https://music.163.com/api/nuser/account/get'];
+    for (const url of accountUrls) {
+      for (const method of ['GET', 'POST'] as const) {
+        try {
+          const userId = neteaseUserIdFromBody(
+            await jsonFetch(url, {
+              method,
+              headers: neteaseHeaders(cookie),
+              timeoutMs: 12_000,
+            }),
+          );
+          if (userId) {
+            return userId;
+          }
+        } catch {
+          // Try the next account endpoint shape.
+        }
+      }
     }
 
-    for (const body of bodies) {
-      const userId = neteaseUserIdFromBody(body);
-      if (userId) {
-        return userId;
-      }
+    const status = accountStatus();
+    const statusUserId = neteaseIdText(status.username) ?? neteaseIdText(status.displayName);
+    if (statusUserId && /^\d+$/u.test(statusUserId)) {
+      return statusUserId;
     }
 
     throw new Error('无法读取网易云账号 ID，请重新登录后再同步。');
@@ -877,24 +1033,84 @@ export class NeteaseStreamingProvider implements StreamingProvider {
     if (ncm?.likelist) {
       try {
         const response = await ncm.likelist({ uid: userId, cookie });
-        const ids = Array.isArray(response.body?.ids) ? response.body.ids : response.body?.checkPoint;
-        if (Array.isArray(ids)) {
-          return ids.map((id) => String(id)).filter(Boolean);
+        const ids = collectNeteaseLikedIds(response.body);
+        if (ids.length > 0) {
+          return ids;
         }
       } catch {
         // Fall back to the public endpoint below.
       }
     }
 
-    const params = new URLSearchParams({ uid: userId });
-    const data = asRecord(
-      await jsonFetch(`https://music.163.com/api/song/like/get?${params.toString()}`, {
+    try {
+      const params = new URLSearchParams({ uid: userId });
+      const data = await jsonFetch(`https://music.163.com/api/song/like/get?${params.toString()}`, {
         headers: neteaseHeaders(cookie),
         timeoutMs: 12_000,
-      }),
-    );
-    const ids = Array.isArray(data.ids) ? data.ids : Array.isArray(data.checkPoint) ? data.checkPoint : [];
-    return ids.map((id) => String(id)).filter(Boolean);
+      });
+      const ids = collectNeteaseLikedIds(data);
+      if (ids.length > 0) {
+        return ids;
+      }
+    } catch {
+      // Fall back to the liked playlist below.
+    }
+
+    return this.fetchLikedPlaylistTrackIds(userId, cookie);
+  }
+
+  private async fetchLikedPlaylistTrackIds(userId: string, cookie: string): Promise<string[]> {
+    const playlistId = await this.findLikedPlaylistId(userId, cookie);
+    if (!playlistId) {
+      return [];
+    }
+
+    const params = new URLSearchParams({ id: playlistId });
+    const data = await jsonFetch(`https://music.163.com/api/v6/playlist/detail?${params.toString()}`, {
+      headers: neteaseHeaders(cookie),
+      timeoutMs: 12_000,
+    });
+    return neteasePlaylistTrackIds(data);
+  }
+
+  private async findLikedPlaylistId(userId: string, cookie: string): Promise<string | null> {
+    const ncm = getNcmApi();
+    const bodies: unknown[] = [];
+
+    if (ncm?.user_playlist) {
+      try {
+        const body = (await ncm.user_playlist({ uid: userId, limit: 1000, offset: 0, cookie })).body;
+        const playlistId = neteaseLikedPlaylistId(body);
+        if (playlistId) {
+          return playlistId;
+        }
+
+        bodies.push(body);
+      } catch {
+        // Fall back to the public endpoint below.
+      }
+    }
+
+    try {
+      const params = new URLSearchParams({ uid: userId, limit: '1000', offset: '0', includeVideo: 'true' });
+      bodies.push(
+        await jsonFetch(`https://music.163.com/api/user/playlist?${params.toString()}`, {
+          headers: neteaseHeaders(cookie),
+          timeoutMs: 12_000,
+        }),
+      );
+    } catch {
+      // The enhanced API may already have returned the playlist list.
+    }
+
+    for (const body of bodies) {
+      const playlistId = neteaseLikedPlaylistId(body);
+      if (playlistId) {
+        return playlistId;
+      }
+    }
+
+    return null;
   }
 
   private async fetchSongs(songIds: string[]): Promise<unknown[]> {

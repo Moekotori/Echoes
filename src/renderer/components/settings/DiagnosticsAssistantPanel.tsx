@@ -2,9 +2,11 @@ import { useCallback, useMemo, useState } from 'react';
 import { ChevronDown, Clipboard, Download, FileArchive, FolderOpen, Headphones, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { AudioDeviceInfo, AudioDiagnostics, AudioStatus } from '../../../shared/types/audio';
 import type { LastCrashSummary } from '../../../shared/types/diagnostics';
-import { getAudioBridge, getDiagnosticsBridge } from '../../utils/echoBridge';
+import type { SmtcCommand, SmtcDiagnostics } from '../../../shared/types/smtc';
+import { getAudioBridge, getDiagnosticsBridge, getSmtcBridge } from '../../utils/echoBridge';
 
 type AudioDiagnosticSnapshot = Partial<AudioDiagnostics> & Partial<AudioStatus>;
+type SmtcDiagnosticSnapshot = SmtcDiagnostics;
 
 type AssistantFinding = {
   severity: 'ok' | 'info' | 'warn' | 'error';
@@ -37,6 +39,14 @@ const formatValue = (value: unknown): string => {
   return String(value);
 };
 
+const formatSmtcCommand = (command: SmtcCommand | null): string => {
+  if (!command) {
+    return unknownValue;
+  }
+
+  return typeof command === 'string' ? command : `seek ${Math.round(command.positionSeconds * 1000) / 1000}s`;
+};
+
 const basenameFromPath = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim()) {
     return unknownValue;
@@ -63,6 +73,7 @@ const snapshotFromStatus = (status: AudioStatus): AudioDiagnosticSnapshot => ({
   sharedBackend: status.sharedBackend,
   outputBackend: status.outputBackend,
   activeOutputBackendImpl: status.activeOutputBackendImpl,
+  nativeOutputFormat: status.nativeOutputFormat,
   useJuceOutputRequested: status.useJuceOutputRequested,
   useJuceDecodeRequested: status.useJuceDecodeRequested,
   activeDecodeBackendImpl: status.activeDecodeBackendImpl,
@@ -112,6 +123,66 @@ const fallbackSnapshot = (): AudioDiagnosticSnapshot => ({
   outputDeviceName: null,
   warnings: [],
   error: null,
+});
+
+const fallbackSmtcDiagnostics = (): SmtcDiagnosticSnapshot => ({
+  enabled: false,
+  platform: 'browser',
+  hostState: 'not-initialized',
+  initialized: false,
+  hostPath: null,
+  lastMetadataAt: null,
+  lastMetadataTrackId: null,
+  lastMetadataTitle: null,
+  lastMetadataArtist: null,
+  lastPlaybackState: null,
+  lastPlaybackStateAt: null,
+  lastTimelineAt: null,
+  lastTimelinePositionSeconds: null,
+  lastTimelineDurationSeconds: null,
+  enabledActions: null,
+  lastCommand: null,
+  lastCommandAt: null,
+  lastError: null,
+  recentErrors: [],
+  recoveryInFlight: false,
+  recoveryAttemptsInWindow: 0,
+});
+
+const smtcHostStateLabel: Record<SmtcDiagnostics['hostState'], string> = {
+  disabled: '已关闭',
+  unsupported: '不支持',
+  'not-initialized': '未初始化',
+  missing: '宿主缺失',
+  starting: '启动中',
+  running: '运行中',
+  stopping: '停止中',
+  stopped: '已停止',
+  unavailable: '不可用',
+  error: '错误',
+};
+
+const smtcHostStateSeverity: Record<SmtcDiagnostics['hostState'], PipelineStage['status']> = {
+  disabled: 'info',
+  unsupported: 'info',
+  'not-initialized': 'info',
+  missing: 'warn',
+  starting: 'info',
+  running: 'ok',
+  stopping: 'info',
+  stopped: 'info',
+  unavailable: 'warn',
+  error: 'error',
+};
+
+const formatSmtcState = (diagnostics: SmtcDiagnosticSnapshot): string =>
+  `${smtcHostStateLabel[diagnostics.hostState]}${diagnostics.enabled ? '' : ' / disabled'}`;
+
+const buildSmtcPipelineStage = (diagnostics: SmtcDiagnosticSnapshot): PipelineStage => ({
+  key: 'smtc',
+  title: 'Windows 媒体控件',
+  status: smtcHostStateSeverity[diagnostics.hostState],
+  detail: `state=${diagnostics.hostState}；platform=${diagnostics.platform}；metadata=${formatValue(diagnostics.lastMetadataTitle)} / ${formatValue(diagnostics.lastMetadataArtist)}；timeline=${formatValue(diagnostics.lastTimelinePositionSeconds)}/${formatValue(diagnostics.lastTimelineDurationSeconds)}s；lastCommand=${formatSmtcCommand(diagnostics.lastCommand)}`,
 });
 
 export const buildAudioDiagnosticFindings = (diagnostics: AudioDiagnosticSnapshot): AssistantFinding[] => {
@@ -237,7 +308,7 @@ export const buildAudioPipelineStages = (diagnostics: AudioDiagnosticSnapshot): 
       key: 'output',
       title: '输出',
       status: hasAudioError ? 'error' : diagnostics.host === 'starting' ? 'warn' : 'ok',
-      detail: `mode=${formatValue(diagnostics.outputMode)}；shared=${formatValue(diagnostics.sharedBackend)}；backend=${formatValue(diagnostics.outputBackend)}；impl=${formatValue(diagnostics.activeOutputBackendImpl)}；latency=${formatValue(diagnostics.latencyProfile)}`,
+      detail: `mode=${formatValue(diagnostics.outputMode)}；shared=${formatValue(diagnostics.sharedBackend)}；backend=${formatValue(diagnostics.outputBackend)}；impl=${formatValue(diagnostics.activeOutputBackendImpl)}；format=${formatValue(diagnostics.nativeOutputFormat)}；latency=${formatValue(diagnostics.latencyProfile)}`,
     },
     {
       key: 'device',
@@ -302,6 +373,7 @@ export const formatDiagnosticAssistantText = (
   lastCrashSummary: LastCrashSummary | null,
   devices: AudioDeviceInfo[] = [],
   deviceListError: string | null = null,
+  smtcDiagnostics: SmtcDiagnosticSnapshot = fallbackSmtcDiagnostics(),
 ): string => {
   const rows: Array<[string, unknown]> = [
     ['generatedAt', new Date().toISOString()],
@@ -313,6 +385,7 @@ export const formatDiagnosticAssistantText = (
     ['sharedBackend', diagnostics.sharedBackend],
     ['outputBackend', diagnostics.outputBackend],
     ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
+    ['nativeOutputFormat', diagnostics.nativeOutputFormat],
     ['activeDecodeBackendImpl', diagnostics.activeDecodeBackendImpl],
     ['useJuceOutputRequested', diagnostics.useJuceOutputRequested],
     ['useJuceDecodeRequested', diagnostics.useJuceDecodeRequested],
@@ -355,10 +428,32 @@ export const formatDiagnosticAssistantText = (
     ['warnings', diagnostics.warnings],
     ['error', diagnostics.error],
   ];
+  const smtcRows: Array<[string, unknown]> = [
+    ['enabled', smtcDiagnostics.enabled],
+    ['platform', smtcDiagnostics.platform],
+    ['hostState', smtcDiagnostics.hostState],
+    ['initialized', smtcDiagnostics.initialized],
+    ['hostBinary', basenameFromPath(smtcDiagnostics.hostPath)],
+    ['lastMetadataAt', smtcDiagnostics.lastMetadataAt],
+    ['lastMetadataTrackId', smtcDiagnostics.lastMetadataTrackId],
+    ['lastMetadataTitle', smtcDiagnostics.lastMetadataTitle],
+    ['lastMetadataArtist', smtcDiagnostics.lastMetadataArtist],
+    ['lastPlaybackState', smtcDiagnostics.lastPlaybackState],
+    ['lastPlaybackStateAt', smtcDiagnostics.lastPlaybackStateAt],
+    ['lastTimelineAt', smtcDiagnostics.lastTimelineAt],
+    ['lastTimelinePositionSeconds', smtcDiagnostics.lastTimelinePositionSeconds],
+    ['lastTimelineDurationSeconds', smtcDiagnostics.lastTimelineDurationSeconds],
+    ['enabledActions', smtcDiagnostics.enabledActions ? JSON.stringify(smtcDiagnostics.enabledActions) : null],
+    ['lastCommand', formatSmtcCommand(smtcDiagnostics.lastCommand)],
+    ['lastCommandAt', smtcDiagnostics.lastCommandAt],
+    ['lastError', smtcDiagnostics.lastError?.message ?? null],
+    ['recoveryInFlight', smtcDiagnostics.recoveryInFlight],
+    ['recoveryAttemptsInWindow', smtcDiagnostics.recoveryAttemptsInWindow],
+  ];
   const findings = buildAudioDiagnosticFindings(diagnostics).map((finding) =>
     `- [${finding.severity}] ${finding.title}: ${finding.detail}`,
   );
-  const pipeline = buildAudioPipelineStages(diagnostics).map((stage) =>
+  const pipeline = [...buildAudioPipelineStages(diagnostics), buildSmtcPipelineStage(smtcDiagnostics)].map((stage) =>
     `- [${stage.status}] ${stage.title}: ${stage.detail}`,
   );
   const recommendations = buildAudioRecommendations(diagnostics).map((item) => `- ${item}`);
@@ -382,11 +477,14 @@ export const formatDiagnosticAssistantText = (
     `deviceListError: ${formatValue(deviceListError)}`,
     ...(deviceRows.length > 0 ? deviceRows : ['- no device list captured']),
     '',
+    'SMTC',
+    ...smtcRows.map(([label, value]) => `${label}: ${formatValue(value)}`),
+    '',
     'Safe Audio Snapshot',
     ...rows.map(([label, value]) => `${label}: ${formatValue(value)}`),
     '',
     'Privacy',
-    'Full local media paths are not included in this copied text; only the current file basename is shown.',
+    'Full local media paths are not included in this copied text; only the current file basename and SMTC host binary basename are shown.',
   ].join('\n');
 };
 
@@ -397,6 +495,7 @@ type DiagnosticsAssistantPanelProps = {
 export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssistantPanelProps): JSX.Element => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [diagnostics, setDiagnostics] = useState<AudioDiagnosticSnapshot>(() => fallbackSnapshot());
+  const [smtcDiagnostics, setSmtcDiagnostics] = useState<SmtcDiagnosticSnapshot>(() => fallbackSmtcDiagnostics());
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
   const [deviceListError, setDeviceListError] = useState<string | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
@@ -406,8 +505,12 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
 
   const findings = useMemo(() => buildAudioDiagnosticFindings(diagnostics), [diagnostics]);
   const pipelineStages = useMemo(() => buildAudioPipelineStages(diagnostics), [diagnostics]);
+  const smtcPipelineStage = useMemo(() => buildSmtcPipelineStage(smtcDiagnostics), [smtcDiagnostics]);
+  const combinedPipelineStages = useMemo(() => [...pipelineStages, smtcPipelineStage], [pipelineStages, smtcPipelineStage]);
   const recommendations = useMemo(() => buildAudioRecommendations(diagnostics), [diagnostics]);
-  const issueCount = findings.filter((finding) => finding.severity === 'warn' || finding.severity === 'error').length;
+  const issueCount =
+    findings.filter((finding) => finding.severity === 'warn' || finding.severity === 'error').length +
+    (smtcPipelineStage.status === 'warn' || smtcPipelineStage.status === 'error' ? 1 : 0);
   const isBusy = busyAction !== null;
 
   const refreshDiagnostics = useCallback(async (): Promise<void> => {
@@ -425,6 +528,9 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
         ? await audio.getDiagnostics()
         : snapshotFromStatus(await audio.getStatus());
       setDiagnostics(nextDiagnostics);
+
+      const smtc = getSmtcBridge();
+      setSmtcDiagnostics(typeof smtc?.getDiagnostics === 'function' ? await smtc.getDiagnostics() : fallbackSmtcDiagnostics());
 
       if (typeof audio.listDevices === 'function') {
         try {
@@ -476,11 +582,11 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
     await runDiagnosticsAction(
       'copy',
       async () => {
-        await window.navigator.clipboard.writeText(formatDiagnosticAssistantText(diagnostics, lastCrashSummary, devices, deviceListError));
+        await window.navigator.clipboard.writeText(formatDiagnosticAssistantText(diagnostics, lastCrashSummary, devices, deviceListError, smtcDiagnostics));
       },
       '已复制安全诊断摘要',
     );
-  }, [deviceListError, devices, diagnostics, lastCrashSummary, runDiagnosticsAction]);
+  }, [deviceListError, devices, diagnostics, lastCrashSummary, runDiagnosticsAction, smtcDiagnostics]);
 
   const exportMarkdown = useCallback(async (): Promise<void> => {
     await runDiagnosticsAction(
@@ -544,6 +650,8 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
     ['输出模式', diagnostics.outputMode],
     ['输出后端', diagnostics.outputBackend],
     ['设备', diagnostics.outputDeviceName],
+    ['SMTC', formatSmtcState(smtcDiagnostics)],
+    ['SMTC 命令', formatSmtcCommand(smtcDiagnostics.lastCommand)],
     ['文件采样率', diagnostics.fileSampleRate],
     ['设备采样率', diagnostics.actualDeviceSampleRate],
     ['Native 缓冲', diagnostics.nativeBufferedMs === null || diagnostics.nativeBufferedMs === undefined ? null : `${diagnostics.nativeBufferedMs} ms`],
@@ -564,7 +672,7 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
           </span>
         </span>
         <span className="diagnostics-assistant-summary-state" data-issues={issueCount > 0}>
-          {issueCount > 0 ? `${issueCount} 个音频风险` : '音频快照正常'}
+          {issueCount > 0 ? `${issueCount} 个诊断风险` : '快照正常'}
         </span>
         <ChevronDown size={17} />
       </button>
@@ -590,13 +698,45 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
           </div>
 
           <div className="diagnostics-assistant-pipeline" aria-label="音频链路">
-            {pipelineStages.map((stage) => (
+            {combinedPipelineStages.map((stage) => (
               <article key={stage.key} data-severity={stage.status}>
                 <span>{stage.title}</span>
                 <strong>{stage.status}</strong>
                 <p>{stage.detail}</p>
               </article>
             ))}
+          </div>
+
+          <div className="diagnostics-assistant-devices" aria-label="系统媒体控件">
+            <div className="diagnostics-assistant-devices-header">
+              <strong>系统媒体控件</strong>
+              <span>{formatSmtcState(smtcDiagnostics)}</span>
+            </div>
+            <div className="diagnostics-assistant-device-list">
+              <article data-active={smtcDiagnostics.hostState === 'running'}>
+                <span>
+                  <strong>{formatValue(smtcDiagnostics.lastMetadataTitle)}</strong>
+                  <small>{formatValue(smtcDiagnostics.lastMetadataArtist)} / {formatValue(smtcDiagnostics.lastPlaybackState)}</small>
+                </span>
+                <em>{formatValue(smtcDiagnostics.lastTimelinePositionSeconds)}s</em>
+              </article>
+              <article data-active={Boolean(smtcDiagnostics.lastCommandAt)}>
+                <span>
+                  <strong>{formatSmtcCommand(smtcDiagnostics.lastCommand)}</strong>
+                  <small>{formatValue(smtcDiagnostics.lastCommandAt)}</small>
+                </span>
+                <em>{smtcDiagnostics.recoveryInFlight ? 'recovering' : `${smtcDiagnostics.recoveryAttemptsInWindow} recovery`}</em>
+              </article>
+              {smtcDiagnostics.lastError ? (
+                <article data-active={false}>
+                  <span>
+                    <strong>{smtcDiagnostics.lastError.source}</strong>
+                    <small>{smtcDiagnostics.lastError.message}</small>
+                  </span>
+                  <em>{formatValue(smtcDiagnostics.lastError.at)}</em>
+                </article>
+              ) : null}
+            </div>
           </div>
 
           <div className="diagnostics-assistant-recommendations">

@@ -90,6 +90,44 @@ describe('writeEmbeddedTrackTags', () => {
     expect(workerMockState.workers[0].source).toContain('applyTagsToFile');
   });
 
+  it('writes lyrics-only tag updates through the same worker queue', async () => {
+    const { writeEmbeddedLyricsTag } = await import('./TagWriter');
+
+    await writeEmbeddedLyricsTag('D:/Music/song.wav', '[00:01.00]Line');
+
+    expect(workerMockState.workers).toHaveLength(1);
+    expect(workerMockState.workers[0].options.workerData).toMatchObject({
+      kind: 'lyrics',
+      filePath: 'D:/Music/song.wav',
+      lyricsText: '[00:01.00]Line',
+      taglibWasmModuleUrl: expect.stringMatching(/^file:\/\//),
+    });
+    expect(workerMockState.workers[0].source).toContain("workerData.kind === 'lyrics'");
+    expect(workerMockState.workers[0].source).toContain('lyrics: workerData.lyricsText');
+  });
+
+  it('writes cover-only updates without rewriting other tags', async () => {
+    const { writeEmbeddedCoverArt } = await import('./TagWriter');
+
+    await writeEmbeddedCoverArt({
+      filePath: 'D:/Music/song.wav',
+      coverData: { data: new Uint8Array([1, 2, 3]), mimeType: 'image/jpeg' },
+    });
+
+    expect(workerMockState.workers).toHaveLength(1);
+    expect(workerMockState.workers[0].options.workerData).toMatchObject({
+      kind: 'cover',
+      filePath: 'D:/Music/song.wav',
+      coverData: {
+        mimeType: 'image/jpeg',
+      },
+      taglibWasmModuleUrl: expect.stringMatching(/^file:\/\//),
+    });
+    expect(workerMockState.workers[0].source).toContain("workerData.kind === 'cover'");
+    expect(workerMockState.workers[0].source).toContain('applyCoverArt');
+    expect(workerMockState.workers[0].source).toContain('fs.writeFile');
+  });
+
   it('serializes embedded tag writes globally', async () => {
     workerMockState.autoComplete = false;
     const { writeEmbeddedTrackTags } = await import('./TagWriter');

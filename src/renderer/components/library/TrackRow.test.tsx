@@ -42,20 +42,29 @@ describe('TrackRow', () => {
     expect(screen.getByText('afraid')).toBeTruthy();
     expect(screen.getByText('FLAC')).toBeTruthy();
     expect(screen.getByText('24bit / 96kHz')).toBeTruthy();
+    expect(screen.getByText('24bit / 96kHz').className).toContain('tag-hires');
     expect(screen.getByText('900kbps')).toBeTruthy();
     expect(screen.getByText('2:58')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add to queue Afraid' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'More Afraid' })).toBeTruthy();
   });
 
-  it('shows detected BPM tags after analysis even when confidence is low', () => {
+  it('does not style 24bit 48kHz files as Hi-Res', () => {
+    render(<TrackRow isPlaying={false} track={track({ sampleRate: 48000, bitDepth: 24, bitrate: 1884000 })} />);
+
+    const specTag = screen.getByText('24bit / 48kHz');
+    expect(specTag.className).toContain('tag-depth');
+    expect(specTag.className).not.toContain('tag-hires');
+  });
+
+  it('shows detected BPM tags only after reliable analysis', () => {
     const { rerender } = render(<TrackRow isPlaying={false} track={track({ bpm: 128, bpmConfidence: 0.92, analysisStatus: 'complete' })} />);
 
     expect(screen.getByText('128 BPM')).toBeTruthy();
 
     rerender(<TrackRow isPlaying={false} track={track({ bpm: 128, bpmConfidence: 0.2, analysisStatus: 'low_confidence' })} />);
 
-    expect(screen.getByText('128 BPM')).toBeTruthy();
+    expect(screen.queryByText('128 BPM')).toBeNull();
 
     rerender(<TrackRow isPlaying={false} track={track({ bpm: 128, bpmConfidence: null, analysisStatus: 'analyzing' })} />);
 

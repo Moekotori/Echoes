@@ -1122,7 +1122,7 @@ export class LibraryStore {
           COALESCE(SUM(duration), 0) AS total_duration,
           COALESCE(SUM(size_bytes), 0) AS total_size_bytes,
           COALESCE(SUM(CASE WHEN UPPER(COALESCE(codec, '')) IN ('FLAC', 'ALAC', 'WAV', 'AIFF', 'APE', 'DSF', 'DFF') THEN 1 ELSE 0 END), 0) AS lossless_count,
-          COALESCE(SUM(CASE WHEN COALESCE(bit_depth, 0) >= 24 OR COALESCE(sample_rate, 0) >= 88200 THEN 1 ELSE 0 END), 0) AS hires_count
+          COALESCE(SUM(CASE WHEN (COALESCE(bit_depth, 0) >= 24 AND COALESCE(sample_rate, 0) >= 88200) OR UPPER(COALESCE(codec, '')) IN ('DSF', 'DFF', 'DSD') THEN 1 ELSE 0 END), 0) AS hires_count
          FROM tracks
          WHERE folder_id = ? AND missing = 0`,
         folder.id,
@@ -1549,6 +1549,7 @@ export class LibraryStore {
         tracks.replay_gain_status,
         tracks.replay_gain_updated_at,
         tracks.cover_id,
+        (SELECT source_type FROM covers WHERE covers.id = tracks.cover_id) AS cover_source_type,
         tracks.metadata_status,
         tracks.embedded_metadata_status,
         tracks.embedded_cover_status,
@@ -1730,6 +1731,7 @@ export class LibraryStore {
         tracks.replay_gain_status,
         tracks.replay_gain_updated_at,
         tracks.cover_id,
+        (SELECT source_type FROM covers WHERE covers.id = tracks.cover_id) AS cover_source_type,
         tracks.metadata_status,
         tracks.embedded_metadata_status,
         tracks.embedded_cover_status,
@@ -1854,6 +1856,7 @@ export class LibraryStore {
         tracks.replay_gain_status,
         tracks.replay_gain_updated_at,
         tracks.cover_id,
+        (SELECT source_type FROM covers WHERE covers.id = tracks.cover_id) AS cover_source_type,
         tracks.metadata_status,
         tracks.embedded_metadata_status,
         tracks.embedded_cover_status,
@@ -3329,7 +3332,7 @@ export class LibraryStore {
          CASE
            WHEN history.media_type = 'streaming' THEN 'Streaming'
            WHEN history.media_type = 'remote' THEN 'Remote'
-           WHEN tracks.sample_rate >= 88200 OR tracks.bit_depth >= 24 THEN 'Hi-Res'
+           WHEN (tracks.sample_rate >= 88200 AND tracks.bit_depth >= 24) OR UPPER(COALESCE(tracks.codec, '')) IN ('DSF', 'DFF', 'DSD') THEN 'Hi-Res'
            WHEN LOWER(COALESCE(tracks.codec, '')) IN ('flac', 'wav', 'wave', 'alac', 'aiff', 'aif', 'ape', 'wv', 'tta', 'dsf', 'dff') THEN 'Lossless'
            WHEN tracks.bitrate >= 320000 THEN 'High Bitrate'
            WHEN tracks.codec IS NOT NULL OR tracks.bitrate IS NOT NULL THEN 'Lossy'
@@ -6576,7 +6579,7 @@ export class LibraryStore {
   private libraryInboxFilterCondition(filter: LibraryInboxFilterKind): string {
     switch (filter) {
       case 'missing_cover':
-        return "(tracks.cover_id IS NULL OR tracks.embedded_cover_status = 'missing')";
+        return "NOT EXISTS (SELECT 1 FROM covers WHERE covers.id = tracks.cover_id AND covers.source_type != 'default')";
       case 'metadata_issue':
         return `(
           tracks.metadata_status = 'fallback'
@@ -6910,6 +6913,7 @@ export class LibraryStore {
   private libraryInboxIssueReasons(row: DbRow): LibraryInboxIssueReason[] {
     const reasons: LibraryInboxIssueReason[] = [];
     const coverId = textOrNull(row.cover_id);
+    const coverSourceType = textOrNull(row.cover_source_type);
     const metadataStatus = textOrNull(row.metadata_status);
     const embeddedMetadataStatus = textOrNull(row.embedded_metadata_status);
     const embeddedCoverStatus = textOrNull(row.embedded_cover_status);
@@ -6918,7 +6922,7 @@ export class LibraryStore {
     const albumArtist = String(row.album_artist ?? '').trim().toLowerCase();
     const fieldSources = parseJsonObject(row.field_sources_json);
 
-    if (!coverId || embeddedCoverStatus === 'missing') {
+    if (!coverId || !coverSourceType || coverSourceType === 'default') {
       reasons.push('missing_cover');
     }
     if (metadataStatus === 'fallback') {
@@ -6969,7 +6973,9 @@ export class LibraryStore {
   private libraryQualityIssueFilter(kind: LibraryQualityIssueKind): { conditionSql: string } {
     switch (kind) {
       case 'missing_cover':
-        return { conditionSql: "tracks.cover_id IS NULL OR tracks.embedded_cover_status = 'missing'" };
+        return {
+          conditionSql: "NOT EXISTS (SELECT 1 FROM covers WHERE covers.id = tracks.cover_id AND covers.source_type != 'default')",
+        };
       case 'fallback_metadata':
         return { conditionSql: "tracks.metadata_status = 'fallback'" };
       case 'unknown_artist_album':
@@ -6998,6 +7004,7 @@ export class LibraryStore {
   private libraryQualityIssueReasons(kind: LibraryQualityIssueKind, row: DbRow): LibraryQualityIssueReason[] {
     const reasons: LibraryQualityIssueReason[] = [];
     const coverId = textOrNull(row.cover_id);
+    const coverSourceType = textOrNull(row.cover_source_type);
     const metadataStatus = textOrNull(row.metadata_status);
     const embeddedMetadataStatus = textOrNull(row.embedded_metadata_status);
     const embeddedCoverStatus = textOrNull(row.embedded_cover_status);
@@ -7007,7 +7014,7 @@ export class LibraryStore {
     const albumArtist = String(row.album_artist ?? '').trim().toLowerCase();
 
     if (kind === 'missing_cover') {
-      if (!coverId || embeddedCoverStatus === 'missing') {
+      if (!coverId || !coverSourceType || coverSourceType === 'default') {
         reasons.push('missing_cover');
       }
     }

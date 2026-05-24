@@ -3,7 +3,7 @@ import type { DuplicateTrackMode } from './library';
 import type { LibrarySort } from './library';
 import type { LyricsProviderId } from './lyrics';
 import type { MvMaxQuality, MvSyncMode, NetworkMvProviderId } from './mv';
-import type { GlobalShortcutSettings } from './globalShortcuts';
+import type { GlobalShortcutSettings, LocalShortcutSettings } from './globalShortcuts';
 import type { HqPlayerSettings } from './hqplayer';
 
 export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
@@ -175,10 +175,12 @@ export type AppSettings = {
   liveLibraryUpdatesEnabled?: boolean;
   liveLibraryAutoHideDeletedEnabled?: boolean;
   safeModeEnabled?: boolean;
+  fastStartupEnabled?: boolean;
   autoUpdateEnabled?: boolean;
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
+  streamingDownloadActionsEnabled?: boolean;
   connectAutoStartReceiversEnabled?: boolean;
   hqPlayer?: HqPlayerSettings;
   playlistBackupsEnabled?: boolean;
@@ -261,6 +263,8 @@ export type AppSettings = {
   desktopLyricsLocked?: boolean;
   desktopLyricsFontSizePx?: number;
   desktopLyricsScalePercent?: number;
+  desktopLyricsFontFamily?: string;
+  desktopLyricsFontFilePath?: string | null;
   desktopLyricsColor?: string;
   desktopLyricsStrokeColor?: string;
   desktopLyricsOpacityPercent?: number;
@@ -297,6 +301,7 @@ export type AppSettings = {
   replayGainAnalyzeMissingOnScanOptIn?: boolean;
   replayGainAnalyzeMissingOnScan?: boolean;
   backgroundSpacePauseEnabled?: boolean;
+  localShortcuts?: LocalShortcutSettings;
   globalShortcuts?: GlobalShortcutSettings;
   playbackSpeed: number;
   playbackSpeedMode: PlaybackSpeedMode;

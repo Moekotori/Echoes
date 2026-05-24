@@ -161,6 +161,7 @@ struct Options
     int nativeDsdSampleRate = 0;
     bool useJuceOutput = false;
     bool decodePcm = false;
+    bool decodeServer = false;
     double decodeStartSeconds = 0.0;
     bool asioControlPanel = false;
     int eqControlPort = 0;
@@ -190,6 +191,33 @@ struct StdinFrameHeader
     uint8_t type = 0;
     uint32_t sessionId = 0;
     uint32_t payloadBytes = 0;
+};
+
+enum class DecodeServerFrameType : uint8_t
+{
+    Start = 1,
+    Cancel = 2,
+    Shutdown = 3,
+    Ready = 101,
+    PcmF32Le = 102,
+    End = 103,
+    Error = 104,
+};
+
+struct DecodeServerFrameHeader
+{
+    uint8_t type = 0;
+    uint32_t sessionId = 0;
+    uint32_t payloadBytes = 0;
+};
+
+struct DecodeServerRequest
+{
+    uint32_t sessionId = 0;
+    juce::String filePath;
+    double startSeconds = 0.0;
+    int sampleRate = 44100;
+    int channels = 2;
 };
 
 struct DeviceDescriptor
@@ -358,6 +386,10 @@ Options parseOptions(const std::vector<juce::String>& args)
         {
             options.decodePcm = true;
             options.decodeFile = args[++i];
+        }
+        else if (arg == "-decode-server")
+        {
+            options.decodeServer = true;
         }
         else if (arg == "-asio-control-panel")
         {
@@ -2607,6 +2639,14 @@ uint32_t readLe32(const char* bytes)
         | (static_cast<uint32_t>(static_cast<unsigned char>(bytes[3])) << 24);
 }
 
+void writeLe32(char* bytes, uint32_t value)
+{
+    bytes[0] = static_cast<char>(value & 0xff);
+    bytes[1] = static_cast<char>((value >> 8) & 0xff);
+    bytes[2] = static_cast<char>((value >> 16) & 0xff);
+    bytes[3] = static_cast<char>((value >> 24) & 0xff);
+}
+
 float readLeFloat32(const char* bytes)
 {
     uint32_t value = readLe32(bytes);
@@ -2646,6 +2686,25 @@ bool readFrameHeader(StdinFrameHeader& header)
 
     if (static_cast<unsigned char>(bytes[4]) != 1)
         throw std::runtime_error("unsupported framed stdin version");
+
+    header.type = static_cast<uint8_t>(bytes[5]);
+    header.sessionId = readLe32(bytes + 8);
+    header.payloadBytes = readLe32(bytes + 12);
+    return true;
+}
+
+bool readDecodeServerFrameHeader(DecodeServerFrameHeader& header)
+{
+    char bytes[16] {};
+
+    if (! readExact(bytes, sizeof(bytes)))
+        return false;
+
+    if (bytes[0] != 'E' || bytes[1] != 'C' || bytes[2] != 'D' || bytes[3] != 'S')
+        throw std::runtime_error("invalid decode server frame magic");
+
+    if (static_cast<unsigned char>(bytes[4]) != 1)
+        throw std::runtime_error("unsupported decode server frame version");
 
     header.type = static_cast<uint8_t>(bytes[5]);
     header.sessionId = readLe32(bytes + 8);
@@ -2720,6 +2779,230 @@ void prepareAutomixFromPayload(PcmRingAudioSource& source, double sampleRate, co
         getJsonDouble(object, "overlapSeconds", 0.001),
         getJsonDouble(object, "currentGainDb", 0.0),
         getJsonDouble(object, "nextGainDb", 0.0));
+}
+
+juce::String getJsonString(const juce::DynamicObject* object, const char* key, const juce::String& fallback)
+{
+    if (object == nullptr)
+        return fallback;
+
+    const auto value = object->getProperty(key);
+    return value.isString() ? value.toString() : fallback;
+}
+
+int getJsonInt(const juce::DynamicObject* object, const char* key, int fallback)
+{
+    return static_cast<int>(std::llround(getJsonDouble(object, key, static_cast<double>(fallback))));
+}
+
+std::string getJuceDecodeBackendImpl(const juce::File& file)
+{
+    const auto extension = file.getFileExtension().toLowerCase();
+
+    if (extension == ".flac")
+        return "juce-flac";
+
+    if (extension == ".mp3")
+        return "juce-windows-media-mp3";
+
+    if (extension == ".wav" || extension == ".wave")
+        return "juce-wav";
+
+    return "juce-audio-format";
+}
+
+void writeDecodeServerFrame(DecodeServerFrameType type, uint32_t sessionId, const char* payload, size_t payloadBytes)
+{
+    if (payloadBytes > static_cast<size_t>(std::numeric_limits<uint32_t>::max()))
+        throw std::runtime_error("decode server frame payload too large");
+
+    char header[16] {};
+    header[0] = 'E';
+    header[1] = 'C';
+    header[2] = 'D';
+    header[3] = 'S';
+    header[4] = 1;
+    header[5] = static_cast<char>(type);
+    writeLe32(header + 8, sessionId);
+    writeLe32(header + 12, static_cast<uint32_t>(payloadBytes));
+
+    const std::lock_guard<std::mutex> lock(stdoutMutex);
+    std::cout.write(header, sizeof(header));
+    if (payloadBytes > 0)
+        std::cout.write(payload, static_cast<std::streamsize>(payloadBytes));
+    std::cout.flush();
+
+    if (! std::cout.good())
+        throw std::runtime_error("decode server failed while writing stdout frame");
+}
+
+void writeDecodeServerFrame(DecodeServerFrameType type, uint32_t sessionId, const std::string& payload)
+{
+    writeDecodeServerFrame(type, sessionId, payload.data(), payload.size());
+}
+
+void writeDecodeServerFrame(DecodeServerFrameType type, uint32_t sessionId)
+{
+    writeDecodeServerFrame(type, sessionId, nullptr, 0);
+}
+
+void writeDecodeServerError(uint32_t sessionId, const std::string& message)
+{
+    writeDecodeServerFrame(
+        DecodeServerFrameType::Error,
+        sessionId,
+        "{\"message\":\"" + jsonEscape(juce::String::fromUTF8(message.c_str())) + "\"}");
+}
+
+DecodeServerRequest parseDecodeServerRequest(uint32_t sessionId, const std::vector<char>& payload)
+{
+    if (payload.empty())
+        throw std::runtime_error("decode server start frame missing payload");
+
+    const juce::String json = juce::String::fromUTF8(payload.data(), static_cast<int>(payload.size()));
+    const auto parsed = juce::JSON::parse(json);
+    const auto* object = parsed.getDynamicObject();
+    if (object == nullptr)
+        throw std::runtime_error("decode server start payload is not a JSON object");
+
+    DecodeServerRequest request;
+    request.sessionId = sessionId;
+    request.filePath = getJsonString(object, "filePath", {});
+    request.startSeconds = std::max(0.0, getJsonDouble(object, "startSeconds", 0.0));
+    request.sampleRate = std::max(1, getJsonInt(object, "sampleRate", 44100));
+    request.channels = std::max(1, std::min(8, getJsonInt(object, "channels", 2)));
+
+    if (request.filePath.isEmpty())
+        throw std::runtime_error("decode server start payload missing filePath");
+
+    return request;
+}
+
+void decodeServerWorker(DecodeServerRequest request, std::atomic<bool>& cancelRequested)
+{
+    try
+    {
+        configurePcmReaderThread();
+
+        juce::File file(request.filePath);
+        if (! file.existsAsFile())
+            throw std::runtime_error("JUCE decode failed: input file not found");
+
+        if (! file.hasFileExtension("wav;wave;flac;mp3"))
+            throw std::runtime_error("JUCE decode unsupported format: pilot only accepts WAV/FLAC/MP3");
+
+        juce::AudioFormatManager formatManager;
+        formatManager.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+        if (reader == nullptr)
+            throw std::runtime_error("JUCE decode failed: reader could not open input");
+
+        if (reader->lengthInSamples <= 0)
+            throw std::runtime_error("JUCE decode failed: source length unavailable");
+
+        const int sourceSampleRate = static_cast<int>(std::llround(reader->sampleRate));
+        if (sourceSampleRate <= 0)
+            throw std::runtime_error("JUCE decode failed: source sample rate unavailable");
+
+        if (sourceSampleRate != request.sampleRate)
+            throw std::runtime_error(
+                "JUCE decode resampling unsupported: source="
+                + std::to_string(sourceSampleRate)
+                + " requested="
+                + std::to_string(request.sampleRate));
+
+        const int sourceChannels = static_cast<int>(reader->numChannels);
+        if (sourceChannels <= 0 || sourceChannels > 2)
+            throw std::runtime_error("JUCE decode unsupported channel count: " + std::to_string(sourceChannels));
+
+        if (sourceChannels != request.channels)
+            throw std::runtime_error(
+                "JUCE decode channel remap unsupported: source="
+                + std::to_string(sourceChannels)
+                + " requested="
+                + std::to_string(request.channels));
+
+        writeDecodeServerFrame(
+            DecodeServerFrameType::Ready,
+            request.sessionId,
+            "{\"backend\":\"" + getJuceDecodeBackendImpl(file)
+                + "\",\"sampleRate\":" + std::to_string(sourceSampleRate)
+                + ",\"channels\":" + std::to_string(sourceChannels)
+                + "}");
+
+        const int64_t startSample = std::max<int64_t>(
+            0,
+            static_cast<int64_t>(std::floor(request.startSeconds * static_cast<double>(sourceSampleRate))));
+        if (startSample >= reader->lengthInSamples || cancelRequested.load(std::memory_order_acquire))
+        {
+            writeDecodeServerFrame(DecodeServerFrameType::End, request.sessionId);
+            return;
+        }
+
+        constexpr int blockFrames = 4096;
+        juce::AudioBuffer<float> buffer(sourceChannels, blockFrames);
+        std::vector<float> interleaved(static_cast<size_t>(blockFrames * sourceChannels), 0.0f);
+        int64_t position = startSample;
+
+        while (position < reader->lengthInSamples && ! cancelRequested.load(std::memory_order_acquire))
+        {
+            const int frames = static_cast<int>(std::min<int64_t>(blockFrames, reader->lengthInSamples - position));
+            buffer.clear();
+
+            if (! reader->read(&buffer, 0, frames, position, true, true))
+                throw std::runtime_error("JUCE decode failed while reading PCM");
+
+            if (cancelRequested.load(std::memory_order_acquire))
+                break;
+
+            for (int frame = 0; frame < frames; ++frame)
+            {
+                for (int channel = 0; channel < sourceChannels; ++channel)
+                    interleaved[static_cast<size_t>(frame * sourceChannels + channel)] = buffer.getSample(channel, frame);
+            }
+
+            const auto bytes = static_cast<size_t>(frames * sourceChannels * static_cast<int>(sizeof(float)));
+            writeDecodeServerFrame(
+                DecodeServerFrameType::PcmF32Le,
+                request.sessionId,
+                reinterpret_cast<const char*>(interleaved.data()),
+                bytes);
+
+            position += frames;
+        }
+
+        writeDecodeServerFrame(DecodeServerFrameType::End, request.sessionId);
+    }
+    catch (const std::exception& e)
+    {
+        try
+        {
+            writeDecodeServerError(request.sessionId, e.what());
+        }
+        catch (const std::exception& writeError)
+        {
+            logLine(std::string("decode server error frame write failed: ") + writeError.what());
+        }
+    }
+    catch (...)
+    {
+        try
+        {
+            writeDecodeServerError(request.sessionId, "JUCE decode failed: unknown exception");
+        }
+        catch (...)
+        {
+            logLine("decode server error frame write failed");
+        }
+    }
+}
+
+void stopDecodeServerWorker(std::thread& worker, std::atomic<bool>& cancelRequested)
+{
+    cancelRequested.store(true, std::memory_order_release);
+    if (worker.joinable())
+        worker.join();
+    cancelRequested.store(false, std::memory_order_release);
 }
 
 void handleFramedStdinPayload(
@@ -4886,6 +5169,84 @@ int runJuceDecodePcm(const Options& options)
     return 0;
 }
 
+int runJuceDecodeServer()
+{
+#if JUCE_WINDOWS
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+
+    std::thread worker;
+    std::atomic<bool> cancelRequested { false };
+    uint32_t currentSessionId = 0;
+
+    try
+    {
+        while (std::cin.good())
+        {
+            DecodeServerFrameHeader header;
+            if (! readDecodeServerFrameHeader(header))
+                break;
+
+            if (header.payloadBytes > 1024 * 1024)
+                throw std::runtime_error("decode server input frame payload too large");
+
+            std::vector<char> payload(header.payloadBytes);
+            if (header.payloadBytes > 0 && ! readExact(payload.data(), payload.size()))
+                break;
+
+            const auto type = static_cast<DecodeServerFrameType>(header.type);
+
+            if (type == DecodeServerFrameType::Start)
+            {
+                stopDecodeServerWorker(worker, cancelRequested);
+                currentSessionId = header.sessionId;
+
+                try
+                {
+                    DecodeServerRequest request = parseDecodeServerRequest(header.sessionId, payload);
+                    cancelRequested.store(false, std::memory_order_release);
+                    worker = std::thread(decodeServerWorker, request, std::ref(cancelRequested));
+                }
+                catch (const std::exception& e)
+                {
+                    writeDecodeServerError(header.sessionId, e.what());
+                }
+
+                continue;
+            }
+
+            if (type == DecodeServerFrameType::Cancel)
+            {
+                if (header.sessionId == currentSessionId)
+                    stopDecodeServerWorker(worker, cancelRequested);
+                continue;
+            }
+
+            if (type == DecodeServerFrameType::Shutdown)
+            {
+                stopDecodeServerWorker(worker, cancelRequested);
+                return 0;
+            }
+        }
+    }
+    catch (const std::exception& e)
+    {
+        stopDecodeServerWorker(worker, cancelRequested);
+        logLine(std::string("decode server fatal: ") + e.what());
+        return 1;
+    }
+    catch (...)
+    {
+        stopDecodeServerWorker(worker, cancelRequested);
+        logLine("decode server fatal: unknown exception");
+        return 1;
+    }
+
+    stopDecodeServerWorker(worker, cancelRequested);
+    return 0;
+}
+
 int runHost(const Options& options)
 {
     configureProcessPriority();
@@ -5130,6 +5491,11 @@ int main(int argc, char* argv[])
             return runJuceDecodePcm(options);
         }
 
+        if (options.decodeServer)
+        {
+            return runJuceDecodeServer();
+        }
+
         if (options.asioControlPanel)
         {
             return openAsioControlPanel(options);
@@ -5140,7 +5506,7 @@ int main(int argc, char* argv[])
     catch (const std::exception& error)
     {
         logLine(error.what());
-        if (! options.decodePcm)
+        if (! options.decodePcm && ! options.decodeServer)
             writeErrorEvent(error.what());
         return 1;
     }

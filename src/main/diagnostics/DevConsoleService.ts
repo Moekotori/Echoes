@@ -9,6 +9,7 @@ import type {
   DiagnosticConsoleSnapshot,
   DiagnosticConsoleSource,
 } from '../../shared/types/diagnostics';
+import { recordDiagnosticConsoleProblem } from './ExceptionRecorder';
 
 const mainOutputDir = import.meta.dirname;
 const appIconPath = join(mainOutputDir, '../../software.ico');
@@ -27,12 +28,48 @@ const truncateLine = (line: string): string =>
 
 const normalizeLine = (line: string): string => line.replace(ansiSequencePattern, '');
 
+const isMutedDiagnosticLine = (
+  source: DiagnosticConsoleSource,
+  level: DiagnosticConsoleLevel,
+  message: string,
+): boolean => {
+  const plainMessage = normalizeLine(message).trim();
+
+  if (source === 'renderer' && (level === 'warn' || level === 'error')) {
+    return (
+      plainMessage.startsWith('MediaImage src can only be of http/https/data/blob scheme:') ||
+      plainMessage.startsWith('Unable to preventDefault inside passive event listener invocation.')
+    );
+  }
+
+  if (source === 'stderr') {
+    return (
+      plainMessage.startsWith('[BpmAnalyzer] file=') ||
+      plainMessage.startsWith('[DecoderPipeline] ffmpeg:') ||
+      /"event":"local_prepare_(?:started|completed)"/u.test(plainMessage)
+    );
+  }
+
+  return false;
+};
+
 const pushEntry = (
   source: DiagnosticConsoleSource,
   level: DiagnosticConsoleLevel,
   message: string,
   details?: DiagnosticConsoleEntry['details'],
 ): DiagnosticConsoleEntry => {
+  if (isMutedDiagnosticLine(source, level, message)) {
+    return {
+      id: nextEntryId,
+      timestamp: new Date().toISOString(),
+      source,
+      level,
+      message,
+      details,
+    };
+  }
+
   const rawMessage = truncateLine(message);
   const plainMessage = truncateLine(normalizeLine(message));
   const entry: DiagnosticConsoleEntry = {
@@ -50,6 +87,7 @@ const pushEntry = (
   if (entries.length > maxEntries) {
     entries.splice(0, entries.length - maxEntries);
   }
+  recordDiagnosticConsoleProblem(entry);
 
   const windows = typeof BrowserWindow?.getAllWindows === 'function' ? BrowserWindow.getAllWindows() : [];
   for (const window of windows) {
@@ -68,9 +106,7 @@ const pushEntry = (
       }
     };
 
-    if (window.webContents.isLoading()) {
-      window.webContents.once('did-finish-load', send);
-    } else {
+    if (!window.webContents.isLoading()) {
       send();
     }
   }
@@ -269,6 +305,23 @@ const createDevConsoleHtml = (): string => {
     .chip[data-tone="warn"] strong { color: var(--warn); }
     .chip[data-tone="error"] strong { color: var(--error); }
     .chip[data-tone="ok"] strong { color: var(--accent); }
+    .problem-board { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); background: #0b1118; color: var(--soft); font: 12px system-ui, sans-serif; }
+    .problem-board[data-empty="true"] { grid-template-columns: 1fr; }
+    .problem-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .problem-head strong { color: #f4f7fb; font-size: 13px; }
+    .problem-head span { color: var(--muted); line-height: 1.35; }
+    .problem-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px; min-width: 0; max-height: 136px; overflow: auto; }
+    .problem-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0; border: 1px solid #2c3a4d; border-radius: 6px; padding: 7px 8px; background: #0f1721; text-align: left; height: auto; color: var(--text); }
+    .problem-item:hover { background: #142030; border-color: #506985; }
+    .problem-item[data-severity="error"] { border-color: rgba(251, 113, 133, 0.5); }
+    .problem-item[data-severity="warn"] { border-color: rgba(250, 204, 21, 0.45); }
+    .problem-badge { min-width: 46px; padding-top: 1px; color: var(--accent); font-weight: 700; text-transform: uppercase; }
+    .problem-item[data-severity="error"] .problem-badge { color: var(--error); }
+    .problem-item[data-severity="warn"] .problem-badge { color: var(--warn); }
+    .problem-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+    .problem-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #f4f7fb; }
+    .problem-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9aa8bb; }
+    .problem-empty { color: var(--accent); }
     .console { flex: 1; overflow: auto; padding: 8px 12px 22px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; background: linear-gradient(#080c11, #090d13); }
     .console[data-wrap="false"] { white-space: pre; overflow-wrap: normal; }
     .line { display: grid; grid-template-columns: 58px 96px 72px 74px minmax(0, 1fr); gap: 8px; align-items: start; min-height: 20px; padding: 1px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.025); }
@@ -300,6 +353,7 @@ const createDevConsoleHtml = (): string => {
       .toolbar { grid-template-columns: 1fr; }
       .controls { justify-content: flex-start; }
       input { width: 100%; }
+      .problem-board { grid-template-columns: 1fr; }
       .line { grid-template-columns: 48px 84px 64px minmax(0, 1fr); }
       .source { display: none; }
     }
@@ -348,6 +402,7 @@ const createDevConsoleHtml = (): string => {
     <span class="chip" data-tone="ok">renderer <strong id="rendererCount">0</strong></span>
     <span class="chip">未读 <strong id="unreadCount">0</strong></span>
   </section>
+  <section id="problemBoard" class="problem-board" data-empty="true" aria-live="polite"></section>
   <main id="console" class="console" data-wrap="true" aria-live="polite"></main>
   <footer class="footer">
     <span id="status">等待日志...</span>
@@ -368,6 +423,7 @@ const createDevConsoleHtml = (): string => {
     const copyButton = document.getElementById('copy');
     const saveButton = document.getElementById('save');
     const devtoolsButton = document.getElementById('devtools');
+    const problemBoardEl = document.getElementById('problemBoard');
     const statusEl = document.getElementById('status');
     const visibleCountEl = document.getElementById('visibleCount');
     const totalCountEl = document.getElementById('totalCount');
@@ -398,6 +454,7 @@ const createDevConsoleHtml = (): string => {
 
     const isNearBottom = () => consoleEl.scrollTop + consoleEl.clientHeight >= consoleEl.scrollHeight - 48;
     const isProblemEntry = (entry) => entry.source === 'stderr' || entry.level === 'error' || entry.level === 'warn';
+    const problemSeverity = (entry) => entry.level === 'error' || entry.source === 'stderr' ? 'error' : 'warn';
     const passesFilters = (entry) => {
       const query = filterEl.value.trim().toLowerCase();
       const source = sourceEl.value;
@@ -485,6 +542,63 @@ const createDevConsoleHtml = (): string => {
       const details = entry.details && entry.details.sourceId ? ' (' + entry.details.sourceId + (entry.details.line ? ':' + entry.details.line : '') + ')' : '';
       return '[' + entry.timestamp + '] [' + entry.source + '] [' + entry.level + '] ' + entry.message + details;
     };
+    const compactProblemText = (value, maxLength) => {
+      const text = String(value || '').replace(/\\s+/g, ' ').trim();
+      return text.length > maxLength ? text.slice(0, maxLength - 1) + '...' : text;
+    };
+    const renderProblemBoard = () => {
+      const problems = entries.filter(isProblemEntry).slice(-12).reverse();
+      problemBoardEl.replaceChildren();
+      problemBoardEl.dataset.empty = String(problems.length === 0);
+
+      const head = document.createElement('div');
+      head.className = 'problem-head';
+      const title = document.createElement('strong');
+      title.textContent = problems.length ? '问题一览' : '问题一览：暂无异常';
+      const hint = document.createElement('span');
+      hint.textContent = problems.length
+        ? '最近 stderr/error/warn 会自动浮到这里；点击条目可定位同类日志。'
+        : '安全模式会持续捕获主进程、渲染器和启动异常。';
+      head.append(title, hint);
+      problemBoardEl.append(head);
+
+      if (problems.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'problem-empty';
+        empty.textContent = '当前没有捕获到高风险日志。';
+        problemBoardEl.append(empty);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'problem-list';
+      for (const entry of problems) {
+        const item = document.createElement('button');
+        item.className = 'problem-item';
+        item.type = 'button';
+        item.dataset.severity = problemSeverity(entry);
+        item.title = formatEntryLine(entry);
+        item.addEventListener('click', () => {
+          onlyProblems = true;
+          sourceEl.value = entry.source;
+          levelEl.value = entry.level;
+          render();
+        });
+        const badge = document.createElement('span');
+        badge.className = 'problem-badge';
+        badge.textContent = problemSeverity(entry);
+        const copy = document.createElement('span');
+        copy.className = 'problem-copy';
+        const main = document.createElement('strong');
+        main.textContent = compactProblemText(entry.message, 120);
+        const meta = document.createElement('span');
+        meta.textContent = '#' + entry.id + ' · ' + timePart(entry.timestamp) + ' · ' + entry.source + '/' + entry.level;
+        copy.append(main, meta);
+        item.append(badge, copy);
+        list.append(item);
+      }
+      problemBoardEl.append(list);
+    };
     const setTemporaryButtonText = (button, text) => {
       const original = button.textContent;
       button.textContent = text;
@@ -565,6 +679,7 @@ const createDevConsoleHtml = (): string => {
         consoleEl.append(fragment);
       }
       renderStats(visible);
+      renderProblemBoard();
       consoleEl.dataset.wrap = String(wrapLines);
       if (stick && !paused) {
         scrollToBottom();

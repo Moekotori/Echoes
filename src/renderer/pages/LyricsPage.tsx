@@ -5,8 +5,6 @@ import {
   Check,
   FastForward,
   Disc3,
-  Lock,
-  Monitor,
   Music2,
   Rewind,
   RotateCcw,
@@ -17,7 +15,6 @@ import {
 import type { AudioStatus } from "../../shared/types/audio";
 import type { AppSettings } from "../../shared/types/appSettings";
 import type { AirPlayReceiverStatus } from "../../shared/types/connect";
-import type { DesktopLyricsState } from "../../shared/types/desktopLyrics";
 import type { LibraryTrack } from "../../shared/types/library";
 import type {
   LyricsProviderId,
@@ -33,6 +30,7 @@ import type {
 import { streamingProviderNames } from "../../shared/types/streaming";
 import type { PlaybackStatus } from "../../shared/types/playback";
 import { decodeTextFileBytes } from "../../shared/utils/decodeTextFile";
+import { shouldShowRomanizationForLyrics } from "../../shared/utils/lyricsLanguage";
 import { LyricsView, getActiveLyricIndex } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import {
@@ -648,13 +646,19 @@ const formatTrackInfoForClipboard = (title: string, album: string | null, artist
 const formatLyricsForClipboard = (
   lyricsState: LyricsState,
   showRomanization: boolean,
+  preferKanaPronunciation: boolean,
   showTranslation: boolean,
-): string =>
-  lyricsState.lines
+): string => {
+  const canShowRomanization = showRomanization && shouldShowRomanizationForLyrics(lyricsState.lines);
+  return lyricsState.lines
     .map((line) =>
       [
         normalizeClipboardLine(line.text),
-        showRomanization ? normalizeClipboardLine(line.kana ?? line.romanization) : null,
+        canShowRomanization
+          ? normalizeClipboardLine(
+            preferKanaPronunciation && line.kana?.trim() ? line.kana : line.romanization,
+          )
+          : null,
         showTranslation ? normalizeClipboardLine(line.translation) : null,
       ]
         .filter((text): text is string => Boolean(text))
@@ -662,6 +666,7 @@ const formatLyricsForClipboard = (
     )
     .filter((text) => text.length > 0)
     .join("\n");
+};
 
 const readRememberedCandidateSource = (): CandidateSourceFilter => {
   try {
@@ -1050,7 +1055,6 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const lyricsAutoAcceptScoreRef = useRef(fallbackLyricsDisplaySettings.lyricsAutoAcceptScore);
   const lyricsDisplaySettingsLoadVersionRef = useRef(0);
   const [isWindowMaximized, setIsWindowMaximized] = useState(isWindowApproximatelyMaximized);
-  const [desktopLyricsState, setDesktopLyricsState] = useState<DesktopLyricsState | null>(null);
   const [lyricsStatus, setLyricsStatus] = useState<string | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
   const [candidates, setCandidates] = useState<LyricsSearchCandidate[]>([]);
@@ -1075,62 +1079,6 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const setLyricsViewMode = useCallback((mode: LyricsViewMode): void => {
     rememberLyricsViewMode(mode);
     setLyricsViewModeState(mode);
-  }, []);
-  useEffect(() => {
-    const desktopLyrics = window.echo?.desktopLyrics;
-    if (!desktopLyrics) {
-      return undefined;
-    }
-
-    let disposed = false;
-    void desktopLyrics.getState()
-      .then((state) => {
-        if (!disposed) {
-          setDesktopLyricsState(state);
-        }
-      })
-      .catch(() => undefined);
-
-    const unsubscribe = desktopLyrics.onStateChanged?.((state) => {
-      setDesktopLyricsState(state);
-    }) ?? (() => undefined);
-
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
-  }, []);
-  const toggleDesktopLyrics = useCallback(async (): Promise<void> => {
-    const desktopLyrics = window.echo?.desktopLyrics;
-    if (!desktopLyrics) {
-      setError("Desktop lyrics bridge unavailable");
-      return;
-    }
-
-    try {
-      const state = desktopLyricsState?.visible
-        ? await desktopLyrics.hide()
-        : await desktopLyrics.show();
-      setDesktopLyricsState(state);
-      setError(null);
-    } catch (desktopLyricsError) {
-      setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
-    }
-  }, [desktopLyricsState?.visible]);
-  const unlockDesktopLyrics = useCallback(async (): Promise<void> => {
-    const desktopLyrics = window.echo?.desktopLyrics;
-    if (!desktopLyrics) {
-      setError("Desktop lyrics bridge unavailable");
-      return;
-    }
-
-    try {
-      const state = await desktopLyrics.setLocked(false);
-      setDesktopLyricsState(state);
-      setError(null);
-    } catch (desktopLyricsError) {
-      setError(desktopLyricsError instanceof Error ? desktopLyricsError.message : String(desktopLyricsError));
-    }
   }, []);
   const clearCopyNotice = useCallback((): void => {
     if (copyNoticeTimerRef.current !== null) {
@@ -1255,7 +1203,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     currentTrack?.isTemporary !== true &&
     !isSnapshotTrackId(trackCoverCopyTrackId);
   const lyricsSnapshotRequest = useMemo<LyricsTrackSnapshotRequest | null>(() => {
-    if (!trackId || !isSnapshotLyricsTrack(currentTrack, trackId)) {
+    const shouldUseSnapshot =
+      Boolean(currentTrack?.mediaType === "streaming") ||
+      isSnapshotLyricsTrack(currentTrack, trackId);
+    if (!trackId || !shouldUseSnapshot) {
       return null;
     }
 
@@ -1268,7 +1219,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       albumArtist: currentTrack?.albumArtist?.trim() || airPlayMetadata?.albumArtist?.trim() || null,
       durationSeconds: currentTrack?.duration && currentTrack.duration > 0 ? currentTrack.duration : airPlayDurationSeconds,
       mediaType: currentTrack?.mediaType ?? "remote",
-      sourceId: currentTrack?.sourceId ?? airPlaySourceId,
+      sourceId: currentTrack?.sourceId ?? (isStreamingTrack(currentTrack) ? currentTrack.providerTrackId : airPlaySourceId),
       stableKey: currentTrack?.stableKey ?? snapshotTrackId,
     };
   }, [
@@ -1352,6 +1303,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       const text = formatLyricsForClipboard(
         effectiveDisplayedLyrics,
         lyricsDisplaySettings.lyricsRomanizationEnabled,
+        lyricsDisplaySettings.lyricsUtatenKanaEnabled === true,
         lyricsDisplaySettings.lyricsTranslationEnabled,
       );
       if (!text) {
@@ -1364,6 +1316,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     [
       effectiveDisplayedLyrics,
       lyricsDisplaySettings.lyricsRomanizationEnabled,
+      lyricsDisplaySettings.lyricsUtatenKanaEnabled,
       lyricsDisplaySettings.lyricsTranslationEnabled,
       showCopyError,
       writeClipboardText,
@@ -2155,10 +2108,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setActiveCandidateSource(readRememberedCandidateSource());
       setIsLyricsMatchPanelRevealed(false);
 
-      // Streaming lyrics are exact-provider lookups: provider + providerTrackId, no local candidate matching.
+      // Prefer the streaming provider's exact lookup, then fall back to the regular lyrics matcher.
       void streamingApi
         .getLyrics(streamingTarget)
-        .then((streamingLyrics) => {
+        .then(async (streamingLyrics) => {
           if (lyricsRequestRef.current !== requestId) {
             return;
           }
@@ -2166,8 +2119,48 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           const nextLyrics = streamingLyricsToState(streamingLyrics);
           setLyrics(nextLyrics);
           dispatchCurrentLyricsProviderChanged(null);
-          setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
           setError(null);
+
+          if (nextLyrics.kind !== "empty" || !lyricsDisplaySettings.lyricsAutoSearch) {
+            setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
+            return;
+          }
+
+          setIsCandidateLoading(true);
+          setLyricsStatus("Searching lyrics candidates...");
+          let nextCandidates: LyricsSearchCandidate[] = [];
+          const providers: LyricsProviderId[] = activeSearchProviders.length ? activeSearchProviders : ["local"];
+          await Promise.allSettled(
+            providers.map(async (provider) => {
+              const providerCandidates = await searchLyricsCandidatesForProvider(provider);
+              if (lyricsRequestRef.current !== requestId) {
+                return;
+              }
+
+              nextCandidates = mergeLyricsCandidates(nextCandidates, providerCandidates);
+              setCandidates(nextCandidates);
+              setActiveCandidateSource(readRememberedCandidateSource());
+            }),
+          );
+          if (lyricsRequestRef.current !== requestId) {
+            return;
+          }
+
+          const autoApplied = await tryAutoApplyCandidate(
+            nextCandidates,
+            () => lyricsRequestRef.current === requestId,
+          );
+          if (lyricsRequestRef.current !== requestId || autoApplied) {
+            return;
+          }
+
+          setCandidates(nextCandidates);
+          setActiveCandidateSource(readRememberedCandidateSource());
+          setIsLyricsMatchPanelRevealed(
+            nextCandidates.length > 0 &&
+              lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled !== false,
+          );
+          setLyricsStatus(nextCandidates.length ? null : "No lyrics found");
         })
         .catch((lyricsError) => {
           if (lyricsRequestRef.current !== requestId) {
@@ -2307,36 +2300,33 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     setIsLyricsMatchPanelClosed(false);
     setIsLyricsMatchPanelRevealed(true);
 
-    if (streamingTarget) {
+    if (streamingTarget && !searchText?.trim()) {
       const streamingApi = window.echo?.streaming;
-      if (!streamingApi?.getLyrics) {
-        setError("流媒体歌词服务不可用");
-        return;
-      }
+      if (streamingApi?.getLyrics) {
+        setIsCandidateLoading(false);
+        setIsLyricsLoading(true);
+        setLyricsStatus("Loading streaming lyrics...");
+        try {
+          const streamingLyrics = await streamingApi.getLyrics(streamingTarget);
+          const nextLyrics = streamingLyricsToState(streamingLyrics, lyrics.offsetMs);
+          setLyrics(nextLyrics);
+          dispatchCurrentLyricsProviderChanged(null);
+          setCandidates([]);
+          setActiveCandidateSource(readRememberedCandidateSource());
+          setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
+          setError(null);
 
-      setIsCandidateLoading(false);
-      setIsLyricsLoading(true);
-      setLyricsStatus("Loading streaming lyrics...");
-      try {
-        const streamingLyrics = await streamingApi.getLyrics(streamingTarget);
-        const nextLyrics = streamingLyricsToState(streamingLyrics, lyrics.offsetMs);
-        setLyrics(nextLyrics);
-        dispatchCurrentLyricsProviderChanged(null);
-        setCandidates([]);
-        setActiveCandidateSource(readRememberedCandidateSource());
-        setLyricsStatus(nextLyrics.lines.length > 0 ? null : "No lyrics found");
-        setError(null);
-      } catch (lyricsError) {
-        setLyricsStatus("No lyrics found");
-        setError(
-          lyricsError instanceof Error
-            ? lyricsError.message
-            : String(lyricsError),
-        );
-      } finally {
-        setIsLyricsLoading(false);
+          if (nextLyrics.kind === "instrumental" || nextLyrics.lines.length > 0) {
+            return;
+          }
+        } catch {
+          setLyrics(emptyLyrics(lyrics.offsetMs));
+          dispatchCurrentLyricsProviderChanged(null);
+          setLyricsStatus("No lyrics found");
+        } finally {
+          setIsLyricsLoading(false);
+        }
       }
-      return;
     }
 
     if (!trackId || !window.echo?.lyrics) {
@@ -3084,6 +3074,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     isLyricsMatchPanelRevealed,
     isCandidateLoading,
     isLyricsLoading,
+    lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled,
     lyricsDisplaySettings.lyricsEnabled,
     lyrics.lines.length,
     lyricsStatus,
@@ -3094,47 +3085,20 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     visibleCandidates,
   ]);
 
-  const desktopLyricsVisible = desktopLyricsState?.visible === true;
-  const desktopLyricsLocked = desktopLyricsState?.locked === true;
-
   if (!currentTrack && !filePath && !trackId) {
     return (
       <div className="lyrics-page lyrics-page--empty">
-        <div className="lyrics-window-actions">
-          <button
-            className="lyrics-back-button"
-            type="button"
-            aria-label="Back"
-            title="Back"
-            onClick={() =>
-              window.dispatchEvent(new Event("app:navigate:lyrics-back"))
-            }
-          >
-            <ArrowLeft size={17} />
-          </button>
-          <button
-            className="lyrics-desktop-button"
-            type="button"
-            aria-label={desktopLyricsVisible ? "关闭桌面歌词" : "打开桌面歌词"}
-            aria-pressed={desktopLyricsVisible}
-            title={desktopLyricsVisible ? "关闭桌面歌词" : "打开桌面歌词"}
-            onClick={() => void toggleDesktopLyrics()}
-          >
-            <Monitor size={16} />
-            <span>桌面歌词</span>
-          </button>
-          {desktopLyricsLocked ? (
-            <button
-              className="lyrics-desktop-button lyrics-desktop-button--icon"
-              type="button"
-              aria-label="解锁桌面歌词"
-              title="解锁桌面歌词"
-              onClick={() => void unlockDesktopLyrics()}
-            >
-              <Lock size={15} />
-            </button>
-          ) : null}
-        </div>
+        <button
+          className="lyrics-back-button"
+          type="button"
+          aria-label="Back"
+          title="Back"
+          onClick={() =>
+            window.dispatchEvent(new Event("app:navigate:lyrics-back"))
+          }
+        >
+          <ArrowLeft size={17} />
+        </button>
         <section className="lyrics-no-track">
           <Music2 size={34} />
           <h1>Nothing is playing</h1>
@@ -3240,6 +3204,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             positionUpdatedAtMs={seekPreviewSeconds === null ? mvAudioClock.updatedAtMs : performance.now()}
             wordHighlightEnabled={lyricsDisplaySettings.lyricsWordHighlightEnabled !== false}
             showRomanization={lyricsDisplaySettings.lyricsRomanizationEnabled}
+            preferKanaPronunciation={lyricsDisplaySettings.lyricsUtatenKanaEnabled === true}
             showTranslation={lyricsDisplaySettings.lyricsTranslationEnabled}
             onContextMenu={handleLyricsContextMenu}
             onSeek={(timeMs) => void handleLyricSeek(timeMs)}

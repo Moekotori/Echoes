@@ -14,7 +14,13 @@ import { dispatchLocalAudioFilesOpened, parseLocalAudioFileArguments } from './l
 import { initializeAutoUpdater } from './autoUpdater';
 import { getAppSettings } from './appSettings';
 import { disposeDataBackupScheduler, initializeDataBackupScheduler } from './dataBackup';
-import { ensureDataProtection } from './dataProtection';
+import {
+  createDataProtectionSnapshot,
+  ensureDataProtection,
+  ensureDataProtectionFastStartup,
+  getLibraryDatabaseStartupMetrics,
+  shouldCreateDeferredStartupSnapshot,
+} from './dataProtection';
 import { disposeBackgroundPlaybackShortcuts, initializeBackgroundPlaybackShortcuts } from './backgroundPlaybackShortcuts';
 import { getAccountService } from '../accounts/AccountService';
 import { disposeAirPlayReceiverSpikeService } from '../connect/AirPlayReceiverSpikeService';
@@ -83,6 +89,94 @@ const notifyLibraryRecoveryMode = (): void => {
   });
 };
 
+const deferredStartupDataProtectionDelayMs = 10_000;
+
+const scheduleDeferredStartupDataProtection = (userDataPath: string, window: BrowserWindow): void => {
+  if (window.isDestroyed()) {
+    markStartupStage('data-protection:deferred:snapshot:skipped', { reason: 'window-destroyed' });
+    return;
+  }
+
+  let timer: NodeJS.Timeout | null = null;
+  let completed = false;
+
+  const clearDeferredTimer = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const markWindowDestroyedSkip = (): void => {
+    if (completed) {
+      return;
+    }
+    clearDeferredTimer();
+    completed = true;
+    markStartupStage('data-protection:deferred:snapshot:skipped', { reason: 'window-destroyed' });
+  };
+
+  const startDeferredTimer = (): void => {
+    if (completed || window.isDestroyed()) {
+      markWindowDestroyedSkip();
+      return;
+    }
+
+    markStartupStage('data-protection:deferred:snapshot:scheduled', { delayMs: deferredStartupDataProtectionDelayMs });
+    timer = setTimeout(() => {
+      timer = null;
+      if (window.isDestroyed()) {
+        markWindowDestroyedSkip();
+        return;
+      }
+
+      const decision = shouldCreateDeferredStartupSnapshot(userDataPath);
+      if (!decision.shouldCreate) {
+        completed = true;
+        markStartupStage('data-protection:deferred:snapshot:skipped', {
+          reason: decision.reason,
+          databaseSizeBytes: decision.currentSignature.databaseSizeBytes,
+          walSizeBytes: decision.currentSignature.walSizeBytes,
+          snapshotCount: decision.snapshotCount,
+          snapshotId: decision.snapshotId,
+        });
+        return;
+      }
+
+      markStartupStage('data-protection:deferred:snapshot:start', {
+        reason: decision.reason,
+        databaseSizeBytes: decision.currentSignature.databaseSizeBytes,
+        walSizeBytes: decision.currentSignature.walSizeBytes,
+        snapshotCount: decision.snapshotCount,
+      });
+      void createDataProtectionSnapshot('startup', userDataPath)
+        .then((snapshot) => {
+          completed = true;
+          markStartupStage('data-protection:deferred:snapshot:complete', {
+            libraryHealth: snapshot.libraryHealth.status,
+            backupMethod: snapshot.libraryBackupMethod,
+          });
+        })
+        .catch((error) => {
+          completed = true;
+          markStartupStage('data-protection:deferred:snapshot:failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          getCrashReportService().getLogger()?.warn('main', '[Lifecycle] deferred startup data protection failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }, deferredStartupDataProtectionDelayMs);
+  };
+
+  window.once('closed', markWindowDestroyedSkip);
+  if (window.isVisible()) {
+    startDeferredTimer();
+  } else {
+    window.once('ready-to-show', startDeferredTimer);
+  }
+};
+
 export const registerAppLifecycle = (): void => {
   const libraryRecoveryMode = isLibraryRecoveryMode();
 
@@ -132,10 +226,22 @@ export const registerAppLifecycle = (): void => {
     getCrashReportService().initialize();
     markStartupStage('diagnostics:init:complete');
     markStartupStage('data-protection:startup:start');
-    const dataProtection = await ensureDataProtection('startup');
+    const fastStartupRequested = appSettings.fastStartupEnabled === true && !libraryRecoveryMode;
+    const dataProtection = fastStartupRequested
+      ? await ensureDataProtectionFastStartup('startup')
+      : await ensureDataProtection('startup');
+    const fastStartupDeferredProtection =
+      fastStartupRequested &&
+      dataProtection.libraryHealth.status === 'ok' &&
+      dataProtection.recovery.action === 'none' &&
+      dataProtection.snapshot.libraryBackupMethod === 'none' &&
+      dataProtection.snapshot.snapshotPath === '';
+    const startupDataProtectionMetrics = getLibraryDatabaseStartupMetrics(dataProtection.userDataPath);
     markStartupStage('data-protection:startup:complete', {
       libraryHealth: dataProtection.libraryHealth.status,
       recoveryAction: dataProtection.recovery.action,
+      fastStartup: fastStartupDeferredProtection,
+      ...startupDataProtectionMetrics,
     });
     markStartupStage('network-proxy:apply:start');
     await applyNetworkProxySettings(appSettings).then(() => {
@@ -176,8 +282,11 @@ export const registerAppLifecycle = (): void => {
       });
     }
     markStartupStage('main-window:create:request');
-    createMainWindow();
+    const mainWindow = createMainWindow();
     markStartupStage('main-window:create:returned');
+    if (fastStartupDeferredProtection) {
+      scheduleDeferredStartupDataProtection(dataProtection.userDataPath, mainWindow);
+    }
     restoreDesktopLyricsWindowOnStartup();
     if (libraryRecoveryMode) {
       notifyLibraryRecoveryMode();

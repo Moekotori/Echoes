@@ -19,7 +19,6 @@ import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { openArtistDetailByName } from '../../utils/artistNavigation';
 import { PlayerProgress } from './PlayerProgress';
-import { SegmentLoopPanel } from './SegmentLoopPanel';
 import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
@@ -55,7 +54,7 @@ const activeDownloadStatuses = new Set<DownloadJobStatus>([
   'binding_mv',
 ]);
 const terminalDownloadStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
-const unsupportedPlayerDownloadProviders = new Set<StreamingProviderName>(['mock', 'spotify']);
+const unsupportedPlayerDownloadProviders = new Set<StreamingProviderName>(['mock', 'spotify', 'bilibili']);
 const unsupportedStreamingBpmAnalysisProviders = new Set<StreamingProviderName>(['spotify', 'soundcloud']);
 const downloadStatusLabels: Record<DownloadJobStatus, string> = {
   queued: '排队中',
@@ -112,6 +111,8 @@ const streamingTrackWebUrl = (provider: StreamingProviderName, providerTrackId: 
       return providerTrackId.startsWith('http')
         ? providerTrackId
         : `https://soundcloud.com/search/sounds?q=${encodeURIComponent(providerTrackId)}`;
+    case 'bilibili':
+      return `https://www.bilibili.com/video/${encodeURIComponent(providerTrackId)}`;
     default:
       return null;
   }
@@ -354,28 +355,6 @@ const PlayerMarqueeText = ({
   );
 };
 
-const isTextEditingElement = (target: EventTarget | null): boolean => {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  const editableTarget = target.closest('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]');
-  if (editableTarget) {
-    return true;
-  }
-
-  return target instanceof HTMLElement && target.isContentEditable;
-};
-
-const isPlaybackShortcutTextTarget = (event: KeyboardEvent): boolean => {
-  const path = event.composedPath();
-  if (path.some((target) => isTextEditingElement(target))) {
-    return true;
-  }
-
-  return isTextEditingElement(document.activeElement);
-};
-
 export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps): JSX.Element => {
   const queue = usePlaybackQueue();
   const sharedPlaybackStatus = useSharedPlaybackStatus();
@@ -532,7 +511,6 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     playbackVisualIntent: sharedPlaybackStatus.playbackVisualIntent,
   });
   const filePath = currentTrack?.path ?? playbackAudioStatus?.currentFilePath ?? currentPlaybackStatus?.filePath ?? null;
-  const segmentTrackKey = currentTrack?.stableKey ?? currentTrack?.id ?? trackId ?? filePath ?? null;
   const receiverCurrentUri = receiverStatus?.currentUri ?? null;
   const receiverHasCurrentMedia = Boolean(
     receiverCurrentUri && receiverStatus && ['ready', 'loading', 'playing', 'paused', 'stopped'].includes(receiverStatus.state),
@@ -765,6 +743,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
         streamingProvider: currentStreamingDownloadProvider,
         streamingProviderTrackId: streamingTrackProviderTrackId,
         streamingStableKey: currentTrack.stableKey ?? currentTrack.id,
+        downloadAuthorizationToken: source.downloadAuthorizationToken,
       });
       setStreamingDownloadJobId(job.id);
       showStreamingDownloadNotice(downloadNoticeFromJob(job, trackTitle));
@@ -800,11 +779,18 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
           return;
         }
 
+        const durationMs = Math.round(Math.max(0, track.duration) * 1000);
+        const progressMs = spotifyState.progressMs ?? 0;
+        const endedAtTrackTail =
+          !spotifyState.isPlaying &&
+          durationMs > 0 &&
+          progressMs >= Math.max(0, durationMs - endedAutoAdvanceGraceSeconds * 1000);
+
         const status: PlaybackStatus = {
-          state: spotifyState.isPlaying ? 'playing' : 'paused',
+          state: endedAtTrackTail ? 'ended' : spotifyState.isPlaying ? 'playing' : 'paused',
           currentTrackId: track.id,
-          positionMs: spotifyState.progressMs ?? 0,
-          durationMs: Math.round(Math.max(0, track.duration) * 1000),
+          positionMs: endedAtTrackTail ? durationMs : progressMs,
+          durationMs,
           filePath: track.stableKey ?? track.path,
         };
         setPlaybackStatusSnapshot({ playbackStatus: status, audioStatus: null, error: null });
@@ -1440,8 +1426,12 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     }
 
     await runPlaybackAction(async () => {
+      if (visualState === 'playing' || visualState === 'loading') {
+        return playback.pause();
+      }
+
       if (activeReceiverStatus) {
-        return visualState === 'playing' || visualState === 'loading' ? playback.pause() : playback.play();
+        return playback.play();
       }
 
       const latestStatus = await playback.getStatus();
@@ -1549,24 +1539,6 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
     streamingTrackProviderTrackId,
     trackId,
   ]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if ((event.code !== 'Space' && event.key !== ' ') || event.repeat) {
-        return;
-      }
-
-      if (isPlaybackShortcutTextTarget(event)) {
-        return;
-      }
-
-      event.preventDefault();
-      void handlePlayPause();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handlePlayPause]);
 
   const currentQueueTrackIdForEndedPlayback = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
   const currentQueueFilePathForEndedPlayback = queue.currentTrack?.path ?? null;
@@ -1748,16 +1720,6 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
           durationSeconds={durationSeconds}
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
-        />
-        <SegmentLoopPanel
-          artist={artist}
-          disabled={isAirPlayReceiverPlaybackActive || (!filePath && !isSpotifyCurrentTrack)}
-          durationSeconds={durationSeconds}
-          isPlaying={isPlaying}
-          positionSeconds={positionSeconds}
-          title={title}
-          trackKey={segmentTrackKey}
-          onSeek={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
         />
         {displayError ? <span className="player-error">{displayError}</span> : null}
       </div>

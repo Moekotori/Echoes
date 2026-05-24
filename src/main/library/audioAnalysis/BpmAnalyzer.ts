@@ -30,15 +30,18 @@ const sampleRate = 11025;
 const maxAnalyzeSeconds = 90;
 const minAnalyzeSeconds = 20;
 const frameSize = 1024;
-const hopSize = 512;
+const hopSize = 256;
 const minBpm = 60;
 const maxBpm = 200;
+const bpmSearchStep = 0.25;
 const stableMinBpm = 80;
-const stableMaxBpm = 180;
+const stableMaxBpm = 200;
 
 const defaultLogger = (message: string): void => {
   console.warn(message);
 };
+
+const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
 
 const appendTailLine = (lines: string[], line: string): void => {
   const trimmed = line.trim();
@@ -128,6 +131,7 @@ const onsetEnvelope = (samples: Float32Array): Float32Array => {
 
 type TempoCandidate = {
   bpm: number;
+  rawBpm: number;
   lag: number;
   score: number;
   autocorrelation: number;
@@ -136,7 +140,7 @@ type TempoCandidate = {
 const tempoEquivalent = (left: number, right: number): boolean => {
   for (const multiplier of [0.5, 1, 2]) {
     const expected = right * multiplier;
-    if (Math.abs(left - expected) / Math.max(1, expected) <= 0.035) {
+    if (Math.abs(left - expected) / Math.max(1, expected) <= 0.04) {
       return true;
     }
   }
@@ -144,14 +148,31 @@ const tempoEquivalent = (left: number, right: number): boolean => {
   return false;
 };
 
-const interpolatedScore = (scores: Float32Array, lag: number): number => {
-  if (lag < 1 || lag >= scores.length - 1) {
+const interpolatedEnvelopeValue = (envelope: Float32Array, index: number): number => {
+  if (index < 0 || index >= envelope.length - 1) {
     return 0;
   }
 
-  const left = Math.floor(lag);
-  const fraction = lag - left;
-  return scores[left] * (1 - fraction) + scores[left + 1] * fraction;
+  const left = Math.floor(index);
+  const fraction = index - left;
+  return envelope[left] * (1 - fraction) + envelope[left + 1] * fraction;
+};
+
+const correlateEnvelopeAtLag = (envelope: Float32Array, lag: number): number => {
+  let numerator = 0;
+  let leftEnergy = 0;
+  let rightEnergy = 0;
+  const start = Math.max(1, Math.ceil(lag));
+
+  for (let index = start; index < envelope.length - 1; index += 1) {
+    const left = envelope[index];
+    const right = interpolatedEnvelopeValue(envelope, index - lag);
+    numerator += left * right;
+    leftEnergy += left * left;
+    rightEnergy += right * right;
+  }
+
+  return leftEnergy > 0 && rightEnergy > 0 ? numerator / Math.sqrt(leftEnergy * rightEnergy) : 0;
 };
 
 const phaseFit = (envelope: Float32Array, bpm: number, envelopeRate: number): { offsetMs: number; fit: number } => {
@@ -195,39 +216,56 @@ const phaseFit = (envelope: Float32Array, bpm: number, envelopeRate: number): { 
   };
 };
 
-const estimateTempo = (envelope: Float32Array): BpmAnalyzerResult => {
-  const envelopeRate = sampleRate / hopSize;
-  const minLag = Math.max(1, Math.floor((60 * envelopeRate) / maxBpm));
-  const maxLag = Math.ceil((60 * envelopeRate) / minBpm);
-  const lagScores = new Float32Array(maxLag + 1);
-  const candidates: TempoCandidate[] = [];
-
-  for (let lag = minLag; lag <= maxLag; lag += 1) {
-    let numerator = 0;
-    let leftEnergy = 0;
-    let rightEnergy = 0;
-    for (let index = lag; index < envelope.length; index += 1) {
-      const left = envelope[index];
-      const right = envelope[index - lag];
-      numerator += left * right;
-      leftEnergy += left * left;
-      rightEnergy += right * right;
-    }
-    lagScores[lag] = leftEnergy > 0 && rightEnergy > 0 ? numerator / Math.sqrt(leftEnergy * rightEnergy) : 0;
+const selectDoubleTimeCandidate = (best: TempoCandidate, candidates: TempoCandidate[]): TempoCandidate => {
+  if (best.bpm >= 100) {
+    return best;
   }
 
-  for (let lag = minLag; lag <= maxLag; lag += 1) {
-    const rawBpm = 60 * envelopeRate / lag;
+  const targetBpm = best.bpm * 2;
+  if (targetBpm < 120 || targetBpm > stableMaxBpm) {
+    return best;
+  }
+
+  const doubleTimeCandidate = candidates
+    .filter(
+      (candidate) =>
+        candidate.bpm >= 120 &&
+        candidate.bpm <= stableMaxBpm &&
+        Math.abs(candidate.bpm - targetBpm) / targetBpm <= 0.08,
+    )
+    .reduce<TempoCandidate | null>((currentBest, candidate) => {
+      if (!currentBest || candidate.score > currentBest.score) {
+        return candidate;
+      }
+      return currentBest;
+    }, null);
+
+  if (!doubleTimeCandidate) {
+    return best;
+  }
+
+  const hasComparablePulseStrength = doubleTimeCandidate.autocorrelation >= best.autocorrelation * 0.82;
+  const hasEnoughHarmonicSupport = doubleTimeCandidate.score >= best.score * 0.74;
+  return hasComparablePulseStrength && hasEnoughHarmonicSupport ? doubleTimeCandidate : best;
+};
+
+const estimateTempo = (envelope: Float32Array): BpmAnalyzerResult => {
+  const envelopeRate = sampleRate / hopSize;
+  const candidates: TempoCandidate[] = [];
+
+  for (let rawBpm = minBpm; rawBpm <= maxBpm; rawBpm += bpmSearchStep) {
+    const lag = (60 * envelopeRate) / rawBpm;
     const bpm = normalizeBpm(rawBpm);
-    const autocorrelation = lagScores[lag];
+    const autocorrelation = correlateEnvelopeAtLag(envelope, lag);
     const harmonicScore =
       autocorrelation * 0.58 +
-      interpolatedScore(lagScores, lag / 2) * 0.14 +
-      interpolatedScore(lagScores, lag * 2) * 0.2 +
-      interpolatedScore(lagScores, lag * 3) * 0.08;
-    const centerPreference = bpm >= 90 && bpm <= 170 ? 1 : 0.94;
+      correlateEnvelopeAtLag(envelope, lag / 2) * 0.14 +
+      correlateEnvelopeAtLag(envelope, lag * 2) * 0.2 +
+      correlateEnvelopeAtLag(envelope, lag * 3) * 0.08;
+    const centerPreference = bpm >= 90 && bpm <= 190 ? 1 : 0.94;
     candidates.push({
       bpm,
+      rawBpm,
       lag,
       score: harmonicScore * centerPreference,
       autocorrelation,
@@ -249,24 +287,25 @@ const estimateTempo = (envelope: Float32Array): BpmAnalyzerResult => {
     };
   }
 
+  const selected = selectDoubleTimeCandidate(best, candidates);
   const competingScores = candidates
-    .filter((candidate) => !tempoEquivalent(candidate.bpm, best.bpm))
+    .filter((candidate) => !tempoEquivalent(candidate.bpm, selected.bpm))
     .map((candidate) => candidate.score);
   const backgroundScore = percentile(competingScores, 0.82);
-  const contrast = best.score > 0 ? clamp((best.score - backgroundScore) / best.score) : 0;
+  const contrast = selected.score > 0 ? clamp((selected.score - backgroundScore) / selected.score) : 0;
   const prominentOnsets = Array.from(envelope).filter((value) => value > 0.18);
   const onsetDensity = prominentOnsets.length / Math.max(1, envelope.length);
   const onsetPeak = percentile(Array.from(envelope), 0.95);
   const onsetMedian = percentile(Array.from(envelope), 0.5);
   const onsetClarity = onsetPeak > 0 ? clamp((onsetPeak - onsetMedian) / onsetPeak) : 0;
-  const { fit, offsetMs } = phaseFit(envelope, best.bpm, envelopeRate);
+  const { fit, offsetMs } = phaseFit(envelope, selected.bpm, envelopeRate);
   const densityPenalty = onsetDensity < 0.006 || onsetDensity > 0.45 ? 0.72 : 1;
-  const periodicStrength = clamp(best.autocorrelation / 0.48);
+  const periodicStrength = clamp(selected.autocorrelation / 0.48);
   const rhythmicStability = Math.sqrt(clamp(fit * 0.52 + periodicStrength * 0.36 + onsetClarity * 0.12));
   const confidence = clamp(rhythmicStability * (0.82 + contrast * 0.18) * densityPenalty);
 
   return {
-    bpm: Math.round(best.bpm * 100) / 100,
+    bpm: Math.round(selected.bpm * 100) / 100,
     confidence: Math.round(confidence * 1000) / 1000,
     beatOffsetMs: offsetMs,
   };
@@ -294,10 +333,15 @@ export class BpmAnalyzer {
       '-loglevel',
       'error',
       '-nostdin',
+      '-nostats',
       ...(inputHeaders ? ['-headers', inputHeaders] : []),
       '-i',
       filePath,
+      '-map',
+      '0:a:0',
       '-vn',
+      '-sn',
+      '-dn',
       '-t',
       String(analyzeSeconds),
       '-f',
@@ -340,9 +384,11 @@ export class BpmAnalyzer {
     }
 
     const result = estimateTempo(onsetEnvelope(samples));
-    this.logger(
-      `[BpmAnalyzer] file="${filePath}" bpm=${result.bpm} confidence=${result.confidence} offsetMs=${result.beatOffsetMs}`,
-    );
+    if (verboseAudioLogsEnabled) {
+      this.logger(
+        `[BpmAnalyzer] file="${filePath}" bpm=${result.bpm} confidence=${result.confidence} offsetMs=${result.beatOffsetMs}`,
+      );
+    }
     return result;
   }
 }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { LyricsView } from './LyricsView';
+import { LyricsView, getActiveLyricIndex } from './LyricsView';
 import type { LyricsState } from './lyricsTypes';
 
 const makeRect = (top: number, height: number): DOMRect => ({
@@ -49,6 +49,14 @@ afterEach(() => {
 });
 
 describe('LyricsView', () => {
+  it('keeps active line lookup stable when synced lines include untimed rows', () => {
+    expect(getActiveLyricIndex([
+      { timeMs: 1000, text: 'First' },
+      { timeMs: -1, text: 'Untimed note' },
+      { timeMs: 2000, text: 'Second' },
+    ], 1500, 0)).toBe(0);
+  });
+
   it('aligns word highlight immediately after seeking', async () => {
     const { container } = render(
       <LyricsView
@@ -90,6 +98,43 @@ describe('LyricsView', () => {
     });
   });
 
+  it('uses the next lyric line to pace an open-ended final word', async () => {
+    const openEndedLyrics: LyricsState = {
+      kind: 'synced',
+      source: 'placeholder',
+      offsetMs: 0,
+      lines: [
+        {
+          timeMs: 1000,
+          text: 'Hello world',
+          words: [
+            { text: 'Hello ', startMs: 1000, endMs: 1500 },
+            { text: 'world', startMs: 1500, endMs: null },
+          ],
+        },
+        { timeMs: 2500, text: 'Next line' },
+      ],
+    };
+
+    const { container } = render(
+      <LyricsView
+        durationMs={4000}
+        hideEmptyState={false}
+        lyrics={openEndedLyrics}
+        playbackState="paused"
+        positionMs={2000}
+        positionUpdatedAtMs={0}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+      expect(currentWord?.textContent).toBe('world');
+      expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.5000');
+    });
+  });
+
   it('keeps ordinary line rendering when word highlight is disabled', () => {
     const { container } = render(
       <LyricsView
@@ -104,6 +149,60 @@ describe('LyricsView', () => {
 
     expect(container.querySelector('.lyrics-word')).toBeNull();
     expect(container.textContent).toContain('Hello world');
+  });
+
+  it('hides romanization for Chinese-only lyrics even when cached lines contain it', () => {
+    const chineseLyrics: LyricsState = {
+      kind: 'synced',
+      source: 'cached',
+      offsetMs: 0,
+      lines: [
+        {
+          timeMs: 1000,
+          text: '还为分手前那句抱歉在感动',
+          romanization: '还 为 bun temae 那 ku 抱 歉 zai kan 动',
+        },
+      ],
+    };
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={chineseLyrics}
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(container.textContent).toContain('还为分手前那句抱歉在感动');
+    expect(container.textContent).not.toContain('bun temae');
+    expect(container.querySelector('.lyrics-line')?.getAttribute('data-secondary-lines')).toBe('0');
+  });
+
+  it('keeps romanization visible when Japanese kana appears in the lyric set', () => {
+    const japaneseLyrics: LyricsState = {
+      kind: 'synced',
+      source: 'cached',
+      offsetMs: 0,
+      lines: [
+        { timeMs: 1000, text: '夢', romanization: 'yume' },
+        { timeMs: 2000, text: '君が好き', romanization: 'kimi ga suki' },
+      ],
+    };
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={japaneseLyrics}
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(container.textContent).toContain('yume');
+    expect(container.textContent).toContain('kimi ga suki');
   });
 
   it('updates word progress through animation frames while keeping the active line mounted', async () => {

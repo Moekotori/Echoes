@@ -200,8 +200,22 @@ const stopRunningTargetBinary = (filePath) => {
 };
 
 const copyBuiltHost = (source, destination) => {
-  stopRunningTargetBinary(destination);
-  copyFileSync(source, destination);
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    stopRunningTargetBinary(destination);
+    try {
+      copyFileSync(source, destination);
+      return;
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[build:audio-host] Copy attempt ${attempt} failed, retrying: ${message}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 350 * attempt);
+    }
+  }
 };
 
 const findBuiltHost = () => {

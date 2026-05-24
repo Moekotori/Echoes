@@ -105,7 +105,7 @@ describe('BpmAnalysisJobQueue', () => {
     expect(writeBpmTag).toHaveBeenCalledWith(track.path, 127.6);
   });
 
-  it('queues a BPM tag write after low-confidence analysis finds a BPM', async () => {
+  it('stores low-confidence analysis without writing BPM tags', async () => {
     const track = makeTrack(makeTempAudioPath());
     const store = makeStore(track);
     const writeBpmTag = vi.fn().mockResolvedValue(undefined);
@@ -125,16 +125,15 @@ describe('BpmAnalysisJobQueue', () => {
     const job = queue.start({ trackIds: [track.id] });
 
     await waitForCondition(() => queue.getStatus(job.id).status === 'completed', 'job completion');
-    await waitForCondition(() => writeBpmTag.mock.calls.length === 1, 'low-confidence BPM tag write');
 
     expect(store.updateTrackBpmAnalysis).toHaveBeenCalledWith(track.id, {
-      bpm: 128.2,
+      bpm: null,
       confidence: 0.2,
-      beatOffsetMs: 18,
+      beatOffsetMs: null,
       status: 'low_confidence',
     });
-    expect(queue.getStatus(job.id).updatedTracks).toBe(1);
-    expect(writeBpmTag).toHaveBeenCalledWith(track.path, 128.2);
+    expect(queue.getStatus(job.id).updatedTracks).toBe(0);
+    expect(writeBpmTag).not.toHaveBeenCalled();
   });
 
   it('retries BPM tag writes when the audio file is still busy', async () => {

@@ -26,7 +26,7 @@ const jsonResponse = (body: unknown): Response =>
     headers: { 'Content-Type': 'application/json' },
   });
 
-const createSpotifyService = (): SpotifyAuthService => {
+const createSpotifyService = (overrides: Partial<Parameters<AccountService['saveSpotifyTokens']>[0]> = {}): SpotifyAuthService => {
   const dir = mkdtempSync(join(tmpdir(), 'echo-spotify-auth-'));
   tempDirs.push(dir);
   const accountService = new AccountService(join(dir, 'accounts.json'));
@@ -39,6 +39,7 @@ const createSpotifyService = (): SpotifyAuthService => {
     username: 'spotify-user',
     displayName: 'Spotify User',
     avatarUrl: null,
+    ...overrides,
   });
   return new SpotifyAuthService(accountService);
 };
@@ -116,5 +117,67 @@ describe('SpotifyAuthService ensureConnectDevice', () => {
       deviceName: 'Spotify Web Player',
       launched: 'web',
     });
+  });
+
+  it('keeps polling devices after a transient discovery failure', async () => {
+    vi.useFakeTimers();
+    const service = createSpotifyService();
+    let deviceCalls = 0;
+    vi.spyOn(service, 'getDevices').mockImplementation(async () => {
+      deviceCalls += 1;
+      if (deviceCalls === 1) {
+        throw new Error('device request timed out');
+      }
+
+      return deviceCalls >= 3
+        ? [
+            {
+              id: 'device-desktop',
+              name: 'Spotify Desktop',
+              type: 'Computer',
+              isActive: false,
+              isRestricted: false,
+              volumePercent: 50,
+            },
+          ]
+        : [];
+    });
+
+    const promise = service.ensureConnectDevice({
+      uri: 'spotify:track:abc123',
+      webUrl: 'https://open.spotify.com/track/abc123',
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await promise;
+
+    expect(openExternal).toHaveBeenCalledWith('spotify:');
+    expect(result).toMatchObject({
+      deviceId: 'device-desktop',
+      launched: 'desktop',
+    });
+  });
+});
+
+describe('SpotifyAuthService token refresh', () => {
+  it('coalesces concurrent access-token refreshes', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      access_token: 'fresh-access-token',
+      refresh_token: 'fresh-refresh-token',
+      token_type: 'Bearer',
+      scope: 'streaming',
+      expires_in: 3600,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = createSpotifyService({
+      accessToken: 'expired-access-token',
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    const [left, right] = await Promise.all([service.getAccessToken(), service.getAccessToken()]);
+
+    expect(left).toBe('fresh-access-token');
+    expect(right).toBe('fresh-access-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

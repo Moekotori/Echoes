@@ -358,13 +358,13 @@ describe('PlaylistsPage actions menu', () => {
   it('adds selected local audio files to the current local playlist', async () => {
     const emptyPage = page([]);
     const addedItem = item({ id: 'item-added', mediaId: 'track-added', track: track({ id: 'track-added', title: 'Added Song' }) });
-    const openLocalAudioFiles = vi.fn().mockResolvedValue(['D:\\Music\\Added Song.flac']);
+    const chooseImportFiles = vi.fn().mockResolvedValue(['D:\\Music\\Added Song.flac', 'D:\\Maps\\Beatmap.osz']);
     const addLocalAudioFilesToPlaylist = vi.fn().mockResolvedValue({
-      importedCount: 1,
-      addedCount: 1,
+      importedCount: 2,
+      addedCount: 2,
       skippedCount: 0,
       failedCount: 0,
-      trackIds: ['track-added'],
+      trackIds: ['track-added', 'track-osu'],
       items: [addedItem],
     });
     window.echo = {
@@ -372,11 +372,11 @@ describe('PlaylistsPage actions menu', () => {
         getPlaylists: vi.fn().mockResolvedValue([playlist({ itemCount: 0 })]),
         getPlaylistItems: vi.fn().mockResolvedValueOnce(emptyPage).mockResolvedValue(page([addedItem])),
         getLikedTrackIds: vi.fn().mockResolvedValue({}),
+        chooseImportFiles,
         addLocalAudioFilesToPlaylist,
       },
       playback: {
         getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
-        openLocalAudioFiles,
       },
     } as unknown as Window['echo'];
 
@@ -384,11 +384,11 @@ describe('PlaylistsPage actions menu', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '添加本地歌曲' }));
 
-    await waitFor(() => expect(openLocalAudioFiles).toHaveBeenCalled());
+    await waitFor(() => expect(chooseImportFiles).toHaveBeenCalled());
     await waitFor(() =>
-      expect(addLocalAudioFilesToPlaylist).toHaveBeenCalledWith('playlist-1', ['D:\\Music\\Added Song.flac']),
+      expect(addLocalAudioFilesToPlaylist).toHaveBeenCalledWith('playlist-1', ['D:\\Music\\Added Song.flac', 'D:\\Maps\\Beatmap.osz']),
     );
-    expect(await screen.findByText('已添加 1 首本地歌曲')).toBeTruthy();
+    expect(await screen.findByText('已添加 2 首本地歌曲')).toBeTruthy();
   });
 
   it('likes NetEase and QQ streaming playlist tracks through the provider bridge', async () => {
@@ -544,6 +544,7 @@ describe('PlaylistsPage actions menu', () => {
       headers: { Referer: 'https://music.163.com/' },
       mimeType: 'audio/mpeg',
       codec: 'mp3',
+      downloadAuthorizationToken: `download-token-${providerTrackId}`,
     }));
     const createUrlJob = vi.fn(async (url: string, options: Record<string, unknown>) =>
       downloadJob({
@@ -592,7 +593,9 @@ describe('PlaylistsPage actions menu', () => {
 
     renderPlaylistsPage();
 
-    fireEvent.click(await screen.findByRole('button', { name: '下载歌单' }));
+    const downloadButton = await screen.findByRole('button', { name: '下载歌单' });
+    await waitFor(() => expect(downloadButton).toHaveProperty('disabled', false));
+    fireEvent.click(downloadButton);
 
     await waitFor(() => expect(createUrlJob).toHaveBeenCalledTimes(2));
     expect(createUrlJob.mock.calls.map((call) => call[0])).toEqual([
@@ -604,12 +607,14 @@ describe('PlaylistsPage actions menu', () => {
         outputSubdirectory: 'Daily Mix',
         streamingProvider: 'netease',
         streamingProviderTrackId: 'track-1',
+        downloadAuthorizationToken: 'download-token-track-1',
       }),
     );
     expect(createUrlJob.mock.calls[1][1]).toEqual(
       expect.objectContaining({
         outputSubdirectory: 'Daily Mix',
         streamingProviderTrackId: 'track-2',
+        downloadAuthorizationToken: 'download-token-track-2',
       }),
     );
     expect(await screen.findByText('已按歌单顺序加入下载队列：2 首')).toBeTruthy();

@@ -92,3 +92,19 @@ export type LyricsTrackSnapshotRequest = {
   sourceId?: string | null;
   stableKey?: string | null;
 };
+
+export type LyricsEmbedToTrackRequest = {
+  candidateId?: string | null;
+  preferSynced?: boolean;
+};
+
+export type LyricsEmbedTextKind = 'synced' | 'plain';
+
+export type LyricsEmbedToTrackResult = {
+  trackId: string;
+  provider: LyricsSource;
+  kind: LyricsKind;
+  textKind: LyricsEmbedTextKind;
+  queued: boolean;
+  message: string;
+};

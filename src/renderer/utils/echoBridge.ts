@@ -694,6 +694,8 @@ export const getPlaybackBridge = (): Window['echo']['playback'] | null => getEch
 
 export const getRemoteSourcesBridge = (): Window['echo']['remoteSources'] | null => getEchoBridge()?.remoteSources ?? null;
 
+export const getSmtcBridge = (): Window['echo']['smtc'] | null => getEchoBridge()?.smtc ?? null;
+
 type StreamingBridgeApi = NonNullable<Window['echo']>['streaming'];
 
 const devApiBaseUrl = 'http://127.0.0.1:5174';

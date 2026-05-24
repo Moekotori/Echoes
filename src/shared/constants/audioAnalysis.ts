@@ -1,4 +1,4 @@
-export const BPM_ANALYSIS_VERSION = 2;
+export const BPM_ANALYSIS_VERSION = 3;
 export const BPM_CONFIDENCE_THRESHOLD = 0.68;
 
 const isFinitePositive = (value: number | null | undefined): value is number =>
@@ -27,4 +27,4 @@ export const isReliableBpmAnalysis = (
 export const isDisplayableBpmAnalysis = (
   bpm: number | null | undefined,
   status?: string | null,
-): bpm is number => isFinitePositive(bpm) && status !== 'error' && status !== 'analyzing';
+): bpm is number => isFinitePositive(bpm) && status !== 'low_confidence' && status !== 'error' && status !== 'analyzing';

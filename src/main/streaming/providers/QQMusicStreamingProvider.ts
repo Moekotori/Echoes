@@ -28,6 +28,8 @@ const qqReferer = 'https://y.qq.com/';
 const qqHeaders = (cookie?: string): Record<string, string> => ({
   Referer: qqReferer,
   Origin: 'https://y.qq.com',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   ...(cookie ? { Cookie: cookie } : {}),
 });
 
@@ -93,6 +95,153 @@ const qqGtkFromCookie = (cookie: string | undefined): number => {
   return hash & 0x7fffffff;
 };
 
+const qqIdText = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+
+  return text(value);
+};
+
+const firstQqText = (record: Record<string, unknown>, keys: readonly string[]): string | null => {
+  for (const key of keys) {
+    const value = qqIdText(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const qqSongIdKeys = [
+  'providerTrackId',
+  'mid',
+  'songmid',
+  'songMid',
+  'songMID',
+  'song_mid',
+  'strMediaMid',
+  'mediaMid',
+  'media_mid',
+  'id',
+  'songid',
+  'songId',
+  'songID',
+] as const;
+const qqSongNameKeys = ['name', 'title', 'songname', 'songName', 'songorig', 'songOrig'] as const;
+const qqSongWrapperKeys = ['data', 'songInfo', 'songinfo', 'song', 'songData', 'musicData', 'track', 'info'] as const;
+const qqPlaylistTitleKeys = ['dissname', 'dirName', 'dirname', 'dir_name', 'name', 'title', 'titleName'] as const;
+const qqPlaylistIdKeys = ['dissid', 'disstid', 'dissId', 'tid', 'dirid', 'dirId', 'dirID', 'dir_id', 'playlistId', 'id'] as const;
+const qqArtistIdKeys = ['mid', 'singerMID', 'singerMid', 'singermid', 'singer_mid', 'pmid', 'singer_id', 'singerid', 'singerId', 'id'] as const;
+const qqArtistNameKeys = ['name', 'singerName', 'singername', 'singer_name', 'singerTitle', 'singer_title', 'title'] as const;
+
+const unwrapQqSongRecord = (value: unknown): Record<string, unknown> => {
+  let record = asRecord(value);
+  for (let index = 0; index < 5; index += 1) {
+    const nested = qqSongWrapperKeys.map((key) => asRecord(record[key])).find((candidate) => Object.keys(candidate).length > 0);
+    if (!nested) {
+      break;
+    }
+
+    record = { ...record, ...nested };
+  }
+
+  return record;
+};
+
+const isQqSongRecord = (value: unknown): boolean => {
+  const song = unwrapQqSongRecord(value);
+  const hasId = Boolean(firstQqText(song, qqSongIdKeys));
+  const hasName = Boolean(firstQqText(song, qqSongNameKeys));
+  const hasSongSignal = [
+    'songmid',
+    'songMid',
+    'songMID',
+    'songid',
+    'songId',
+    'songID',
+    'albummid',
+    'albumMID',
+    'interval',
+    'duration',
+    'singer',
+    'singers',
+    'songname',
+    'songName',
+    'file',
+  ].some((key) => song[key] !== undefined && song[key] !== null);
+  return hasId && (hasName || hasSongSignal) && hasSongSignal;
+};
+
+const uniqueQqSongs = (songs: unknown[]): unknown[] => {
+  const seen = new Set<string>();
+  const result: unknown[] = [];
+  for (const songValue of songs) {
+    const song = unwrapQqSongRecord(songValue);
+    const key = firstQqText(song, qqSongIdKeys) ?? JSON.stringify(song);
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(songValue);
+  }
+
+  return result;
+};
+
+const collectQqSongs = (value: unknown, depth = 0): unknown[] => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return uniqueQqSongs(
+      value.flatMap((item) => {
+        if (isQqSongRecord(item)) {
+          return [item];
+        }
+
+        return collectQqSongs(item, depth + 1);
+      }),
+    );
+  }
+
+  if (isQqSongRecord(value)) {
+    return [value];
+  }
+
+  return uniqueQqSongs(Object.values(asRecord(value)).flatMap((item) => collectQqSongs(item, depth + 1)));
+};
+
+const qqSongTotal = (value: unknown, depth = 0): number | null => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = asRecord(value);
+  for (const key of ['totalsong', 'totalSong', 'total_song_num', 'totalnum', 'songnum', 'songCount', 'total']) {
+    const total = integer(record[key]);
+    if (total !== null) {
+      return total;
+    }
+  }
+
+  for (const item of Object.values(record)) {
+    const total = qqSongTotal(item, depth + 1);
+    if (total !== null) {
+      return total;
+    }
+  }
+
+  return null;
+};
+
+const qqPlaylistTitle = (record: Record<string, unknown>): string | null => firstQqText(record, qqPlaylistTitleKeys);
+
+const qqPlaylistId = (record: Record<string, unknown>): string | null => firstQqText(record, qqPlaylistIdKeys);
+
 const findPlaylistRecords = (value: unknown, depth = 0): Record<string, unknown>[] => {
   if (depth > 8 || !value || typeof value !== 'object') {
     return [];
@@ -103,11 +252,52 @@ const findPlaylistRecords = (value: unknown, depth = 0): Record<string, unknown>
   }
 
   const record = asRecord(value);
-  const title = text(record.dissname) ?? text(record.dirName) ?? text(record.name) ?? text(record.title);
-  const id = text(record.dissid) ?? text(record.disstid) ?? text(record.tid) ?? text(record.dirid);
+  const title = qqPlaylistTitle(record);
+  const id = qqPlaylistId(record);
   const current = title && id ? [record] : [];
 
   return [...current, ...Object.values(record).flatMap((item) => findPlaylistRecords(item, depth + 1))];
+};
+
+const findQqLikedPlaylistFallbackId = (value: unknown, depth = 0): string | null => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const id = findQqLikedPlaylistFallbackId(item, depth + 1);
+      if (id) {
+        return id;
+      }
+    }
+
+    return null;
+  }
+
+  const record = asRecord(value);
+  for (const [key, item] of Object.entries(record)) {
+    if (/^my_?music(?:id)?$/iu.test(key) || /^mymusic(?:id)?$/iu.test(key)) {
+      const direct = qqIdText(item);
+      if (direct) {
+        return direct;
+      }
+
+      const nestedId = qqPlaylistId(asRecord(item));
+      if (nestedId) {
+        return nestedId;
+      }
+    }
+  }
+
+  for (const item of Object.values(record)) {
+    const id = findQqLikedPlaylistFallbackId(item, depth + 1);
+    if (id) {
+      return id;
+    }
+  }
+
+  return null;
 };
 
 const assertQqWriteSuccess = (value: unknown, fallback: string): void => {
@@ -120,9 +310,19 @@ const assertQqWriteSuccess = (value: unknown, fallback: string): void => {
 };
 
 const songIdFromSong = (songValue: unknown): string | null => {
-  const song = asRecord(songValue);
-  const id = song.id ?? song.songid ?? song.songId;
-  return id === undefined || id === null ? null : String(id).trim() || null;
+  const song = unwrapQqSongRecord(songValue);
+  return firstQqText(song, ['id', 'songid', 'songId', 'songID']);
+};
+
+const songMidFromSong = (songValue: unknown): string | null => {
+  const song = unwrapQqSongRecord(songValue);
+  const file = asRecord(song.file);
+  return (
+    firstQqText(song, ['mid', 'songmid', 'songMid', 'songMID', 'song_mid', 'strMediaMid', 'mediaMid', 'media_mid']) ??
+    text(file.media_mid) ??
+    text(file.mediaMid) ??
+    text(file.strMediaMid)
+  );
 };
 
 const albumCoverUrl = (albumMid: string | null, size = 300): string | null =>
@@ -134,8 +334,8 @@ const artistRefs = (singersValue: unknown): StreamingArtistRef[] => {
   const singers = Array.isArray(singersValue) ? singersValue.map(asRecord) : [];
   return singers
     .map((singer): StreamingArtistRef | null => {
-      const id = String(singer.mid ?? singer.singerMID ?? singer.singermid ?? singer.singer_mid ?? singer.pmid ?? singer.id ?? text(singer.name) ?? '').trim();
-      const name = text(singer.name);
+      const name = firstQqText(singer, qqArtistNameKeys);
+      const id = firstQqText(singer, qqArtistIdKeys) ?? name ?? '';
       if (!id || !name) {
         return null;
       }
@@ -151,15 +351,24 @@ const artistRefs = (singersValue: unknown): StreamingArtistRef[] => {
 };
 
 const mapSong = (songValue: unknown): StreamingTrack => {
-  const song = asRecord(songValue);
-  const album = asRecord(song.album);
+  const song = unwrapQqSongRecord(songValue);
+  const album = asRecord(song.album ?? song.albumInfo ?? song.albuminfo);
   const file = asRecord(song.file);
-  const artists = artistRefs(song.singer);
-  const mid = text(song.mid) ?? text(song.songmid) ?? text(file.media_mid) ?? String(song.id ?? song.songid ?? text(song.name) ?? text(song.songname) ?? '').trim();
-  const title = text(song.name) ?? text(song.title) ?? text(song.songname) ?? text(song.songorig) ?? 'Untitled';
-  const artist = artists.map((item) => item.name).join(' / ') || 'Unknown Artist';
-  const albumTitle = text(album.name) ?? text(album.title) ?? text(song.albumname) ?? text(song.albumtitle) ?? 'Unknown Album';
-  const albumMid = text(album.mid) ?? text(album.pmid) ?? text(song.albummid) ?? text(song.album_mid);
+  const artists = artistRefs(song.singer ?? song.singers ?? song.singerList ?? song.singer_list);
+  const mid = songMidFromSong(song) ?? songIdFromSong(song) ?? firstQqText(song, qqSongIdKeys) ?? '';
+  const title = firstQqText(song, qqSongNameKeys) ?? 'Untitled';
+  const artist =
+    artists.map((item) => item.name).join(' / ') || text(song.singername) || text(song.singerName) || text(song.artist) || 'Unknown Artist';
+  const albumTitle =
+    text(album.name) ?? text(album.title) ?? text(album.albumName) ?? text(album.albumname) ?? text(song.albumname) ?? text(song.albumtitle) ?? 'Unknown Album';
+  const albumMid =
+    text(album.mid) ??
+    text(album.pmid) ??
+    text(album.albumMID) ??
+    text(album.albumMid) ??
+    text(song.albummid) ??
+    text(song.album_mid) ??
+    text(song.albumMID);
   const pay = asRecord(song.pay);
   const action = asRecord(song.action);
   const payPlay = integer(pay.pay_play ?? pay.payplay ?? pay.payPlay ?? song.pay_play ?? song.payplay ?? song.payPlay);
@@ -178,9 +387,9 @@ const mapSong = (songValue: unknown): StreamingTrack => {
     artist,
     artists,
     album: albumTitle,
-    albumId: text(album.mid) ?? (album.id == null ? null : String(album.id)),
+    albumId: albumMid ?? (album.id == null ? null : String(album.id)),
     albumArtist: artist,
-    duration: number(song.interval),
+    duration: number(song.interval ?? song.duration),
     coverUrl: albumCoverUrl(albumMid, 500),
     coverThumb: albumCoverUrl(albumMid, 150),
     qualities: paidPlaybackRequired && !hasPlaybackAccount ? ['standard'] : ['standard', 'high', 'lossless'],
@@ -227,8 +436,8 @@ const mapAlbum = (albumValue: unknown): StreamingAlbum => {
 
 const mapArtist = (artistValue: unknown): StreamingArtist => {
   const artist = asRecord(artistValue);
-  const artistMid = text(artist.singerMID) ?? text(artist.singermid) ?? text(artist.mid) ?? text(artist.singer_id);
-  const name = text(artist.singerName) ?? text(artist.singername) ?? text(artist.name) ?? 'Unknown Artist';
+  const artistMid = firstQqText(artist, qqArtistIdKeys);
+  const name = firstQqText(artist, qqArtistNameKeys) ?? 'Unknown Artist';
   const avatar = text(artist.singerPic) ?? text(artist.pic) ?? (artistMid ? `https://y.gtimg.cn/music/photo_new/T001R500x500M000${artistMid}.jpg` : null);
 
   return {
@@ -250,6 +459,32 @@ const artistFromRef = (artist: StreamingArtistRef): StreamingArtist => ({
   coverUrl: null,
 });
 
+const normalizeArtistLookupText = (value: string): string => value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
+
+const artistMatchesLookup = (artist: StreamingArtistRef | StreamingArtist, lookup: string): boolean => {
+  const normalizedLookup = normalizeArtistLookupText(lookup);
+  if (!normalizedLookup) {
+    return false;
+  }
+
+  return (
+    normalizeArtistLookupText(artist.providerArtistId) === normalizedLookup ||
+    normalizeArtistLookupText(artist.name) === normalizedLookup
+  );
+};
+
+const isInformativeArtistName = (value: string | null | undefined, providerArtistId: string): value is string => {
+  const candidate = value?.trim();
+  if (!candidate || candidate === 'Unknown Artist') {
+    return false;
+  }
+
+  return normalizeArtistLookupText(candidate) !== normalizeArtistLookupText(providerArtistId);
+};
+
+const firstInformativeArtistName = (providerArtistId: string, candidates: Array<string | null | undefined>): string | null =>
+  candidates.find((candidate): candidate is string => isInformativeArtistName(candidate, providerArtistId)) ?? null;
+
 const uniqueArtistsFromTracks = (tracks: StreamingTrack[]): StreamingArtist[] => {
   const artistsById = new Map<string, StreamingArtist>();
   for (const track of tracks) {
@@ -261,6 +496,31 @@ const uniqueArtistsFromTracks = (tracks: StreamingTrack[]): StreamingArtist[] =>
   }
 
   return [...artistsById.values()];
+};
+
+const albumsFromTracks = (tracks: StreamingTrack[]): StreamingAlbum[] => {
+  const albums = new Map<string, StreamingAlbum>();
+  for (const track of tracks) {
+    const providerAlbumId = track.albumId ?? track.album;
+    if (!providerAlbumId || !track.album || albums.has(providerAlbumId)) {
+      continue;
+    }
+
+    albums.set(providerAlbumId, {
+      id: streamingStableKey(provider, `album:${providerAlbumId}`),
+      provider,
+      providerAlbumId,
+      title: track.album,
+      artist: track.albumArtist ?? track.artist,
+      artists: track.artists,
+      coverUrl: track.coverUrl,
+      coverThumb: track.coverThumb,
+      releaseDate: null,
+      trackCount: null,
+    });
+  }
+
+  return [...albums.values()];
 };
 
 const mapPlaylist = (playlistValue: unknown): StreamingPlaylist => {
@@ -343,6 +603,9 @@ const qqPlaybackFailureMessage = (lastResult: QqVkeyResult | null): string => {
   const result = Number(rawResult);
   const returnedUin = text(lastResult?.payload.uin);
   const loginKey = text(lastResult?.payload.login_key);
+  if (result === 104003 && !hasConnectedQqPlaybackAccount()) {
+    return '这首 QQ 音乐需要登录对应账号或会员权限才能播放；搜索、元数据和歌词仍可继续使用。';
+  }
   if (requestCode === 1000 || (result === 104003 && !returnedUin && !loginKey)) {
     return 'QQ 音乐登录凭证已过期，当前 Cookie 已不能换取会员播放地址。请在设置里重新登录 QQ 音乐后再试。';
   }
@@ -376,13 +639,15 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       supportsPlayback: true,
       supportsLyrics: true,
       supportsMv: true,
-      requiresAccount: true,
+      requiresAccount: false,
       accountConnected: status.connected,
       accountDisplayName: status.displayName,
       accountUsername: status.username,
       accountAvatarUrl: status.avatarUrl,
-      status: status.connected ? 'ready' : 'needs_account',
-      statusMessage: status.connected ? 'QQ Music account connected' : 'Public search is available. Sign in for full playback support.',
+      status: 'ready',
+      statusMessage: status.connected
+        ? 'QQ Music account connected'
+        : '公开搜索、歌词和元数据可用。登录后可播放会员内容并下载歌曲。',
     };
   }
 
@@ -496,7 +761,7 @@ export class QQMusicStreamingProvider implements StreamingProvider {
   }
 
   private async fetchArtistDetail(providerArtistId: string, cookie: string | undefined): Promise<StreamingArtistDetail> {
-    const [tracksData, albumsData] = await Promise.all([
+    const [tracksResult, albumsResult] = await Promise.allSettled([
       jsonFetch(
         `https://c.y.qq.com/v8/fcg-bin/fcg_v8_singer_track_cp.fcg?${new URLSearchParams({
           singermid: providerArtistId,
@@ -517,26 +782,85 @@ export class QQMusicStreamingProvider implements StreamingProvider {
         { headers: qqHeaders(cookie) },
       ),
     ]);
+    if (tracksResult.status === 'rejected' && albumsResult.status === 'rejected') {
+      throw tracksResult.reason instanceof Error ? tracksResult.reason : albumsResult.reason;
+    }
+
+    const tracksData = tracksResult.status === 'fulfilled' ? tracksResult.value : {};
+    const albumsData = albumsResult.status === 'fulfilled' ? albumsResult.value : {};
     const tracksRoot = asRecord(asRecord(tracksData).data ?? tracksData);
     const albumsRoot = asRecord(asRecord(albumsData).data ?? albumsData);
     const singer = asRecord(tracksRoot.singer ?? albumsRoot.singer);
-    const artist = mapArtist({
-      ...singer,
-      singerMID: text(singer.mid) ?? text(singer.singerMID) ?? providerArtistId,
-      singerName: text(singer.name) ?? text(singer.singerName),
-    });
     const topTracks = (Array.isArray(tracksRoot.list) ? tracksRoot.list : [])
       .map((item) => asRecord(item).musicData ?? item)
       .map(mapSong);
     const albums = (Array.isArray(albumsRoot.list) ? albumsRoot.list : [])
       .map((item) => asRecord(item).album ?? item)
       .map(mapAlbum);
+    const trackArtistRefs = topTracks.flatMap((track) => track.artists);
+    const albumArtistRefs = albums.flatMap((album) => album.artists);
+    const matchingTrackArtist = trackArtistRefs.find((artistRef) => artistMatchesLookup(artistRef, providerArtistId));
+    const matchingAlbumArtist = albumArtistRefs.find((artistRef) => artistMatchesLookup(artistRef, providerArtistId));
+    const detailArtistName =
+      firstInformativeArtistName(providerArtistId, [
+        firstQqText(singer, qqArtistNameKeys),
+        firstQqText(tracksRoot, qqArtistNameKeys),
+        firstQqText(albumsRoot, qqArtistNameKeys),
+        matchingTrackArtist?.name,
+        matchingAlbumArtist?.name,
+        trackArtistRefs[0]?.name,
+        albums[0]?.artist,
+      ]) ??
+      firstQqText(singer, qqArtistNameKeys) ??
+      providerArtistId;
+    const artist = mapArtist({
+      ...singer,
+      singerMID: firstQqText(singer, qqArtistIdKeys) ?? providerArtistId,
+      singerName: detailArtistName,
+    });
 
     return {
       ...artist,
       topTracks,
       albums,
     };
+  }
+
+  private async fetchArtistDetailFromTrackSearch(providerArtistId: string, preferredName?: string): Promise<StreamingArtistDetail | null> {
+    const queries = [preferredName, providerArtistId].filter((query): query is string => Boolean(query?.trim()));
+    const uniqueQueries = [...new Set(queries)];
+
+    for (const query of uniqueQueries) {
+      const searchResult = await this.search({ provider, query, mediaTypes: ['track'], page: 1, pageSize: 30 });
+      if (searchResult.tracks.length === 0) {
+        continue;
+      }
+
+      const matchingTracks = searchResult.tracks.filter((track) =>
+        track.artists.some(
+          (artist) => artistMatchesLookup(artist, providerArtistId) || Boolean(preferredName && artistMatchesLookup(artist, preferredName)),
+        ),
+      );
+      const topTracks = matchingTracks.length > 0 ? matchingTracks : searchResult.tracks;
+      const artistRef =
+        topTracks
+          .flatMap((track) => track.artists)
+          .find((artist) => artistMatchesLookup(artist, providerArtistId) || Boolean(preferredName && artistMatchesLookup(artist, preferredName))) ??
+        topTracks[0]?.artists[0] ?? {
+          id: streamingStableKey(provider, `artist:${providerArtistId}`),
+          provider,
+          providerArtistId,
+          name: preferredName ?? providerArtistId,
+        };
+
+      return {
+        ...artistFromRef(artistRef),
+        topTracks,
+        albums: albumsFromTracks(topTracks),
+      };
+    }
+
+    return null;
   }
 
   async getAlbum(input: { providerAlbumId: string }): Promise<StreamingAlbumDetail> {
@@ -573,17 +897,44 @@ export class QQMusicStreamingProvider implements StreamingProvider {
 
   async getArtist(input: { providerArtistId: string }): Promise<StreamingArtistDetail> {
     const cookie = accountCookie();
+    let lastError: unknown = null;
+
     try {
       return await this.fetchArtistDetail(input.providerArtistId, cookie);
     } catch (error) {
+      lastError = error;
+    }
+
+    let replacements: StreamingArtist[] = [];
+    try {
       const searchResult = await this.searchOnce({ provider, query: input.providerArtistId, mediaTypes: ['artist'], page: 1, pageSize: 5 });
-      const replacement = searchResult.artists.find((artist) => artist.providerArtistId !== input.providerArtistId) ?? searchResult.artists[0];
-      if (!replacement) {
-        throw error;
+      replacements = [
+        ...searchResult.artists.filter((artist) => artist.providerArtistId !== input.providerArtistId),
+        ...searchResult.artists.filter((artist) => artist.providerArtistId === input.providerArtistId),
+      ];
+    } catch (error) {
+      lastError = error;
+    }
+
+    for (const replacement of replacements) {
+      try {
+        return await this.fetchArtistDetail(replacement.providerArtistId, cookie);
+      } catch (error) {
+        lastError = error;
       }
 
-      return this.fetchArtistDetail(replacement.providerArtistId, cookie);
+      const fallback = await this.fetchArtistDetailFromTrackSearch(replacement.providerArtistId, replacement.name);
+      if (fallback) {
+        return fallback;
+      }
     }
+
+    const fallback = await this.fetchArtistDetailFromTrackSearch(input.providerArtistId);
+    if (fallback) {
+      return fallback;
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('没有找到这个 QQ 音乐艺人');
   }
 
   async getPlaylist(input: { providerPlaylistId: string; page?: number; pageSize?: number }): Promise<StreamingPlaylistDetail> {
@@ -639,8 +990,26 @@ export class QQMusicStreamingProvider implements StreamingProvider {
   }
 
   async getLyrics(input: { providerTrackId: string }): Promise<StreamingLyricsResult> {
+    const primaryResult = await this.fetchLyricsBySongMid(input.providerTrackId, input.providerTrackId);
+    if (this.hasLyricsContent(primaryResult)) {
+      return primaryResult;
+    }
+
+    const song = await this.fetchSong(input.providerTrackId).catch(() => null);
+    const normalizedSongMid = song ? songMidFromSong(song) : null;
+    if (normalizedSongMid && normalizedSongMid !== input.providerTrackId) {
+      const retryResult = await this.fetchLyricsBySongMid(normalizedSongMid, input.providerTrackId);
+      if (this.hasLyricsContent(retryResult)) {
+        return retryResult;
+      }
+    }
+
+    return primaryResult;
+  }
+
+  private async fetchLyricsBySongMid(songmid: string, providerTrackId: string): Promise<StreamingLyricsResult> {
     const params = new URLSearchParams({
-      songmid: input.providerTrackId,
+      songmid,
       pcachetime: String(Date.now()),
       g_tk: '5381',
       loginUin: uinFromCookie(accountCookie()),
@@ -663,7 +1032,7 @@ export class QQMusicStreamingProvider implements StreamingProvider {
 
     return {
       provider,
-      providerTrackId: input.providerTrackId,
+      providerTrackId,
       status: instrumental || split.syncedLyrics || split.plainLyrics || lines.length > 0 ? 'available' : 'missing',
       plainLyrics: split.plainLyrics,
       syncedLyrics: split.syncedLyrics,
@@ -675,8 +1044,12 @@ export class QQMusicStreamingProvider implements StreamingProvider {
     };
   }
 
+  private hasLyricsContent(result: StreamingLyricsResult): boolean {
+    return result.instrumental === true || Boolean(result.syncedLyrics || result.plainLyrics || result.lines.length > 0);
+  }
+
   async getMv(input: { providerTrackId: string }): Promise<StreamingMvResult> {
-    const song = asRecord(await this.fetchSong(input.providerTrackId));
+    const song = unwrapQqSongRecord(await this.fetchSong(input.providerTrackId));
     const track = mapSong(song);
     const mv = asRecord(song.mv);
     const mvId = text(mv.vid);
@@ -705,14 +1078,12 @@ export class QQMusicStreamingProvider implements StreamingProvider {
   }
 
   async resolvePlayback(request: StreamingPlaybackRequest): Promise<StreamingPlaybackSource> {
-    const song = asRecord(await this.fetchSong(request.providerTrackId));
+    const song = unwrapQqSongRecord(await this.fetchSong(request.providerTrackId));
     const file = asRecord(song.file);
-    const mediaMid = text(file.media_mid) ?? text(file.strMediaMid);
+    const songMid = songMidFromSong(song) ?? request.providerTrackId;
+    const mediaMid = text(file.media_mid) ?? text(file.mediaMid) ?? text(file.strMediaMid);
     const cookie = accountCookie();
     const uin = uinFromCookie(cookie);
-    if (uin === '0' || !hasQqPlaybackCredential(cookie)) {
-      throw new Error('QQ Music login is incomplete. Please reconnect QQ Music before playing VIP tracks.');
-    }
 
     const guid = qqGuidFromCookie(cookie, uin);
     const gtk = qqGtkFromCookie(cookie);
@@ -721,12 +1092,12 @@ export class QQMusicStreamingProvider implements StreamingProvider {
 
     for (const quality of qualities) {
       const selectedQuality = qualityPrefix(quality);
-      for (const filename of qqPlaybackFilenames(selectedQuality, mediaMid, request.providerTrackId)) {
+      for (const filename of qqPlaybackFilenames(selectedQuality, mediaMid, songMid)) {
         for (const endpoint of qqPlaybackEndpoints) {
           for (const platform of endpoint.platforms) {
             const param: Record<string, unknown> = {
               guid,
-              songmid: [request.providerTrackId],
+              songmid: [songMid],
               filename: [filename],
               songtype: [0],
               uin,
@@ -825,8 +1196,8 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       id: streamingStableKey(provider, 'playlist:liked-songs'),
       provider,
       providerPlaylistId: 'liked-songs',
-      title: 'QQ Music Liked Songs',
-      description: 'Liked songs synced from the QQ Music account',
+      title: 'QQ 喜欢',
+      description: '从 QQ 音乐账号同步的喜欢歌曲',
       creator: accountStatus().displayName ?? accountStatus().username ?? null,
       coverUrl: tracks[0]?.coverUrl ?? null,
       coverThumb: tracks[0]?.coverThumb ?? null,
@@ -866,22 +1237,30 @@ export class QQMusicStreamingProvider implements StreamingProvider {
   }
 
   private async fetchSong(providerTrackId: string): Promise<unknown> {
-    const params = new URLSearchParams({
-      songmid: providerTrackId,
-      tpl: 'yqq_song_detail',
-      format: 'json',
-    });
-    const data = asRecord(await jsonFetch(`https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?${params.toString()}`, { headers: qqHeaders(accountCookie()) }));
-    const songs = Array.isArray(data.data) ? data.data : [];
-    const song = songs[0];
-    if (!song) {
-      throw new Error('没有找到这首 QQ 音乐歌曲');
+    const requestVariants: Array<{ key: 'songmid' | 'songid'; value: string }> = [
+      { key: 'songmid', value: providerTrackId },
+      ...(providerTrackId.match(/^\d+$/u) ? [{ key: 'songid' as const, value: providerTrackId }] : []),
+    ];
+
+    for (const variant of requestVariants) {
+      const params = new URLSearchParams({
+        tpl: 'yqq_song_detail',
+        format: 'json',
+      });
+      params.set(variant.key, variant.value);
+      const data = asRecord(await jsonFetch(`https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?${params.toString()}`, { headers: qqHeaders(accountCookie()) }));
+      const songs = Array.isArray(data.data) ? data.data : [];
+      const song = songs[0];
+      if (song) {
+        return song;
+      }
     }
 
-    return song;
+    throw new Error('没有找到这首 QQ 音乐歌曲');
   }
 
   private async addTrackToLikedPlaylist(cookie: string, uin: string, playlistId: string, providerTrackId: string): Promise<void> {
+    const gtk = String(qqGtkFromCookie(cookie));
     const params = new URLSearchParams({
       loginUin: uin,
       hostUin: '0',
@@ -891,6 +1270,8 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       notice: '0',
       platform: 'yqq',
       needNewCode: '0',
+      g_tk: gtk,
+      g_tk_new_20200303: gtk,
       uin,
       dirid: playlistId,
       midlist: providerTrackId,
@@ -909,6 +1290,7 @@ export class QQMusicStreamingProvider implements StreamingProvider {
   }
 
   private async removeTrackFromLikedPlaylist(cookie: string, uin: string, playlistId: string, songId: string): Promise<void> {
+    const gtk = String(qqGtkFromCookie(cookie));
     const params = new URLSearchParams({
       loginUin: uin,
       hostUin: '0',
@@ -918,6 +1300,8 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       notice: '0',
       platform: 'yqq',
       needNewCode: '0',
+      g_tk: gtk,
+      g_tk_new_20200303: gtk,
       uin,
       dirid: playlistId,
       songids: songId,
@@ -935,6 +1319,7 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       throw new Error('Unable to read QQ Music account UIN. Please reconnect QQ Music and try again.');
     }
 
+    const gtk = String(qqGtkFromCookie(cookie));
     const params = new URLSearchParams({
       loginUin: uin,
       hostUin: uin,
@@ -944,6 +1329,8 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       notice: '0',
       platform: 'yqq',
       needNewCode: '0',
+      g_tk: gtk,
+      g_tk_new_20200303: gtk,
       ct: '20',
       cid: '205360956',
       userid: uin,
@@ -958,11 +1345,12 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       }),
     );
     const payload = asRecord(data.data);
-    const entries = Array.isArray(payload.songlist) ? payload.songlist : [];
+    const directEntries = Array.isArray(payload.songlist) ? payload.songlist : [];
+    const entries = directEntries.length > 0 ? directEntries : collectQqSongs(data);
     const songs = entries.map((entry) => asRecord(entry).data ?? entry);
 
     return {
-      total: integer(payload.totalsong) ?? songs.length,
+      total: qqSongTotal(payload) ?? qqSongTotal(data) ?? songs.length,
       songs,
     };
   }
@@ -973,6 +1361,7 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       throw new Error('Unable to read QQ Music account UIN. Please reconnect QQ Music and try again.');
     }
 
+    const gtk = String(qqGtkFromCookie(cookie));
     const params = new URLSearchParams({
       loginUin: uin,
       hostUin: uin,
@@ -982,6 +1371,8 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       notice: '0',
       platform: 'yqq',
       needNewCode: '0',
+      g_tk: gtk,
+      g_tk_new_20200303: gtk,
       ct: '20',
       cid: '205360956',
       userid: uin,
@@ -995,12 +1386,10 @@ export class QQMusicStreamingProvider implements StreamingProvider {
     });
     const playlists = findPlaylistRecords(data);
     const liked = playlists.find((playlist) => {
-      const name = text(playlist.dissname) ?? text(playlist.dirName) ?? text(playlist.name) ?? text(playlist.title) ?? '';
+      const name = qqPlaylistTitle(playlist) ?? '';
       return /我喜欢|我喜歡|like/iu.test(name);
     });
-    const id = liked
-      ? text(liked.dissid) ?? text(liked.disstid) ?? text(liked.tid) ?? text(liked.dirid)
-      : text(asRecord(data).mymusic) ?? text(asRecord(data).mymusicId);
+    const id = liked ? qqPlaylistId(liked) : findQqLikedPlaylistFallbackId(data);
 
     if (!id) {
       throw new Error('Could not find the QQ Music liked songs playlist.');

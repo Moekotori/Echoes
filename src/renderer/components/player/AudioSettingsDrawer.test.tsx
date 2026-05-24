@@ -24,7 +24,7 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.latency.stable': 'Stable',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.option.active': 'On',
-  'audioDrawer.option.juceDecode': 'JUCE Decode Experiment',
+  'audioDrawer.option.juceDecode': 'Resident Native Decode',
   'audioDrawer.option.juceOutput': 'JUCE Main Output',
   'audioDrawer.option.dsdDop': 'DSD DoP Direct Pilot',
   'audioDrawer.option.releaseExclusiveOnPause': 'Release Exclusive on Pause',
@@ -115,7 +115,7 @@ const baseStatus: AudioStatus = {
   activeOutputBackendImpl: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
-  useJuceDecodeRequested: false,
+  useJuceDecodeRequested: true,
   activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
@@ -371,7 +371,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     });
     openAdvancedControls();
 
-    expect(screen.getByRole('checkbox', { name: /JUCE Decode Experiment/ })).toHaveProperty('checked', true);
+    expect(screen.getByRole('checkbox', { name: /Resident Native Decode/ })).toHaveProperty('checked', true);
     expect(screen.getByText('JUCE decode -> JUCE output')).toBeTruthy();
   });
 
@@ -531,18 +531,18 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ useJuceOutput: false }));
   });
 
-  it('persists manual JUCE decode enablement', async () => {
+  it('persists manual resident decode disablement', async () => {
     const setOutput = vi.fn().mockResolvedValue({
       ...baseStatus,
-      useJuceDecodeRequested: true,
+      useJuceDecodeRequested: false,
     });
     renderDrawer(baseStatus, setOutput);
     openAdvancedControls();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /JUCE Decode Experiment/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Resident Native Decode/ }));
 
-    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioUseJuceDecode: true }));
-    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ useJuceDecode: true }));
+    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioUseJuceDecode: false }));
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ useJuceDecode: false }));
   });
 
   it('hides ASIO panel buttons until the bottom visibility setting is enabled', async () => {

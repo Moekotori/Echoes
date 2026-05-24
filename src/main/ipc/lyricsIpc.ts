@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import type { LyricsTrackSnapshotRequest } from '../../shared/types/lyrics';
+import type { LyricsEmbedToTrackRequest, LyricsTrackSnapshotRequest } from '../../shared/types/lyrics';
 import { getLyricsService } from '../lyrics/LyricsService';
 
 const requireText = (value: unknown, name: string): string => {
@@ -43,6 +43,18 @@ const normalizeSnapshotRequest = (value: unknown): LyricsTrackSnapshotRequest =>
   };
 };
 
+const normalizeEmbedRequest = (value: unknown): LyricsEmbedToTrackRequest => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    candidateId: optionalText(input.candidateId),
+    preferSynced: input.preferSynced === false ? false : true,
+  };
+};
+
 export const registerLyricsIpc = (): void => {
   ipcMain.handle(IpcChannels.LyricsGetForTrack, (_event, trackId: unknown) =>
     getLyricsService().getLyricsForTrack(requireText(trackId, 'trackId')),
@@ -72,6 +84,9 @@ export const registerLyricsIpc = (): void => {
       normalizeSnapshotRequest(request),
       requireText(candidateId, 'candidateId'),
     ),
+  );
+  ipcMain.handle(IpcChannels.LyricsEmbedToTrack, (_event, trackId: unknown, request?: unknown) =>
+    getLyricsService().embedLyricsToTrack(requireText(trackId, 'trackId'), normalizeEmbedRequest(request)),
   );
   ipcMain.handle(IpcChannels.LyricsApplyCustomLrc, (_event, trackId: unknown, lrcText: unknown, fileName?: unknown) =>
     getLyricsService().applyCustomLrc(

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
-import type { AudioPlaybackState } from '../../shared/types/audio';
+import type { AudioOutputSettings, AudioPlaybackState, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { AirPlayReceiverStatus, ConnectReceiverStatus, ConnectSessionStatus } from '../../shared/types/connect';
 import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
@@ -18,10 +18,45 @@ import type { PlayableTrack } from '../../shared/types/remoteSources';
 import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
 import { streamingProviderNames, streamingStableKey } from '../../shared/types/streaming';
 import type { StreamingProviderName } from '../../shared/types/streaming';
-import { isSpotifyTrack, playSpotifyTrack } from '../integrations/spotify/spotifyPlayback';
+import { isSpotifyTrack, pauseSpotifyPlayback, playSpotifyTrack } from '../integrations/spotify/spotifyPlayback';
 import { beginPlaybackSwitchSnapshot, setPlaybackStatusSnapshot } from './playbackStatusStore';
 
 const playbackCancellationErrorMessage = 'audio_session_run_cancelled';
+const activePlaybackStates = new Set<AudioStatus['state']>(['loading', 'playing', 'paused']);
+const clampPlaybackRate = (value: number): number => Math.max(0.5, Math.min(2, value));
+const normalizePlaybackSpeedMode = (value: unknown): PlaybackSpeedMode | null =>
+  value === 'daycore' || value === 'speed' || value === 'nightcore' ? value : null;
+
+const createPlaybackSpeedOutput = (
+  playbackRate: unknown,
+  playbackSpeedMode: unknown,
+  fallbackMode: PlaybackSpeedMode | null = null,
+): Pick<AudioOutputSettings, 'playbackRate' | 'playbackSpeedMode'> | null => {
+  const rate = Number(playbackRate);
+  if (!Number.isFinite(rate)) {
+    return null;
+  }
+
+  return {
+    playbackRate: clampPlaybackRate(rate),
+    playbackSpeedMode: normalizePlaybackSpeedMode(playbackSpeedMode) ?? fallbackMode ?? 'nightcore',
+  };
+};
+
+const resolvePlaybackSpeedOutput = async (): Promise<Pick<AudioOutputSettings, 'playbackRate' | 'playbackSpeedMode'> | undefined> => {
+  const [settings, status] = await Promise.all([
+    window.echo?.app?.getSettings?.().catch(() => null) ?? Promise.resolve(null),
+    window.echo?.audio?.getStatus?.().catch(() => null) ?? Promise.resolve(null),
+  ]);
+  const settingsOutput = createPlaybackSpeedOutput(settings?.playbackSpeed, settings?.playbackSpeedMode);
+  const statusOutput = createPlaybackSpeedOutput(status?.playbackRate, status?.playbackSpeedMode, settingsOutput?.playbackSpeedMode ?? null);
+
+  if (status && activePlaybackStates.has(status.state) && statusOutput) {
+    return statusOutput;
+  }
+
+  return settingsOutput ?? statusOutput ?? undefined;
+};
 
 export const isPlaybackCancellationError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
@@ -87,6 +122,8 @@ type PlayTrackOptions = {
   replaceQueueWith?: LibraryTrack[];
   forceNewQueueItem?: boolean;
   routeToConnectOutput?: boolean;
+  startSeconds?: number;
+  forceRefresh?: boolean;
 };
 
 type PlayNextOptions = {
@@ -95,6 +132,8 @@ type PlayNextOptions = {
 
 type PlayLocalTrackOptions = {
   routeToConnectOutput?: boolean;
+  startSeconds?: number;
+  forceRefresh?: boolean;
 };
 
 type PlaybackQueueContextValue = {
@@ -538,6 +577,15 @@ const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
   };
 };
 
+const shouldReplaceExistingQueueTrack = (existingTrack: LibraryTrack, requestedTrack: LibraryTrack): boolean =>
+  existingTrack.mediaType === 'streaming' &&
+  requestedTrack.mediaType === 'streaming' &&
+  (
+    existingTrack.streamingQuality !== requestedTrack.streamingQuality ||
+    existingTrack.provider !== requestedTrack.provider ||
+    existingTrack.providerTrackId !== requestedTrack.providerTrackId
+  );
+
 const manualSource: QueueSource = { type: 'manual', label: 'Manual queue' };
 
 const receiverTrackIdPrefix = 'dlna-receiver:';
@@ -757,6 +805,9 @@ const getShuffleCandidates = (items: QueueItem[], activeItem: QueueItem | null, 
 
 const isLibraryRandomSource = (source: QueueSource | null | undefined): source is Extract<QueueSource, { type: 'songs' }> =>
   source?.type === 'songs';
+
+const isSongsRandomSortSource = (source: QueueSource | null | undefined): source is Extract<QueueSource, { type: 'songs' }> =>
+  source?.type === 'songs' && source.sort === 'random';
 
 const pickRandom = <Item,>(items: Item[]): Item | null => items[Math.floor(Math.random() * items.length)] ?? null;
 
@@ -1404,6 +1455,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       return;
     }
 
+    const output = await resolvePlaybackSpeedOutput();
     const requestToken = playRequestTokenRef.current + 1;
     playRequestTokenRef.current = requestToken;
     const rawStatus = await (
@@ -1411,12 +1463,14 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         ? playback.playMediaItem({
             item: toPlayableTrack(item.track),
             startSeconds: positionSeconds,
+            output,
             automix,
           })
         : playback.playLocalFile({
             filePath: item.track.path,
             trackId: item.track.id,
             startSeconds: positionSeconds,
+            output,
             probe: createProbeFromTrack(item.track),
             automix,
           })
@@ -1465,6 +1519,16 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     return positionSeconds;
   }, []);
 
+  const isHqPlayerConnectOutputActive = useCallback(async (): Promise<boolean> => {
+    const connect = window.echo?.connect;
+    if (!connect?.getStatus) {
+      return false;
+    }
+
+    const status = await connect.getStatus().catch(() => null);
+    return status?.protocol === 'hqplayer' && status.deviceId === hqPlayerConnectDeviceId;
+  }, []);
+
   const playConnectOutputTrack = useCallback(async (item: QueueItem, requestToken: number, startSeconds = 0): Promise<PlaybackStatus | null> => {
     const connect = window.echo?.connect;
     if (!connect?.getStatus || !connect.connect) {
@@ -1496,7 +1560,12 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     playRequestTokenRef.current = requestToken;
 
     const previousItem = findItemByQueueId(itemsRef.current, currentQueueIdRef.current);
-    const resumeStartSeconds = getResumeStartSecondsForItem(item);
+    const shouldPausePreviousSpotify = Boolean(previousItem && isSpotifyTrack(previousItem.track) && !isSpotifyTrack(track));
+    const requestedStartSeconds =
+      typeof options.startSeconds === 'number' && Number.isFinite(options.startSeconds)
+        ? Math.max(0, options.startSeconds)
+        : undefined;
+    const resumeStartSeconds = requestedStartSeconds ?? getResumeStartSecondsForItem(item);
     const automix = createAutomixOptions(item);
     const gapless = automix ? undefined : createGaplessOptions(item);
     void finishPlaybackHistorySession();
@@ -1512,6 +1581,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     });
     const rawStatus = await (async () => {
       try {
+        if (shouldPausePreviousSpotify && previousItem) {
+          await pauseSpotifyPlayback(previousItem.track).catch(() => undefined);
+        }
+
         const connectOutputStatus = options.routeToConnectOutput === true
           ? await playConnectOutputTrack(item, requestToken, resumeStartSeconds ?? 0)
           : null;
@@ -1519,10 +1592,14 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           return connectOutputStatus;
         }
 
+        const output = await resolvePlaybackSpeedOutput();
+        if (playRequestTokenRef.current !== requestToken) {
+          throw new Error(playbackCancellationErrorMessage);
+        }
         return isSpotifyTrack(track)
           ? await (async () => {
               await playback?.stop?.().catch(() => undefined);
-              return playSpotifyTrack(track);
+              return playSpotifyTrack(track, resumeStartSeconds ?? 0);
             })()
           : await (() => {
               if (!playback) {
@@ -1533,13 +1610,16 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
                 ? playback.playMediaItem({
                     item: toPlayableTrack(track),
                     startSeconds: resumeStartSeconds,
+                    output,
                     automix,
                     gapless,
+                    forceRefresh: options.forceRefresh === true,
                   })
                 : playback.playLocalFile({
                     filePath: track.path,
                     trackId: track.id,
                     startSeconds: resumeStartSeconds,
+                    output,
                     probe: createProbeFromTrack(track),
                     replayGain: replayGainFromTrack(track),
                     automix,
@@ -1850,6 +1930,36 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [],
   );
 
+  const fetchLibraryRandomQueueRefresh = useCallback(
+    async (source: Extract<QueueSource, { type: 'songs' }>, activeItem: QueueItem | null, pageSize: number): Promise<QueueItem[]> => {
+      const library = window.echo?.library;
+
+      if (!library?.getTracks) {
+        return [];
+      }
+
+      try {
+        const result = await library.getTracks({
+          page: 1,
+          pageSize: Math.max(2, pageSize),
+          search: source.search,
+          sort: 'random',
+          hideDuplicates: source.hideDuplicates,
+          showDuplicatesOnly: source.showDuplicatesOnly,
+          duplicateMode: 'strict',
+        });
+        const activeTrackId = activeItem?.track.id ?? null;
+
+        return result.items
+          .filter((track) => track.id !== activeTrackId)
+          .map((track) => createQueueItem(track, source));
+      } catch {
+        return [];
+      }
+    },
+    [],
+  );
+
   const playTrack = useCallback(
     async (track: LibraryTrack, options: PlayTrackOptions = {}): Promise<PlaybackStatus> => {
       const source = options.source ?? manualSource;
@@ -1862,7 +1972,11 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           : [track, ...replacementTracks];
         const nextItems = contextTracks.map((item) => createQueueItem(item, source));
         const itemToPlay = nextItems.find((item) => item.track.id === track.id) ?? nextItems[0] ?? createQueueItem(track, source);
-        const status = await playLocalTrack(itemToPlay, { routeToConnectOutput: options.routeToConnectOutput !== false });
+        const status = await playLocalTrack(itemToPlay, {
+          routeToConnectOutput: options.routeToConnectOutput !== false,
+          startSeconds: options.startSeconds,
+          forceRefresh: options.forceRefresh,
+        });
 
         setItems(nextItems);
         setHistory([]);
@@ -1871,10 +1985,19 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       }
 
       const existingItem = options.forceNewQueueItem ? null : itemsRef.current.find((item) => item.track.id === track.id);
-      const itemToPlay = existingItem ?? createQueueItem(track, source);
-      const status = await playLocalTrack(itemToPlay, { routeToConnectOutput: options.routeToConnectOutput !== false });
+      const itemToPlay =
+        existingItem && shouldReplaceExistingQueueTrack(existingItem.track, track)
+          ? { ...existingItem, track: { ...existingItem.track, ...track } }
+          : existingItem ?? createQueueItem(track, source);
+      const status = await playLocalTrack(itemToPlay, {
+        routeToConnectOutput: options.routeToConnectOutput !== false,
+        startSeconds: options.startSeconds,
+        forceRefresh: options.forceRefresh,
+      });
 
-      if (!existingItem) {
+      if (existingItem && itemToPlay !== existingItem) {
+        setItems((current) => current.map((item) => (item.queueId === existingItem.queueId ? itemToPlay : item)));
+      } else if (!existingItem) {
         setItems((current) => [...current, itemToPlay]);
       }
 
@@ -1950,7 +2073,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     const activeCurrentQueueId = currentQueueIdRef.current;
     const currentIndex = findCurrentIndex(current, activeCurrentQueueId, currentTrackIdRef.current);
     const activeItem = currentIndex >= 0 ? current[currentIndex] : findItemByQueueId(current, activeCurrentQueueId);
-    const routeToConnectOutput = options.autoAdvance !== true;
+    const routeToConnectOutput = options.autoAdvance !== true || (await isHqPlayerConnectOutputActive());
 
     const repeatCurrentItem = async (): Promise<PlaybackStatus | null> => {
       if (activeItem) {
@@ -1973,6 +2096,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     const navigationRepeatMode = activeRepeatMode === 'one' ? 'off' : activeRepeatMode;
     let target: QueueItem | null = null;
+    let refreshedRandomQueue: QueueItem[] | null = null;
 
     if (isShuffleEnabledRef.current) {
       const source = activeItem?.source ?? null;
@@ -1982,6 +2106,11 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
       if (!target && isLibraryRandomSource(source)) {
         target = await fetchLibraryShuffleTarget(source, activeItem ?? null);
+      }
+
+      if (!target && isSongsRandomSortSource(source)) {
+        refreshedRandomQueue = await fetchLibraryRandomQueueRefresh(source, activeItem ?? null, current.length || 100);
+        target = refreshedRandomQueue[0] ?? null;
       }
 
       if (!target && navigationRepeatMode === 'all') {
@@ -1996,6 +2125,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       target = current[currentIndex + 1] ?? null;
     } else if (currentIndex < 0) {
       target = current[0] ?? null;
+    } else if (isSongsRandomSortSource(activeItem?.source)) {
+      refreshedRandomQueue = await fetchLibraryRandomQueueRefresh(activeItem.source, activeItem, current.length || 100);
+      target = refreshedRandomQueue[0] ?? null;
     } else if (navigationRepeatMode === 'all') {
       target = current[0] ?? null;
     }
@@ -2004,13 +2136,18 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       return activeRepeatMode === 'one' ? repeatCurrentItem() : null;
     }
 
+    if (refreshedRandomQueue) {
+      setItems(refreshedRandomQueue);
+      setHistory([]);
+    }
+
     const status = await playLocalTrack(target, { routeToConnectOutput });
     if (!itemsRef.current.some((item) => item.queueId === target.queueId)) {
       setItems((items) => [...items, target]);
     }
     commitPlayedItem(target, status);
     return status;
-  }, [commitPlayedItem, fetchLibraryShuffleTarget, playLocalTrack, playTrack, setItems]);
+  }, [commitPlayedItem, fetchLibraryRandomQueueRefresh, fetchLibraryShuffleTarget, isHqPlayerConnectOutputActive, playLocalTrack, playTrack, setHistory, setItems]);
 
   const setCurrentTrackId = useCallback(
     (trackId: string | null): void => {
@@ -2140,6 +2277,11 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         return true;
       }
       return getShuffleCandidates(items, activeItem ?? null, history).length > 0 || repeatMode === 'all';
+    }
+
+    const activeItem = currentIndex >= 0 ? items[currentIndex] : findItemByQueueId(items, currentQueueId);
+    if (currentIndex >= items.length - 1 && isSongsRandomSortSource(activeItem?.source)) {
+      return true;
     }
 
     return currentIndex < 0 || currentIndex < items.length - 1 || repeatMode === 'all';

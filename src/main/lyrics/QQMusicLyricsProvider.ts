@@ -9,6 +9,8 @@ import { parseSyncedLyrics } from './lyricsParser';
 const qqHeaders = {
   Referer: 'https://y.qq.com/',
   Origin: 'https://y.qq.com',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
 };
 
 const fetchJsonBodyWithTimeout = async (
@@ -29,7 +31,6 @@ const fetchJsonBodyWithTimeout = async (
       headers: {
         Accept: 'application/json,text/plain,*/*',
         'Content-Type': 'application/json',
-        'User-Agent': 'ECHO-Next/0.1',
         ...qqHeaders,
       },
       body: JSON.stringify(body),
@@ -88,6 +89,35 @@ const splitLyricsByKind = (value: string | null): { syncedLyrics: string | null;
 
 const searchQueryFor = (query: LyricsQuery): string => [query.title, query.artist].filter(Boolean).join(' ').trim();
 
+const qqIdText = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+
+  return text(value);
+};
+
+const firstText = (record: Record<string, unknown>, keys: readonly string[]): string | null => {
+  for (const key of keys) {
+    const value = qqIdText(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const songMidFromRecord = (song: Record<string, unknown>): string | null => {
+  const file = asRecord(song.file);
+  return (
+    firstText(song, ['mid', 'songmid', 'songMid', 'songMID', 'song_mid', 'strMediaMid', 'mediaMid', 'media_mid']) ??
+    text(file.media_mid) ??
+    text(file.mediaMid) ??
+    text(file.strMediaMid)
+  );
+};
+
 export class QQMusicLyricsProvider implements LyricsProvider {
   readonly id = 'qqmusic' as const;
   readonly label = 'QQ Music';
@@ -105,12 +135,62 @@ export class QQMusicLyricsProvider implements LyricsProvider {
 
   async search(request: LyricsProviderSearchRequest): Promise<LyricsProviderResult[]> {
     try {
+      const direct = await this.searchDirectStreamingLyrics(request);
+      if (direct) {
+        return [direct];
+      }
+
       const songs = await this.searchSongs(request);
       const results = await Promise.all(songs.slice(0, 5).map((song) => this.fetchLyrics(song, request)));
       return results.filter((result): result is LyricsProviderResult => Boolean(result));
     } catch {
       return [];
     }
+  }
+
+  private async searchDirectStreamingLyrics(request: LyricsProviderSearchRequest): Promise<LyricsProviderResult | null> {
+    const sourceId = text(request.query.sourceId);
+    if (request.query.mediaType !== 'streaming' || !sourceId) {
+      return null;
+    }
+
+    const song = await this.fetchSong(sourceId, request).catch(() => null);
+    const fallback: QQSong = {
+      mid: sourceId,
+      id: sourceId.match(/^\d+$/u) ? sourceId : null,
+      title: request.query.title,
+      artist: request.query.artist,
+      album: request.query.album ?? null,
+      durationSeconds: request.query.durationSeconds ?? null,
+      raw: { providerTrackId: sourceId },
+    };
+
+    return this.fetchLyrics(song ?? fallback, request);
+  }
+
+  private async fetchSong(providerTrackId: string, request: LyricsProviderSearchRequest): Promise<QQSong | null> {
+    const requestVariants: Array<{ key: 'songmid' | 'songid'; value: string }> = [
+      { key: 'songmid', value: providerTrackId },
+      ...(providerTrackId.match(/^\d+$/u) ? [{ key: 'songid' as const, value: providerTrackId }] : []),
+    ];
+
+    for (const variant of requestVariants) {
+      const params = new URLSearchParams({
+        tpl: 'yqq_song_detail',
+        format: 'json',
+      });
+      params.set(variant.key, variant.value);
+      const data = asRecord(
+        await fetchJsonWithTimeout(`https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?${params.toString()}`, request.signal, qqHeaders, request.timeoutMs),
+      );
+      const songs = Array.isArray(data.data) ? data.data : [];
+      const song = this.mapSong(songs[0], request.query);
+      if (song) {
+        return song;
+      }
+    }
+
+    return null;
   }
 
   private async searchSongs(request: LyricsProviderSearchRequest): Promise<QQSong[]> {
@@ -217,8 +297,7 @@ export class QQMusicLyricsProvider implements LyricsProvider {
 
   private mapSong(songValue: unknown, fallback: LyricsQuery): QQSong | null {
     const song = asRecord(songValue);
-    const file = asRecord(song.file);
-    const mid = text(song.mid) ?? text(song.songmid) ?? text(file.media_mid);
+    const mid = songMidFromRecord(song);
     if (!mid) {
       return null;
     }

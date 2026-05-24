@@ -9,19 +9,32 @@ type EmbeddedCoverData = {
   mimeType: string;
 };
 
-type TagWriteRequest = {
+type FullTagWriteRequest = {
   filePath: string;
-} & (
-  | {
-      kind?: 'full';
-      tags: EditableTrackTags;
-      coverData: EmbeddedCoverData | null;
-    }
-  | {
-      kind: 'bpm';
-      bpm: number;
-    }
-);
+  kind?: 'full';
+  tags: EditableTrackTags;
+  coverData: EmbeddedCoverData | null;
+};
+
+type CoverArtWriteRequest = {
+  filePath: string;
+  kind: 'cover';
+  coverData: EmbeddedCoverData;
+};
+
+type BpmWriteRequest = {
+  filePath: string;
+  kind: 'bpm';
+  bpm: number;
+};
+
+type LyricsWriteRequest = {
+  filePath: string;
+  kind: 'lyrics';
+  lyricsText: string;
+};
+
+type TagWriteRequest = FullTagWriteRequest | CoverArtWriteRequest | BpmWriteRequest | LyricsWriteRequest;
 
 type TagWriteWorkerData = TagWriteRequest & {
   taglibWasmModuleUrl: string;
@@ -44,6 +57,21 @@ const { parentPort, workerData } = module['require']('node:worker_threads');
     await applyTagsToFile(filePath, {
       bpm: workerData.bpm,
     });
+    parentPort.postMessage({ ok: true });
+    return;
+  }
+
+  if (workerData.kind === 'lyrics') {
+    await applyTagsToFile(filePath, {
+      lyrics: workerData.lyricsText,
+    });
+    parentPort.postMessage({ ok: true });
+    return;
+  }
+
+  if (workerData.kind === 'cover') {
+    const updatedAudio = await applyCoverArt(filePath, new Uint8Array(workerData.coverData.data), workerData.coverData.mimeType);
+    await fs.writeFile(filePath, Buffer.from(updatedAudio));
     parentPort.postMessage({ ok: true });
     return;
   }
@@ -78,9 +106,29 @@ const { parentPort, workerData } = module['require']('node:worker_threads');
 const tagWriteQueues = new Map<string, Promise<void>>();
 let globalTagWriteQueue: Promise<void> = Promise.resolve();
 
-export const writeEmbeddedTrackTags = async (request: TagWriteRequest): Promise<void> => {
+export const writeEmbeddedTrackTags = async (request: FullTagWriteRequest): Promise<void> => {
   const previousWrite = tagWriteQueues.get(request.filePath) ?? Promise.resolve();
   const nextWrite = previousWrite.catch(() => undefined).then(() => enqueueGlobalTagWrite(request));
+  const queuedWrite = nextWrite.finally(() => {
+    if (tagWriteQueues.get(request.filePath) === queuedWrite) {
+      tagWriteQueues.delete(request.filePath);
+    }
+  });
+
+  tagWriteQueues.set(request.filePath, queuedWrite);
+  void queuedWrite.catch(() => undefined);
+
+  return nextWrite;
+};
+
+export const writeEmbeddedCoverArt = async (request: { filePath: string; coverData: EmbeddedCoverData }): Promise<void> => {
+  const tagWriteRequest: CoverArtWriteRequest = {
+    kind: 'cover',
+    filePath: request.filePath,
+    coverData: request.coverData,
+  };
+  const previousWrite = tagWriteQueues.get(request.filePath) ?? Promise.resolve();
+  const nextWrite = previousWrite.catch(() => undefined).then(() => enqueueGlobalTagWrite(tagWriteRequest));
   const queuedWrite = nextWrite.finally(() => {
     if (tagWriteQueues.get(request.filePath) === queuedWrite) {
       tagWriteQueues.delete(request.filePath);
@@ -103,6 +151,31 @@ export const writeEmbeddedBpmTag = async (filePath: string, bpm: number): Promis
     kind: 'bpm',
     filePath,
     bpm: roundedBpm,
+  };
+  const previousWrite = tagWriteQueues.get(filePath) ?? Promise.resolve();
+  const nextWrite = previousWrite.catch(() => undefined).then(() => enqueueGlobalTagWrite(request));
+  const queuedWrite = nextWrite.finally(() => {
+    if (tagWriteQueues.get(filePath) === queuedWrite) {
+      tagWriteQueues.delete(filePath);
+    }
+  });
+
+  tagWriteQueues.set(filePath, queuedWrite);
+  void queuedWrite.catch(() => undefined);
+
+  return nextWrite;
+};
+
+export const writeEmbeddedLyricsTag = async (filePath: string, lyricsText: string): Promise<void> => {
+  const normalizedLyricsText = lyricsText.replace(/^\uFEFF/u, '').trim();
+  if (!normalizedLyricsText) {
+    throw new Error('lyricsText must be a non-empty string');
+  }
+
+  const request: TagWriteRequest = {
+    kind: 'lyrics',
+    filePath,
+    lyricsText: normalizedLyricsText,
   };
   const previousWrite = tagWriteQueues.get(filePath) ?? Promise.resolve();
   const nextWrite = previousWrite.catch(() => undefined).then(() => enqueueGlobalTagWrite(request));

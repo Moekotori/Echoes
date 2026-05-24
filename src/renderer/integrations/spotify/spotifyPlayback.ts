@@ -46,7 +46,9 @@ declare global {
 const spotifySdkUrl = 'https://sdk.scdn.co/spotify-player.js';
 const spotifySdkLoadTimeoutMs = 15_000;
 const spotifyDeviceReadyTimeoutMs = 20_000;
+const spotifySdkQuickFallbackMs = 3_500;
 const spotifyPlaybackCommandTimeoutMs = 12_000;
+const spotifySdkSupersededMessage = 'spotify_sdk_attempt_superseded';
 
 let sdkLoadPromise: Promise<void> | null = null;
 let playerPromise: Promise<SpotifyPlayer> | null = null;
@@ -56,6 +58,7 @@ let usingConnectFallback = false;
 let lastVolume = 0.8;
 let lastSdkFailureMessage: string | null = null;
 let lastConnectDeviceId: string | null = null;
+let sdkConnectGeneration = 0;
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -203,6 +206,11 @@ const resetSpotifyPlayer = (nextPlayer?: SpotifyPlayer | null): void => {
   }
 };
 
+const invalidatePendingSpotifySdkAttempt = (): void => {
+  sdkConnectGeneration += 1;
+  playerPromise = null;
+};
+
 const chooseSpotifyConnectDeviceFromList = async (): Promise<string | null> => {
   const devices = await window.echo.spotify.getDevices();
   reportSpotifyDiagnostic('connect-devices', {
@@ -273,6 +281,10 @@ const ensureSpotifyPlayer = async (): Promise<SpotifyPlayer> => {
     return playerPromise;
   }
 
+  const generation = sdkConnectGeneration + 1;
+  sdkConnectGeneration = generation;
+  const isCurrentGeneration = (): boolean => generation === sdkConnectGeneration;
+
   playerPromise = (async () => {
     const spotifyApi = window.echo?.spotify;
     if (!spotifyApi?.getAccessToken || !spotifyApi.startPlayback || !spotifyApi.transferPlayback) {
@@ -304,6 +316,15 @@ const ensureSpotifyPlayer = async (): Promise<SpotifyPlayer> => {
         });
 
         const fail = (error: SpotifyError | null | undefined, fallback: string): void => {
+          if (!isCurrentGeneration()) {
+            resetSpotifyPlayer(nextPlayer);
+            if (!settled) {
+              settled = true;
+              reject(new Error(spotifySdkSupersededMessage));
+            }
+            return;
+          }
+
           const nextError = spotifyPlaybackError(error, fallback);
           lastSdkFailureMessage = nextError.message;
           reportSpotifyDiagnostic('player-failed', { message: nextError.message }, 'error');
@@ -323,6 +344,15 @@ const ensureSpotifyPlayer = async (): Promise<SpotifyPlayer> => {
           reportSpotifyDiagnostic('playback-error', { message: nextError.message }, 'warn');
         });
         nextPlayer.addListener('ready', ({ device_id: readyDeviceId }: { device_id?: string }) => {
+          if (!isCurrentGeneration()) {
+            resetSpotifyPlayer(nextPlayer);
+            if (!settled) {
+              settled = true;
+              reject(new Error(spotifySdkSupersededMessage));
+            }
+            return;
+          }
+
           reportSpotifyDiagnostic('player-ready', { hasDeviceId: Boolean(readyDeviceId) });
           if (!readyDeviceId) {
             fail(null, 'Spotify SDK did not return a usable device.');
@@ -352,6 +382,15 @@ const ensureSpotifyPlayer = async (): Promise<SpotifyPlayer> => {
         reportSpotifyDiagnostic('player-connect-start');
         void nextPlayer.connect()
           .then((connected) => {
+            if (!isCurrentGeneration()) {
+              resetSpotifyPlayer(nextPlayer);
+              if (!settled) {
+                settled = true;
+                reject(new Error(spotifySdkSupersededMessage));
+              }
+              return;
+            }
+
             reportSpotifyDiagnostic('player-connect-result', { connected });
             if (!connected) {
               fail(null, 'Spotify device connection failed. Confirm Spotify Premium is available.');
@@ -363,14 +402,52 @@ const ensureSpotifyPlayer = async (): Promise<SpotifyPlayer> => {
       'Spotify Web Playback SDK device connection timed out. Confirm Spotify Premium and network availability.',
     );
   })().catch((error) => {
-    lastSdkFailureMessage = error instanceof Error ? error.message : String(error);
-    resetSpotifyPlayer();
+    if (errorMessage(error) !== spotifySdkSupersededMessage && isCurrentGeneration()) {
+      lastSdkFailureMessage = error instanceof Error ? error.message : String(error);
+      resetSpotifyPlayer();
+    }
     throw error;
   }).finally(() => {
-    playerPromise = null;
+    if (isCurrentGeneration()) {
+      playerPromise = null;
+    }
   });
 
   return playerPromise;
+};
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const ensureSpotifyPlayerForPlayback = async (): Promise<SpotifyPlayer | null> => {
+  try {
+    return await withTimeout(
+      ensureSpotifyPlayer(),
+      spotifySdkQuickFallbackMs,
+      'Spotify Web Playback SDK is still starting. Falling back to Spotify Connect.',
+    );
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message !== spotifySdkSupersededMessage) {
+      lastSdkFailureMessage = message;
+      reportSpotifyDiagnostic('sdk-unavailable-fallback-connect', { message }, 'warn');
+    }
+    invalidatePendingSpotifySdkAttempt();
+    resetSpotifyPlayer();
+    return null;
+  }
+};
+
+const resolveSpotifyPlaybackTarget = async (
+  uri: string,
+  webUrl: string,
+): Promise<{ player: SpotifyPlayer | null; deviceId: string }> => {
+  const nextPlayer = await ensureSpotifyPlayerForPlayback();
+  if (nextPlayer && deviceId) {
+    return { player: nextPlayer, deviceId };
+  }
+
+  const connectDeviceId = await chooseSpotifyConnectDevice(uri, webUrl);
+  return { player: null, deviceId: connectDeviceId };
 };
 
 const statusForTrack = (track: LibraryTrack, state: PlaybackStatus['state'], positionSeconds = 0): PlaybackStatus => ({
@@ -433,23 +510,54 @@ const waitForSpotifyPlaying = async (
   throw new Error(`Spotify did not switch to the requested track${deviceName}. Try again in a moment.`);
 };
 
+const readSpotifyPlaybackSnapshot = async (
+  track: LibraryTrack,
+  expectedUri: string,
+  nextPlayer: SpotifyPlayer | null,
+  fallbackPositionMs: number,
+  fallbackState: PlaybackStatus['state'],
+): Promise<PlaybackStatus> => {
+  const sdkState = nextPlayer ? await nextPlayer.getCurrentState().catch(() => null) : null;
+  if (sdkState) {
+    return statusForTrack(track, sdkState.paused ? 'paused' : 'playing', sdkState.position / 1000);
+  }
+
+  const apiState = await window.echo.spotify.getPlaybackState().catch(() => null);
+  if (apiState?.itemUri === expectedUri) {
+    return statusForTrack(
+      track,
+      apiState.isPlaying ? 'playing' : fallbackState,
+      (apiState.progressMs ?? fallbackPositionMs) / 1000,
+    );
+  }
+
+  return statusForTrack(track, fallbackState, fallbackPositionMs / 1000);
+};
+
+const runSpotifyCommand = async (
+  command: Promise<void>,
+  timeoutMessage: string,
+  fallback?: () => Promise<void> | void,
+): Promise<void> => {
+  try {
+    await withTimeout(command, spotifyPlaybackCommandTimeoutMs, timeoutMessage);
+  } catch (error) {
+    if (!fallback) {
+      throw error;
+    }
+    await fallback();
+  }
+};
+
 export const isSpotifyTrack = (track: LibraryTrack | null | undefined): track is SpotifyLibraryTrack =>
   track?.mediaType === 'streaming' && track.provider === 'spotify';
 
 export const playSpotifyTrack = async (track: LibraryTrack, startSeconds = 0): Promise<PlaybackStatus> => {
-  let nextPlayer: SpotifyPlayer | null = null;
   const uri = spotifyUriForTrack(track);
   const webUrl = spotifyWebUrlForTrack(track);
-  try {
-    nextPlayer = await ensureSpotifyPlayer();
-  } catch (error) {
-    reportSpotifyDiagnostic('sdk-unavailable-fallback-connect', {
-      message: error instanceof Error ? error.message : String(error),
-    }, 'warn');
-    await chooseSpotifyConnectDevice(uri, webUrl);
-  }
-
-  const currentDeviceId = deviceId;
+  const target = await resolveSpotifyPlaybackTarget(uri, webUrl);
+  const nextPlayer = target.player;
+  const currentDeviceId = target.deviceId;
   if (!currentDeviceId) {
     throw new Error('Spotify playback device is not ready.');
   }
@@ -482,29 +590,53 @@ export const playSpotifyTrack = async (track: LibraryTrack, startSeconds = 0): P
 };
 
 export const pauseSpotifyPlayback = async (track: LibraryTrack): Promise<PlaybackStatus> => {
-  const nextPlayer = usingConnectFallback ? null : await ensureSpotifyPlayer().catch(() => null);
-  await window.echo.spotify.pause(deviceId).catch(() => nextPlayer?.pause());
-  const state = nextPlayer ? await nextPlayer.getCurrentState().catch(() => null) : null;
-  return statusForTrack(track, 'paused', (state?.position ?? 0) / 1000);
+  const nextPlayer = usingConnectFallback ? null : player;
+  const uri = spotifyUriForTrack(track);
+  await runSpotifyCommand(
+    window.echo.spotify.pause(deviceId),
+    'Spotify pause request timed out.',
+    nextPlayer ? () => nextPlayer.pause() : undefined,
+  );
+  const status = await readSpotifyPlaybackSnapshot(track, uri, nextPlayer, 0, 'paused');
+  return { ...status, state: 'paused' };
 };
 
 export const resumeSpotifyPlayback = async (track: LibraryTrack): Promise<PlaybackStatus> => {
-  const nextPlayer = usingConnectFallback ? null : await ensureSpotifyPlayer().catch(() => null);
+  const nextPlayer = usingConnectFallback ? null : player;
+  const uri = spotifyUriForTrack(track);
   await nextPlayer?.activateElement?.().catch(() => undefined);
-  await window.echo.spotify.resume(deviceId).catch(() => nextPlayer?.resume());
-  const state = nextPlayer ? await nextPlayer.getCurrentState().catch(() => null) : null;
-  return statusForTrack(track, 'playing', (state?.position ?? 0) / 1000);
+  await runSpotifyCommand(
+    window.echo.spotify.resume(deviceId),
+    'Spotify resume request timed out.',
+    nextPlayer ? () => nextPlayer.resume() : undefined,
+  );
+  const status = await readSpotifyPlaybackSnapshot(track, uri, nextPlayer, 0, 'playing');
+  return { ...status, state: 'playing' };
 };
 
 export const seekSpotifyPlayback = async (track: LibraryTrack, positionSeconds: number): Promise<PlaybackStatus> => {
-  const nextPlayer = usingConnectFallback ? null : await ensureSpotifyPlayer().catch(() => null);
+  const nextPlayer = usingConnectFallback ? null : player;
+  const uri = spotifyUriForTrack(track);
   const positionMs = Math.round(Math.max(0, positionSeconds) * 1000);
-  await window.echo.spotify.seek(positionMs, deviceId).catch(() => nextPlayer?.seek(positionMs));
-  return statusForTrack(track, 'playing', positionSeconds);
+  await runSpotifyCommand(
+    window.echo.spotify.seek(positionMs, deviceId),
+    'Spotify seek request timed out.',
+    nextPlayer ? () => nextPlayer.seek(positionMs) : undefined,
+  );
+  return readSpotifyPlaybackSnapshot(track, uri, nextPlayer, positionMs, 'playing');
 };
 
 export const setSpotifyVolume = async (volume: number): Promise<void> => {
   lastVolume = Math.max(0, Math.min(1, volume));
-  const nextPlayer = usingConnectFallback ? null : await ensureSpotifyPlayer().catch(() => null);
-  await window.echo.spotify.setVolume(lastVolume, deviceId).catch(() => nextPlayer?.setVolume(lastVolume));
+  const nextPlayer = usingConnectFallback ? null : player;
+  await runSpotifyCommand(
+    window.echo.spotify.setVolume(lastVolume, deviceId),
+    'Spotify volume request timed out.',
+    nextPlayer ? () => nextPlayer.setVolume(lastVolume) : undefined,
+  );
+};
+
+export const stopSpotifyPlayback = async (track: LibraryTrack): Promise<PlaybackStatus> => {
+  const paused = await pauseSpotifyPlayback(track);
+  return { ...paused, state: 'stopped' };
 };

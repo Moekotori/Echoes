@@ -104,6 +104,7 @@ export type AudioStatus = {
   outputDeviceType: string | null;
   outputBackend: string | null;
   activeOutputBackendImpl: string | null;
+  nativeOutputFormat?: string | null;
   outputMode: AudioOutputMode;
   sharedBackend?: AudioSharedBackend | null;
   useJuceOutputRequested: boolean;
@@ -224,6 +225,7 @@ export type AudioDiagnostics = Pick<
   | 'sharedBackend'
   | 'outputBackend'
   | 'activeOutputBackendImpl'
+  | 'nativeOutputFormat'
   | 'useJuceOutputRequested'
   | 'useJuceDecodeRequested'
   | 'activeDecodeBackendImpl'

@@ -31,6 +31,8 @@ const defaultLogger = (message: string): void => {
   console.warn(message);
 };
 
+const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
+
 const appendTailLine = (lines: string[], line: string): void => {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -70,11 +72,13 @@ export class ReplayGainAnalyzer {
   private readonly ffmpegPath: string;
   private readonly spawn: AnalyzerSpawner;
   private readonly logger: (message: string) => void;
+  private readonly shouldLogResult: boolean;
 
   constructor(dependencies: ReplayGainAnalyzerDependencies = {}) {
     this.ffmpegPath = dependencies.ffmpegPath ?? resolveFfmpegToolchainPath();
     this.spawn = dependencies.spawn ?? (nodeSpawn as AnalyzerSpawner);
     this.logger = dependencies.logger ?? defaultLogger;
+    this.shouldLogResult = Boolean(dependencies.logger) || verboseAudioLogsEnabled;
   }
 
   async analyze(filePath: string, durationSeconds = maxAnalyzeSeconds, targetLufs = DEFAULT_REPLAY_GAIN_TARGET_LUFS): Promise<ReplayGainAnalyzerResult> {
@@ -117,9 +121,11 @@ export class ReplayGainAnalyzer {
       throw new Error('replay_gain_loudness_unavailable');
     }
 
-    this.logger(
-      `[ReplayGainAnalyzer] file="${filePath}" lufs=${parsed.integratedLufs} gainDb=${parsed.trackGainDb} peak=${parsed.trackPeak ?? 'n/a'}`,
-    );
+    if (this.shouldLogResult) {
+      this.logger(
+        `[ReplayGainAnalyzer] file="${filePath}" lufs=${parsed.integratedLufs} gainDb=${parsed.trackGainDb} peak=${parsed.trackPeak ?? 'n/a'}`,
+      );
+    }
     return parsed;
   }
 }

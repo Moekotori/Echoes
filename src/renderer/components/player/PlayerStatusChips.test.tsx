@@ -38,8 +38,32 @@ afterEach(() => {
 });
 
 describe('PlayerStatusChips', () => {
-  it('shows detected BPM in the player tags even when confidence is low', () => {
+  it('does not add Hi-Res to high-bitrate 24bit 48kHz tracks', () => {
+    render(<PlayerStatusChips status={null} state="playing" track={track()} />);
+
+    expect(screen.queryByText('Hi-Res')).toBeNull();
+    expect(screen.getByText('24bit / 48kHz')).toBeTruthy();
+    expect(screen.getByText('1884kbps')).toBeTruthy();
+  });
+
+  it('adds Hi-Res only when the audio spec is clearly high resolution', () => {
+    render(<PlayerStatusChips status={null} state="playing" track={track({ sampleRate: 96000, bitDepth: 24 })} />);
+
+    expect(screen.getByText('Hi-Res')).toBeTruthy();
+  });
+
+  it('shows detected BPM in the player tags only when confidence is reliable', () => {
     const { rerender } = render(
+      <PlayerStatusChips
+        status={null}
+        state="playing"
+        track={track({ bpm: 128, bpmConfidence: 0.9, analysisStatus: 'complete' })}
+      />,
+    );
+
+    expect(screen.getByText('128 BPM')).toBeTruthy();
+
+    rerender(
       <PlayerStatusChips
         status={null}
         state="playing"
@@ -47,7 +71,7 @@ describe('PlayerStatusChips', () => {
       />,
     );
 
-    expect(screen.getByText('128 BPM')).toBeTruthy();
+    expect(screen.queryByText('128 BPM')).toBeNull();
 
     rerender(<PlayerStatusChips status={null} state="playing" track={track({ bpm: 128, analysisStatus: 'analyzing' })} />);
 

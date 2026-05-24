@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { registerCrashHandlers } from './diagnostics/crashHandlers';
 import { registerAppLifecycle } from './app/lifecycle';
 import { startDevApiServer } from './app/devApiServer';
@@ -6,11 +7,17 @@ import { registerCoverProtocolScheme } from './protocol/coverProtocol';
 import { initializeProtectedUserDataPath } from './app/dataProtection';
 import { isLibraryRecoveryMode } from './app/libraryRecoveryMode';
 import { initializeDevConsoleCapture } from './diagnostics/DevConsoleService';
-import { markStartupStage } from './diagnostics/StartupDiagnostics';
+import { markStartupStage, openEarlySafeModeShellIfEnabled } from './diagnostics/StartupDiagnostics';
 
 markStartupStage('main:module-loaded');
-initializeProtectedUserDataPath();
+const protectedUserDataPath = initializeProtectedUserDataPath();
 markStartupStage('main:user-data-path-initialized');
+openEarlySafeModeShellIfEnabled({
+  appVersion: app.getVersion(),
+  platform: process.platform,
+  arch: process.arch,
+  userDataPath: protectedUserDataPath,
+});
 registerCrashHandlers();
 markStartupStage('main:crash-handlers-registered');
 initializeDevConsoleCapture();

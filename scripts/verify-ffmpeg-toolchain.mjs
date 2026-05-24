@@ -44,9 +44,10 @@ if (hash !== expectedHash) {
   fail(`SHA256 mismatch for ${artifactPath}; expected ${expectedHash || 'n/a'}, got ${hash}`);
 }
 
+const ffmpegProbeTimeoutMs = 30000;
 const versionOutput = execFileSync(artifactPath, ['-hide_banner', '-version'], {
   encoding: 'utf8',
-  timeout: 5000,
+  timeout: ffmpegProbeTimeoutMs,
   windowsHide: true,
 });
 const version = String(manifest.version ?? '');
@@ -60,7 +61,7 @@ if (manifest.requiresSoxr === true && !versionOutput.includes('--enable-libsoxr'
 
 const filtersOutput = execFileSync(artifactPath, ['-hide_banner', '-filters'], {
   encoding: 'utf8',
-  timeout: 5000,
+  timeout: ffmpegProbeTimeoutMs,
   windowsHide: true,
 });
 const requiredFilters = Array.isArray(manifest.requiredFilters) ? manifest.requiredFilters : [];

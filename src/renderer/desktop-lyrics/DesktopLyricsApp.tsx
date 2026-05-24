@@ -9,7 +9,9 @@ import type { LyricLine, LyricsKind, TrackLyrics } from '../../shared/types/lyri
 import type { PlaybackStatus } from '../../shared/types/playback';
 import type { StreamingLyricsResult, StreamingProviderName } from '../../shared/types/streaming';
 import { streamingProviderNames } from '../../shared/types/streaming';
+import { shouldShowRomanizationForLyrics } from '../../shared/utils/lyricsLanguage';
 import { getActiveLyricIndex } from '../components/lyrics/LyricsView';
+import { registerAppearanceFontFile, serializeFontList } from '../preferences/appearancePreferences';
 
 type DesktopLyricsSettings = Required<Pick<
   AppSettings,
@@ -17,6 +19,8 @@ type DesktopLyricsSettings = Required<Pick<
   | 'desktopLyricsLocked'
   | 'desktopLyricsFontSizePx'
   | 'desktopLyricsScalePercent'
+  | 'desktopLyricsFontFamily'
+  | 'desktopLyricsFontFilePath'
   | 'desktopLyricsColor'
   | 'desktopLyricsStrokeColor'
   | 'desktopLyricsOpacityPercent'
@@ -43,6 +47,8 @@ const fallbackSettings: DesktopLyricsSettings = {
   desktopLyricsLocked: false,
   desktopLyricsFontSizePx: 34,
   desktopLyricsScalePercent: 100,
+  desktopLyricsFontFamily: 'Outfit',
+  desktopLyricsFontFilePath: null,
   desktopLyricsColor: '#FFFFFF',
   desktopLyricsStrokeColor: '#111827',
   desktopLyricsOpacityPercent: 96,
@@ -98,6 +104,8 @@ const pickDesktopLyricsSettings = (settings: Partial<AppSettings> | null | undef
   desktopLyricsLocked: settings?.desktopLyricsLocked === true,
   desktopLyricsFontSizePx: settings?.desktopLyricsFontSizePx ?? fallbackSettings.desktopLyricsFontSizePx,
   desktopLyricsScalePercent: settings?.desktopLyricsScalePercent ?? fallbackSettings.desktopLyricsScalePercent,
+  desktopLyricsFontFamily: settings?.desktopLyricsFontFamily ?? fallbackSettings.desktopLyricsFontFamily,
+  desktopLyricsFontFilePath: settings?.desktopLyricsFontFilePath ?? fallbackSettings.desktopLyricsFontFilePath,
   desktopLyricsColor: settings?.desktopLyricsColor ?? fallbackSettings.desktopLyricsColor,
   desktopLyricsStrokeColor: settings?.desktopLyricsStrokeColor ?? fallbackSettings.desktopLyricsStrokeColor,
   desktopLyricsOpacityPercent: settings?.desktopLyricsOpacityPercent ?? fallbackSettings.desktopLyricsOpacityPercent,
@@ -187,8 +195,15 @@ const getActiveIndex = (lyrics: DesktopLyricsStateSnapshot, clock: PlaybackClock
 
 const lineText = (line: LyricLine | null | undefined): string => line?.text.trim() ?? '';
 
-const secondaryLineText = (line: LyricLine | null | undefined, nextLine: LyricLine | null | undefined): string =>
-  line?.translation?.trim() || line?.romanization?.trim() || nextLine?.text.trim() || '';
+const secondaryLineText = (
+  line: LyricLine | null | undefined,
+  nextLine: LyricLine | null | undefined,
+  showRomanization: boolean,
+): string =>
+  line?.translation?.trim() ||
+  (showRomanization ? line?.romanization?.trim() : '') ||
+  nextLine?.text.trim() ||
+  '';
 
 export const DesktopLyricsApp = (): JSX.Element => {
   const [settings, setSettings] = useState<DesktopLyricsSettings>(fallbackSettings);
@@ -197,7 +212,6 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const [forwardedUpdatedAtMs, setForwardedUpdatedAtMs] = useState(0);
   const [lyrics, setLyrics] = useState<DesktopLyricsStateSnapshot>(() => emptyLyrics());
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const lyricsRequestRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
 
@@ -259,6 +273,17 @@ export const DesktopLyricsApp = (): JSX.Element => {
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!settings.desktopLyricsFontFilePath) {
+      return;
+    }
+
+    void window.echo?.app
+      .loadFontFile(settings.desktopLyricsFontFilePath)
+      .then((fontFile) => registerAppearanceFontFile('desktopLyrics', fontFile))
+      .catch(() => undefined);
+  }, [settings.desktopLyricsFontFilePath]);
 
   useEffect(() => {
     const desktopLyrics = window.echo?.desktopLyrics;
@@ -407,6 +432,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
   const currentLine = activeIndex >= 0 ? lyrics.lines[activeIndex] : lyrics.lines[0];
   const nextLine = activeIndex >= 0 ? lyrics.lines[activeIndex + 1] : lyrics.lines[1];
+  const canShowRomanization = shouldShowRomanizationForLyrics(lyrics.lines);
   const primaryText =
     lyrics.kind === 'instrumental'
       ? '纯音乐，请欣赏'
@@ -414,11 +440,18 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const secondaryText =
     lyrics.kind === 'instrumental'
       ? ''
-      : secondaryLineText(currentLine, nextLine) || (clockHasIdentity(activeClock) ? 'Desktop Lyrics' : '等待播放');
+      : secondaryLineText(currentLine, nextLine, canShowRomanization) || (clockHasIdentity(activeClock) ? 'Desktop Lyrics' : '等待播放');
 
   const style = {
     '--desktop-lyrics-font-size': `${settings.desktopLyricsFontSizePx}px`,
     '--desktop-lyrics-scale': (settings.desktopLyricsScalePercent / 100).toFixed(2),
+    '--desktop-lyrics-font-family': [
+      serializeFontList(settings.desktopLyricsFontFamily),
+      '"Outfit"',
+      '"Noto Sans SC"',
+      '"Microsoft YaHei"',
+      'sans-serif',
+    ].join(', '),
     '--desktop-lyrics-color': settings.desktopLyricsColor,
     '--desktop-lyrics-stroke-color': settings.desktopLyricsStrokeColor,
     '--desktop-lyrics-opacity': (settings.desktopLyricsOpacityPercent / 100).toFixed(2),
@@ -429,8 +462,6 @@ export const DesktopLyricsApp = (): JSX.Element => {
       className="desktop-lyrics-app"
       data-locked={settings.desktopLyricsLocked}
       style={style}
-      onMouseEnter={() => setIsMenuOpen(true)}
-      onMouseLeave={() => setIsMenuOpen(false)}
     >
       <section className="desktop-lyrics-stage" aria-label="Desktop lyrics">
         <div className="desktop-lyrics-lines">
@@ -438,7 +469,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
           <span>{secondaryText}</span>
         </div>
 
-        {!settings.desktopLyricsLocked && isMenuOpen ? (
+        {!settings.desktopLyricsLocked ? (
           <div className="desktop-lyrics-menu">
             <button
               type="button"

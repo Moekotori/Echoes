@@ -1783,8 +1783,44 @@ describe("LyricsPage", () => {
     expect(await screen.findByText("First line")).toBeTruthy();
     fireEvent.contextMenu(container.querySelector(".lyrics-scroll") as HTMLElement);
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("First line\nふぁーすと\nSecond line\nThird line"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("First line\nfirst roman\nSecond line\nThird line"));
     expect(await screen.findByText("已复制歌词")).toBeTruthy();
+  });
+
+  it("copies UtaTen kana only when kana pronunciation is enabled", async () => {
+    const writeText = installClipboardTextMock();
+    const track = makeTrack();
+    mockEcho(track, 0, { lyricsUtatenKanaEnabled: true });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          lines: [
+            { timeMs: 0, text: "First line", romanization: "first roman", kana: "ふぁーすと" },
+            lyrics[1],
+            lyrics[2],
+          ],
+        }),
+      ),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("First line")).toBeTruthy();
+    fireEvent.contextMenu(container.querySelector(".lyrics-scroll") as HTMLElement);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("First line\nふぁーすと\nSecond line\nThird line"));
   });
 
   it("hides per-track lyrics offset controls by default", async () => {
@@ -2570,6 +2606,194 @@ describe("LyricsPage", () => {
     );
     expect(container.querySelector(".lyrics-empty")).toBeNull();
     expect(container.textContent).not.toContain("\u6b64\u6b4c\u66f2\u4e3a\u6ca1\u6709\u586b\u8bcd\u7684\u7eaf\u97f3\u4e50");
+  });
+
+  it("auto-applies candidate lyrics for QQ Music streaming tracks when exact lookup is missing", async () => {
+    const track = makeTrack({
+      id: "streaming:qqmusic:123456",
+      path: "streaming:qqmusic:123456",
+      mediaType: "streaming",
+      provider: "qqmusic",
+      providerTrackId: "123456",
+      stableKey: "streaming:qqmusic:123456",
+      title: "QQ Song",
+      artist: "QQ Artist",
+      album: "QQ Album",
+      duration: 200,
+    });
+    mockEcho(track);
+    const searchCandidatesForSnapshot = vi.fn().mockImplementation(
+      (_snapshot: unknown, _searchText: string | undefined, provider: string) =>
+        Promise.resolve(
+          provider === "qqmusic"
+            ? [
+                makeLyricsCandidate({
+                  id: "qq-candidate",
+                  provider: "qqmusic",
+                  providerLyricsId: "qqmusic:normalized-song-mid",
+                  title: "QQ Song",
+                  artist: "QQ Artist",
+                  album: "QQ Album",
+                  durationSeconds: 200,
+                  score: 0.96,
+                  sourceLabel: "QQ Music",
+                }),
+              ]
+            : [],
+        ),
+    );
+    const applyCandidateForSnapshot = vi.fn().mockResolvedValue(
+      makeTrackLyrics({
+        provider: "qqmusic",
+        providerLyricsId: "qqmusic:normalized-song-mid",
+        title: "QQ Song",
+        artist: "QQ Artist",
+        album: "QQ Album",
+        lines: [{ timeMs: 0, text: "Auto applied QQ lyric" }],
+        syncedText: "[00:00.00]Auto applied QQ lyric",
+      }),
+    );
+    window.echo.streaming = {
+      getLyrics: vi.fn().mockResolvedValue({
+        provider: "qqmusic",
+        providerTrackId: "123456",
+        status: "missing",
+        plainLyrics: null,
+        syncedLyrics: null,
+        instrumental: false,
+        lines: [],
+        sourceLabel: "QQ Music",
+      }),
+    } as unknown as Window["echo"]["streaming"];
+    window.echo.lyrics = {
+      getForTrack: vi.fn(),
+      getForSnapshot: vi.fn().mockResolvedValue(null),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      searchCandidatesForSnapshot,
+      applyCandidate: vi.fn(),
+      applyCandidateForSnapshot,
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(window.echo.streaming?.getLyrics).toHaveBeenCalledWith({
+        provider: "qqmusic",
+        providerTrackId: "123456",
+      }),
+    );
+    await waitFor(() => expect(searchCandidatesForSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trackId: "streaming:qqmusic:123456",
+        mediaType: "streaming",
+        sourceId: "123456",
+      }),
+      undefined,
+      "qqmusic",
+    ));
+    await waitFor(() => expect(applyCandidateForSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trackId: "streaming:qqmusic:123456",
+        mediaType: "streaming",
+        sourceId: "123456",
+      }),
+      "qq-candidate",
+    ));
+    expect(await screen.findByText("Auto applied QQ lyric")).toBeTruthy();
+  });
+
+  it("falls back to candidate search for QQ Music streaming lyrics when exact lookup is missing", async () => {
+    const track = makeTrack({
+      id: "streaming:qqmusic:123456",
+      path: "streaming:qqmusic:123456",
+      mediaType: "streaming",
+      provider: "qqmusic",
+      providerTrackId: "123456",
+      stableKey: "streaming:qqmusic:123456",
+      title: "QQ Song",
+      artist: "QQ Artist",
+      album: "QQ Album",
+      duration: 200,
+    });
+    mockEcho(track);
+    const searchCandidatesForSnapshot = vi.fn().mockResolvedValue([
+      makeLyricsCandidate({
+        id: "qq-candidate",
+        provider: "qqmusic",
+        providerLyricsId: "qqmusic:normalized-song-mid",
+        title: "QQ Song",
+        artist: "QQ Artist",
+        album: "QQ Album",
+        durationSeconds: 200,
+        score: 0.42,
+        sourceLabel: "QQ Music",
+      }),
+    ]);
+    window.echo.streaming = {
+      getLyrics: vi.fn().mockResolvedValue({
+        provider: "qqmusic",
+        providerTrackId: "123456",
+        status: "missing",
+        plainLyrics: null,
+        syncedLyrics: null,
+        instrumental: false,
+        lines: [],
+        sourceLabel: "QQ Music",
+      }),
+    } as unknown as Window["echo"]["streaming"];
+    window.echo.lyrics = {
+      getForTrack: vi.fn(),
+      getForSnapshot: vi.fn().mockResolvedValue(null),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      searchCandidatesForSnapshot,
+      applyCandidate: vi.fn(),
+      applyCandidateForSnapshot: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(window.echo.streaming?.getLyrics).toHaveBeenCalledWith({
+        provider: "qqmusic",
+        providerTrackId: "123456",
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("lyrics:search-requested"));
+    await waitFor(() => expect(searchCandidatesForSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trackId: "streaming:qqmusic:123456",
+        title: "QQ Song",
+        artist: "QQ Artist",
+        album: "QQ Album",
+        durationSeconds: 200,
+        mediaType: "streaming",
+        sourceId: "123456",
+        stableKey: "streaming:qqmusic:123456",
+      }),
+      undefined,
+      "qqmusic",
+    ));
+    await waitFor(() => expect(screen.getAllByText("QQ Song").length).toBeGreaterThan(1));
   });
 
   it("lets users switch lyrics source without clearing the current lyrics first", async () => {

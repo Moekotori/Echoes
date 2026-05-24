@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import electron from 'electron';
 import type { EchoDatabase } from '../database/createDatabase';
 import { getLibraryDatabaseManager } from '../database/LibraryDatabaseManager';
@@ -9,6 +11,9 @@ import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type {
   LyricsMatchRisk,
+  LyricsEmbedToTrackRequest,
+  LyricsEmbedToTrackResult,
+  LyricsEmbedTextKind,
   LyricsProviderId,
   LyricsQuery,
   LyricsSearchCandidate,
@@ -35,6 +40,7 @@ import { extractLyricsVersionFlags, serializeLyricsVersionFlags } from './lyrics
 import { sortLyricsCandidates } from './lyricsCandidateDedup';
 import { fillMissingRomanization, hasMissingRomanization } from './lyricsRomanization';
 import { hasJapaneseLyricsText, UtatenKanaProvider, type UtatenKanaProviderLike } from './UtatenKanaProvider';
+import { writeEmbeddedLyricsTag } from '../library/TagWriter';
 
 type LyricsSettings = Pick<
   AppSettings,
@@ -353,6 +359,63 @@ const secondaryLinesToText = (lyrics: TrackLyrics, field: 'romanization' | 'tran
     .filter((line): line is string => Boolean(line));
 
   return lines.length ? lines.join('\n') : null;
+};
+
+const syncedLinesToText = (lyrics: TrackLyrics): string | null => {
+  const lines = lyrics.lines
+    .filter((line) => lyrics.kind === 'synced' && line.timeMs >= 0 && line.text.trim().length > 0)
+    .map((line) => `${lyricTimestamp(line.timeMs)}${line.text.trim()}`);
+
+  return lines.length ? lines.join('\n') : null;
+};
+
+const plainLinesToText = (lyrics: TrackLyrics): string | null => {
+  const lines = lyrics.lines.map((line) => line.text.trim()).filter(Boolean);
+  return lines.length ? lines.join('\n') : null;
+};
+
+const lyricsToEmbeddableText = (
+  lyrics: TrackLyrics,
+  preferSynced = true,
+): { text: string; textKind: LyricsEmbedTextKind } | null => {
+  const syncedText = lyrics.syncedText?.trim() || syncedLinesToText(lyrics);
+  const plainText = lyrics.plainText?.trim() || plainLinesToText(lyrics);
+
+  if (preferSynced && syncedText) {
+    return { text: syncedText, textKind: 'synced' };
+  }
+
+  if (plainText) {
+    return { text: plainText, textKind: 'plain' };
+  }
+
+  if (syncedText) {
+    return { text: syncedText, textKind: 'synced' };
+  }
+
+  return null;
+};
+
+const shouldDelayEmbeddedLyricsWriteForAudio = async (filePath: string): Promise<boolean> => {
+  try {
+    const { getAudioSession } = await import('../audio/AudioSession');
+    const status = getAudioSession().getStatus();
+    const currentFilePath = status.currentFilePath ? resolve(status.currentFilePath) : null;
+    const targetPath = resolve(filePath);
+    const audioPipelineBusy = status.state === 'loading' || status.state === 'playing';
+    const currentFileHeld =
+      currentFilePath === targetPath && !['idle', 'stopped', 'ended', 'error'].includes(status.state);
+
+    return audioPipelineBusy || currentFileHeld;
+  } catch {
+    return false;
+  }
+};
+
+const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
+  if (typeof timer === 'object' && 'unref' in timer && typeof timer.unref === 'function') {
+    timer.unref();
+  }
 };
 
 const trackLyricsToProviderResult = (lyrics: TrackLyrics): LyricsProviderResult => ({
@@ -788,6 +851,50 @@ export class LyricsService {
     return cached;
   }
 
+  async embedLyricsToTrack(trackId: string, request: LyricsEmbedToTrackRequest = {}): Promise<LyricsEmbedToTrackResult> {
+    const track = this.library.getTrack(trackId);
+    if (!track) {
+      throw new Error(`Unknown track ${trackId}`);
+    }
+
+    if (track.mediaType === 'remote' || track.mediaType === 'streaming' || track.isTemporary) {
+      throw new Error('远程、流媒体或临时曲目不能写入源文件，只能应用到歌词库。');
+    }
+
+    const filePath = track.path?.trim();
+    if (!filePath || !existsSync(filePath)) {
+      throw new Error('找不到本地音频文件，无法嵌入歌词。');
+    }
+
+    const lyrics = request.candidateId
+      ? await this.applyLyricsCandidate(trackId, request.candidateId)
+      : await this.getLyricsForTrack(trackId);
+
+    if (!lyrics) {
+      throw new Error('请先搜索并应用一条歌词，再嵌入到文件。');
+    }
+
+    if (lyrics.kind === 'empty' || lyrics.kind === 'instrumental') {
+      throw new Error('当前歌词为空或纯音乐，无法嵌入到文件。');
+    }
+
+    const embeddedText = lyricsToEmbeddableText(lyrics, request.preferSynced !== false);
+    if (!embeddedText) {
+      throw new Error('当前歌词没有可写入的文本内容。');
+    }
+
+    this.queueEmbeddedLyricsWrite(track.id, filePath, embeddedText.text);
+
+    return {
+      trackId: track.id,
+      provider: lyrics.provider,
+      kind: lyrics.kind,
+      textKind: embeddedText.textKind,
+      queued: true,
+      message: '已加入后台写入队列；如果正在播放或加载音频，会自动延后写入。',
+    };
+  }
+
   async applyCustomLrc(trackId: string, lrcText: string, fileName?: string | null): Promise<TrackLyrics> {
     const track = this.library.getTrack(trackId);
     const normalizedText = lrcText.replace(/^\uFEFF/u, '').trim();
@@ -897,6 +1004,33 @@ export class LyricsService {
 
       this.repairLyricsStorage(error);
     }
+  }
+
+  private queueEmbeddedLyricsWrite(trackId: string, filePath: string, lyricsText: string): void {
+    const run = async (): Promise<void> => {
+      if (await shouldDelayEmbeddedLyricsWriteForAudio(filePath)) {
+        const retryTimer = setTimeout(() => {
+          void run();
+        }, 5000);
+        unrefTimer(retryTimer);
+        return;
+      }
+
+      try {
+        await writeEmbeddedLyricsTag(filePath, lyricsText);
+      } catch (error) {
+        console.warn('[lyrics] Failed to embed lyrics into track', {
+          trackId,
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
+    const startTimer = setTimeout(() => {
+      void run();
+    }, 250);
+    unrefTimer(startTimer);
   }
 
   private findCachedLyricsWithRepair(query: LyricsQuery): TrackLyrics | null {

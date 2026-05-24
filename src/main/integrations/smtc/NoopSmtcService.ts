@@ -1,14 +1,17 @@
 import { EventEmitter } from 'node:events';
-import type { SmtcCommand, SmtcEnabledActions, SmtcPlaybackState, SmtcService, SmtcTrackMetadata } from './SmtcService';
+import type { SmtcCommand, SmtcDiagnostics, SmtcEnabledActions, SmtcPlaybackState, SmtcService, SmtcTrackMetadata } from './SmtcService';
 
 export class NoopSmtcService implements SmtcService {
   private readonly commands = new EventEmitter();
+  private initialized = false;
 
   initialize(): void {
+    this.initialized = true;
     // Non-Windows platforms and unavailable bridges intentionally do nothing.
   }
 
   dispose(): void {
+    this.initialized = false;
     this.commands.removeAllListeners();
   }
 
@@ -36,5 +39,31 @@ export class NoopSmtcService implements SmtcService {
   onCommand(handler: (command: SmtcCommand) => void): () => void {
     this.commands.on('command', handler);
     return () => this.commands.off('command', handler);
+  }
+
+  getDiagnostics(): SmtcDiagnostics {
+    return {
+      enabled: false,
+      platform: process.platform,
+      hostState: process.platform === 'win32' ? 'disabled' : 'unsupported',
+      initialized: this.initialized,
+      hostPath: null,
+      lastMetadataAt: null,
+      lastMetadataTrackId: null,
+      lastMetadataTitle: null,
+      lastMetadataArtist: null,
+      lastPlaybackState: null,
+      lastPlaybackStateAt: null,
+      lastTimelineAt: null,
+      lastTimelinePositionSeconds: null,
+      lastTimelineDurationSeconds: null,
+      enabledActions: null,
+      lastCommand: null,
+      lastCommandAt: null,
+      lastError: null,
+      recentErrors: [],
+      recoveryInFlight: false,
+      recoveryAttemptsInWindow: 0,
+    };
   }
 }

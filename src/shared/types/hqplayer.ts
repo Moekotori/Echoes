@@ -147,6 +147,14 @@ export type HqPlayerPlaybackHandoffSource = {
   expiresAt: string | null;
   durationSeconds: number | null;
   startSeconds: number;
+  mediaServer: {
+    url: string;
+    port: number | null;
+    bindHost: string | null;
+    publicHost: string | null;
+    remoteAccess: boolean;
+    publicHostCandidates: string[];
+  } | null;
   streaming?: Pick<
     StreamingPlaybackSource,
     'provider' | 'providerTrackId' | 'bitrate' | 'sampleRate' | 'bitDepth' | 'codec' | 'supportsRange'

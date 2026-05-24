@@ -6,6 +6,7 @@ import type {
   ConnectSessionStatus,
   ConnectStartRequest,
 } from '../../shared/types/connect';
+import type { HqPlayerConnectionTestResult, HqPlayerRemotePlaybackStatus } from '../../shared/types/hqplayer';
 import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
@@ -100,6 +101,14 @@ const hqPlayerDeviceCapabilities: ConnectDevice['capabilities'] = {
 const hqPlayerReasonText = (reason: string | null | undefined): string =>
   reason ? `HQPlayer ${reason}` : 'HQPlayer 发送失败';
 
+const hqPlayerPlaybackConfirmAttempts = 4;
+const hqPlayerPlaybackConfirmDelayMs = 250;
+const hqPlayerStatusSyncIntervalMs = 2500;
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
 const isHttpUrl = (value: string): boolean => /^https?:\/\//iu.test(value);
 
 const formatSeekTarget = (positionSeconds: number): string => {
@@ -160,6 +169,8 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   private readonly devices = new Map<string, DlnaDevice>();
   private session: ConnectSessionStatus = idleStatus();
   private refreshInFlight: Promise<ConnectDevice[]> | null = null;
+  private hqPlayerStatusTimer: ReturnType<typeof setInterval> | null = null;
+  private hqPlayerStatusSyncInFlight = false;
 
   constructor(private readonly hqPlayerService: HqPlayerConnectService = getHqPlayerService()) {
     super();
@@ -211,6 +222,7 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
       return this.connectHqPlayer(request);
     }
 
+    this.stopHqPlayerStatusSync();
     if (request.deviceId === airPlayPlaceholder.id) {
       const status: ConnectSessionStatus = {
         ...idleStatus(),
@@ -279,6 +291,7 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   }
 
   async disconnect(): Promise<ConnectSessionStatus> {
+    this.stopHqPlayerStatusSync();
     const activeDevice = this.activeDlnaDevice();
     if (activeDevice) {
       await stopDlna(activeDevice).catch(() => undefined);
@@ -325,6 +338,7 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   }
 
   async dispose(): Promise<void> {
+    this.stopHqPlayerStatusSync();
     await this.disconnect().catch(() => undefined);
     await this.httpServer.close();
     this.devices.clear();
@@ -343,9 +357,17 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
   private hqPlayerDevice(): ConnectDevice {
     const status = this.hqPlayerService.getStatus();
     const controlInfo = status.controlInfo ?? null;
+    const isActive = this.session.protocol === 'hqplayer' && this.session.deviceId === hqPlayerConnectDeviceId;
     const model = controlInfo?.product
       ? [controlInfo.product, controlInfo.version].filter(Boolean).join(' ')
       : 'Local Desktop Control';
+    const state: ConnectDevice['state'] = isActive && this.session.state !== 'error'
+      ? 'connected'
+      : status.state === 'checking'
+        ? 'connecting'
+        : status.state === 'available'
+          ? 'available'
+          : 'unavailable';
     return {
       id: hqPlayerConnectDeviceId,
       name: 'HQPlayer Desktop',
@@ -354,7 +376,7 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
       manufacturer: 'Signalyst',
       address: `${status.endpoint.host}:${status.endpoint.port ?? defaultHqPlayerSettings.port}`,
       capabilities: hqPlayerDeviceCapabilities,
-      state: status.state === 'available' || status.state === 'checking' || status.state === 'disabled' ? 'available' : 'unavailable',
+      state,
       lastSeenAt: controlInfo?.receivedAt ?? status.playbackStatus?.receivedAt ?? status.lastCheckedAt,
       unsupportedReason: status.lastError,
     };
@@ -502,6 +524,21 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
     };
   }
 
+  private mapHqPlayerPlaybackState(status: HqPlayerRemotePlaybackStatus | null | undefined): ConnectSessionStatus['state'] {
+    switch (status?.state) {
+      case 'playing':
+        return 'playing';
+      case 'paused':
+        return 'paused';
+      case 'stopped':
+      case 'stop-requested':
+        return 'stopped';
+      case 'unknown':
+      default:
+        return this.session.state === 'playing' || this.session.state === 'paused' ? this.session.state : 'ready';
+    }
+  }
+
   private createHqPlayerMetadata(item: PlayableTrack): ConnectSessionStatus['metadata'] {
     return {
       title: item.title,
@@ -513,9 +550,98 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
     };
   }
 
+  private async waitForHqPlayerPlayback(
+    settings: ReturnType<HqPlayerConnectService['getSettings']>,
+  ): Promise<HqPlayerConnectionTestResult> {
+    let latest: HqPlayerConnectionTestResult | null = null;
+    for (let attempt = 0; attempt < hqPlayerPlaybackConfirmAttempts; attempt += 1) {
+      latest = await this.hqPlayerService.testConnection(settings);
+      if (!latest.ok) {
+        throw new Error(latest.error ?? 'HQPlayer 连接失败');
+      }
+
+      if (latest.playbackStatus?.state === 'playing') {
+        return latest;
+      }
+
+      if (attempt < hqPlayerPlaybackConfirmAttempts - 1) {
+        await delay(hqPlayerPlaybackConfirmDelayMs);
+      }
+    }
+
+    const remoteState = latest?.playbackStatus?.state ?? 'no_status';
+    throw new Error(`HQPlayer 未确认播放：${remoteState}`);
+  }
+
+  private startHqPlayerStatusSync(): void {
+    if (this.hqPlayerStatusTimer) {
+      return;
+    }
+
+    this.hqPlayerStatusTimer = setInterval(() => {
+      void this.syncHqPlayerSessionStatus();
+    }, hqPlayerStatusSyncIntervalMs);
+    (this.hqPlayerStatusTimer as { unref?: () => void }).unref?.();
+  }
+
+  private stopHqPlayerStatusSync(): void {
+    if (!this.hqPlayerStatusTimer) {
+      return;
+    }
+
+    clearInterval(this.hqPlayerStatusTimer);
+    this.hqPlayerStatusTimer = null;
+    this.hqPlayerStatusSyncInFlight = false;
+  }
+
+  private async syncHqPlayerSessionStatus(): Promise<void> {
+    if (
+      this.hqPlayerStatusSyncInFlight ||
+      this.session.protocol !== 'hqplayer' ||
+      this.session.deviceId !== hqPlayerConnectDeviceId
+    ) {
+      return;
+    }
+
+    this.hqPlayerStatusSyncInFlight = true;
+    try {
+      const result = await this.hqPlayerService.testConnection();
+      if (this.session.protocol !== 'hqplayer' || this.session.deviceId !== hqPlayerConnectDeviceId) {
+        return;
+      }
+
+      if (!result.ok) {
+        this.setSession({
+          ...this.session,
+          state: 'error',
+          error: result.error ?? 'HQPlayer 连接失败',
+          updatedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const playbackStatus = result.playbackStatus ?? null;
+      if (!playbackStatus) {
+        return;
+      }
+
+      this.setSession({
+        ...this.session,
+        state: this.mapHqPlayerPlaybackState(playbackStatus),
+        positionSeconds: playbackStatus.positionSeconds ?? this.session.positionSeconds,
+        durationSeconds: playbackStatus.durationSeconds ?? this.session.durationSeconds,
+        error: null,
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      this.hqPlayerStatusSyncInFlight = false;
+    }
+  }
+
   private async connectHqPlayer(request: ConnectStartRequest): Promise<ConnectSessionStatus> {
     const startedAt = Date.now();
     const item = this.createHqPlayerPlayableTrack(request);
+    this.stopHqPlayerStatusSync();
     this.setSession({
       ...this.session,
       deviceId: hqPlayerConnectDeviceId,
@@ -526,12 +652,10 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
     });
 
     try {
-      const settings = this.hqPlayerService.setSettings({
-        enabled: true,
-        connectionMode: 'localDesktop',
-        host: defaultHqPlayerSettings.host,
-        port: defaultHqPlayerSettings.port,
-      });
+      const currentSettings = this.hqPlayerService.getSettings();
+      const settings = currentSettings.enabled
+        ? currentSettings
+        : this.hqPlayerService.setSettings({ ...currentSettings, enabled: true });
       const connection = await this.hqPlayerService.testConnection(settings);
       if (!connection.ok) {
         throw new Error(connection.error ?? 'HQPlayer 连接失败');
@@ -551,6 +675,8 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
         throw new Error(send.message ?? hqPlayerReasonText(send.reason));
       }
 
+      const confirmed = await this.waitForHqPlayerPlayback(settings);
+      const playbackStatus = confirmed.playbackStatus ?? null;
       const audioStatus = getAudioSession().getStatus();
       if (audioStatus.state === 'playing' || audioStatus.state === 'loading') {
         await getAudioSession().pause().catch(() => undefined);
@@ -562,14 +688,16 @@ export class ConnectService extends EventEmitter<ConnectEvents> {
         state: 'playing',
         currentTrackId: item.trackId,
         metadata: this.createHqPlayerMetadata(item),
-        positionSeconds: request.positionSeconds ?? 0,
-        durationSeconds: item.duration ?? 0,
+        positionSeconds: playbackStatus?.positionSeconds ?? request.positionSeconds ?? 0,
+        durationSeconds: playbackStatus?.durationSeconds ?? item.duration ?? 0,
         latencyMs: Date.now() - startedAt,
         error: null,
         updatedAt: new Date().toISOString(),
       });
+      this.startHqPlayerStatusSync();
       return this.getStatus();
     } catch (error) {
+      this.stopHqPlayerStatusSync();
       const message = error instanceof Error ? error.message : String(error);
       this.setSession({
         ...this.session,

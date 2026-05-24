@@ -9,6 +9,7 @@ import {
   createDataProtectionSnapshot,
   discardQuarantinedProblemTracks,
   ensureDataProtection,
+  ensureDataProtectionFastStartup,
   getLibraryDatabaseProtectionStatus,
   getProtectedUserDataPath,
   inspectLibraryDatabaseForPoison,
@@ -20,6 +21,7 @@ import {
   restoreProtectedLibraryDatabaseFromScanGuard,
   restoreMissingProtectedData,
   scrubQuarantinedLibraryDatabase,
+  shouldCreateDeferredStartupSnapshot,
   writeDataProtectionManifest,
 } from './dataProtection';
 import type { LibraryScanStatus } from '../../shared/types/library';
@@ -166,6 +168,33 @@ describe('dataProtection', () => {
     expect(row?.title).toBe('Song');
   });
 
+  it('uses lightweight protection for fast startup without creating a blocking snapshot', async () => {
+    const libraryPath = join(tempDir, 'echo-library.sqlite');
+    createHealthyLibrary(libraryPath);
+
+    const result = await ensureDataProtectionFastStartup('startup', tempDir);
+
+    expect(result.libraryHealth.status).toBe('ok');
+    expect(result.recovery.action).toBe('none');
+    expect(result.snapshot.snapshotPath).toBe('');
+    expect(result.snapshot.libraryBackupMethod).toBe('none');
+    expect(existsSync(join(tempDir, 'data-protection', 'echo-data-protection.json'))).toBe(true);
+    expect(existsSync(join(tempDir, 'data-protection', 'snapshots'))).toBe(false);
+  });
+
+  it('falls back to full protection when fast startup sees a missing database with snapshots available', async () => {
+    const libraryPath = join(tempDir, 'echo-library.sqlite');
+    createHealthyLibrary(libraryPath);
+    await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-18T00:00:00.000Z'));
+    rmSync(libraryPath);
+
+    const result = await ensureDataProtectionFastStartup('startup', tempDir);
+
+    expect(result.libraryHealth.status).toBe('ok');
+    expect(result.restore.restored).toContain('echo-library.sqlite');
+    expect(existsSync(libraryPath)).toBe(true);
+  });
+
   it('migrates stronger legacy echo-next data over a fresh protected directory', async () => {
     const targetDir = join(tempDir, 'ECHO NEXT');
     const legacyDir = join(tempDir, 'echo-next');
@@ -254,12 +283,84 @@ describe('dataProtection', () => {
     const manifest = JSON.parse(readText(join(snapshot.snapshotPath, 'snapshot.json'))) as {
       libraryHealth: { status: string };
       libraryBackupMethod: string;
+      databaseSizeBytes: number | null;
+      databaseMtimeMs: number | null;
+      walSizeBytes: number | null;
+      walMtimeMs: number | null;
+      shmSizeBytes: number | null;
+      shmMtimeMs: number | null;
     };
 
     expect(snapshot.libraryHealth.status).toBe('ok');
     expect(snapshot.libraryBackupMethod).toBe('sqlite-backup');
     expect(manifest.libraryHealth.status).toBe('ok');
     expect(manifest.libraryBackupMethod).toBe('sqlite-backup');
+    expect(typeof manifest.databaseSizeBytes).toBe('number');
+    expect(typeof manifest.databaseMtimeMs).toBe('number');
+    expect(manifest.walSizeBytes).toBeNull();
+    expect(manifest.walMtimeMs).toBeNull();
+    expect(manifest.shmSizeBytes).toBeNull();
+    expect(manifest.shmMtimeMs).toBeNull();
+  });
+
+  it('skips deferred startup snapshot when a completed scan snapshot already covers the current library', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const snapshot = await createDataProtectionSnapshot('scan-completed-library-snapshot', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+
+    const decision = shouldCreateDeferredStartupSnapshot(tempDir, new Date('2026-05-18T00:00:00.000Z'));
+
+    expect(decision.shouldCreate).toBe(false);
+    expect(decision.reason).toBe('recent-scan-snapshot');
+    expect(decision.snapshotId).toBe(snapshot.snapshotPath.split(/[\\/]/u).pop());
+  });
+
+  it('skips deferred startup snapshot when a recent startup snapshot still matches the current library', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const snapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+
+    const decision = shouldCreateDeferredStartupSnapshot(tempDir, new Date('2026-05-17T12:00:00.000Z'));
+
+    expect(decision.shouldCreate).toBe(false);
+    expect(decision.reason).toBe('recent-startup-snapshot');
+    expect(decision.snapshotId).toBe(snapshot.snapshotPath.split(/[\\/]/u).pop());
+  });
+
+  it('creates deferred startup snapshot when the database signature changed', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    await createDataProtectionSnapshot('scan-completed-library-snapshot', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    writeFileSync(join(tempDir, 'echo-library.sqlite'), 'changed database', 'utf8');
+
+    const decision = shouldCreateDeferredStartupSnapshot(tempDir, new Date('2026-05-18T00:00:00.000Z'));
+
+    expect(decision.shouldCreate).toBe(true);
+    expect(decision.reason).toBe('database-changed');
+  });
+
+  it('creates deferred startup snapshot when the WAL signature changed', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    await createDataProtectionSnapshot('scan-completed-library-snapshot', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    writeFileSync(join(tempDir, 'echo-library.sqlite-wal'), 'wal changed', 'utf8');
+
+    const decision = shouldCreateDeferredStartupSnapshot(tempDir, new Date('2026-05-18T00:00:00.000Z'));
+
+    expect(decision.shouldCreate).toBe(true);
+    expect(decision.reason).toBe('database-changed');
+  });
+
+  it('creates deferred startup snapshot for legacy snapshots without signature fields', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const snapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    const manifestPath = join(snapshot.snapshotPath, 'snapshot.json');
+    const manifest = JSON.parse(readText(manifestPath)) as Record<string, unknown>;
+    for (const key of ['databaseSizeBytes', 'databaseMtimeMs', 'walSizeBytes', 'walMtimeMs', 'shmSizeBytes', 'shmMtimeMs']) {
+      delete manifest[key];
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    const decision = shouldCreateDeferredStartupSnapshot(tempDir, new Date('2026-05-17T12:00:00.000Z'));
+
+    expect(decision.shouldCreate).toBe(true);
+    expect(decision.reason).toBe('legacy-snapshot-missing-signature');
   });
 
   it('lists the latest healthy snapshot while ignoring bad snapshots', async () => {

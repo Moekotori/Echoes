@@ -19,6 +19,12 @@ import { getLibraryService } from '../library/LibraryService';
 import { hashText, Logger, sanitizeLogPayload } from './Logger';
 import { getAccountService } from '../accounts/AccountService';
 import { getStartupTimelineSnapshot } from './StartupDiagnostics';
+import {
+  getExceptionRecordsSnapshot,
+  getExceptionSummarySnapshot,
+  readExceptionLogFile,
+  recordDiagnosticException,
+} from './ExceptionRecorder';
 
 type CrashRecord = {
   type: string;
@@ -573,13 +579,24 @@ export class CrashReportService {
   }
 
   reportCrash(record: Omit<CrashRecord, 'timestamp' | 'sessionId'>): void {
+    const timestamp = nowIso();
+    recordDiagnosticException({
+      source: 'main',
+      severity: 'fatal',
+      type: record.type,
+      message: record.message ?? record.type,
+      stack: record.stack,
+      details: record.details,
+      timestamp,
+    });
+
     if (!this.sessionDir || !this.session) {
       return;
     }
 
     const crashRecord: CrashRecord = {
       ...record,
-      timestamp: nowIso(),
+      timestamp,
       sessionId: this.session.sessionId,
       details: sanitizeLogPayload(record.details),
     };
@@ -607,6 +624,19 @@ export class CrashReportService {
     const safePayload = sanitizeLogPayload(payload);
     this.logger?.error('renderer', payload.message, safePayload);
     this.logger?.error('crash', 'renderer error', safePayload);
+    recordDiagnosticException({
+      source: 'renderer',
+      severity: 'error',
+      type: payload.source,
+      message: payload.message,
+      stack: payload.stack,
+      details: {
+        filename: payload.filename,
+        lineno: payload.lineno,
+        colno: payload.colno,
+      },
+      timestamp: payload.timestamp,
+    });
   }
 
   reportAudioError(payload: AudioCrashReportPayload): void {
@@ -632,6 +662,16 @@ export class CrashReportService {
     this.writeAudioCrashReportFile(record);
     this.logger?.error('audio', payload.message, record);
     this.logger?.error('crash', 'audio error', record);
+    recordDiagnosticException({
+      source: 'audio',
+      severity: record.severity === 'fatal' ? 'fatal' : 'error',
+      type: 'audio-error',
+      message: payload.message,
+      stack: payload.stack,
+      phase: payload.phase,
+      details: payload.details,
+      timestamp,
+    });
   }
 
   private writeCrashReportFile(
@@ -984,6 +1024,12 @@ export class CrashReportService {
 
     entries.push({ name: 'app-settings.safe.json', content: this.toJsonBuffer(sanitizeLogPayload(getAppSettings())) });
     entries.push({ name: 'startup-timeline.safe.json', content: this.toJsonBuffer(getStartupTimelineSnapshot()) });
+    entries.push({ name: 'exception-summary.safe.json', content: this.toJsonBuffer(getExceptionSummarySnapshot()) });
+    entries.push({ name: 'exceptions.safe.json', content: this.toJsonBuffer(getExceptionRecordsSnapshot()) });
+    const exceptionLog = readExceptionLogFile(this.userDataPath);
+    if (exceptionLog) {
+      entries.push({ name: 'exceptions.safe.log', content: Buffer.from(exceptionLog, 'utf8') });
+    }
     entries.push({ name: 'accounts-status.safe.json', content: this.toJsonBuffer(this.getSafeAccountStatus()) });
     entries.push({ name: 'library-health.safe.json', content: this.toJsonBuffer(this.getSafeLibraryHealth()) });
     entries.push({ name: 'library-recovery.safe.json', content: this.toJsonBuffer(this.getSafeLibraryRecovery()) });

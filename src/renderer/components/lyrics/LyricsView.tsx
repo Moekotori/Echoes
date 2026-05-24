@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Music2 } from 'lucide-react';
-import { LyricsLine } from './LyricsLine';
+import { LyricsLine, getRenderableLyricWords } from './LyricsLine';
 import type { LyricsState } from './lyricsTypes';
+import type { LyricWordTiming } from '../../../shared/types/lyrics';
+import { shouldShowRomanizationForLyrics } from '../../../shared/utils/lyricsLanguage';
 
 type LyricScrollMode = 'animated' | 'instant' | 'recenter';
 const lyricsLayoutSettingKeys = new Set([
@@ -29,16 +31,33 @@ type LyricsViewProps = {
   onSeek: (timeMs: number) => void;
   hideEmptyState?: boolean;
   showRomanization?: boolean;
+  preferKanaPronunciation?: boolean;
   showTranslation?: boolean;
   wordHighlightEnabled?: boolean;
 };
 
-export const getActiveLyricIndex = (lines: LyricsState['lines'], positionMs: number, offsetMs: number): number => {
-  if (lines.length === 0 || lines.every((line) => line.timeMs < 0)) {
-    return -1;
+const activeIndexSearchCache = new WeakMap<LyricsState['lines'], boolean>();
+
+const canUseBinaryActiveIndexSearch = (lines: LyricsState['lines']): boolean => {
+  const cached = activeIndexSearchCache.get(lines);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  const adjustedPositionMs = Math.max(0, positionMs + offsetMs);
+  let previousTimeMs = Number.NEGATIVE_INFINITY;
+  for (const line of lines) {
+    if (line.timeMs < 0 || line.timeMs < previousTimeMs) {
+      activeIndexSearchCache.set(lines, false);
+      return false;
+    }
+    previousTimeMs = line.timeMs;
+  }
+
+  activeIndexSearchCache.set(lines, true);
+  return true;
+};
+
+const getActiveLyricIndexLinear = (lines: LyricsState['lines'], adjustedPositionMs: number): number => {
   let activeIndex = -1;
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -52,6 +71,37 @@ export const getActiveLyricIndex = (lines: LyricsState['lines'], positionMs: num
     }
 
     activeIndex = index;
+  }
+
+  return activeIndex;
+};
+
+export const getActiveLyricIndex = (lines: LyricsState['lines'], positionMs: number, offsetMs: number): number => {
+  if (lines.length === 0) {
+    return -1;
+  }
+
+  const adjustedPositionMs = Math.max(0, positionMs + offsetMs);
+  if (!canUseBinaryActiveIndexSearch(lines)) {
+    return getActiveLyricIndexLinear(lines, adjustedPositionMs);
+  }
+
+  let low = 0;
+  let high = lines.length - 1;
+  let activeIndex = -1;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const timeMs = lines[mid].timeMs;
+
+    if (timeMs < 0 || timeMs <= adjustedPositionMs) {
+      if (timeMs >= 0) {
+        activeIndex = mid;
+      }
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
   }
 
   return activeIndex;
@@ -111,6 +161,29 @@ const clampPositionMs = (positionMs: number, durationMs?: number | null): number
     : safePositionMs;
 };
 
+const maxImplicitLastWordDurationMs = 1800;
+
+const getWordEndMs = (
+  words: readonly LyricWordTiming[],
+  wordIndex: number,
+  fallbackLineEndMs?: number,
+): number => {
+  const word = words[wordIndex];
+  if (!word) {
+    return 0;
+  }
+
+  const explicitEndMs = word.endMs ?? words[wordIndex + 1]?.startMs;
+  if (explicitEndMs !== undefined && explicitEndMs > word.startMs) {
+    return explicitEndMs;
+  }
+
+  const implicitEndMs = fallbackLineEndMs && fallbackLineEndMs > word.startMs
+    ? fallbackLineEndMs
+    : word.startMs + maxImplicitLastWordDurationMs;
+  return Math.min(implicitEndMs, word.startMs + maxImplicitLastWordDurationMs);
+};
+
 const getInterpolatedPositionMs = ({
   durationMs,
   playbackRate,
@@ -133,30 +206,32 @@ const getInterpolatedPositionMs = ({
 };
 
 const getLinePlaybackPositionMs = (
-  line: LyricsState['lines'][number],
+  words: readonly LyricWordTiming[],
   nextLine: LyricsState['lines'][number] | undefined,
   adjustedPositionMs: number,
 ): number => {
-  if (!line.words?.length) {
+  if (!words.length) {
     return adjustedPositionMs;
   }
 
-  const firstWord = line.words[0];
-  const lastWord = line.words[line.words.length - 1];
-  const naturalEndMs = lastWord.endMs ?? nextLine?.timeMs ?? lastWord.startMs;
+  const firstWord = words[0];
+  const naturalEndMs = getWordEndMs(words, words.length - 1, nextLine?.timeMs);
 
   return Math.max(firstWord.startMs, Math.min(adjustedPositionMs, naturalEndMs));
 };
 
-const getCurrentWordIndex = (line: LyricsState['lines'][number], adjustedPositionMs: number): number => {
-  const words = line.words ?? [];
+const getCurrentWordIndex = (
+  words: readonly LyricWordTiming[],
+  adjustedPositionMs: number,
+  fallbackLineEndMs?: number,
+): number => {
   if (words.length === 0 || adjustedPositionMs < words[0].startMs) {
     return -1;
   }
 
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index];
-    const endMs = word.endMs ?? words[index + 1]?.startMs ?? Number.POSITIVE_INFINITY;
+    const endMs = getWordEndMs(words, index, fallbackLineEndMs);
     if (adjustedPositionMs < endMs) {
       return index;
     }
@@ -166,16 +241,17 @@ const getCurrentWordIndex = (line: LyricsState['lines'][number], adjustedPositio
 };
 
 const getWordProgress = (
-  line: LyricsState['lines'][number],
+  words: readonly LyricWordTiming[],
   wordIndex: number,
   adjustedPositionMs: number,
+  fallbackLineEndMs?: number,
 ): number => {
-  const word = line.words?.[wordIndex];
+  const word = words[wordIndex];
   if (!word) {
     return 0;
   }
 
-  const endMs = word.endMs ?? line.words?.[wordIndex + 1]?.startMs ?? word.startMs;
+  const endMs = getWordEndMs(words, wordIndex, fallbackLineEndMs);
   if (endMs <= word.startMs) {
     return adjustedPositionMs >= word.startMs ? 1 : 0;
   }
@@ -197,6 +273,12 @@ const calculateActiveIndex = (
       ? getEstimatedPlainLyricIndex(lines, positionMs, durationMs)
       : -1;
 
+type ActiveWordElementCache = {
+  activeLine: HTMLButtonElement;
+  lineKey: string;
+  wordElements: HTMLElement[];
+};
+
 export const LyricsView = ({
   durationMs,
   hideEmptyState = false,
@@ -208,6 +290,7 @@ export const LyricsView = ({
   positionMs,
   positionUpdatedAtMs = getAnimationNow(),
   showRomanization = true,
+  preferKanaPronunciation = false,
   showTranslation = true,
   wordHighlightEnabled = true,
 }: LyricsViewProps): JSX.Element | null => {
@@ -218,9 +301,11 @@ export const LyricsView = ({
   const resizeFrameRef = useRef<number | null>(null);
   const wordAnimationFrameRef = useRef<number | null>(null);
   const activeIndexRef = useRef(-1);
-  const wordProgressRef = useRef<{ lineKey: string; wordIndex: number } | null>(null);
+  const wordElementCacheRef = useRef<ActiveWordElementCache | null>(null);
+  const wordProgressRef = useRef<{ lineKey: string; progressValue: string | null; wordIndex: number } | null>(null);
   const isSynced = lyrics.kind === 'synced';
   const isPlain = lyrics.kind === 'plain';
+  const canShowRomanization = showRomanization && shouldShowRomanizationForLyrics(lyrics.lines);
   const [activeIndex, setActiveIndex] = useState(() =>
     calculateActiveIndex(
       lyrics.lines,
@@ -248,6 +333,43 @@ export const LyricsView = ({
     }
   }, []);
 
+  const resetWordHighlightCache = useCallback((): void => {
+    wordElementCacheRef.current = null;
+    wordProgressRef.current = null;
+  }, []);
+
+  const getActiveWordElements = useCallback((
+    scrollContainer: HTMLElement,
+    lineKey: string,
+    wordCount: number,
+  ): HTMLElement[] | null => {
+    const cached = wordElementCacheRef.current;
+    if (
+      cached &&
+      cached.lineKey === lineKey &&
+      cached.wordElements.length === wordCount &&
+      cached.activeLine.isConnected &&
+      cached.activeLine.dataset.active === 'true'
+    ) {
+      return cached.wordElements;
+    }
+
+    const activeLine = scrollContainer.querySelector<HTMLButtonElement>('.lyrics-line[data-active="true"]');
+    if (!activeLine) {
+      wordElementCacheRef.current = null;
+      return null;
+    }
+
+    const wordElements = Array.from(activeLine.querySelectorAll<HTMLElement>('.lyrics-word'));
+    if (wordElements.length !== wordCount) {
+      wordElementCacheRef.current = null;
+      return null;
+    }
+
+    wordElementCacheRef.current = { activeLine, lineKey, wordElements };
+    return wordElements;
+  }, []);
+
   const syncActiveWordHighlight = useCallback((currentPositionMs: number): void => {
     if (!wordHighlightEnabled || prefersReducedMotion()) {
       return;
@@ -256,26 +378,26 @@ export const LyricsView = ({
     const scrollContainer = scrollRef.current;
     const currentIndex = activeIndexRef.current;
     const line = lyrics.lines[currentIndex];
-    const words = line?.words ?? [];
-    if (!scrollContainer || !line || words.length < 2) {
-      wordProgressRef.current = null;
+    const words = line ? getRenderableLyricWords(line) : null;
+    if (!scrollContainer || !line || !words) {
+      resetWordHighlightCache();
       return;
     }
 
-    const activeLine = scrollContainer.querySelector<HTMLButtonElement>('.lyrics-line[data-active="true"]');
-    const wordElements = activeLine?.querySelectorAll<HTMLElement>('.lyrics-word') ?? [];
-    if (!activeLine || wordElements.length !== words.length) {
+    const lineKey = `${line.timeMs}-${currentIndex}-${words.length}`;
+    const wordElements = getActiveWordElements(scrollContainer, lineKey, words.length);
+    if (!wordElements) {
       wordProgressRef.current = null;
       return;
     }
 
     const adjustedPositionMs = getLinePlaybackPositionMs(
-      line,
+      words,
       lyrics.lines[currentIndex + 1],
       currentPositionMs + lyrics.offsetMs,
     );
-    const wordIndex = getCurrentWordIndex(line, adjustedPositionMs);
-    const lineKey = `${line.timeMs}-${currentIndex}`;
+    const fallbackLineEndMs = lyrics.lines[currentIndex + 1]?.timeMs;
+    const wordIndex = getCurrentWordIndex(words, adjustedPositionMs, fallbackLineEndMs);
     const previous = wordProgressRef.current;
     const changedWord = !previous || previous.lineKey !== lineKey || previous.wordIndex !== wordIndex;
 
@@ -291,14 +413,18 @@ export const LyricsView = ({
         element.dataset.wordState = state;
         element.style.setProperty('--lyrics-word-progress', state === 'passed' ? '1' : '0');
       });
-      wordProgressRef.current = { lineKey, wordIndex };
+      wordProgressRef.current = { lineKey, progressValue: null, wordIndex };
     }
 
     if (wordIndex >= 0) {
       const currentWord = wordElements[wordIndex];
-      currentWord?.style.setProperty('--lyrics-word-progress', getWordProgress(line, wordIndex, adjustedPositionMs).toFixed(4));
+      const progressValue = getWordProgress(words, wordIndex, adjustedPositionMs, fallbackLineEndMs).toFixed(4);
+      if (wordProgressRef.current?.progressValue !== progressValue) {
+        currentWord?.style.setProperty('--lyrics-word-progress', progressValue);
+        wordProgressRef.current = { lineKey, progressValue, wordIndex };
+      }
     }
-  }, [lyrics.lines, lyrics.offsetMs, wordHighlightEnabled]);
+  }, [getActiveWordElements, lyrics.lines, lyrics.offsetMs, resetWordHighlightCache, wordHighlightEnabled]);
 
   const syncPlaybackPosition = useCallback((): void => {
     const currentPositionMs = getInterpolatedPositionMs({
@@ -319,7 +445,7 @@ export const LyricsView = ({
 
     if (activeIndexRef.current !== nextActiveIndex) {
       activeIndexRef.current = nextActiveIndex;
-      wordProgressRef.current = null;
+      resetWordHighlightCache();
       setActiveIndex(nextActiveIndex);
     } else {
       syncActiveWordHighlight(currentPositionMs);
@@ -334,6 +460,7 @@ export const LyricsView = ({
     playbackState,
     positionMs,
     positionUpdatedAtMs,
+    resetWordHighlightCache,
     syncActiveWordHighlight,
   ]);
 
@@ -594,7 +721,8 @@ export const LyricsView = ({
           key={`${line.timeMs}-${index}`}
           line={line}
           past={activeIndex >= 0 && index < activeIndex}
-          showRomanization={showRomanization}
+          showRomanization={canShowRomanization}
+          preferKanaPronunciation={preferKanaPronunciation}
           showTranslation={showTranslation}
           wordHighlightEnabled={wordHighlightEnabled && !prefersReducedMotion()}
           onSeek={onSeek}

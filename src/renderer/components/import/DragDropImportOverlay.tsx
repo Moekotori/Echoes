@@ -127,7 +127,7 @@ export const DragDropImportOverlay = ({ onNotice }: DragDropImportOverlayProps):
           <Upload size={38} />
           <Music size={32} />
         </div>
-        <strong>拖入音乐文件以导入曲库</strong>
+        <strong>拖入音乐或 osu! 谱面以导入曲库</strong>
         <span>文件会保存到下载文件夹并加入曲库</span>
       </div>
     </div>

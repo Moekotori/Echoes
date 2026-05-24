@@ -5,6 +5,8 @@ export type DesktopLyricsStylePatch = Partial<Pick<
   AppSettings,
   | 'desktopLyricsFontSizePx'
   | 'desktopLyricsScalePercent'
+  | 'desktopLyricsFontFamily'
+  | 'desktopLyricsFontFilePath'
   | 'desktopLyricsColor'
   | 'desktopLyricsStrokeColor'
   | 'desktopLyricsOpacityPercent'
@@ -20,6 +22,8 @@ export type DesktopLyricsState = {
     | 'desktopLyricsLocked'
     | 'desktopLyricsFontSizePx'
     | 'desktopLyricsScalePercent'
+    | 'desktopLyricsFontFamily'
+    | 'desktopLyricsFontFilePath'
     | 'desktopLyricsColor'
     | 'desktopLyricsStrokeColor'
     | 'desktopLyricsOpacityPercent'

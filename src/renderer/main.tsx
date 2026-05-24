@@ -59,11 +59,18 @@ const loadAppearanceFontFiles = (preferences: AppearancePreferences): void => {
   }
 };
 
-const loadLyricsFontFile = (settings: Partial<AppSettings>): void => {
+const loadLyricsFontFiles = (settings: Partial<AppSettings>): void => {
   if (settings.lyricsFontFilePath && appBridge) {
     void appBridge
       .loadFontFile(settings.lyricsFontFilePath)
       .then((fontFile) => registerAppearanceFontFile('lyrics', fontFile))
+      .catch(() => undefined);
+  }
+
+  if (settings.desktopLyricsFontFilePath && appBridge) {
+    void appBridge
+      .loadFontFile(settings.desktopLyricsFontFilePath)
+      .then((fontFile) => registerAppearanceFontFile('desktopLyrics', fontFile))
       .catch(() => undefined);
   }
 };
@@ -103,7 +110,7 @@ void loadPersistedAppearancePreferences()
     loadAppearanceFontFiles(preferences);
   })
   .catch(() => undefined);
-void appBridge?.getSettings().then(loadLyricsFontFile).catch(() => undefined);
+void appBridge?.getSettings().then(loadLyricsFontFiles).catch(() => undefined);
 
 const isDesktopLyricsWindow = new URLSearchParams(window.location.search).get('desktopLyrics') === '1';
 

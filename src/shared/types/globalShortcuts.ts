@@ -24,6 +24,9 @@ export type GlobalShortcutBinding = {
 };
 
 export type GlobalShortcutSettings = Record<GlobalShortcutAction, GlobalShortcutBinding>;
+export type LocalShortcutAction = GlobalShortcutAction;
+export type LocalShortcutBinding = GlobalShortcutBinding;
+export type LocalShortcutSettings = Record<LocalShortcutAction, LocalShortcutBinding>;
 
 export type GlobalShortcutValidationReason =
   | 'empty'
@@ -56,6 +59,24 @@ export const recommendedGlobalShortcuts: GlobalShortcutSettings = {
   openAudioSettings: { enabled: false, accelerator: 'Ctrl+Alt+A' },
   openMvSettings: { enabled: false, accelerator: 'Ctrl+Alt+M' },
   openLyricsSettings: { enabled: false, accelerator: 'Ctrl+Alt+L' },
+};
+
+export const recommendedLocalShortcuts: LocalShortcutSettings = {
+  playPause: { enabled: true, accelerator: 'Space' },
+  previousTrack: { enabled: false, accelerator: 'A' },
+  nextTrack: { enabled: false, accelerator: 'D' },
+  stop: { enabled: false, accelerator: 'S' },
+  volumeUp: { enabled: false, accelerator: 'Ctrl+Up' },
+  volumeDown: { enabled: false, accelerator: 'Ctrl+Down' },
+  seekBackward: { enabled: false, accelerator: 'Left' },
+  seekForward: { enabled: false, accelerator: 'Right' },
+  showMainWindow: { enabled: false, accelerator: null },
+  bossKey: { enabled: false, accelerator: null },
+  speedUp: { enabled: false, accelerator: 'Ctrl+=' },
+  speedDown: { enabled: false, accelerator: 'Ctrl+-' },
+  openAudioSettings: { enabled: false, accelerator: null },
+  openMvSettings: { enabled: false, accelerator: null },
+  openLyricsSettings: { enabled: false, accelerator: null },
 };
 
 const modifierAliases = new Map<string, string>([
@@ -218,6 +239,16 @@ export const isMouseButtonAccelerator = (accelerator: string | null | undefined)
 export const createDefaultGlobalShortcuts = (): GlobalShortcutSettings =>
   Object.fromEntries(globalShortcutActions.map((action) => [action, { enabled: false, accelerator: null }])) as GlobalShortcutSettings;
 
+export const createDefaultLocalShortcuts = (): LocalShortcutSettings =>
+  Object.fromEntries(
+    globalShortcutActions.map((action) => [
+      action,
+      {
+        ...recommendedLocalShortcuts[action],
+      },
+    ]),
+  ) as LocalShortcutSettings;
+
 export const createRecommendedGlobalShortcuts = (): GlobalShortcutSettings =>
   Object.fromEntries(
     globalShortcutActions.map((action) => [
@@ -227,3 +258,13 @@ export const createRecommendedGlobalShortcuts = (): GlobalShortcutSettings =>
       },
     ]),
   ) as GlobalShortcutSettings;
+
+export const createRecommendedLocalShortcuts = (): LocalShortcutSettings =>
+  Object.fromEntries(
+    globalShortcutActions.map((action) => [
+      action,
+      {
+        ...recommendedLocalShortcuts[action],
+      },
+    ]),
+  ) as LocalShortcutSettings;

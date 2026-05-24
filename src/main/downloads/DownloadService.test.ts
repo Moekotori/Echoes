@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zipSync } from 'fflate';
 import { DownloadService } from './DownloadService';
+import { createDownloadAuthorizationToken, protectedMusicDownloadBlockedMessage } from './DownloadAuthorization';
 
 const tempRoots: string[] = [];
 
@@ -20,6 +21,18 @@ const makeToolPath = (): string => {
   writeFileSync(toolPath, 'stub');
   return toolPath;
 };
+
+const makeDownloadAuthorizationToken = (
+  provider: 'netease' | 'qqmusic',
+  providerTrackId: string,
+  url: string,
+): string =>
+  createDownloadAuthorizationToken({
+    provider,
+    providerTrackId,
+    url,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }) ?? '';
 
 const osuCoverBytes = [255, 216, 255, 224, 1, 2, 3, 4];
 
@@ -293,7 +306,7 @@ describe('DownloadService', () => {
 
   it('falls through osu mirrors when official or Sayobot responses are unavailable', async () => {
     const outputDirectory = makeTempRoot();
-    const archiveBytes = makeOsuArchive('fallback.ogg', [5, 6, 7, 8]);
+    const archiveBytes = makeOsuArchive('fallback.mp3', [5, 6, 7, 8]);
     const fetchMock = vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
       const rawUrl = String(url);
       if (rawUrl.includes('osu.ppy.sh')) {
@@ -332,7 +345,7 @@ describe('DownloadService', () => {
       }),
     );
     expect(completedJob.status).toBe('completed');
-    expect(completedJob.outputPath).toMatch(/Artist - Song\.ogg$/u);
+    expect(completedJob.outputPath).toMatch(/Artist - Song\.mp3$/u);
     expect([...readFileSync(completedJob.outputPath!)]).toEqual([5, 6, 7, 8]);
   });
 
@@ -706,6 +719,14 @@ describe('DownloadService', () => {
     const ytDlpPath = makeToolPath();
     const outputDirectory = makeTempRoot();
     const outputPath = join(outputDirectory, 'Probe Song [probe].m4a');
+    const coverBytes = new Uint8Array([255, 216, 255, 224]);
+    const fetchRunner = vi.fn(async () => {
+      return new Response(coverBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    }) as unknown as typeof fetch;
+    const writeEmbeddedCoverArt = vi.fn(async () => undefined);
     const commandRunner = vi.fn(() => ({
       promise: Promise.resolve({
         stdout: JSON.stringify({
@@ -728,7 +749,12 @@ describe('DownloadService', () => {
         kill: vi.fn(),
       };
     });
-    const service = new DownloadService(commandRunner, () => ytDlpPath, { streamingCommandRunner });
+    const service = new DownloadService(commandRunner, () => ytDlpPath, {
+      streamingCommandRunner,
+      fetch: fetchRunner,
+      writeEmbeddedCoverArt,
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
+    });
     service.setSettings({ outputDirectory, importToLibrary: false });
 
     const job = service.createUrlJob('https://www.youtube.com/watch?v=probe', { importToLibrary: false });
@@ -743,6 +769,83 @@ describe('DownloadService', () => {
     expect(completedJob.thumbnailUrl).toBe('https://img.example/cover.jpg');
     expect(completedJob.status).toBe('completed');
     expect(completedJob.outputPath).toBe(outputPath);
+    expect(writeEmbeddedCoverArt).toHaveBeenCalledWith({
+      filePath: outputPath,
+      coverData: { data: coverBytes, mimeType: 'image/jpeg' },
+    });
+  });
+
+  it('uses the probed Bilibili thumbnail as the downloaded audio cover', async () => {
+    const ytDlpPath = makeToolPath();
+    const outputDirectory = makeTempRoot();
+    const outputPath = join(outputDirectory, 'Bilibili Song [bili].m4a');
+    const coverBytes = new Uint8Array([255, 216, 255, 224, 1, 2]);
+    const importAudioFile = vi.fn(async () => ({ id: 'track-bili' }));
+    const writeEmbeddedCoverArt = vi.fn(async () => undefined);
+    const writeEmbeddedTrackTags = vi.fn(async () => undefined);
+    const fetchRunner = vi.fn(async () => {
+      return new Response(coverBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    }) as unknown as typeof fetch;
+    const commandRunner = vi.fn(() => ({
+      promise: Promise.resolve({
+        stdout: JSON.stringify({
+          title: 'Bilibili Song',
+          duration: 188,
+          thumbnail: 'http://i0.hdslb.com/bfs/archive/cover.jpg',
+          webpage_url: 'https://www.bilibili.com/video/BV1ECHO',
+        }),
+        stderr: '',
+        exitCode: 0,
+      }),
+      kill: vi.fn(),
+    }));
+    const streamingCommandRunner = vi.fn((_command, _args, listeners) => {
+      writeFileSync(outputPath, 'audio');
+      listeners.onStdout?.(outputPath);
+      return {
+        promise: Promise.resolve({ stdout: outputPath, stderr: '', exitCode: 0 }),
+        kill: vi.fn(),
+      };
+    });
+    const service = new DownloadService(commandRunner, () => ytDlpPath, {
+      fetch: fetchRunner,
+      importAudioFile,
+      streamingCommandRunner,
+      writeEmbeddedCoverArt,
+      writeEmbeddedTrackTags,
+    });
+    service.setSettings({ outputDirectory, importToLibrary: true, bindMvAfterImport: false });
+
+    const job = service.createUrlJob('https://www.bilibili.com/video/BV1ECHO');
+    const completedJob = await waitForJob(service, job.id);
+    const expectedCoverUrl =
+      'echo-image://remote/https%3A%2F%2Fi0.hdslb.com%2Fbfs%2Farchive%2Fcover.jpg?referer=https%3A%2F%2Fwww.bilibili.com%2F';
+
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.thumbnailUrl).toBe(expectedCoverUrl);
+    expect(writeEmbeddedCoverArt).toHaveBeenCalledWith({
+      filePath: outputPath,
+      coverData: { data: coverBytes, mimeType: 'image/jpeg' },
+    });
+    expect(writeEmbeddedTrackTags).not.toHaveBeenCalled();
+    expect(fetchRunner).toHaveBeenCalledWith(
+      'https://i0.hdslb.com/bfs/archive/cover.jpg',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Referer: 'https://www.bilibili.com/',
+        }),
+      }),
+    );
+    expect(importAudioFile).toHaveBeenCalledWith(
+      outputPath,
+      expect.objectContaining({
+        folderPath: outputDirectory,
+        coverUrl: expectedCoverUrl,
+      }),
+    );
   });
 
   it('passes direct streaming headers to yt-dlp and keeps the suggested source metadata', async () => {
@@ -768,7 +871,10 @@ describe('DownloadService', () => {
         kill: vi.fn(),
       };
     });
-    const service = new DownloadService(commandRunner, () => ytDlpPath, { streamingCommandRunner });
+    const service = new DownloadService(commandRunner, () => ytDlpPath, {
+      streamingCommandRunner,
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
+    });
     service.setSettings({ outputDirectory, importToLibrary: false });
 
     const job = service.createUrlJob('https://cdn.example/audio.m4a?token=abc', {
@@ -779,6 +885,9 @@ describe('DownloadService', () => {
         Referer: 'https://music.163.com/',
         'User-Agent': 'ECHO Test',
       },
+      streamingProvider: 'netease',
+      streamingProviderTrackId: '123',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://cdn.example/audio.m4a?token=abc'),
     });
     const completedJob = await waitForJob(service, job.id);
     expect(commandRunner).toHaveBeenCalledWith(ytDlpPath, [
@@ -819,6 +928,7 @@ describe('DownloadService', () => {
     const service = new DownloadService(commandRunner, () => ytDlpPath, {
       fetch: fetchRunner,
       getAccountCredentials: (provider) => ({ provider }),
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
     });
     service.setSettings({ outputDirectory, importToLibrary: false });
 
@@ -832,6 +942,9 @@ describe('DownloadService', () => {
       directAudio: true,
       directAudioMimeType: 'audio/flac',
       directAudioExtension: 'flac',
+      streamingProvider: 'netease',
+      streamingProviderTrackId: '123',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://cdn.example/audio?token=abc'),
     });
     const completedJob = await waitForJob(service, job.id);
     expect(commandRunner).not.toHaveBeenCalled();
@@ -874,6 +987,7 @@ describe('DownloadService', () => {
       {
         fetch: fetchRunner,
         importAudioFile,
+        linkDownloadedStreamingTrack: vi.fn(),
         getAccountCredentials: (provider) => ({ provider }),
         writeEmbeddedTrackTags: vi.fn(async () => undefined),
       },
@@ -887,6 +1001,9 @@ describe('DownloadService', () => {
       directAudio: true,
       directAudioMimeType: 'audio/mpeg',
       directAudioExtension: 'mp3',
+      streamingProvider: 'netease',
+      streamingProviderTrackId: 'playlist-track',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', 'playlist-track', 'https://m801.music.126.net/audio.mp3'),
     });
     const completedJob = await waitForJob(service, job.id);
     const playlistFolder = join(outputDirectory, 'Daily Mix 01');
@@ -970,6 +1087,7 @@ describe('DownloadService', () => {
               streamingProvider: null,
               streamingProviderTrackId: null,
               streamingStableKey: null,
+              downloadAuthorizationToken: null,
             },
           },
         }),
@@ -1042,6 +1160,41 @@ describe('DownloadService', () => {
     expect(saveJobs).toHaveBeenCalled();
   });
 
+  it('rejects protected music direct downloads without matching playback authorization', () => {
+    const outputDirectory = makeTempRoot();
+    const service = new DownloadService();
+    service.setSettings({ outputDirectory, importToLibrary: false });
+
+    expect(() =>
+      service.createUrlJob('https://m801.music.126.net/audio.mp3', {
+        directAudio: true,
+        directAudioMimeType: 'audio/mpeg',
+        streamingProvider: 'netease',
+        streamingProviderTrackId: '123',
+      }),
+    ).toThrow(protectedMusicDownloadBlockedMessage);
+
+    expect(service.getJobs()).toEqual([]);
+  });
+
+  it('rejects protected music direct downloads when the authorization belongs to another URL', () => {
+    const outputDirectory = makeTempRoot();
+    const service = new DownloadService();
+    service.setSettings({ outputDirectory, importToLibrary: false });
+
+    expect(() =>
+      service.createUrlJob('https://m801.music.126.net/other.mp3', {
+        directAudio: true,
+        directAudioMimeType: 'audio/mpeg',
+        streamingProvider: 'netease',
+        streamingProviderTrackId: '123',
+        downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://m801.music.126.net/audio.mp3'),
+      }),
+    ).toThrow(protectedMusicDownloadBlockedMessage);
+
+    expect(service.getJobs()).toEqual([]);
+  });
+
   it('adds provider auth headers to direct NetEase audio downloads in the main process', async () => {
     const ytDlpPath = makeToolPath();
     const outputDirectory = makeTempRoot();
@@ -1075,6 +1228,9 @@ describe('DownloadService', () => {
       directAudio: true,
       directAudioMimeType: 'audio/mpeg',
       directAudioExtension: 'mp3',
+      streamingProvider: 'netease',
+      streamingProviderTrackId: '123',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://m801.music.126.net/audio.mp3'),
     });
     const completedJob = await waitForJob(service, job.id);
 
@@ -1090,6 +1246,51 @@ describe('DownloadService', () => {
       }),
     );
     expect(completedJob.status).toBe('completed');
+  });
+
+  it('allows protected QQ Music direct downloads when playback authorization matches', async () => {
+    const ytDlpPath = makeToolPath();
+    const outputDirectory = makeTempRoot();
+    const sourceUrl = 'https://isure.stream.qqmusic.qq.com/song.flac';
+    const fetchRunner = vi.fn(async () => {
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
+        status: 200,
+        headers: {
+          'content-length': '4',
+          'content-type': 'audio/flac',
+        },
+      });
+    });
+    const service = new DownloadService(
+      vi.fn(() => ({
+        promise: Promise.resolve({ stdout: '', stderr: 'should not run', exitCode: 1 }),
+        kill: vi.fn(),
+      })),
+      () => ytDlpPath,
+      {
+        fetch: fetchRunner,
+        getAccountCredentials: (provider) => ({ provider }),
+        writeEmbeddedTrackTags: vi.fn(async () => undefined),
+      },
+    );
+    service.setSettings({ outputDirectory, importToLibrary: false });
+
+    const job = service.createUrlJob(sourceUrl, {
+      importToLibrary: false,
+      title: 'VIP QQ Song',
+      directAudio: true,
+      directAudioMimeType: 'audio/flac',
+      directAudioExtension: 'flac',
+      streamingProvider: 'qqmusic',
+      streamingProviderTrackId: 'song-mid',
+      streamingStableKey: 'streaming:qqmusic:song-mid',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('qqmusic', 'song-mid', sourceUrl),
+    });
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(fetchRunner).toHaveBeenCalledWith(sourceUrl, expect.any(Object));
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.outputPath).toMatch(/VIP QQ Song\.flac$/u);
   });
 
   it('does not bind MV links for imported direct streaming audio', async () => {
@@ -1117,6 +1318,7 @@ describe('DownloadService', () => {
           });
         }) as unknown as typeof fetch,
         importAudioFile,
+        linkDownloadedStreamingTrack: vi.fn(),
         getAccountCredentials: (provider) => ({ provider }),
         writeEmbeddedTrackTags,
       },
@@ -1134,6 +1336,9 @@ describe('DownloadService', () => {
       directAudio: true,
       directAudioMimeType: 'audio/mpeg',
       directAudioExtension: 'mp3',
+      streamingProvider: 'netease',
+      streamingProviderTrackId: '123',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://m801.music.126.net/audio.mp3'),
     });
     const completedJob = await waitForJob(service, job.id);
 
@@ -1209,6 +1414,7 @@ describe('DownloadService', () => {
       streamingProvider: 'netease',
       streamingProviderTrackId: '123',
       streamingStableKey: 'streaming:netease:123',
+      downloadAuthorizationToken: makeDownloadAuthorizationToken('netease', '123', 'https://m801.music.126.net/audio.mp3'),
     });
     const completedJob = await waitForJob(service, job.id);
 

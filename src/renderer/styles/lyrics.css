@@ -1718,9 +1718,10 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
   transform-origin: center 72%;
   transition:
     color 140ms ease,
-    filter 180ms ease,
+    filter 160ms ease,
     opacity 180ms ease;
-  will-change: opacity;
+  contain: paint;
+  will-change: opacity, filter;
 }
 
 .lyrics-line[data-active="true"][data-word-highlight="true"] .lyrics-word {
@@ -1734,14 +1735,13 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  opacity: 0.78;
+  opacity: 0.84;
 }
 
 .lyrics-line[data-active="true"][data-word-highlight="true"] .lyrics-word[data-word-state="current"] {
   --lyrics-word-upcoming-color: color-mix(in srgb, var(--lyrics-readable-color) var(--lyrics-current-word-clarity, 70%), transparent);
   filter:
-    drop-shadow(0 0 0.16em color-mix(in srgb, var(--lyrics-word-glow-color) 70%, transparent))
-    drop-shadow(0 0.06em 0.22em color-mix(in srgb, var(--lyrics-word-glow-color) 54%, transparent));
+    drop-shadow(0 0.04em 0.12em color-mix(in srgb, var(--lyrics-word-glow-color) 42%, transparent));
   opacity: 1;
 }
 

@@ -1,6 +1,7 @@
 import type { AudioStatus } from '../../../shared/types/audio';
 import { isDisplayableBpmAnalysis } from '../../../shared/constants/audioAnalysis';
 import type { LibraryTrack } from '../../../shared/types/library';
+import { isHiResAudioSpec } from '../../../shared/utils/audioQuality';
 
 type PlayerStatusChipsProps = {
   status: AudioStatus | null;
@@ -73,20 +74,22 @@ const uniqueChips = (chips: Chip[]): Chip[] => {
 };
 
 const isHiResSource = ({
-  bitrate,
   bitDepth,
+  codec,
   sampleRate,
   track,
 }: {
-  bitrate: number | null;
   bitDepth: number | null;
+  codec: string | null;
   sampleRate: number | null;
   track: LibraryTrack | null;
 }): boolean =>
-  track?.streamingQuality === 'hires' ||
-  Boolean(bitDepth && bitDepth >= 24) ||
-  Boolean(sampleRate && sampleRate >= 88200) ||
-  Boolean(bitrate && bitrate >= 900000);
+  isHiResAudioSpec({
+    bitDepth,
+    codec,
+    sampleRate,
+    streamingQuality: track?.streamingQuality,
+  });
 
 const isDlnaReceiverTrack = (track: LibraryTrack | null): boolean =>
   Boolean(
@@ -120,7 +123,7 @@ export const PlayerStatusChips = ({ status, state, track }: PlayerStatusChipsPro
     isAirPlayReceiverTrack(track) ? { label: 'AIRPLAY', className: 'tag-airplay' } : null,
     track?.mediaType === 'streaming' ? { label: '流媒体', className: 'tag-streaming' } : null,
     codec ? { label: codec, className: codecClassName(codec) } : null,
-    isHiResSource({ bitrate, bitDepth, sampleRate, track }) ? { label: 'Hi-Res', className: 'tag-hires' } : null,
+    isHiResSource({ bitDepth, codec, sampleRate, track }) ? { label: 'Hi-Res', className: 'tag-hires' } : null,
     bitDepth && formattedRate ? { label: `${bitDepth}bit / ${formattedRate}`, className: 'tag-depth' } : null,
     !bitDepth && formattedRate ? { label: formattedRate, className: 'tag-depth' } : null,
     bitrate ? { label: `${Math.round(bitrate / 1000)}kbps`, className: 'tag-bitrate' } : null,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Copy, Headphones, Redo2, RotateCcw, Save, ShieldCheck, Shuffle, SlidersHorizontal, Trash2, Undo2 } from 'lucide-react';
+import { Activity, AudioWaveform, Copy, Gauge, Headphones, RadioTower, Redo2, RotateCcw, Save, ShieldCheck, Shuffle, SlidersHorizontal, Trash2, Undo2, Waves } from 'lucide-react';
 import type { AudioStatus, ChannelBalanceMonoMode, ChannelBalanceState } from '../../../shared/types/audio';
 import {
   channelBalanceMaxGainDb,
@@ -134,6 +134,10 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
   const estimatedPeakGainDb = computeEstimatedPeakGain(state);
   const canAutoPreamp = Math.abs(state.preampDb - recommendedPreampDb) > 0.05;
   const selectedBand = state.bands[selectedBandIndex] ?? state.bands[0];
+  const selectedBandFilterType = selectedBand?.filterType ?? 'peaking';
+  const selectedBandEnabled = selectedBand?.enabled !== false;
+  const activeBandCount = state.bands.filter((band) => band.enabled !== false).length;
+  const selectedBandMode = frequencyEditUnlocked ? t('settings.eq.band.modeFree') : t('settings.eq.band.modeStandard');
   const selectedPresetMetadata = describePreset(state.presetId);
   const needsSafePreamp = estimatedPeakGainDb > 0 || clippingRisk;
   const currentOutputTarget: EqProfileBindingTarget = {
@@ -969,7 +973,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
       <header className="eq-header">
         <div className="eq-title-block">
           <span className="eq-title-icon">
-            <SlidersHorizontal size={18} />
+            <AudioWaveform size={18} />
           </span>
           <div>
             <h2>{t('settings.eq.title')}</h2>
@@ -1002,6 +1006,41 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         </div>
       </header>
 
+      <div className="eq-signal-strip" aria-label={t('settings.eq.signal.title')}>
+        <div className="eq-signal-heading">
+          <Activity size={16} aria-hidden="true" />
+          <span>{t('settings.eq.signal.title')}</span>
+          <strong>{dspActive ? t('settings.eq.signal.dspActive') : t('settings.eq.signal.bitPerfectOutput')}</strong>
+        </div>
+        <div className="eq-signal-chain">
+          <span className="eq-signal-node" data-active="true">
+            <RadioTower size={14} aria-hidden="true" />
+            <em>{t('settings.eq.signal.input')}</em>
+            <strong>{formatLevelDb(audioLevels?.inputPeakDb)}</strong>
+          </span>
+          <span className="eq-signal-node" data-active={state.preampDb !== 0}>
+            <Gauge size={14} aria-hidden="true" />
+            <em>{t('settings.eq.signal.preamp')}</em>
+            <strong>{formatDb(state.preampDb)}</strong>
+          </span>
+          <span className="eq-signal-node" data-active={state.enabled}>
+            <SlidersHorizontal size={14} aria-hidden="true" />
+            <em>{t('settings.eq.signal.peq')}</em>
+            <strong>{state.enabled ? `${activeBandCount}/${state.bands.length}` : t('settings.eq.channel.bypassed')}</strong>
+          </span>
+          <span className="eq-signal-node" data-active={state.enabled || channelBalance.enabled} data-risk={clippingRisk}>
+            <ShieldCheck size={14} aria-hidden="true" />
+            <em>{t('settings.eq.signal.limiter')}</em>
+            <strong>{clippingRisk ? t('settings.eq.signal.protecting') : t('settings.eq.signal.armed')}</strong>
+          </span>
+          <span className="eq-signal-node" data-active={dspActive}>
+            <Waves size={14} aria-hidden="true" />
+            <em>{t('settings.eq.signal.output')}</em>
+            <strong>{dspActive ? t('settings.eq.signal.dspOutput') : t('settings.eq.status.bitPerfect')}</strong>
+          </span>
+        </div>
+      </div>
+
       <div className="eq-status-cards">
         <div className="eq-status-card">
           <span>{t('settings.eq.status.eq')}</span>
@@ -1014,6 +1053,10 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         <div className="eq-status-card">
           <span>{t('settings.eq.status.estimatedPeak')}</span>
           <strong>{formatDb(estimatedPeakGainDb)}</strong>
+        </div>
+        <div className="eq-status-card">
+          <span>{t('settings.eq.status.processor')}</span>
+          <strong>{t('settings.eq.status.realtimeIir')}</strong>
         </div>
         <div className="eq-status-card" data-risk={clippingRisk}>
           <span>{clippingRisk ? t('settings.eq.status.clippingRisk') : t('settings.eq.status.headroom')}</span>
@@ -1096,6 +1139,41 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
             onBandFrequencyChange={handleBandFrequencyChange}
             onBandFrequencyCommit={handleBandFrequencyCommit}
           />
+          <div className="eq-band-console" aria-label={t('settings.eq.band.console')} data-bypassed={!selectedBandEnabled}>
+            <div className="eq-band-console-heading">
+              <span>
+                <Waves size={15} aria-hidden="true" />
+                {t('settings.eq.band.console')}
+              </span>
+              <strong>{selectedBand ? `${selectedBandIndex + 1} / ${formatFrequencyLabel(selectedBand.frequencyHz)}` : t('settings.eq.band.fallback')}</strong>
+            </div>
+            <div className="eq-band-console-grid">
+              <span>
+                <em>{t('settings.eq.band.filterType')}</em>
+                <strong>{t(eqFilterLabelKeys[selectedBandFilterType])}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.band.frequency')}</em>
+                <strong>{selectedBand ? formatFrequencyLabel(selectedBand.frequencyHz) : '--'}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.band.gain')}</em>
+                <strong>{formatDb(selectedBand?.gainDb ?? 0)}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.band.q')}</em>
+                <strong>{(selectedBand?.q ?? 1).toFixed(1)}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.channel.dsp')}</em>
+                <strong>{selectedBandEnabled ? t('settings.eq.band.enabled') : t('settings.eq.band.bypassed')}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.curve.snapped')}</em>
+                <strong>{selectedBandMode}</strong>
+              </span>
+            </div>
+          </div>
           {showAdvancedTools ? (
             <div className="eq-advanced-grid">
               <section className="eq-advanced-section eq-inspector" aria-label={t('settings.eq.band.inspector')}>
@@ -1259,6 +1337,10 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
             </div>
           ) : null}
           <div className="eq-band-strip" aria-label={t('settings.eq.band.readoutsAria')}>
+            <div className="eq-band-strip-heading">
+              <span>{t('settings.eq.band.matrix')}</span>
+              <strong>{`${activeBandCount}/${state.bands.length} ${t('settings.eq.band.enabledShort')}`}</strong>
+            </div>
             <div className="eq-band-list">
               {state.bands.map((band, index) => (
                 <button
@@ -1270,8 +1352,11 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
                   onClick={() => setSelectedBandIndex(index)}
                   onDoubleClick={() => handleBandCommit(index, 0)}
                 >
-                  <span>{formatFrequencyLabel(band.frequencyHz)}</span>
+                  <span className="eq-band-chip-index">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="eq-band-chip-type">{t(eqFilterLabelKeys[band.filterType ?? 'peaking'])}</span>
+                  <span className="eq-band-chip-frequency">{formatFrequencyLabel(band.frequencyHz)}</span>
                   <strong>{band.enabled === false ? t('settings.eq.band.bypassed') : formatDb(band.gainDb)}</strong>
+                  <span className="eq-band-chip-q">{`Q ${Number(band.q ?? 1).toFixed(1)}`}</span>
                 </button>
               ))}
             </div>

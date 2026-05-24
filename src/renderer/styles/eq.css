@@ -7,6 +7,10 @@
 .eq-header,
 .eq-title-block,
 .eq-header-actions,
+.eq-signal-strip,
+.eq-signal-heading,
+.eq-signal-chain,
+.eq-signal-node,
 .eq-status-cards,
 .eq-compare-row,
 .eq-compare-heading,
@@ -35,6 +39,8 @@
 .eq-compare-toggle,
 .eq-ab-slot-header,
 .eq-ab-slot-actions,
+.eq-band-console-heading,
+.eq-band-strip-heading,
 .channel-tool-group header,
 .channel-tool-group label,
 .channel-calibration-readout {
@@ -83,6 +89,94 @@
   color: var(--color-muted, var(--theme-legacy-muted-text));
   font-size: 12px;
   font-weight: 720;
+}
+
+.eq-signal-strip {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid rgba(28, 47, 67, 0.1);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(241, 246, 249, 0.62)),
+    rgba(247, 250, 252, 0.76);
+}
+
+.eq-signal-heading {
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 9px;
+  color: var(--theme-legacy-heading-text);
+  border: 1px solid rgba(28, 47, 67, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.eq-signal-heading span {
+  color: var(--theme-legacy-muted-text);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.eq-signal-heading strong {
+  color: var(--theme-legacy-heading-text);
+  font-size: 12px;
+  font-weight: 930;
+  white-space: nowrap;
+}
+
+.eq-signal-chain {
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.eq-signal-node {
+  gap: 6px;
+  flex: 1 1 132px;
+  min-height: 32px;
+  padding: 0 9px;
+  color: #4b5d70;
+  border: 1px solid rgba(28, 47, 67, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.eq-signal-node[data-active="true"] {
+  color: var(--theme-legacy-accent-text);
+  border-color: rgba(31, 93, 102, 0.18);
+  background: rgba(232, 244, 243, 0.58);
+}
+
+.eq-signal-node[data-risk="true"] {
+  color: #9a5528;
+  border-color: rgba(189, 93, 45, 0.24);
+  background: rgba(255, 245, 237, 0.78);
+}
+
+.eq-signal-node em {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.eq-signal-node strong {
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--theme-legacy-heading-text);
+  font-size: 12px;
+  font-weight: 920;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .eq-header-actions,
@@ -542,6 +636,81 @@
   touch-action: none;
 }
 
+.eq-band-console {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(28, 47, 67, 0.08);
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.eq-band-console[data-bypassed="true"] {
+  background: rgba(248, 250, 252, 0.5);
+}
+
+.eq-band-console-heading {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.eq-band-console-heading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--theme-legacy-muted-text);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.eq-band-console-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-legacy-heading-text);
+  font-size: 13px;
+  font-weight: 930;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eq-band-console-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(86px, 1fr));
+  gap: 7px;
+  min-width: 0;
+}
+
+.eq-band-console-grid span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(28, 47, 67, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.66);
+}
+
+.eq-band-console-grid em {
+  overflow: hidden;
+  color: var(--theme-legacy-muted-text);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.eq-band-console-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-legacy-heading-text);
+  font-size: 13px;
+  font-weight: 920;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .eq-grid-line {
   stroke: rgba(52, 66, 82, 0.1);
   stroke-width: 1;
@@ -746,9 +915,29 @@
   background: rgba(255, 255, 255, 0.32);
 }
 
+.eq-band-strip-heading {
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.eq-band-strip-heading span {
+  color: var(--theme-legacy-muted-text);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.eq-band-strip-heading strong {
+  color: var(--theme-legacy-heading-text);
+  font-size: 12px;
+  font-weight: 930;
+  white-space: nowrap;
+}
+
 .eq-band-list {
   display: grid;
-  grid-template-columns: repeat(10, minmax(54px, 1fr));
+  grid-template-columns: repeat(5, minmax(116px, 1fr));
   gap: 7px;
   min-width: 0;
 }
@@ -761,11 +950,14 @@
 
 .eq-band-chip {
   display: grid;
+  grid-template-columns: auto 1fr auto;
   align-content: center;
-  justify-items: center;
-  gap: 2px;
+  align-items: center;
+  gap: 2px 6px;
   min-width: 0;
-  padding: 6px 5px;
+  min-height: 58px;
+  padding: 7px 8px;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -787,14 +979,46 @@
 
 .eq-band-chip span {
   color: #334457;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
 }
 
 .eq-band-chip strong {
   color: var(--theme-legacy-muted-text);
-  font-size: 10px;
-  font-weight: 820;
+  font-size: 12px;
+  font-weight: 900;
+  justify-self: end;
+}
+
+.eq-band-chip-index {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--theme-legacy-accent-text) !important;
+  border: 1px solid rgba(31, 93, 102, 0.16);
+  border-radius: 999px;
+  background: rgba(232, 244, 243, 0.66);
+  grid-row: span 2;
+}
+
+.eq-band-chip-type,
+.eq-band-chip-q {
+  overflow: hidden;
+  color: var(--theme-legacy-muted-text) !important;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.eq-band-chip-frequency {
+  color: var(--theme-legacy-heading-text) !important;
+  font-size: 13px !important;
+}
+
+.eq-band-chip-q {
+  justify-self: end;
+  font-size: 9px !important;
 }
 
 .eq-compare-row {
@@ -1426,6 +1650,9 @@
 .app-shell--wallpaper .eq-preset-filter,
 .app-shell--wallpaper .eq-preset-trigger,
 .app-shell--wallpaper .eq-preset-menu,
+.app-shell--wallpaper .eq-signal-strip,
+.app-shell--wallpaper .eq-signal-heading,
+.app-shell--wallpaper .eq-signal-node,
 .app-shell--wallpaper .eq-status-cards,
 .app-shell--wallpaper .eq-status-card,
 .app-shell--wallpaper .eq-preset-metadata,
@@ -1433,6 +1660,8 @@
 .app-shell--wallpaper .eq-preamp-bar,
 .app-shell--wallpaper .eq-level-meter,
 .app-shell--wallpaper .eq-curve-shell,
+.app-shell--wallpaper .eq-band-console,
+.app-shell--wallpaper .eq-band-console-grid span,
 .app-shell--wallpaper .eq-advanced-grid,
 .app-shell--wallpaper .eq-advanced-section,
 .app-shell--wallpaper .eq-inspector,
@@ -1480,6 +1709,7 @@
 
 .app-shell--wallpaper .eq-preset-filter-chip[data-active="true"],
 .app-shell--wallpaper .eq-preset-option[data-selected="true"],
+.app-shell--wallpaper .eq-signal-node[data-active="true"],
 .app-shell--wallpaper .eq-status-card[data-active="true"],
 .app-shell--wallpaper .eq-preset-metadata strong,
 .app-shell--wallpaper .eq-band-chip[data-selected="true"],
@@ -1489,6 +1719,7 @@
 }
 
 .app-shell--wallpaper .eq-status-card[data-risk="true"],
+.app-shell--wallpaper .eq-signal-node[data-risk="true"],
 .app-shell--wallpaper .eq-level-meter[data-risk="true"],
 .app-shell--wallpaper .eq-soft-button[data-risk="true"] {
   border-color: rgb(189 93 45 / var(--app-wallpaper-ui-border-alpha));
@@ -1515,6 +1746,11 @@
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-preset-trigger,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-preset-menu,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-preset-option[data-selected="true"],
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-signal-strip,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-signal-heading,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-signal-node,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-signal-node[data-active="true"],
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-signal-node[data-risk="true"],
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-status-cards,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-status-card,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-status-card[data-risk="true"],
@@ -1526,6 +1762,8 @@
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-level-meter,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-level-meter[data-risk="true"],
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-curve-shell,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-band-console,
+.app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-band-console-grid span,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-advanced-grid,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-advanced-section,
 .app-shell--wallpaper[data-wallpaper-unified-opacity="true"] .eq-inspector,
@@ -1581,6 +1819,9 @@ html[data-theme="dark"] .eq-preset-search,
 html[data-theme="dark"] .eq-preset-filter,
 html[data-theme="dark"] .eq-preset-trigger,
 html[data-theme="dark"] .eq-preset-menu,
+html[data-theme="dark"] .eq-signal-strip,
+html[data-theme="dark"] .eq-signal-heading,
+html[data-theme="dark"] .eq-signal-node,
 html[data-theme="dark"] .eq-status-cards,
 html[data-theme="dark"] .eq-status-card,
 html[data-theme="dark"] .eq-preset-metadata,
@@ -1588,6 +1829,8 @@ html[data-theme="dark"] .eq-workbench,
 html[data-theme="dark"] .eq-preamp-bar,
 html[data-theme="dark"] .eq-level-meter,
 html[data-theme="dark"] .eq-curve-shell,
+html[data-theme="dark"] .eq-band-console,
+html[data-theme="dark"] .eq-band-console-grid span,
 html[data-theme="dark"] .eq-advanced-grid,
 html[data-theme="dark"] .eq-advanced-section,
 html[data-theme="dark"] .eq-inspector,
@@ -1651,6 +1894,7 @@ html[data-theme="dark"] .eq-preset-tools input,
 html[data-theme="dark"] .eq-preset-tools button,
 html[data-theme="dark"] .eq-soft-button,
 html[data-theme="dark"] .eq-band-chip,
+html[data-theme="dark"] .eq-signal-node,
 html[data-theme="dark"] .eq-inspector input[type="number"],
 html[data-theme="dark"] .eq-inspector select,
 html[data-theme="dark"] .eq-profile-row input,
@@ -1668,8 +1912,12 @@ html[data-theme="dark"] .eq-preset-save-field span,
 html[data-theme="dark"] .eq-preset-menu-heading,
 html[data-theme="dark"] .eq-preset-metadata p,
 html[data-theme="dark"] .eq-preset-metadata em,
+html[data-theme="dark"] .eq-signal-heading span,
+html[data-theme="dark"] .eq-signal-node em,
 html[data-theme="dark"] .eq-level-meter em,
 html[data-theme="dark"] .eq-level-meter p,
+html[data-theme="dark"] .eq-band-console-heading span,
+html[data-theme="dark"] .eq-band-console-grid em,
 html[data-theme="dark"] .eq-inspector-title span,
 html[data-theme="dark"] .eq-section-heading span,
 html[data-theme="dark"] .eq-inspector label span,
@@ -1679,6 +1927,7 @@ html[data-theme="dark"] .eq-compare-row span,
 html[data-theme="dark"] .eq-compare-heading p,
 html[data-theme="dark"] .eq-compare-toggle,
 html[data-theme="dark"] .eq-ab-summary,
+html[data-theme="dark"] .eq-band-strip-heading span,
 html[data-theme="dark"] .channel-balance-status-strip em,
 html[data-theme="dark"] .channel-tool-group header span,
 html[data-theme="dark"] .channel-tool-group label > span,
@@ -1695,6 +1944,11 @@ html[data-theme="dark"] .channel-balance-header h3,
 html[data-theme="dark"] .eq-status-card strong,
 html[data-theme="dark"] .eq-preamp-bar strong,
 html[data-theme="dark"] .eq-preset-metadata span,
+html[data-theme="dark"] .eq-signal-heading strong,
+html[data-theme="dark"] .eq-signal-node strong,
+html[data-theme="dark"] .eq-band-console-heading strong,
+html[data-theme="dark"] .eq-band-console-grid strong,
+html[data-theme="dark"] .eq-band-strip-heading strong,
 html[data-theme="dark"] .eq-inspector-title strong,
 html[data-theme="dark"] .eq-section-heading strong,
 html[data-theme="dark"] .eq-ab-slot-header strong,
@@ -1718,6 +1972,7 @@ html[data-theme="dark"] .eq-enable-pill input::before {
 
 html[data-theme="dark"] .eq-preset-filter-chip[data-active="true"],
 html[data-theme="dark"] .eq-preset-option[data-selected="true"],
+html[data-theme="dark"] .eq-signal-node[data-active="true"],
 html[data-theme="dark"] .eq-status-card[data-active="true"],
 html[data-theme="dark"] .eq-preset-metadata strong,
 html[data-theme="dark"] .eq-band-chip[data-selected="true"],
@@ -1741,6 +1996,7 @@ html[data-theme="dark"] .eq-preset-option:hover {
 }
 
 html[data-theme="dark"] .eq-status-card[data-risk="true"],
+html[data-theme="dark"] .eq-signal-node[data-risk="true"],
 html[data-theme="dark"] .eq-level-meter[data-risk="true"],
 html[data-theme="dark"] .channel-balance-status-strip[data-risk="true"] span:last-child,
 html[data-theme="dark"] .eq-soft-button[data-risk="true"] {
@@ -1819,6 +2075,7 @@ html[data-theme="dark"] .eq-panel-error {
 
 @media (max-width: 1040px) {
   .eq-header,
+  .eq-signal-strip,
   .channel-balance-header {
     align-items: flex-start;
     flex-direction: column;
@@ -1849,19 +2106,46 @@ html[data-theme="dark"] .eq-panel-error {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .eq-signal-chain {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .eq-signal-heading {
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .eq-band-console-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .eq-level-meter {
     min-width: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .eq-band-list {
-    grid-template-columns: repeat(5, minmax(58px, 1fr));
+    grid-template-columns: repeat(2, minmax(116px, 1fr));
   }
 }
 
 @media (max-width: 680px) {
   .eq-status-card {
     flex-basis: calc(50% - 6px);
+  }
+
+  .eq-signal-chain {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .eq-signal-node {
+    min-width: 0;
+  }
+
+  .eq-signal-node:last-child {
+    grid-column: 1 / -1;
   }
 
   .channel-balance-status-strip span {
@@ -1881,7 +2165,11 @@ html[data-theme="dark"] .eq-panel-error {
     grid-template-columns: 1fr;
   }
 
+  .eq-band-console-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .eq-band-list {
-    grid-template-columns: repeat(2, minmax(58px, 1fr));
+    grid-template-columns: 1fr;
   }
 }

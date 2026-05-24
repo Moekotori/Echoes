@@ -74,6 +74,32 @@ const appSettingsMock = vi.hoisted(() => ({
     networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
   },
 }));
+const osuArchiveImportMock = vi.hoisted(() => ({
+  importOsuArchiveAsMp3Queued: vi.fn(async (request: { outputDirectory: string }) => ({
+    outputPath: `${request.outputDirectory}\\Artist - Song.mp3`,
+    metadata: {
+      audioFilename: 'audio.mp3',
+      coverFilename: 'bg.jpg',
+      title: 'Song',
+      artist: 'Artist',
+      creator: 'Mapper',
+      version: 'Hard',
+      beatmapSetId: '2492872',
+    },
+    coverData: null,
+    tags: {
+      title: 'Song',
+      artist: 'Artist',
+      album: 'osu! beatmapset 2492872',
+      albumArtist: 'Artist',
+      trackNo: null,
+      discNo: null,
+      year: null,
+      genre: null,
+    },
+  })),
+  isOsuArchivePath: (path: string) => path.toLowerCase().endsWith('.osz'),
+}));
 
 vi.mock('electron', () => ({
   app: {
@@ -107,6 +133,8 @@ vi.mock('../library/LibraryService', () => ({
   getLibraryService: getLibraryServiceMock,
   closeDefaultLibraryService: closeDatabaseUserMocks.library,
 }));
+
+vi.mock('../library/OsuArchiveImport', () => osuArchiveImportMock);
 
 vi.mock('../library/remote/RemoteSourceService', () => ({
   closeDefaultRemoteSourceService: closeDatabaseUserMocks.remote,
@@ -492,6 +520,7 @@ const installLibraryService = () => {
     clearCache: vi.fn(() => ({ scannedCount: 1, removedCount: 1, deletedCoverCacheFiles: 2, freedCoverCacheBytes: 128 })),
     hasRunningJobs: vi.fn(() => false),
     updateTrackTags: vi.fn(),
+    searchNetworkTagCandidates: vi.fn(async () => []),
     recordTrackPlayback: vi.fn(),
     deleteTrack: vi.fn(),
     resolveLyricsBackgroundCover: vi.fn(async () => ({
@@ -540,6 +569,7 @@ describe('library IPC', () => {
     databaseManagerMock.getState.mockClear();
     databaseManagerMock.runExclusiveMaintenance.mockClear();
     databaseManagerMock.runExclusiveMaintenance.mockImplementation((_reason: string, action: () => unknown) => Promise.resolve().then(action));
+    osuArchiveImportMock.importOsuArchiveAsMp3Queued.mockClear();
     const { app } = await import('electron');
     vi.mocked(app.getPath).mockImplementation((name: string) => (name === 'downloads' ? 'D:\\Downloads' : 'D:\\UserData'));
     appSettingsMock.current = {
@@ -565,6 +595,32 @@ describe('library IPC', () => {
     const result = await handlers[IpcChannels.LibraryChooseFolder]!();
 
     expect(result).toBe('D:\\Music');
+  });
+
+  it('chooses audio and osu archive files for import', async () => {
+    showOpenDialogMock.mockResolvedValue({ canceled: false, filePaths: ['D:\\Music\\song.mp3', 'D:\\Maps\\beatmap.osz'] });
+
+    const result = await handlers[IpcChannels.LibraryChooseImportFiles]!();
+
+    expect(result).toEqual(['D:\\Music\\song.mp3', 'D:\\Maps\\beatmap.osz']);
+    expect(showOpenDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: ['openFile', 'multiSelections'],
+        filters: [expect.objectContaining({ extensions: expect.arrayContaining(['mp3', 'osz']) })],
+      }),
+    );
+  });
+
+  it('allows manual network tag candidate search while automatic network metadata is disabled', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibrarySearchNetworkTagCandidates]!(null, { trackId: 'track-1' });
+
+    expect(service.searchNetworkTagCandidates).toHaveBeenCalledWith({
+      trackId: 'track-1',
+      query: undefined,
+      providers: ['netease-cloud-music', 'qq-music'],
+    });
   });
 
   it('normalizes library quality issue queries to local bounded pages', async () => {
@@ -772,21 +828,57 @@ describe('library IPC', () => {
     expect(getLibraryServiceMock().importAudioFile).toHaveBeenCalledWith(join(root, 'song.flac'), { folderPath: root });
   });
 
+  it('imports dropped osu archives through the shared importer without treating them as unsupported', async () => {
+    const root = makeTempRoot();
+    const { app } = await import('electron');
+    vi.mocked(app.getPath).mockReturnValue(root);
+
+    const result = await handlers[IpcChannels.LibraryImportDroppedFiles]!(null, [
+      { name: 'beatmap.osz', type: 'application/x-osu-beatmap-archive', bytes: new Uint8Array([1, 2, 3]) },
+    ]);
+
+    expect(result).toMatchObject({
+      importedCount: 1,
+      ignoredCount: 0,
+      failedCount: 0,
+      outputDirectory: root,
+    });
+    expect(osuArchiveImportMock.importOsuArchiveAsMp3Queued).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outputDirectory: root,
+      }),
+    );
+    expect(getLibraryServiceMock().importAudioFile).toHaveBeenCalledWith(
+      `${root}\\Artist - Song.mp3`,
+      expect.objectContaining({
+        folderPath: root,
+        metadata: expect.objectContaining({
+          title: 'Song',
+          artist: 'Artist',
+          album: 'osu! beatmapset 2492872',
+        }),
+      }),
+    );
+  });
+
   it('classifies dropped import paths as folders, audio files, unsupported files, or missing paths', async () => {
     const root = makeTempRoot();
     const folderPath = join(root, 'Album');
     const audioPath = join(root, 'song.opus');
+    const osuPath = join(root, 'beatmap.osz');
     const cuePath = join(root, 'album.cue');
     const unsupportedPath = join(root, 'cover.jpg');
     const missingPath = join(root, 'missing.flac');
     mkdirSync(folderPath, { recursive: true });
     writeFileSync(audioPath, 'audio');
+    writeFileSync(osuPath, 'osz');
     writeFileSync(cuePath, 'cue');
     writeFileSync(unsupportedPath, 'image');
 
     const result = await handlers[IpcChannels.LibraryClassifyImportPaths]!(null, [
       folderPath,
       audioPath,
+      osuPath,
       cuePath,
       unsupportedPath,
       missingPath,
@@ -795,6 +887,7 @@ describe('library IPC', () => {
     expect(result).toEqual({
       folders: [folderPath],
       audioFiles: [audioPath],
+      osuArchives: [osuPath],
       unsupportedFiles: [cuePath, unsupportedPath],
       missingPaths: [missingPath],
     });
@@ -805,28 +898,38 @@ describe('library IPC', () => {
     const root = makeTempRoot();
     const firstPath = join(root, 'one.flac');
     const secondPath = join(root, 'two.mp3');
+    const osuPath = join(root, 'beatmap.osz');
     const unsupportedPath = join(root, 'cover.jpg');
     const missingPath = join(root, 'missing.flac');
     writeFileSync(firstPath, 'audio');
     writeFileSync(secondPath, 'audio');
+    writeFileSync(osuPath, 'osz');
     writeFileSync(unsupportedPath, 'image');
 
     const result = await handlers[IpcChannels.LibraryAddLocalAudioFilesToPlaylist]!(null, 'playlist-1', [
       firstPath,
       secondPath,
+      osuPath,
       unsupportedPath,
       missingPath,
     ]);
 
     expect(service.importAudioFile).toHaveBeenCalledWith(firstPath);
     expect(service.importAudioFile).toHaveBeenCalledWith(secondPath);
-    expect(service.addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', [`track-${firstPath}`, `track-${secondPath}`]);
+    expect(osuArchiveImportMock.importOsuArchiveAsMp3Queued).toHaveBeenCalledWith(
+      expect.objectContaining({ archivePath: osuPath }),
+    );
+    expect(service.addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', [
+      `track-${firstPath}`,
+      `track-${secondPath}`,
+      'track-D:\\Downloads\\Artist - Song.mp3',
+    ]);
     expect(result).toMatchObject({
-      importedCount: 2,
-      addedCount: 2,
+      importedCount: 3,
+      addedCount: 3,
       skippedCount: 2,
       failedCount: 0,
-      trackIds: [`track-${firstPath}`, `track-${secondPath}`],
+      trackIds: expect.arrayContaining([`track-${firstPath}`, `track-${secondPath}`]),
     });
   });
 

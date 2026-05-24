@@ -68,7 +68,9 @@ type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocal
   decodeGaplessSequence?: DecoderPipeline['decodeGaplessSequence'];
   getToolchainInfo?: () => FfmpegToolchainDiagnostics;
 };
-type JuceDecodePipelineLike = Pick<JuceDecodePipeline, 'decodeLocalFile'>;
+type JuceDecodePipelineLike = Pick<JuceDecodePipeline, 'decodeLocalFile'> & {
+  dispose?: () => void;
+};
 type AutomixAnalyzerLike = Pick<AutomixAnalyzer, 'analyze'>;
 type DeviceServiceLike = Pick<DeviceService, 'listDevices'> &
   Partial<Pick<DeviceService, 'listDevicesAsync' | 'refresh' | 'invalidateCache' | 'openAsioControlPanel'>>;
@@ -149,6 +151,11 @@ type UnexpectedPositionJumpSnapshot = PositionSample & {
 type StabilityRecoveryOptions = {
   runToken?: number;
   sharedStabilityRecoveryClaimed?: boolean;
+  nativeUnderrunDelta?: {
+    callbackDelta: number;
+    frameDelta: number;
+    windowMs: number;
+  };
 };
 
 const normalizeStabilityRecoveryOptions = (
@@ -346,6 +353,13 @@ const stableSharedProfile: SharedOutputProfile = {
   startupPrebufferTimeoutMs: 1000,
 };
 
+const httpStreamingSharedProfile: SharedOutputProfile = {
+  bufferSizeFrames: 8192,
+  fifoCapacityMs: 3000,
+  startupPrebufferMs: 900,
+  startupPrebufferTimeoutMs: 5000,
+};
+
 const directSoundSharedProfile: SharedOutputProfile = {
   bufferSizeFrames: 256,
   fifoCapacityMs: 120,
@@ -377,6 +391,9 @@ const defaultLatencyProfileForMode = (outputMode: AudioOutputMode): AudioLatency
 const defaultLogger = (message: string): void => {
   console.warn(message);
 };
+const noopLogger = (): void => undefined;
+
+const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
 
 const defaultAudioErrorReporter = (payload: AudioCrashReportPayload): void => {
   void import('../diagnostics/CrashReportService')
@@ -723,6 +740,12 @@ const getReadyOutputSampleRate = (ready: NativeBridgeReadyResult): number | null
   normalizePositiveInteger(ready.device.sampleRate) ??
   normalizePositiveInteger(ready.device.hardwareSampleRate);
 
+const getReadyOutputFormat = (ready: NativeBridgeReadyResult | null): string | null => {
+  const format = ready?.device.format;
+
+  return typeof format === 'string' && format.trim() ? format.trim() : null;
+};
+
 const createProbeFromHint = (filePath: string, hint: AudioSessionPlayRequest['probe']): AudioProbeResult | null => {
   if (!hint) {
     return null;
@@ -867,7 +890,7 @@ const createOutputRestartSnapshot = (settings: AudioOutputSettings): AudioOutput
     latencyProfile: normalizeLatencyProfile(settings.latencyProfile),
     bufferSizeFrames: normalizePositiveInteger(settings.bufferSizeFrames),
     useJuceOutput: settings.useJuceOutput === true,
-    useJuceDecode: settings.useJuceDecode === true,
+    useJuceDecode: settings.useJuceDecode !== false,
     dsdOutputMode: normalizeDsdOutputMode(settings.dsdOutputMode),
     asioNativeDsdExperimentalEnabled: settings.asioNativeDsdExperimentalEnabled === true,
     asioUnavailableFallbackEnabled: settings.asioUnavailableFallbackEnabled === true,
@@ -1077,6 +1100,7 @@ export class AudioSession extends EventEmitter {
   private readonly isNativeHostAvailable: () => boolean;
   private readonly reportAudioError: (payload: AudioCrashReportPayload) => void;
   private readonly logger: (message: string) => void;
+  private readonly verboseLogger: (message: string) => void;
   private readonly clock = new PlaybackClock();
   private outputSettings: Required<Pick<AudioOutputSettings, 'outputMode' | 'latencyProfile' | 'volume' | 'playbackRate' | 'playbackSpeedMode'>> &
     Omit<AudioOutputSettings, 'outputMode' | 'latencyProfile' | 'volume' | 'playbackRate' | 'playbackSpeedMode'> = {
@@ -1084,7 +1108,7 @@ export class AudioSession extends EventEmitter {
     latencyProfile: 'balanced',
     sharedBackend: 'auto',
     useJuceOutput: true,
-    useJuceDecode: false,
+    useJuceDecode: true,
     dsdOutputMode: 'pcm',
     asioNativeDsdExperimentalEnabled: false,
     asioUnavailableFallbackEnabled: false,
@@ -1205,6 +1229,7 @@ export class AudioSession extends EventEmitter {
   constructor(dependencies: AudioSessionDependencies = {}) {
     super();
     this.logger = dependencies.logger ?? defaultLogger;
+    this.verboseLogger = dependencies.logger ?? (verboseAudioLogsEnabled ? defaultLogger : noopLogger);
     this.decoder = dependencies.decoder ?? new DecoderPipeline({ logger: this.logger });
     this.juceDecoder = dependencies.juceDecoder ?? new JuceDecodePipeline({ logger: this.logger });
     this.automixAnalyzer = dependencies.automixAnalyzer ?? new AutomixAnalyzer({ logger: this.logger });
@@ -1267,12 +1292,14 @@ export class AudioSession extends EventEmitter {
     const dsdNativeProbeRequired = providedProbe ? shouldProbeDsdNativeSampleRate(providedProbe) : false;
     const providedProbeComplete = isProbeHintCompleteEnough(request.probe) && !dsdNativeProbeRequired;
 
-    this.logger(JSON.stringify({
-      event: 'local_prepare_started',
-      filePath: redactedFilePath,
-      trackId: request.trackId ?? null,
-      usedProvidedProbe: providedProbeComplete,
-    }));
+    if (verboseAudioLogsEnabled) {
+      this.logger(JSON.stringify({
+        event: 'local_prepare_started',
+        filePath: redactedFilePath,
+        trackId: request.trackId ?? null,
+        usedProvidedProbe: providedProbeComplete,
+      }));
+    }
 
     try {
       let probeHint = request.probe;
@@ -1303,16 +1330,18 @@ export class AudioSession extends EventEmitter {
         warnings: plan?.warnings,
       });
 
-      this.logger(JSON.stringify({
-        event: 'local_prepare_completed',
-        filePath: redactedFilePath,
-        trackId: request.trackId ?? null,
-        prepareMs: Math.max(0, Math.round(performance.now() - startedAt)),
-        probeMs,
-        usedProvidedProbe: providedProbeComplete,
-        requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
-        decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
-      }));
+      if (verboseAudioLogsEnabled) {
+        this.logger(JSON.stringify({
+          event: 'local_prepare_completed',
+          filePath: redactedFilePath,
+          trackId: request.trackId ?? null,
+          prepareMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          probeMs,
+          usedProvidedProbe: providedProbeComplete,
+          requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
+          decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
+        }));
+      }
     } catch (error) {
       this.logger(JSON.stringify({
         event: 'local_prepare_failed',
@@ -1529,7 +1558,7 @@ export class AudioSession extends EventEmitter {
     if (decoderStop) {
       await decoderStop;
     }
-    this.logger(
+    this.verboseLogger(
       `[AudioSession] playLocalFile: file="${redactUrlSecrets(request.filePath)}" trackId=${request.trackId ?? 'n/a'} start=${
         request.startSeconds ?? 0
       }`,
@@ -1600,7 +1629,7 @@ export class AudioSession extends EventEmitter {
     this.currentDevice = this.resolvePlanDeviceForSettings(this.currentOutputSettings);
     this.clock.reset(request.startSeconds ?? 0, null);
     this.resetSharedStabilityForFreshPlayback(this.currentOutputSettings.outputMode ?? 'shared', this.currentOutputSettings, this.currentDevice);
-    this.logger(
+    this.verboseLogger(
       `[AudioSession] output: mode=${this.currentOutputSettings.outputMode ?? 'shared'} sharedBackend=${
         this.currentOutputSettings.sharedBackend ?? 'auto'
       } device=${
@@ -1612,7 +1641,7 @@ export class AudioSession extends EventEmitter {
     try {
       const preparedProbe = this.takePreparedLocalProbe(request, this.currentOutputSettings);
       if (preparedProbe) {
-        this.logger(JSON.stringify({
+        this.verboseLogger(JSON.stringify({
           event: 'local_prepare_used_for_playback',
           filePath: redactUrlSecrets(request.filePath),
           trackId: request.trackId ?? null,
@@ -1624,7 +1653,7 @@ export class AudioSession extends EventEmitter {
       if (!probe || shouldProbeDsdNativeSampleRate(probe)) {
         if (isHttpPlaybackUrl(request.filePath)) {
           probe = createStreamProbeFromHint(request.filePath, playbackProbeHint);
-          this.logger(JSON.stringify({
+          this.verboseLogger(JSON.stringify({
             event: 'stream_probe_fallback_used_for_playback',
             filePath: redactUrlSecrets(request.filePath),
             trackId: request.trackId ?? null,
@@ -1665,7 +1694,7 @@ export class AudioSession extends EventEmitter {
         this.assertCurrentRun(token);
         this.applyReadyResult(ready);
       }
-      this.logger(
+      this.verboseLogger(
         `[AudioSession] host ready: requested=${ready.requestedOutputSampleRate} actual=${
           ready.actualDeviceSampleRate ?? 'n/a'
         }`,
@@ -1861,6 +1890,13 @@ export class AudioSession extends EventEmitter {
         );
       } else if (playbackRun) {
         this.startDecoderRun(playbackRun, writable, token);
+        if (isHttpPlaybackUrl(request.filePath)) {
+          await this.waitForDecoderReadyBeforePlaying(playbackRun, token, {
+            positionSeconds: activeChainedState?.compositeStartSeconds ?? request.startSeconds ?? 0,
+            playbackRate: this.currentOutputSettings.playbackRate ?? 1,
+            sampleRate: pcmPlan.actualDeviceSampleRate ?? pcmPlan.requestedOutputSampleRate,
+          });
+        }
       }
 
       this.state = 'playing';
@@ -2098,6 +2134,13 @@ export class AudioSession extends EventEmitter {
         this.attachBridgeEvents(bridge, token);
         await this.syncEqStateForPlayback();
         this.assertCurrentRun(token);
+        if (isHttpPlaybackUrl(this.currentFilePath)) {
+          this.state = 'loading';
+          this.hostStatus = 'ready';
+          this.clock.reset(startSeconds, currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate);
+          this.emitStatus();
+        }
+
         const sessionId = bridge.beginSession?.({
           startSeconds,
           playbackRate: this.currentOutputSettings.playbackRate ?? 1,
@@ -2119,6 +2162,13 @@ export class AudioSession extends EventEmitter {
           throw new Error('native output bridge did not expose a writable PCM stream');
         }
         this.startDecoderRun(run, writable, token);
+        if (isHttpPlaybackUrl(this.currentFilePath)) {
+          await this.waitForDecoderReadyBeforePlaying(run, token, {
+            positionSeconds: startSeconds,
+            playbackRate: this.currentOutputSettings.playbackRate ?? 1,
+            sampleRate: currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate,
+          });
+        }
         this.state = 'playing';
         this.hostStatus = this.hostStatus === 'starting' ? 'starting' : 'ready';
         this.nativeUnderrunWindow = null;
@@ -2275,46 +2325,65 @@ export class AudioSession extends EventEmitter {
           releaseExclusiveOnPause: shouldReleaseExclusiveOnPause,
         },
       });
-      const keepResidentBridge = Boolean(
-        this.state === 'playing' &&
-        !shouldReleaseExclusiveOnPause &&
-        isResidentOutputMode(this.currentPlan?.outputMode ?? this.currentOutputSettings?.outputMode) &&
-        this.bridge &&
-        this.currentReadyResult,
-      );
-      this.runToken += 1;
-      this.activeAutomix = null;
-      const token = this.runToken;
-      if (shouldReleaseExclusiveOnPause && this.bridge) {
-        await this.releaseExclusiveOutputOnPause(this.bridge, token, positionSeconds, sampleRate);
-        return this.getStatus();
-      }
-      if (keepResidentBridge) {
-        const decoderStop = this.stopDecoderRun();
-        if (decoderStop) {
-          await decoderStop;
+      try {
+        const keepResidentBridge = Boolean(
+          this.state === 'playing' &&
+          !shouldReleaseExclusiveOnPause &&
+          isResidentOutputMode(this.currentPlan?.outputMode ?? this.currentOutputSettings?.outputMode) &&
+          this.bridge &&
+          this.currentReadyResult,
+        );
+        this.runToken += 1;
+        this.activeAutomix = null;
+        const token = this.runToken;
+        if (shouldReleaseExclusiveOnPause && this.bridge) {
+          await this.releaseExclusiveOutputOnPause(this.bridge, token, positionSeconds, sampleRate);
+          return this.getStatus();
         }
+        if (keepResidentBridge) {
+          const decoderStop = this.stopDecoderRun();
+          if (decoderStop) {
+            await decoderStop;
+          }
+          try {
+            this.bridge?.endSession?.();
+          } catch {
+            // Best-effort idle transition for resident native output.
+          }
+        } else {
+          this.stopResources();
+        }
+        this.pausedPositionSeconds = positionSeconds;
+        this.clock.reset(positionSeconds, sampleRate);
+        this.state = 'paused';
+        this.nativeUnderrunWindow = null;
+        this.resetWatchdogProgress();
+        const canPrewarm = !keepResidentBridge && Boolean(this.currentProbe && this.currentOutputSettings && this.isNativeHostAvailable());
+        this.hostStatus = canPrewarm ? 'starting' : this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
+        if (keepResidentBridge) {
+          this.hostStatus = 'ready';
+        }
+        this.emitStatus();
+        if (canPrewarm) {
+          void this.preparePausedOutputBridge(token, positionSeconds);
+        }
+      } catch (error) {
+        this.addOutputWarning('pause_cleanup_failed');
+        this.logger(`[AudioSession] pause cleanup failed; forcing paused state: ${error instanceof Error ? error.message : String(error)}`);
         try {
-          this.bridge?.endSession?.();
+          this.stopResources();
         } catch {
-          // Best-effort idle transition for resident native output.
+          // Pause must remain best-effort even when the host is already half-disposed.
         }
-      } else {
-        this.stopResources();
-      }
-      this.pausedPositionSeconds = positionSeconds;
-      this.clock.reset(positionSeconds, sampleRate);
-      this.state = 'paused';
-      this.nativeUnderrunWindow = null;
-      this.resetWatchdogProgress();
-      const canPrewarm = !keepResidentBridge && Boolean(this.currentProbe && this.currentOutputSettings && this.isNativeHostAvailable());
-      this.hostStatus = canPrewarm ? 'starting' : this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
-      if (keepResidentBridge) {
-        this.hostStatus = 'ready';
-      }
-      this.emitStatus();
-      if (canPrewarm) {
-        void this.preparePausedOutputBridge(token, positionSeconds);
+        this.runToken += 1;
+        this.activeAutomix = null;
+        this.pausedPositionSeconds = positionSeconds;
+        this.clock.reset(positionSeconds, sampleRate);
+        this.state = 'paused';
+        this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
+        this.nativeUnderrunWindow = null;
+        this.resetWatchdogProgress();
+        this.emitStatus();
       }
     }
 
@@ -2532,6 +2601,7 @@ export class AudioSession extends EventEmitter {
         }
       }
 
+      const waitForHttpDecoderReady = isHttpPlaybackUrl(this.currentFilePath);
       const sessionId = this.bridge.beginSession?.({
         startSeconds: safePositionSeconds,
         playbackRate: this.currentOutputSettings.playbackRate ?? 1,
@@ -2540,6 +2610,11 @@ export class AudioSession extends EventEmitter {
       this.bridge.resetOutputClock?.(safePositionSeconds, this.currentOutputSettings.playbackRate ?? 1);
       this.attachBridgeEvents(this.bridge, token);
       this.clock.reset(safePositionSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
+      if (waitForHttpDecoderReady) {
+        this.state = 'loading';
+        this.hostStatus = 'ready';
+        this.emitStatus();
+      }
 
       if (bitstreamRun) {
         const writable = this.bridge.createSessionWritable?.(sessionId) ?? this.bridge.writable;
@@ -2569,6 +2644,14 @@ export class AudioSession extends EventEmitter {
         throw new Error('native output bridge did not expose a writable PCM stream');
       }
       this.startDecoderRun(run, writable, token);
+      if (waitForHttpDecoderReady) {
+        await this.waitForDecoderReadyBeforePlaying(run, token, {
+          positionSeconds: safePositionSeconds,
+          playbackRate: this.currentOutputSettings.playbackRate ?? 1,
+          sampleRate: this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate,
+        });
+        this.state = 'playing';
+      }
       this.resetWatchdogProgress();
       this.emitStatus();
       return this.getStatus();
@@ -2673,6 +2756,7 @@ export class AudioSession extends EventEmitter {
       outputDeviceType: this.currentOutputDeviceType,
       outputBackend: this.currentOutputBackend,
       activeOutputBackendImpl: this.currentOutputBackendImpl,
+      nativeOutputFormat: getReadyOutputFormat(this.currentReadyResult),
       outputMode: plan?.outputMode ?? this.outputSettings.outputMode,
       sharedBackend: normalizeSharedBackend(this.currentOutputSettings?.sharedBackend ?? this.outputSettings.sharedBackend),
       useJuceOutputRequested: this.currentOutputSettings ? this.currentUseJuceOutputRequested : this.outputSettings.useJuceOutput === true,
@@ -2860,6 +2944,7 @@ export class AudioSession extends EventEmitter {
       latencyProfile: status.latencyProfile,
       outputBackend: status.outputBackend,
       activeOutputBackendImpl: status.activeOutputBackendImpl,
+      nativeOutputFormat: status.nativeOutputFormat,
       useJuceOutputRequested: status.useJuceOutputRequested,
       useJuceDecodeRequested: status.useJuceDecodeRequested,
       activeDecodeBackendImpl: status.activeDecodeBackendImpl,
@@ -2961,6 +3046,7 @@ export class AudioSession extends EventEmitter {
     getEqBridge().off('state', this.eqStateListener);
     this.detachBridgeEvents();
     this.stopResources();
+    this.juceDecoder.dispose?.();
   }
 
   async disposeGracefully(reason = 'dispose'): Promise<void> {
@@ -2971,6 +3057,7 @@ export class AudioSession extends EventEmitter {
 
     getEqBridge().off('state', this.eqStateListener);
     await this.stopResourcesGracefully(reason);
+    this.juceDecoder.dispose?.();
     this.detachBridgeEvents();
   }
 
@@ -3838,23 +3925,27 @@ export class AudioSession extends EventEmitter {
     const cached = this.preparedLocalPlaybackCache.get(context.key);
 
     if (!cached) {
-      this.logger(JSON.stringify({
-        event: 'local_prepare_cache_miss',
-        filePath: redactUrlSecrets(request.filePath),
-        trackId: request.trackId ?? null,
-      }));
+      if (verboseAudioLogsEnabled) {
+        this.logger(JSON.stringify({
+          event: 'local_prepare_cache_miss',
+          filePath: redactUrlSecrets(request.filePath),
+          trackId: request.trackId ?? null,
+        }));
+      }
       return null;
     }
 
     this.preparedLocalPlaybackCache.delete(context.key);
     this.preparedLocalPlaybackCache.set(context.key, cached);
     const ageMs = Math.max(0, now - cached.preparedAt);
-    this.logger(JSON.stringify({
-      event: 'local_prepare_cache_hit',
-      filePath: redactUrlSecrets(request.filePath),
-      trackId: request.trackId ?? null,
-      cacheAgeMs: ageMs,
-    }));
+    if (verboseAudioLogsEnabled) {
+      this.logger(JSON.stringify({
+        event: 'local_prepare_cache_hit',
+        filePath: redactUrlSecrets(request.filePath),
+        trackId: request.trackId ?? null,
+        cacheAgeMs: ageMs,
+      }));
+    }
 
     return {
       probe: mergeProbeHints(request.probe, cached.probe),
@@ -4157,7 +4248,7 @@ export class AudioSession extends EventEmitter {
         ? plan.sharedDeviceSampleRate ?? plan.actualDeviceSampleRate ?? plan.requestedOutputSampleRate
         : null;
 
-    this.logger(
+    this.verboseLogger(
       JSON.stringify({
         event: 'audio_transition',
         outputMode: plan.outputMode,
@@ -4315,6 +4406,12 @@ export class AudioSession extends EventEmitter {
         : latencyProfile === 'lowLatency' && this.sharedStabilityTier === 'standard'
           ? sharedLowLatencyProfile
           : sharedStabilityProfiles[this.sharedStabilityTier];
+    const effectiveSharedProfile: SharedOutputProfile = {
+      ...sharedProfile,
+      fifoCapacityMs: options.fifoCapacityMs ?? sharedProfile.fifoCapacityMs,
+      startupPrebufferMs: options.startupPrebufferMs ?? sharedProfile.startupPrebufferMs,
+      startupPrebufferTimeoutMs: options.startupPrebufferTimeoutMs ?? sharedProfile.startupPrebufferTimeoutMs,
+    };
     const sharedProfileBufferSizeFrames = sharedProfile.bufferSizeFrames ?? 0;
     const effectiveLatencyProfile =
       latencyProfile === 'lowLatency' && sharedProfileBufferSizeFrames > lowLatencyMaxBufferSizeFrames
@@ -4330,11 +4427,11 @@ export class AudioSession extends EventEmitter {
     return {
       ...options,
       latencyProfile: effectiveLatencyProfile,
-      ...sharedProfile,
+      ...effectiveSharedProfile,
       bufferSizeFrames: explicitBufferSizeFrames ?? (
         sharedBackend === 'directsound'
-          ? sharedProfile.bufferSizeFrames
-          : Math.max(profileBufferSizeFrames, sharedProfile.bufferSizeFrames ?? 0)
+          ? effectiveSharedProfile.bufferSizeFrames
+          : Math.max(profileBufferSizeFrames, effectiveSharedProfile.bufferSizeFrames ?? 0)
       ),
     };
   }
@@ -4459,7 +4556,7 @@ export class AudioSession extends EventEmitter {
         null,
         { residentOutputSampleRate },
       );
-      this.logger(
+      this.verboseLogger(
         `[AudioSession] sample-rate plan: file=${this.currentPlan.fileSampleRate ?? 'n/a'} decoder=${
           this.currentPlan.decoderOutputSampleRate
         } requested=${this.currentPlan.requestedOutputSampleRate} mode=${this.currentPlan.outputMode} device=${
@@ -4474,6 +4571,10 @@ export class AudioSession extends EventEmitter {
         sharedBackend,
         this.currentOutputSettings.useJuceOutput === true,
       );
+      const streamingSharedProfile =
+        outputMode === 'shared' && !useDirectSoundBackend && isHttpPlaybackUrl(probe.filePath)
+          ? httpStreamingSharedProfile
+          : null;
       const isDsdDopOutput = this.currentPlan.dsdOutputMode === 'dop';
       const isAsioNativeDsdOutput = this.currentPlan.dsdOutputMode === 'native';
       const residentReuseAllowed = canReuseResidentOutputBridge(outputMode);
@@ -4494,7 +4595,10 @@ export class AudioSession extends EventEmitter {
         exclusive: outputMode === 'exclusive',
         useJuceOutput: isDsdDopOutput ? false : useJuceOutputForHost,
         latencyProfile: this.currentOutputSettings.latencyProfile,
-        bufferSizeFrames: this.currentOutputSettings.bufferSizeFrames ?? undefined,
+        bufferSizeFrames: this.currentOutputSettings.bufferSizeFrames ?? streamingSharedProfile?.bufferSizeFrames,
+        fifoCapacityMs: streamingSharedProfile?.fifoCapacityMs,
+        startupPrebufferMs: streamingSharedProfile?.startupPrebufferMs,
+        startupPrebufferTimeoutMs: streamingSharedProfile?.startupPrebufferTimeoutMs,
         volume: this.currentOutputSettings.volume,
         startSeconds,
         playbackRate: this.currentOutputSettings.playbackRate,
@@ -5050,8 +5154,35 @@ export class AudioSession extends EventEmitter {
     }
   }
 
+  private async waitForDecoderReadyBeforePlaying(
+    run: DecoderRun,
+    token: number,
+    timeline?: { positionSeconds: number; playbackRate: number; sampleRate: number | null },
+  ): Promise<void> {
+    if (!run.ready) {
+      return;
+    }
+
+    try {
+      await run.ready;
+    } catch (error) {
+      if (this.runToken !== token) {
+        throw new Error('audio_session_run_cancelled');
+      }
+
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+
+    this.assertCurrentRun(token);
+    if (timeline) {
+      this.bridge?.resetOutputClock?.(timeline.positionSeconds, timeline.playbackRate);
+      this.clock.reset(timeline.positionSeconds, timeline.sampleRate);
+    }
+  }
+
   private startDecoderRun(run: DecoderRun, writable: Writable, token: number): void {
     this.decoderPipelineCleanup?.();
+    run.ready?.catch(() => undefined);
     const volume = this.currentOutputSettings?.volume ?? this.outputSettings.volume;
     const nativeVolumeControl = typeof this.bridge?.setVolume === 'function';
     const replayGainCalculation = this.calculateCurrentReplayGain();
@@ -5505,13 +5636,18 @@ export class AudioSession extends EventEmitter {
       }
 
       const positionSeconds = this.clock.getPositionSeconds();
+      const nativeUnderrunDelta = {
+        callbackDelta,
+        frameDelta,
+        windowMs: Math.max(0, now - this.nativeUnderrunWindow.startedAt),
+      };
       if (this.currentPlan.outputMode === 'exclusive') {
-        await this.fallbackExclusiveToSharedForInstability(positionSeconds, token);
+        await this.fallbackExclusiveToSharedForInstability(positionSeconds, { runToken: token, nativeUnderrunDelta });
         return;
       }
 
       const reason = this.currentPlan.outputMode === 'shared' ? 'shared_output_underrun_detected' : 'native_output_underrun_detected';
-      await this.recoverOutputStability(reason, positionSeconds, token);
+      await this.recoverOutputStability(reason, positionSeconds, { runToken: token, nativeUnderrunDelta });
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)));
     }
@@ -6610,6 +6746,13 @@ export class AudioSession extends EventEmitter {
       const trackId = this.currentTrackId;
       const probe = createProbeHint(this.currentProbe);
       const safePositionSeconds = Math.min(Math.max(0, positionSeconds), this.currentProbe.durationSeconds || Number.POSITIVE_INFINITY);
+      const plan = this.currentPlan;
+      const nativeSampleRate = plan?.actualDeviceSampleRate ?? plan?.requestedOutputSampleRate ?? null;
+      const nativeBufferedMs =
+        nativeSampleRate && this.nativeTelemetry.bufferedFrames !== null
+          ? Math.round((this.nativeTelemetry.bufferedFrames / nativeSampleRate) * 1000)
+          : null;
+      const nativeUnderrunDelta = options.nativeUnderrunDelta ?? null;
       const output = createSharedFallbackSettings(this.currentOutputSettings);
       const cause = new Error('exclusive_output_unstable');
 
@@ -6617,6 +6760,27 @@ export class AudioSession extends EventEmitter {
       this.watchdogLastRecoveryAt = this.lastSharedStabilityRecoveryAt;
       this.addPendingOutputWarning('exclusive_output_unstable');
       this.addPendingOutputWarning('exclusive_output_fell_back_to_shared');
+      this.recordPlaybackDiagnosticEvent('watchdog_recovery', 'recovery', 'exclusive_output_unstable', {
+        trackId,
+        filePath,
+        positionSeconds: safePositionSeconds,
+        durationSeconds: this.currentProbe.durationSeconds,
+        outputMode,
+        details: {
+          bitDepth: this.currentProbe.bitDepth,
+          fileSampleRate: plan?.fileSampleRate ?? null,
+          decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
+          requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
+          actualDeviceSampleRate: plan?.actualDeviceSampleRate ?? null,
+          nativeOutputFormat: getReadyOutputFormat(this.currentReadyResult),
+          nativeBufferedMs,
+          nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
+          nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+          nativeUnderrunCallbackDelta: nativeUnderrunDelta?.callbackDelta ?? null,
+          nativeUnderrunFrameDelta: nativeUnderrunDelta?.frameDelta ?? null,
+          nativeUnderrunWindowMs: nativeUnderrunDelta?.windowMs ?? null,
+        },
+      });
       this.logger(
         `[AudioSession] exclusive output unstable; falling back to shared output file="${redactUrlSecrets(filePath)}" position=${safePositionSeconds.toFixed(
           3,

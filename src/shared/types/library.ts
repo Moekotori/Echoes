@@ -102,6 +102,11 @@ export type LibraryDatabaseSnapshotInfo = {
   libraryBackupMethod: 'none' | 'sqlite-backup' | 'file-copy';
   databasePath: string | null;
   databaseSizeBytes: number | null;
+  databaseMtimeMs?: number | null;
+  walSizeBytes?: number | null;
+  walMtimeMs?: number | null;
+  shmSizeBytes?: number | null;
+  shmMtimeMs?: number | null;
 };
 
 export type LibraryDatabaseArchiveInfo = {
@@ -258,6 +263,7 @@ export type ArtistImageCacheClearResult = {
 export type ImportPathClassification = {
   folders: string[];
   audioFiles: string[];
+  osuArchives: string[];
   unsupportedFiles: string[];
   missingPaths: string[];
 };

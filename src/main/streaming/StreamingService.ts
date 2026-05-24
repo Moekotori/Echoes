@@ -30,9 +30,12 @@ import type { StreamingProvider } from './StreamingProvider';
 import { StreamingProviderRegistry } from './StreamingProviderRegistry';
 import { StreamingRateLimiter } from './StreamingRateLimiter';
 import { fetchWithNetworkProxy } from '../network/networkFetch';
+import { getAccountService } from '../accounts/AccountService';
+import { createDownloadAuthorizationToken, isProtectedMusicDownloadProvider, type ProtectedMusicDownloadProvider } from '../downloads/DownloadAuthorization';
 import { MockStreamingProvider } from './providers/MockStreamingProvider';
 import { NeteaseStreamingProvider } from './providers/NeteaseStreamingProvider';
 import { QQMusicStreamingProvider } from './providers/QQMusicStreamingProvider';
+import { BilibiliStreamingProvider } from './providers/BilibiliStreamingProvider';
 import { SoundCloudStreamingProvider } from './providers/SoundCloudStreamingProvider';
 import { SpotifyStreamingProvider } from './providers/SpotifyStreamingProvider';
 import { M3u8StreamingProvider } from './providers/M3u8StreamingProvider';
@@ -43,10 +46,11 @@ const trackDetailTtlMs = 30 * 60 * 1000;
 const maxPlaybackTtlMs = 5 * 60 * 1000;
 const fallbackPlaybackTtlMs = 2 * 60 * 1000;
 const providerTimeoutMs = 10 * 1000;
+const playbackProviderTimeoutMs = 30 * 1000;
 const likedSongsSyncTimeoutMs = 45 * 1000;
-const searchCacheVersion = 'v8';
+const searchCacheVersion = 'v9';
 const playbackCacheVersion = 'v2';
-const lyricsCacheVersion = 'v3';
+const lyricsCacheVersion = 'v4';
 const playlistImportPageSize = 500;
 const likedSongsSyncPageSize = 100;
 const maxPlaylistImportTracks = 20_000;
@@ -64,6 +68,13 @@ type StreamingTrackRequest = {
 type StreamingPlaylistUrlTarget = {
   provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify'>;
   providerPlaylistId: string;
+};
+
+const canAuthorizeProtectedMusicDownload = (provider: ProtectedMusicDownloadProvider): boolean => {
+  const account = getAccountService();
+  const status = account.getStatus(provider);
+  const cookie = account.getCredentials(provider).cookie?.trim();
+  return status.connected && Boolean(cookie);
 };
 
 const expiresAtFromTtl = (ttlMs: number): string => new Date(Date.now() + ttlMs).toISOString();
@@ -332,13 +343,19 @@ export class StreamingService {
 
     return this.memoryCache.getOrCreateInflight(key, async () => {
       const provider = this.registry.get(request.provider);
-      const source = await this.callProvider(provider, () => this.playbackResolver.resolve(request), 'Streaming playback');
+      const source = await this.callProviderWithTimeout(
+        provider,
+        () => this.playbackResolver.resolve(request),
+        'Streaming playback',
+        playbackProviderTimeoutMs,
+      );
+      const authorizedSource = this.attachDownloadAuthorization(request, source);
       const ttlMs = playableTtlMs(source);
       if (ttlMs > 0) {
-        this.memoryCache.set(key, source, ttlMs);
+        this.memoryCache.set(key, authorizedSource, ttlMs);
       }
 
-      return source;
+      return authorizedSource;
     });
   }
 
@@ -695,6 +712,25 @@ export class StreamingService {
     return this.callProviderWithTimeout(provider, work, label, providerTimeoutMs);
   }
 
+  private attachDownloadAuthorization(request: StreamingPlaybackRequest, source: StreamingPlaybackSource): StreamingPlaybackSource {
+    if (!isProtectedMusicDownloadProvider(request.provider)) {
+      return source;
+    }
+    if (!canAuthorizeProtectedMusicDownload(request.provider)) {
+      return source;
+    }
+
+    return {
+      ...source,
+      downloadAuthorizationToken: createDownloadAuthorizationToken({
+        provider: request.provider,
+        providerTrackId: request.providerTrackId,
+        url: source.url,
+        expiresAt: source.expiresAt,
+      }),
+    };
+  }
+
   private async callProviderWithTimeout<T>(provider: StreamingProvider, work: () => Promise<T>, label: string, timeoutMs: number): Promise<T> {
     try {
       return await this.rateLimiter.schedule(provider.name, () => withTimeout(work(), timeoutMs, label));
@@ -770,6 +806,7 @@ export const createStreamingService = (database: EchoDatabase): StreamingService
   registry.register(new MockStreamingProvider());
   registry.register(new NeteaseStreamingProvider());
   registry.register(new QQMusicStreamingProvider());
+  registry.register(new BilibiliStreamingProvider());
   registry.register(new SoundCloudStreamingProvider());
   registry.register(new SpotifyStreamingProvider());
   registry.register(new M3u8StreamingProvider());

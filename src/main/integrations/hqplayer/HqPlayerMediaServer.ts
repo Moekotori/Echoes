@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createSocket } from 'node:dgram';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
@@ -16,6 +17,7 @@ type MediaServerRecord = {
 export type HqPlayerMediaServerOptions = {
   port: number | null;
   remoteAccess: boolean;
+  preferredRemoteHost?: string | null;
   ttlMs?: number;
 };
 
@@ -28,6 +30,11 @@ export type HqPlayerMediaServerInput = {
 export type HqPlayerMediaServerUrl = {
   url: string;
   expiresAt: string;
+  port: number;
+  bindHost: string | null;
+  publicHost: string | null;
+  remoteAccess: boolean;
+  publicHostCandidates: string[];
 };
 
 export type HqPlayerMediaServerBridge = Pick<HqPlayerMediaServer, 'createUrl'>;
@@ -66,16 +73,60 @@ const contentTypeFor = (url: string, fallback: string | null): string => {
 const normalizePort = (port: number | null): number =>
   typeof port === 'number' && Number.isInteger(port) && port > 0 && port <= 65535 ? port : 0;
 
-const selectPublicHost = (): string => {
+const listPublicHosts = (): string[] => {
+  const hosts: string[] = [];
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family === 'IPv4' && !entry.internal && entry.address) {
-        return entry.address;
+        hosts.push(entry.address);
       }
     }
   }
 
-  return defaultLoopbackHost;
+  return hosts;
+};
+
+const selectRoutedPublicHost = async (remoteHost: string | null | undefined): Promise<string | null> => {
+  const target = remoteHost?.trim();
+  if (!target) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const socket = createSocket('udp4');
+    let settled = false;
+    const timer = setTimeout(() => finish(null), 1000);
+    const finish = (value: string | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      socket.close();
+      resolve(value);
+    };
+    socket.once('error', () => finish(null));
+    socket.connect(9, target, () => {
+      const address = socket.address();
+      finish(typeof address === 'string' ? null : address.address);
+    });
+  });
+};
+
+const selectPublicHost = async (preferredRemoteHost: string | null | undefined): Promise<{ host: string; candidates: string[] }> => {
+  const candidates = listPublicHosts();
+  const routed = await selectRoutedPublicHost(preferredRemoteHost);
+  if (routed && routed !== defaultLoopbackHost) {
+    return {
+      host: routed,
+      candidates: candidates.includes(routed) ? candidates : [routed, ...candidates],
+    };
+  }
+
+  return {
+    host: candidates[0] ?? defaultLoopbackHost,
+    candidates,
+  };
 };
 
 const parseRange = (range: string | undefined, size: number): { start: number; end: number } | null => {
@@ -120,7 +171,7 @@ export class HqPlayerMediaServer {
   private readonly tokens = new Map<string, MediaServerRecord>();
 
   async createUrl(input: HqPlayerMediaServerInput, options: HqPlayerMediaServerOptions): Promise<HqPlayerMediaServerUrl> {
-    await this.ensureStarted(options);
+    const publicHost = await this.ensureStarted(options);
 
     if (!this.port || !this.publicHost) {
       throw new Error('hqplayer_media_server_not_ready');
@@ -139,6 +190,11 @@ export class HqPlayerMediaServer {
     return {
       url: `http://${this.publicHost}:${this.port}/hqplayer-media/${token}`,
       expiresAt: new Date(expiresAtMs).toISOString(),
+      port: this.port,
+      bindHost: this.bindHost,
+      publicHost: this.publicHost,
+      remoteAccess: options.remoteAccess,
+      publicHostCandidates: publicHost.candidates,
     };
   }
 
@@ -171,14 +227,16 @@ export class HqPlayerMediaServer {
     this.publicHost = null;
   }
 
-  private async ensureStarted(options: HqPlayerMediaServerOptions): Promise<void> {
+  private async ensureStarted(options: HqPlayerMediaServerOptions): Promise<{ host: string; candidates: string[] }> {
     const bindHost = options.remoteAccess ? remoteBindHost : defaultLoopbackHost;
     const requestedPort = normalizePort(options.port);
-    const publicHost = options.remoteAccess ? selectPublicHost() : defaultLoopbackHost;
+    const publicHost = options.remoteAccess
+      ? await selectPublicHost(options.preferredRemoteHost)
+      : { host: defaultLoopbackHost, candidates: [defaultLoopbackHost] };
 
     if (this.server && this.port && this.bindHost === bindHost && (requestedPort === 0 || requestedPort === this.port)) {
-      this.publicHost = publicHost;
-      return;
+      this.publicHost = publicHost.host;
+      return publicHost;
     }
 
     await this.close();
@@ -200,10 +258,11 @@ export class HqPlayerMediaServer {
         server.off('error', reject);
         this.port = address.port;
         this.bindHost = bindHost;
-        this.publicHost = publicHost;
+        this.publicHost = publicHost.host;
         resolve();
       });
     });
+    return publicHost;
   }
 
   private cleanupExpiredTokens(): void {

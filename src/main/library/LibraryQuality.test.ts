@@ -117,6 +117,30 @@ describe('Library quality dashboard queries', () => {
     expect(overview.network_candidate).toBe(1);
   });
 
+  it('does not count folder artwork as missing cover just because embedded art is absent', () => {
+    const { database, store } = createStore();
+    database
+      .prepare(
+        `INSERT INTO covers (
+          id, source_type, source_hash, mime_type, thumb_path, album_path, large_path, original_ref,
+          cache_version, warnings_json, errors_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('cover-folder', 'folder', 'hash-folder', 'image/jpeg', 'thumb.jpg', 'album.jpg', 'large.jpg', 'folder.jpg', 1, '[]', '[]', now, now);
+    insertTrack(database, {
+      id: 'folder-cover',
+      title: 'Folder Cover',
+      coverId: 'cover-folder',
+      embeddedCoverStatus: 'missing',
+    });
+
+    const overview = Object.fromEntries(store.getLibraryQualityOverview().map((item) => [item.kind, item.count]));
+    const page = store.getLibraryQualityIssues({ kind: 'missing_cover' });
+
+    expect(overview.missing_cover).toBe(0);
+    expect(page.total).toBe(0);
+  });
+
   it('returns paged issue rows with reasons and clamps page size to 100', () => {
     const { database, store } = createStore();
     insertTrack(database, { id: 'first', title: 'First Missing Cover', coverId: null });

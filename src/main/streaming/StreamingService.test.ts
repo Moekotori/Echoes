@@ -1,8 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { StreamingPlaylistDetail, StreamingSearchResult } from '../../shared/types/streaming';
+import type { StreamingPlaybackSource, StreamingPlaylistDetail, StreamingSearchResult } from '../../shared/types/streaming';
 import type { StreamingProvider } from './StreamingProvider';
 import { StreamingProviderRegistry } from './StreamingProviderRegistry';
 import { StreamingService } from './StreamingService';
+import { verifyDownloadAuthorizationToken } from '../downloads/DownloadAuthorization';
+
+const accountState = vi.hoisted(() => ({
+  connected: true,
+  cookie: 'MUSIC_U=secret; csrf=hidden',
+}));
+
+vi.mock('../accounts/AccountService', () => ({
+  getAccountService: () => ({
+    getStatus: (provider: string) => ({
+      provider,
+      connected: accountState.connected,
+      username: accountState.connected ? 'tester' : null,
+      displayName: accountState.connected ? 'Tester' : null,
+      avatarUrl: null,
+      lastLoginAt: accountState.connected ? '2026-01-01T00:00:00.000Z' : null,
+      lastCheckedAt: null,
+      expiresAt: null,
+      error: null,
+    }),
+    getCredentials: (provider: string) => ({
+      provider,
+      cookie: accountState.cookie,
+    }),
+  }),
+}));
 
 const jsonResponse = (value: unknown): Response =>
   new Response(JSON.stringify(value), {
@@ -71,6 +97,9 @@ const fakeCacheStore = (): ConstructorParameters<typeof StreamingService>[1] =>
 describe('StreamingService playlist imports', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+    accountState.connected = true;
+    accountState.cookie = 'MUSIC_U=secret; csrf=hidden';
   });
 
   it('resolves QQ Music c6 share links before importing playlists', async () => {
@@ -206,6 +235,109 @@ describe('StreamingService playlist imports', () => {
       supportsPlayback: true,
       supportsDownload: false,
       requiresAccount: true,
+    });
+  });
+
+  it('attaches a short-lived download authorization to protected playback sources', async () => {
+    const registry = new StreamingProviderRegistry();
+    registry.register({
+      name: 'qqmusic',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      resolvePlayback: vi.fn(async (): Promise<StreamingPlaybackSource> => ({
+        provider: 'qqmusic',
+        providerTrackId: 'song-mid',
+        url: 'https://isure.stream.qqmusic.qq.com/song.flac',
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+        mimeType: 'audio/flac',
+        bitrate: 999000,
+        sampleRate: null,
+        bitDepth: 16,
+        codec: 'flac',
+        headers: {},
+        requiresProxy: false,
+        supportsRange: true,
+      })),
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+
+    const source = await service.resolvePlayback({ provider: 'qqmusic', providerTrackId: 'song-mid', quality: 'lossless' });
+
+    expect(source.downloadAuthorizationToken).toEqual(expect.any(String));
+    expect(
+      verifyDownloadAuthorizationToken(source.downloadAuthorizationToken, {
+        provider: 'qqmusic',
+        providerTrackId: 'song-mid',
+        url: 'https://isure.stream.qqmusic.qq.com/song.flac',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not attach protected download authorization when the platform account is not connected', async () => {
+    accountState.connected = false;
+    accountState.cookie = '';
+    const registry = new StreamingProviderRegistry();
+    registry.register({
+      name: 'qqmusic',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      resolvePlayback: vi.fn(async (): Promise<StreamingPlaybackSource> => ({
+        provider: 'qqmusic',
+        providerTrackId: 'song-mid',
+        url: 'https://isure.stream.qqmusic.qq.com/song.flac',
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+        mimeType: 'audio/flac',
+        bitrate: 999000,
+        sampleRate: null,
+        bitDepth: 16,
+        codec: 'flac',
+        headers: {},
+        requiresProxy: false,
+        supportsRange: true,
+      })),
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+
+    const source = await service.resolvePlayback({ provider: 'qqmusic', providerTrackId: 'song-mid', quality: 'lossless' });
+
+    expect(source.downloadAuthorizationToken).toBeUndefined();
+  });
+
+  it('allows playback URL resolution to take longer than normal metadata calls', async () => {
+    vi.useFakeTimers();
+    const registry = new StreamingProviderRegistry();
+    registry.register({
+      name: 'netease',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      resolvePlayback: vi.fn(() =>
+        new Promise<StreamingPlaybackSource>((resolve) => {
+          setTimeout(() => {
+            resolve({
+              provider: 'netease',
+              providerTrackId: 'song-id',
+              url: 'https://m701.music.126.net/token/song.flac',
+              expiresAt: new Date(Date.now() + 120_000).toISOString(),
+              mimeType: 'audio/flac',
+              bitrate: 999000,
+              sampleRate: null,
+              bitDepth: 16,
+              codec: 'flac',
+              headers: {},
+              requiresProxy: false,
+              supportsRange: true,
+            });
+          }, 11_000);
+        })),
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+
+    const sourcePromise = service.resolvePlayback({ provider: 'netease', providerTrackId: 'song-id', quality: 'lossless' });
+    await vi.advanceTimersByTimeAsync(11_500);
+
+    await expect(sourcePromise).resolves.toMatchObject({
+      url: 'https://m701.music.126.net/token/song.flac',
+      codec: 'flac',
     });
   });
 });

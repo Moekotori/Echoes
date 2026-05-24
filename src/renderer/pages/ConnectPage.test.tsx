@@ -134,6 +134,7 @@ const hqHandoff = (control = hqControl()): HqPlayerPlaybackHandoffPlan => ({
     expiresAt: null,
     durationSeconds: 180,
     startSeconds: 12,
+    mediaServer: null,
     streaming: null,
   },
   fallback: null,

@@ -19,6 +19,7 @@ type AudioIssueDiagnosticEntry = {
     outputMode: AudioStatus['outputMode'];
     outputBackend: string | null;
     outputBackendImpl: string | null;
+    nativeOutputFormat: string | null | undefined;
     decodeBackendImpl: string | null;
     fileSampleRate: number | null;
     decoderOutputSampleRate: number | null;
@@ -146,6 +147,7 @@ const createEntry = (
     outputMode: status.outputMode,
     outputBackend: status.outputBackend,
     outputBackendImpl: status.activeOutputBackendImpl,
+    nativeOutputFormat: status.nativeOutputFormat,
     decodeBackendImpl: status.activeDecodeBackendImpl,
     fileSampleRate: status.fileSampleRate,
     decoderOutputSampleRate: status.decoderOutputSampleRate,

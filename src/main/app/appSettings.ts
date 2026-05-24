@@ -28,9 +28,13 @@ import type { MvSettings, NetworkMvProviderId } from '../../shared/types/mv';
 import type { HqPlayerDefaultPlaybackBackend, HqPlayerSettings } from '../../shared/types/hqplayer';
 import {
   createDefaultGlobalShortcuts,
+  createDefaultLocalShortcuts,
   globalShortcutActions,
   validateGlobalShortcutAccelerator,
+  type GlobalShortcutAction,
   type GlobalShortcutSettings,
+  type GlobalShortcutBinding,
+  type LocalShortcutSettings,
 } from '../../shared/types/globalShortcuts';
 import {
   channelBalanceMaxBalance,
@@ -49,12 +53,13 @@ const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWal
 const defaultLyricsColor = '#314054';
 const defaultDesktopLyricsColor = '#FFFFFF';
 const defaultDesktopLyricsStrokeColor = '#111827';
+const defaultDesktopLyricsFontFamily = 'Outfit';
 const defaultLyricsMiniPlayerColor = '#232120';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
 const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
 export const defaultNetworkProxyBypassRules = '<local>;localhost;127.0.0.1;::1;*.local;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
-const appMemoryVersion = 2;
+const appMemoryVersion = 3;
 const locales: AppLocale[] = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP'];
 const appThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 const appThemePresets: AppThemePreset[] = [
@@ -288,7 +293,7 @@ export const defaultSettings: AppSettings = {
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
   audioUseJuceOutput: true,
-  audioUseJuceDecode: false,
+  audioUseJuceDecode: true,
   audioDsdOutputMode: 'pcm',
   audioAsioNativeDsdExperimentalEnabled: false,
   audioAsioUnavailableFallbackEnabled: false,
@@ -304,10 +309,12 @@ export const defaultSettings: AppSettings = {
   liveLibraryUpdatesEnabled: false,
   liveLibraryAutoHideDeletedEnabled: false,
   safeModeEnabled: false,
+  fastStartupEnabled: false,
   autoUpdateEnabled: true,
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: false,
   spotifyAutoLaunchOfficialPlayer: true,
+  streamingDownloadActionsEnabled: false,
   connectAutoStartReceiversEnabled: false,
   hqPlayer: { ...defaultHqPlayerSettings },
   playlistBackupsEnabled: true,
@@ -390,6 +397,8 @@ export const defaultSettings: AppSettings = {
   desktopLyricsLocked: false,
   desktopLyricsFontSizePx: 34,
   desktopLyricsScalePercent: 100,
+  desktopLyricsFontFamily: defaultDesktopLyricsFontFamily,
+  desktopLyricsFontFilePath: null,
   desktopLyricsColor: defaultDesktopLyricsColor,
   desktopLyricsStrokeColor: defaultDesktopLyricsStrokeColor,
   desktopLyricsOpacityPercent: 96,
@@ -426,6 +435,7 @@ export const defaultSettings: AppSettings = {
   replayGainAnalyzeMissingOnScanOptIn: false,
   replayGainAnalyzeMissingOnScan: false,
   backgroundSpacePauseEnabled: false,
+  localShortcuts: createDefaultLocalShortcuts(),
   globalShortcuts: createDefaultGlobalShortcuts(),
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -844,14 +854,24 @@ const normalizeHiddenAudioDeviceKeys = (value: unknown): string[] => {
   return Array.from(new Set(value.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)));
 };
 
-const normalizeGlobalShortcuts = (value: unknown): GlobalShortcutSettings => {
-  const shortcuts = createDefaultGlobalShortcuts();
+const cloneShortcutSettings = <T extends Record<GlobalShortcutAction, GlobalShortcutBinding>>(settings: T): T =>
+  Object.fromEntries(
+    globalShortcutActions.map((action) => [
+      action,
+      {
+        ...settings[action],
+      },
+    ]),
+  ) as T;
+
+const normalizeShortcutSettings = <T extends Record<GlobalShortcutAction, GlobalShortcutBinding>>(value: unknown, defaults: T): T => {
+  const shortcuts = cloneShortcutSettings(defaults);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return shortcuts;
   }
 
-  const input = value as Partial<Record<keyof GlobalShortcutSettings, Partial<GlobalShortcutSettings[keyof GlobalShortcutSettings]>>>;
+  const input = value as Partial<Record<GlobalShortcutAction, Partial<GlobalShortcutBinding>>>;
   const usedAccelerators = new Set<string>();
 
   for (const action of globalShortcutActions) {
@@ -882,6 +902,12 @@ const normalizeGlobalShortcuts = (value: unknown): GlobalShortcutSettings => {
 
   return shortcuts;
 };
+
+const normalizeGlobalShortcuts = (value: unknown): GlobalShortcutSettings =>
+  normalizeShortcutSettings(value, createDefaultGlobalShortcuts());
+
+const normalizeLocalShortcuts = (value: unknown): LocalShortcutSettings =>
+  normalizeShortcutSettings(value, createDefaultLocalShortcuts());
 
 const normalizeHexColor = (value: unknown, fallback: string): string => {
   if (typeof value !== 'string') {
@@ -1166,7 +1192,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     rememberedAudioOutput: normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceOutput !== false,
-    audioUseJuceDecode: settings.audioUseJuceDecode === true,
+    audioUseJuceDecode: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceDecode !== false,
     audioDsdOutputMode: settings.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
     audioAsioNativeDsdExperimentalEnabled: settings.audioAsioNativeDsdExperimentalEnabled === true,
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
@@ -1182,10 +1208,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     liveLibraryUpdatesEnabled: settings.liveLibraryUpdatesEnabled === true,
     liveLibraryAutoHideDeletedEnabled: settings.liveLibraryAutoHideDeletedEnabled === true,
     safeModeEnabled: settings.safeModeEnabled === true,
+    fastStartupEnabled: settings.fastStartupEnabled === true,
     autoUpdateEnabled: settings.autoUpdateEnabled !== false,
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices === true,
     spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
+    streamingDownloadActionsEnabled: settings.streamingDownloadActionsEnabled === true,
     connectAutoStartReceiversEnabled: settings.connectAutoStartReceiversEnabled === true,
     hqPlayer: normalizeHqPlayerSettings(settings.hqPlayer),
     playlistBackupsEnabled: settings.playlistBackupsEnabled !== false,
@@ -1317,6 +1345,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     desktopLyricsScalePercent: Number.isFinite(desktopLyricsScalePercent)
       ? Math.round(clamp(desktopLyricsScalePercent, 75, 170))
       : defaultSettings.desktopLyricsScalePercent,
+    desktopLyricsFontFamily: normalizeRequiredText(settings.desktopLyricsFontFamily, defaultDesktopLyricsFontFamily),
+    desktopLyricsFontFilePath: normalizeFontPath(settings.desktopLyricsFontFilePath),
     desktopLyricsColor: normalizeHexColor(settings.desktopLyricsColor, defaultDesktopLyricsColor),
     desktopLyricsStrokeColor: normalizeHexColor(settings.desktopLyricsStrokeColor, defaultDesktopLyricsStrokeColor),
     desktopLyricsOpacityPercent: Number.isFinite(desktopLyricsOpacityPercent)
@@ -1377,6 +1407,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     replayGainAnalyzeMissingOnScan:
       settings.replayGainAnalyzeMissingOnScanOptIn === true && settings.replayGainAnalyzeMissingOnScan === true,
     backgroundSpacePauseEnabled: false,
+    localShortcuts: normalizeLocalShortcuts(settings.localShortcuts),
     globalShortcuts: normalizeGlobalShortcuts(settings.globalShortcuts),
     playbackSpeed: Number.isFinite(playbackSpeed)
       ? Math.max(0.5, Math.min(2, playbackSpeed))

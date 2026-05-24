@@ -116,6 +116,11 @@ describe('TsMetadataReader WAV INFO text decoding', () => {
     expect(decodeWaveInfoText(Buffer.from('\u8349\u4e1c\u6ca1\u6709\u6d3e\u5bf9\0', 'utf8'))).toBe('\u8349\u4e1c\u6ca1\u6709\u6d3e\u5bf9');
   });
 
+  it('decodes UTF-16 WAV INFO text with or without a BOM', () => {
+    expect(decodeWaveInfoText(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u5c71\u6d77\0', 'utf16le')]))).toBe('\u5c71\u6d77');
+    expect(decodeWaveInfoText(Buffer.from('Wave Title\0', 'utf16le'))).toBe('Wave Title');
+  });
+
   it('repairs common UTF-8 mojibake without changing normal CJK text', () => {
     expect(repairMojibakeText(Buffer.from('Fran\u00e7oise Hardy', 'utf8').toString('latin1'))).toBe('Fran\u00e7oise Hardy');
     expect(repairMojibakeText(Buffer.from('\u591c\u306b\u99c6\u3051\u308b', 'utf8').toString('latin1'))).toBe('\u591c\u306b\u99c6\u3051\u308b');
@@ -538,6 +543,70 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fieldSources.title).toBe('embedded');
     expect(result.fieldSources.artist).toBe('embedded');
     expect(result.fieldSources.album).toBe('embedded');
+  });
+
+  it('lets TagLib replace suspicious WAV common text without overwriting good WAV tags', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      common: {
+        title: 'TBO&R}',
+        artist: ':#OJCf',
+        album: ':#?ML8',
+      },
+      format: {
+        duration: 206.64,
+        codec: 'PCM',
+      },
+    }));
+    readTagLibMetadataMock.mockResolvedValue({
+      tags: {
+        title: ['\u6708\u5915\u5f15'],
+        artist: ['\u6d77\u9c9c\u9762'],
+        album: ['\u6d77\u5ba2\u8c08'],
+      },
+      properties: {
+        duration: 206.64,
+        codec: 'PCM',
+        containerFormat: 'WAV',
+      },
+      hasCoverArt: false,
+    } as never);
+
+    const result = await new TsMetadataReader().read('D:\\Music\\02-\u6708\u5915\u5f15.wav');
+
+    expect(result.fields.title).toBe('\u6708\u5915\u5f15');
+    expect(result.fields.artist).toBe('\u6d77\u9c9c\u9762');
+    expect(result.fields.album).toBe('\u6d77\u5ba2\u8c08');
+    expect(result.fieldSources.title).toBe('embedded');
+  });
+
+  it('still reads TagLib cover art when unsafe TagLib text tags are skipped', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      format: {
+        duration: 180,
+        codec: 'PCM',
+      },
+    }));
+    readTagLibMetadataMock.mockResolvedValue({
+      tags: {
+        title: `APIC image/jpeg JFIF ${'x'.repeat(128)}`,
+      },
+      properties: {
+        duration: 180,
+        codec: 'PCM',
+        containerFormat: 'WAV',
+      },
+      hasCoverArt: true,
+    } as never);
+    readTagLibPicturesMock.mockResolvedValue([
+      { type: 'FrontCover', mimeType: 'image/png', data: new Uint8Array([9, 8, 7]) },
+    ] as never);
+
+    const result = await new TsMetadataReader().read('D:\\Music\\Unsafe Cover.wav');
+
+    expect(result.fields.title).toBe('Unsafe Cover');
+    expect(result.embeddedCoverStatus).toBe('present');
+    expect(Array.from(result.embeddedCover?.data ?? [])).toEqual([9, 8, 7]);
+    expect(result.warnings).toContain('embedded_metadata_skipped_unsafe_text');
   });
 
   it('keeps cue sheet track tags and cue duration over source-file fallbacks', async () => {

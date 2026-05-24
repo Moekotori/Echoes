@@ -30,6 +30,7 @@ import {
   isAdvancedNativeOutputPlatform,
   normalizeAudioSharedBackendForPlatform,
 } from '../../../shared/utils/audioPlatformCapabilities';
+import { isHiResAudioSpec } from '../../../shared/utils/audioQuality';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 import { createOutputSettings, normalizeSharedBackend, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
@@ -259,7 +260,11 @@ const formatCodecLine = (status: AudioStatus | null, copy: AudioDrawerCopy): str
 const isHiResAudio = (status: AudioStatus | null): boolean =>
   status?.outputMode !== 'shared' &&
   status?.outputMode !== 'system' &&
-  Boolean((status?.bitDepth && status.bitDepth >= 24) || (status?.fileSampleRate && status.fileSampleRate >= 88200));
+  isHiResAudioSpec({
+    bitDepth: status?.bitDepth,
+    codec: status?.codec,
+    sampleRate: status?.fileSampleRate,
+  });
 
 const isLosslessCodec = (status: AudioStatus | null): boolean => {
   const codec = status?.codec?.toLocaleLowerCase();
@@ -988,7 +993,7 @@ export const AudioSettingsDrawer = ({
           normalizeAudioSharedBackendForPlatform(settings.rememberedAudioOutput?.sharedBackend ?? remembered.sharedBackend ?? 'auto', rendererPlatform),
         );
         setUseJuceOutput(settings.audioUseJuceOutput !== false);
-        setUseJuceDecode(settings.audioUseJuceDecode === true);
+        setUseJuceDecode(settings.audioUseJuceDecode !== false);
         setUseDsdDop(settings.audioDsdOutputMode === 'dop');
         setAsioNativeDsdExperimentalEnabled(settings.audioAsioNativeDsdExperimentalEnabled === true);
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);

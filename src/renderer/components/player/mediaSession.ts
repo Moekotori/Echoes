@@ -59,6 +59,9 @@ const inferArtworkType = (url: string): string | undefined => {
   return undefined;
 };
 
+const isSupportedMediaSessionArtworkUrl = (url: string): boolean =>
+  /^(?:https?|data|blob):/iu.test(url);
+
 const clampPosition = (positionSeconds: number, durationSeconds: number): number =>
   Math.max(0, Math.min(durationSeconds, Number.isFinite(positionSeconds) ? positionSeconds : 0));
 
@@ -90,7 +93,7 @@ export const applyMediaSessionSnapshot = (snapshot: MediaSessionSnapshot): void 
   }
 
   if (typeof MediaMetadata !== 'undefined') {
-    const artwork = snapshot.artworkUrl
+    const artwork = snapshot.artworkUrl && isSupportedMediaSessionArtworkUrl(snapshot.artworkUrl)
       ? [
           {
             src: snapshot.artworkUrl,

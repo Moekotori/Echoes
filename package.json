@@ -24,6 +24,7 @@
     "sync:audio-host": "node scripts/sync-audio-host.mjs",
     "build": "npm run typecheck && electron-vite build",
     "build:win": "npm run rebuild:native && npm run verify:ffmpeg && npm run build:audio-host && npm run build:smtc-host && npm run build && electron-builder --win",
+    "build:win:unsigned": "npm run rebuild:native && npm run verify:ffmpeg && npm run build:audio-host && npm run build:smtc-host && npm run build && node scripts/build-win-unsigned.mjs",
     "build:linux": "node scripts/build-linux.mjs",
     "check:encoding": "node scripts/check-encoding.mjs",
     "check:theme-colors": "node scripts/check-theme-colors.mjs",

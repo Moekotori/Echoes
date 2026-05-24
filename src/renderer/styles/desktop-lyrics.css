@@ -13,6 +13,7 @@ body:has(.desktop-lyrics-app),
   --desktop-lyrics-color: #ffffff;
   --desktop-lyrics-stroke-color: #111827;
   --desktop-lyrics-opacity: 0.96;
+  --desktop-lyrics-font-family: "Outfit", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   display: grid;
   width: 100vw;
   height: 100vh;
@@ -40,6 +41,7 @@ body:has(.desktop-lyrics-app),
   text-align: center;
   transform: scale(var(--desktop-lyrics-scale));
   transform-origin: center;
+  font-family: var(--desktop-lyrics-font-family);
 }
 
 .desktop-lyrics-lines strong,
@@ -58,7 +60,6 @@ body:has(.desktop-lyrics-app),
 }
 
 .desktop-lyrics-lines strong {
-  font-family: "Microsoft YaHei", "Noto Sans SC", sans-serif;
   font-size: var(--desktop-lyrics-font-size);
   font-weight: 800;
   line-height: 1.18;
@@ -87,7 +88,20 @@ body:has(.desktop-lyrics-app),
   background: rgb(15 23 42 / 0.78);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
   backdrop-filter: blur(18px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
   -webkit-app-region: no-drag;
+}
+
+.desktop-lyrics-app:hover .desktop-lyrics-menu,
+.desktop-lyrics-menu:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .desktop-lyrics-menu::-webkit-scrollbar {

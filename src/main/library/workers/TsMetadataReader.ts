@@ -36,7 +36,9 @@ const tagLibCoreFallbackFields = ['title', 'artist'] as const;
 const tagLibTechnicalFallbackFields = ['duration', 'codec', 'sampleRate', 'bitDepth', 'bitrate'] as const;
 const replaceableMetadataSources = new Set<FieldSource>(['unknown', 'filename_fallback', 'folder_structure', 'artist_fallback']);
 const replaceableTechnicalSources = new Set<FieldSource>(['unknown', 'filename_fallback']);
-const mojibakeCandidateEncodings = ['latin1', 'win1252', 'gbk', 'big5', 'shift_jis'] as const;
+const mojibakeCandidateEncodings = ['latin1', 'win1252', 'gb18030', 'gbk', 'big5', 'shift_jis'] as const;
+const tagLibTextQualityFallbackExtensions = new Set(['.wav', '.wave', '.aiff', '.aif']);
+const textMetadataFields = new Set<keyof MetadataFields>(['title', 'artist', 'album', 'albumArtist', 'genre']);
 const maxMetadataTextLength = 512;
 const maxRawMetadataTextLength = 4096;
 const suspiciousMojibakePattern = /(?:[\u00c0-\u00ff]{2,}|[\u00c2-\u00f4][\u0080-\u00bf]|[\u00c3\u00c2][\u0080-\u00ffA-Za-z]|[\u93c4\u71b7\u5a07\u9287\u958e\u59b5\u7d0b]{2,}|\u{fffd}|\?{2,})/u;
@@ -84,6 +86,15 @@ const stripTrailingNulls = (buffer: Buffer): Buffer => {
   let end = buffer.length;
   while (end > 0 && buffer[end - 1] === 0) {
     end -= 1;
+  }
+
+  return buffer.subarray(0, end);
+};
+
+const stripTrailingUtf16Nulls = (buffer: Buffer): Buffer => {
+  let end = buffer.length;
+  while (end >= 2 && buffer[end - 1] === 0 && buffer[end - 2] === 0) {
+    end -= 2;
   }
 
   return buffer.subarray(0, end);
@@ -202,6 +213,44 @@ const textQualityScore = (text: string): number => {
   }
 
   return score;
+};
+
+const isTextMetadataField = (field: keyof MetadataFields): field is 'title' | 'artist' | 'album' | 'albumArtist' | 'genre' =>
+  textMetadataFields.has(field);
+
+const countAsciiSymbols = (text: string): number =>
+  countMatches(text, /[!"#$%&'()*+,./:;<=>?@[\\\]^_`{|}~-]/gu);
+
+const countAsciiLettersOrDigits = (text: string): number =>
+  countMatches(text, /[A-Za-z0-9]/gu);
+
+const isSuspiciousMetadataText = (text: string): boolean => {
+  const normalized = normalizeMetadataTextWhitespace(text);
+  if (!normalized) {
+    return false;
+  }
+
+  if (suspiciousMojibakePattern.test(normalized) || countControlCharacters(normalized) > 0) {
+    return true;
+  }
+
+  const asciiCharacters = Array.from(normalized).filter((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint >= 0x20 && codePoint <= 0x7e;
+  }).length;
+  const asciiSymbolCount = countAsciiSymbols(normalized);
+  const asciiLetterOrDigitCount = countAsciiLettersOrDigits(normalized);
+  if (
+    normalized.length >= 4 &&
+    asciiCharacters === normalized.length &&
+    asciiLetterOrDigitCount > 0 &&
+    asciiSymbolCount >= 2 &&
+    asciiSymbolCount / normalized.length >= 0.3
+  ) {
+    return true;
+  }
+
+  return textQualityScore(normalized) < -8;
 };
 
 export const repairMojibakeText = (value: string): string => {
@@ -327,30 +376,73 @@ const hasUnsafeEmbeddedTextMetadata = (metadata: IAudioMetadata): boolean => {
 };
 
 export const decodeWaveInfoText = (rawValue: Buffer): string | null => {
+  const utf16Data = stripTrailingUtf16Nulls(rawValue);
   const data = stripTrailingNulls(rawValue);
   if (data.length === 0) {
     return null;
   }
 
+  const hasUtf16LeBom = utf16Data.length >= 2 && utf16Data[0] === 0xff && utf16Data[1] === 0xfe;
+  const hasUtf16BeBom = utf16Data.length >= 2 && utf16Data[0] === 0xfe && utf16Data[1] === 0xff;
+  if (hasUtf16LeBom || hasUtf16BeBom) {
+    const decoded = cleanText(new TextDecoder(hasUtf16LeBom ? 'utf-16le' : 'utf-16be').decode(utf16Data.subarray(2)));
+    if (decoded) {
+      return decoded;
+    }
+  }
+
+  const evenNulls = utf16Data.filter((byte, index) => index % 2 === 0 && byte === 0).length;
+  const oddNulls = utf16Data.filter((byte, index) => index % 2 === 1 && byte === 0).length;
+  const likelyUtf16 =
+    utf16Data.length >= 4 &&
+    Math.max(evenNulls, oddNulls) >= 2 &&
+    Math.max(evenNulls, oddNulls) / Math.max(1, Math.floor(utf16Data.length / 2)) >= 0.3;
+
+  if (likelyUtf16) {
+    const preferredEncoding = oddNulls >= evenNulls ? 'utf-16le' : 'utf-16be';
+    const preferredText = cleanText(new TextDecoder(preferredEncoding).decode(utf16Data));
+    if (preferredText) {
+      return preferredText;
+    }
+
+    const utf16Candidates = ['utf-16le', 'utf-16be'].flatMap((encoding) => {
+      try {
+        const text = cleanText(new TextDecoder(encoding).decode(utf16Data));
+        return text ? [{ text, score: textQualityScore(text) }] : [];
+      } catch {
+        return [];
+      }
+    });
+
+    utf16Candidates.sort((left, right) => right.score - left.score);
+    if (utf16Candidates[0]) {
+      return utf16Candidates[0].text;
+    }
+  }
+
   try {
-    const utf8Text = new TextDecoder('utf-8', { fatal: true }).decode(data).trim();
-    if (utf8Text && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\uFFFD]/u.test(utf8Text)) {
+    const utf8Text = cleanText(new TextDecoder('utf-8', { fatal: true }).decode(data));
+    if (utf8Text && !isSuspiciousMetadataText(utf8Text)) {
       return utf8Text;
     }
   } catch {
     // Legacy WAV INFO chunks often omit an encoding marker; fall through to heuristic decoding.
   }
 
-  const candidates = ['utf-8', 'gbk', 'shift_jis', 'big5', 'windows-1252'].flatMap((encoding) => {
+  const candidates = ['utf-8', 'gb18030', 'gbk', 'shift_jis', 'big5', 'windows-1252'].flatMap((encoding, index) => {
     try {
-      const text = new TextDecoder(encoding).decode(data).trim();
-      return text.length > 0 ? [{ text, score: textQualityScore(text) }] : [];
+      const decoded =
+        encoding === 'utf-8'
+          ? new TextDecoder('utf-8').decode(data)
+          : iconv.decode(data, encoding === 'windows-1252' ? 'win1252' : encoding);
+      const text = cleanText(decoded);
+      return text ? [{ text, score: textQualityScore(text), priority: -index }] : [];
     } catch {
       return [];
     }
   });
 
-  candidates.sort((left, right) => right.score - left.score);
+  candidates.sort((left, right) => right.score - left.score || right.priority - left.priority);
   return candidates[0]?.text ?? null;
 };
 
@@ -588,6 +680,31 @@ const preferHigherQualityText = (primary: string | null, candidate: string | nul
   return textQualityScore(candidate) >= textQualityScore(primary) + 4 ? candidate : primary;
 };
 
+const shouldUseTagLibTextQualityFallback = (
+  filePath: string,
+  currentSource: FieldSource | undefined,
+  currentValue: unknown,
+  candidateValue: unknown,
+): candidateValue is string => {
+  if (!tagLibTextQualityFallbackExtensions.has(extname(filePath).toLowerCase()) || currentSource !== 'embedded') {
+    return false;
+  }
+
+  if (typeof currentValue !== 'string' || typeof candidateValue !== 'string') {
+    return false;
+  }
+
+  const currentText = cleanText(currentValue);
+  const candidateText = cleanText(candidateValue);
+  if (!candidateText || isSuspiciousMetadataText(candidateText)) {
+    return false;
+  }
+
+  const currentScore = currentText ? textQualityScore(currentText) : textQualityScore(currentValue);
+  const candidateScore = textQualityScore(candidateText);
+  return (!currentText || isSuspiciousMetadataText(currentText)) && candidateScore >= currentScore + 4;
+};
+
 const firstNativeNumber = (metadata: IAudioMetadata, keys: string[]): number | null => {
   for (const value of nativeValues(metadata, keys)) {
     const parsed = firstNumber(value);
@@ -650,7 +767,7 @@ export const readTagLibFallbackMetadata = async (filePath: string): Promise<TagL
       warnings.push(unsafeEmbeddedMetadataWarning);
     }
 
-    if (!skipTagMetadata && metadata.hasCoverArt) {
+    if (metadata.hasCoverArt) {
       try {
         const pictures = await taglib.readPictures(filePath);
         const picture = pictures.find((item) => item.type === 'FrontCover') ?? pictures[0];
@@ -926,6 +1043,14 @@ export class TsMetadataReader implements MetadataReader {
       }
 
       if (!replaceableMetadataSources.has(fieldSources[field] ?? 'unknown')) {
+        if (
+          isTextMetadataField(field) &&
+          shouldUseTagLibTextQualityFallback(filePath, fieldSources[field], fields[field], value)
+        ) {
+          fields[field] = value;
+          fieldSources[field] = 'embedded';
+          embeddedMetadataStatus = 'present';
+        }
         return;
       }
 

@@ -90,6 +90,20 @@ describe('UtatenKanaProvider', () => {
     ]);
   });
 
+  it('does not look up UtaTen for Chinese-only Han lyrics', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const lines = [
+      { timeMs: 1000, text: '还为分手前那句抱歉在感动' },
+      { timeMs: 2000, text: '穿梭时间的画面的钟' },
+    ];
+
+    const enriched = await new UtatenKanaProvider().enrichLines(query, lines, { timeoutMs: 2500 });
+
+    expect(enriched).toBe(lines);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns no enrichment when line matching is not precise enough', () => {
     const lines = [
       { timeMs: 1000, text: '君の 元へ 帰るんだ' },

@@ -4,13 +4,14 @@ import type { ImportPathClassification, LibraryFolder, LibraryScanStatus } from 
 export type DroppedImportResult = {
   addedFolderCount: number;
   scannedAudioFolderCount: number;
+  importedFileCount: number;
   ignoredCount: number;
   missingCount: number;
   failedCount: number;
   importedFolderPaths: string[];
 };
 
-type LibraryImportBridge = Pick<EchoApi['library'], 'addFolder' | 'classifyImportPaths' | 'scanFolder'>;
+type LibraryImportBridge = Pick<EchoApi['library'], 'addFolder' | 'classifyImportPaths' | 'importAudioFiles' | 'scanFolder'>;
 
 type HandleDroppedImportOptions = {
   onScanStatus?: (status: LibraryScanStatus) => void;
@@ -73,6 +74,10 @@ export const summarizeDroppedImport = (result: DroppedImportResult): string => {
     parts.push(`已扫描 ${result.scannedAudioFolderCount} 个音乐文件所在文件夹`);
   }
 
+  if (result.importedFileCount > 0) {
+    parts.push(`已导入 ${result.importedFileCount} 个文件`);
+  }
+
   if (result.ignoredCount > 0) {
     parts.push(`忽略 ${result.ignoredCount} 个不支持文件`);
   }
@@ -99,6 +104,7 @@ export const handleDroppedImportPaths = async (
   const result: DroppedImportResult = {
     addedFolderCount: 0,
     scannedAudioFolderCount: 0,
+    importedFileCount: 0,
     ignoredCount: classification.unsupportedFiles.length,
     missingCount: classification.missingPaths.length,
     failedCount: 0,
@@ -125,7 +131,18 @@ export const handleDroppedImportPaths = async (
     }
   }
 
-  if (result.addedFolderCount > 0 || result.scannedAudioFolderCount > 0) {
+  if (classification.osuArchives.length > 0) {
+    try {
+      const imported = await library.importAudioFiles(classification.osuArchives);
+      result.importedFileCount += imported.importedCount;
+      result.failedCount += imported.failedCount;
+    } catch (error) {
+      console.error('Failed to import dropped osu archives', error);
+      result.failedCount += classification.osuArchives.length;
+    }
+  }
+
+  if (result.addedFolderCount > 0 || result.scannedAudioFolderCount > 0 || result.importedFileCount > 0) {
     window.dispatchEvent(new Event('library:changed'));
   }
 

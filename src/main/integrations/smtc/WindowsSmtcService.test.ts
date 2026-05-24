@@ -81,6 +81,15 @@ describe('WindowsSmtcService', () => {
     expect(writes.join('')).toContain('"type":"setMetadata"');
     expect(writes.join('')).toContain('"coverPath":"D:\\\\Echo\\\\cover.png"');
     expect(writes.join('')).toContain('"type":"setPlaybackState"');
+    expect(service.getDiagnostics()).toMatchObject({
+      hostState: 'running',
+      initialized: true,
+      hostPath: 'D:\\Echo\\echo-smtc-host.exe',
+      lastMetadataTitle: 'Song',
+      lastMetadataArtist: 'Artist',
+      lastPlaybackState: 'playing',
+      enabledActions: expect.objectContaining({ seek: true }),
+    });
   });
 
   it('maps helper stdout commands back to SMTC handlers', async () => {
@@ -101,6 +110,9 @@ describe('WindowsSmtcService', () => {
 
     expect(handler).toHaveBeenCalledWith('next');
     expect(handler).toHaveBeenCalledWith({ type: 'seek', positionSeconds: 42.5 });
+    expect(service.getDiagnostics()).toMatchObject({
+      lastCommand: { type: 'seek', positionSeconds: 42.5 },
+    });
   });
 
   it('falls back quietly when the helper binary is missing', async () => {
@@ -117,6 +129,7 @@ describe('WindowsSmtcService', () => {
     await service.setPlaybackState('playing');
 
     expect(spawnHost).not.toHaveBeenCalled();
+    expect(service.getDiagnostics()).toMatchObject({ hostState: 'missing', lastError: expect.objectContaining({ source: 'service' }) });
     expect(logger.warn).toHaveBeenCalledWith(
       '[SMTC] Windows SMTC host binary is missing; using no-op bridge mode',
       expect.objectContaining({ hostPath: 'D:\\Echo\\missing.exe' }),

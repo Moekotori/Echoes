@@ -167,8 +167,15 @@ import type {
   PluginRunCommandRequest,
   PluginSummary,
 } from '../shared/types/plugins';
-import type { SmtcCommand } from '../shared/types/smtc';
-import type { LyricsProviderId, LyricsSearchCandidate, LyricsTrackSnapshotRequest, TrackLyrics } from '../shared/types/lyrics';
+import type { SmtcCommand, SmtcDiagnostics } from '../shared/types/smtc';
+import type {
+  LyricsEmbedToTrackRequest,
+  LyricsEmbedToTrackResult,
+  LyricsProviderId,
+  LyricsSearchCandidate,
+  LyricsTrackSnapshotRequest,
+  TrackLyrics,
+} from '../shared/types/lyrics';
 import type { MvMatchCandidate, MvResolvedStreams, MvSettings, MvTrackSnapshotSearchRequest, TrackVideo } from '../shared/types/mv';
 import type {
   RemoteDirectoryItem,
@@ -266,6 +273,7 @@ export type EchoApi = {
   };
   library: {
     chooseFolder: () => Promise<string | null>;
+    chooseImportFiles: () => Promise<string[] | null>;
     addFolder: (path: string) => Promise<LibraryFolder>;
     classifyImportPaths: (paths: string[]) => Promise<ImportPathClassification>;
     importDroppedFiles: (files: File[]) => Promise<DroppedFileImportResult>;
@@ -525,6 +533,7 @@ export type EchoApi = {
     ) => Promise<LyricsSearchCandidate[]>;
     applyCandidate: (trackId: string, candidateId: string) => Promise<TrackLyrics>;
     applyCandidateForSnapshot?: (request: LyricsTrackSnapshotRequest, candidateId: string) => Promise<TrackLyrics>;
+    embedToTrack?: (trackId: string, request?: LyricsEmbedToTrackRequest) => Promise<LyricsEmbedToTrackResult>;
     applyCustomLrc?: (trackId: string, lrcText: string, fileName?: string) => Promise<TrackLyrics>;
     markInstrumental: (trackId: string) => Promise<TrackLyrics>;
     rejectCandidate: (candidateId: string) => Promise<void>;
@@ -551,6 +560,7 @@ export type EchoApi = {
     openExternal: (videoId: string) => Promise<void>;
   };
   smtc: {
+    getDiagnostics: () => Promise<SmtcDiagnostics>;
     onCommand: (handler: (command: SmtcCommand) => void) => () => void;
   };
   discordPresence: {

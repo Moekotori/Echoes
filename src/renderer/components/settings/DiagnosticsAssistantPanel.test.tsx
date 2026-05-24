@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AudioDeviceInfo, AudioDiagnostics } from '../../../shared/types/audio';
+import type { SmtcDiagnostics } from '../../../shared/types/smtc';
 import { DiagnosticsAssistantPanel } from './DiagnosticsAssistantPanel';
 
 const baseDiagnostics: AudioDiagnostics = {
@@ -78,6 +79,30 @@ const baseDevices: AudioDeviceInfo[] = [
   },
 ];
 
+const baseSmtcDiagnostics: SmtcDiagnostics = {
+  enabled: true,
+  platform: 'win32',
+  hostState: 'running',
+  initialized: true,
+  hostPath: 'D:\\ECHO\\electron-app\\build\\echo-smtc-host.exe',
+  lastMetadataAt: '2026-05-21T12:00:00.000Z',
+  lastMetadataTrackId: 'track-1',
+  lastMetadataTitle: 'SMTC Song',
+  lastMetadataArtist: 'SMTC Artist',
+  lastPlaybackState: 'playing',
+  lastPlaybackStateAt: '2026-05-21T12:00:01.000Z',
+  lastTimelineAt: '2026-05-21T12:00:02.000Z',
+  lastTimelinePositionSeconds: 12,
+  lastTimelineDurationSeconds: 240,
+  enabledActions: { play: true, pause: true, previous: true, next: true, seek: true },
+  lastCommand: 'next',
+  lastCommandAt: '2026-05-21T12:00:03.000Z',
+  lastError: null,
+  recentErrors: [],
+  recoveryInFlight: false,
+  recoveryAttemptsInWindow: 0,
+};
+
 beforeEach(() => {
   Object.defineProperty(window.navigator, 'clipboard', {
     configurable: true,
@@ -96,8 +121,9 @@ afterEach(() => {
 describe('DiagnosticsAssistantPanel', () => {
   it('loads audio diagnostics only after the assistant is expanded', async () => {
     const getDiagnostics = vi.fn().mockResolvedValue(baseDiagnostics);
+    const getSmtcDiagnostics = vi.fn().mockResolvedValue(baseSmtcDiagnostics);
     const listDevices = vi.fn().mockResolvedValue(baseDevices);
-    window.echo = { audio: { getDiagnostics, listDevices } } as unknown as Window['echo'];
+    window.echo = { audio: { getDiagnostics, listDevices }, smtc: { getDiagnostics: getSmtcDiagnostics } } as unknown as Window['echo'];
 
     render(<DiagnosticsAssistantPanel lastCrashSummary={null} />);
 
@@ -105,8 +131,10 @@ describe('DiagnosticsAssistantPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /诊断助手/ }));
 
     await waitFor(() => expect(getDiagnostics).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getSmtcDiagnostics).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(listDevices).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('wasapi-shared')).toBeTruthy();
+    expect(screen.getAllByText('SMTC Song').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Speakers').length).toBeGreaterThan(0);
     expect(screen.getByText(/shared #0/)).toBeTruthy();
     expect(screen.getByText('USB ASIO')).toBeTruthy();
@@ -133,6 +161,7 @@ describe('DiagnosticsAssistantPanel', () => {
     expect(copied).toContain('Audio Pipeline');
     expect(copied).toContain('Recommendations');
     expect(copied).toContain('Output Devices');
+    expect(copied).toContain('SMTC');
     expect(copied).toContain('shared#0: Speakers');
     expect(copied).toContain('currentFileBasename: song.flac');
     expect(copied).not.toContain('D:\\Music\\Private\\song.flac');

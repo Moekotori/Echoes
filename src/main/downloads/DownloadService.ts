@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { app } from 'electron';
-import { strFromU8, unzipSync } from 'fflate';
 import type {
   CreateDownloadUrlJobOptions,
   DownloadJob,
@@ -27,8 +26,15 @@ import { getAccountService } from '../accounts/AccountService';
 import { resolveFfmpegToolchain, type FfmpegToolchainInfo } from '../audio/FfmpegToolchain';
 import { getLibraryService } from '../library/LibraryService';
 import { getNcmConverter } from '../library/NcmConverter';
-import { writeEmbeddedTrackTags } from '../library/TagWriter';
+import { importOsuArchiveAsMp3Queued } from '../library/OsuArchiveImport';
+import { writeEmbeddedCoverArt, writeEmbeddedTrackTags } from '../library/TagWriter';
 import { getMvService } from '../mv/MvService';
+import {
+  isProtectedMusicDownloadProvider,
+  protectedMusicDownloadBlockedMessage,
+  type ProtectedMusicDownloadProvider,
+  verifyDownloadAuthorizationToken,
+} from './DownloadAuthorization';
 
 const defaultSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -47,8 +53,6 @@ const browserUserAgent =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const osuDownloadUserAgent = 'ECHO Next/26.5 osu downloader (https://github.com/moekotori/echo)';
 const osuArchiveAccept = 'application/x-osu-beatmap-archive,application/zip,application/octet-stream,*/*';
-const osuAudioExtensions = new Set(['.mp3', '.ogg', '.wav', '.m4a', '.flac', '.aac', '.opus']);
-const osuCoverExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 const searchProvidersForScope = (scope: DownloadSearchScope | undefined): DownloadSearchProvider[] => {
   if (scope === 'youtube' || scope === 'bilibili') {
@@ -159,6 +163,7 @@ type YtDlpProbeResult = {
   title?: unknown;
   duration?: unknown;
   thumbnail?: unknown;
+  thumbnails?: unknown;
   webpage_url?: unknown;
 };
 
@@ -178,6 +183,7 @@ type DownloadJobOptions = Required<Pick<DownloadSettings, 'importToLibrary' | 'b
   streamingProvider: StreamingProviderName | null;
   streamingProviderTrackId: string | null;
   streamingStableKey: string | null;
+  downloadAuthorizationToken: string | null;
 };
 
 type PersistedDownloadJobOptions = Omit<DownloadJobOptions, 'suggestedCoverData'> & {
@@ -214,6 +220,7 @@ type DownloadServiceDependencies = {
   loadJobs?: () => PersistedDownloadState | null;
   saveJobs?: (state: PersistedDownloadState) => void;
   getAccountCredentials?: (provider: AccountProvider) => AccountCredentials;
+  writeEmbeddedCoverArt?: typeof writeEmbeddedCoverArt;
   writeEmbeddedTrackTags?: typeof writeEmbeddedTrackTags;
 };
 
@@ -257,24 +264,10 @@ type BilibiliSearchApiResponse = {
   };
 };
 
-type OsuArchiveMetadata = {
-  audioFilename: string | null;
-  coverFilename: string | null;
-  title: string | null;
-  artist: string | null;
-  creator: string | null;
-  version: string | null;
-};
-
 type OsuDownloadSource = {
   label: string;
   url: string;
   headers: Record<string, string>;
-};
-
-type OsuArchiveEntry = {
-  name: string;
-  data: Uint8Array;
 };
 
 const getProcessResourcesPath = (): string | null => {
@@ -391,6 +384,41 @@ const extensionFromUrl = (url: string): string | null => {
 
 const sanitizeStreamingProvider = (value: unknown): StreamingProviderName | null =>
   typeof value === 'string' && streamingProviderNames.includes(value as StreamingProviderName) ? (value as StreamingProviderName) : null;
+
+const protectedMusicProviderFromUrl = (value: string | null | undefined): ProtectedMusicDownloadProvider | null => {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const normalized = value.toLocaleLowerCase();
+  if (normalized.includes('music.163.com') || normalized.includes('music.126.net')) {
+    return 'netease';
+  }
+
+  if (
+    normalized.includes('y.qq.com') ||
+    normalized.includes('qqmusic.qq.com') ||
+    normalized.includes('stream.qqmusic.qq.com') ||
+    normalized.includes('qqmusic.tc.qq.com') ||
+    normalized.includes('gtimg.cn')
+  ) {
+    return 'qqmusic';
+  }
+
+  return null;
+};
+
+const protectedMusicProviderFromDownloadRequest = (
+  sourceUrl: string,
+  webpageUrl: string | null,
+  streamingProvider: StreamingProviderName | null,
+): ProtectedMusicDownloadProvider | null => {
+  if (isProtectedMusicDownloadProvider(streamingProvider)) {
+    return streamingProvider;
+  }
+
+  return protectedMusicProviderFromUrl(sourceUrl) ?? protectedMusicProviderFromUrl(webpageUrl);
+};
 
 const supportedCoverMimeType = (value: string | null | undefined): string | null => {
   const normalized = value?.split(';')[0]?.trim().toLocaleLowerCase();
@@ -611,17 +639,6 @@ export class DownloadService extends EventEmitter {
       throw new Error(playbackOnlyDownloadBlockedMessage);
     }
 
-    const baseOutputDirectory = this.settings.outputDirectory;
-    if (!baseOutputDirectory) {
-      throw new Error('请选择下载文件夹');
-    }
-
-    const outputStat = existsSync(baseOutputDirectory) ? statSync(baseOutputDirectory) : null;
-    if (!outputStat?.isDirectory()) {
-      throw new Error(`涓嬭浇鏂囦欢澶逛笉鍙敤: ${baseOutputDirectory}`);
-    }
-    const outputDirectory = this.prepareJobOutputDirectory(baseOutputDirectory, options.outputSubdirectory);
-
     const requestHeaders = sanitizeRequestHeaders(options.requestHeaders);
     const suggestedTitle = sanitizeTextOption(options.title, 180);
     const suggestedArtist = sanitizeTextOption(options.artist, 180);
@@ -634,6 +651,30 @@ export class DownloadService extends EventEmitter {
     const streamingProvider = sanitizeStreamingProvider(options.streamingProvider);
     const streamingProviderTrackId = sanitizeTextOption(options.streamingProviderTrackId, 512);
     const streamingStableKey = sanitizeTextOption(options.streamingStableKey, 768);
+    const downloadAuthorizationToken = sanitizeTextOption(options.downloadAuthorizationToken, 4096);
+    const protectedMusicProvider = protectedMusicProviderFromDownloadRequest(sourceUrl, webpageUrl, streamingProvider);
+    if (
+      protectedMusicProvider &&
+      !verifyDownloadAuthorizationToken(downloadAuthorizationToken, {
+        provider: protectedMusicProvider,
+        providerTrackId: streamingProviderTrackId,
+        url: sourceUrl,
+      })
+    ) {
+      throw new Error(protectedMusicDownloadBlockedMessage);
+    }
+
+    const baseOutputDirectory = this.settings.outputDirectory;
+    if (!baseOutputDirectory) {
+      throw new Error('请选择下载文件夹');
+    }
+
+    const outputStat = existsSync(baseOutputDirectory) ? statSync(baseOutputDirectory) : null;
+    if (!outputStat?.isDirectory()) {
+      throw new Error(`涓嬭浇鏂囦欢澶逛笉鍙敤: ${baseOutputDirectory}`);
+    }
+    const outputDirectory = this.prepareJobOutputDirectory(baseOutputDirectory, options.outputSubdirectory);
+
     const provider = inferProvider(sourceUrl);
     const now = new Date().toISOString();
     const job: DownloadJob = {
@@ -677,6 +718,7 @@ export class DownloadService extends EventEmitter {
       streamingProvider,
       streamingProviderTrackId,
       streamingStableKey,
+      downloadAuthorizationToken,
     });
     this.jobs = [job, ...this.jobs];
     this.queuedJobIds.push(job.id);
@@ -1075,6 +1117,10 @@ export class DownloadService extends EventEmitter {
     }
   }
 
+  private normalizeDownloadThumbnailUrl(provider: DownloadSourceProvider, value: string | null): string | null {
+    return provider === 'bilibili' ? this.normalizeBilibiliImageUrl(value) : value;
+  }
+
   private parseSearchResults(provider: DownloadSearchProvider, stdout: string): DownloadSearchResult[] {
     const parsed = JSON.parse(stdout) as YtDlpSearchResult;
     const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
@@ -1237,7 +1283,9 @@ export class DownloadService extends EventEmitter {
   private async runJob(jobId: string): Promise<void> {
     try {
       const job = this.requireJob(jobId);
-      if (job.provider !== 'osu' && !this.jobOptions.get(jobId)?.directAudio) {
+      const options = this.jobOptions.get(jobId);
+      this.assertProtectedMusicDownloadAuthorized(job, options);
+      if (job.provider !== 'osu' && !options?.directAudio) {
         await this.probe(jobId);
       }
       await this.download(jobId);
@@ -1261,6 +1309,27 @@ export class DownloadService extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
       });
+    }
+  }
+
+  private assertProtectedMusicDownloadAuthorized(job: DownloadJob, options: DownloadJobOptions | undefined): void {
+    const protectedMusicProvider = protectedMusicProviderFromDownloadRequest(
+      job.sourceUrl,
+      options?.webpageUrl ?? job.webpageUrl,
+      options?.streamingProvider ?? null,
+    );
+    if (!protectedMusicProvider) {
+      return;
+    }
+
+    if (
+      !verifyDownloadAuthorizationToken(options?.downloadAuthorizationToken, {
+        provider: protectedMusicProvider,
+        providerTrackId: options?.streamingProviderTrackId,
+        url: job.sourceUrl,
+      })
+    ) {
+      throw new Error(protectedMusicDownloadBlockedMessage);
     }
   }
 
@@ -1293,10 +1362,18 @@ export class DownloadService extends EventEmitter {
 
     const metadata = this.parseProbeResult(result.stdout);
     const metadataTitle = metadata.title && metadata.title !== 'Untitled download' ? metadata.title : (options?.suggestedTitle ?? metadata.title);
+    const metadataThumbnailUrl = this.normalizeDownloadThumbnailUrl(job.provider, metadata.thumbnailUrl);
+    const thumbnailUrl = options?.suggestedCoverUrl ?? metadataThumbnailUrl ?? job.thumbnailUrl;
+    if (options && !options.suggestedCoverUrl && metadataThumbnailUrl) {
+      this.jobOptions.set(jobId, {
+        ...options,
+        suggestedCoverUrl: metadataThumbnailUrl,
+      });
+    }
     this.updateJob(jobId, {
       title: metadataTitle ?? job.title,
       durationSeconds: metadata.durationSeconds,
-      thumbnailUrl: metadata.thumbnailUrl,
+      thumbnailUrl,
       webpageUrl: options?.webpageUrl ?? metadata.webpageUrl,
     });
   }
@@ -1431,16 +1508,21 @@ export class DownloadService extends EventEmitter {
           outputPath: archivePath,
         });
         await this.writeResponseBodyToFile(jobId, response, archivePath);
-        const extracted = this.extractOsuAudioFromArchive(archivePath, outputDirectory, beatmapsetId);
-        const displayTitle = [extracted.metadata.artist, extracted.metadata.title].filter(Boolean).join(' - ') || extracted.metadata.title || `osu! beatmapset ${beatmapsetId}`;
+        const extracted = await importOsuArchiveAsMp3Queued({
+          archivePath,
+          outputDirectory,
+          beatmapsetId,
+          writeEmbeddedTags: false,
+        });
+        const displayTitle = [extracted.tags.artist, extracted.tags.title].filter(Boolean).join(' - ') || extracted.tags.title || `osu! beatmapset ${beatmapsetId}`;
         const options = this.jobOptions.get(jobId);
         if (options) {
           this.jobOptions.set(jobId, {
             ...options,
-            suggestedTitle: extracted.metadata.title,
-            suggestedArtist: extracted.metadata.artist,
-            suggestedAlbum: `osu! beatmapset ${beatmapsetId}`,
-            suggestedAlbumArtist: extracted.metadata.artist,
+            suggestedTitle: extracted.tags.title,
+            suggestedArtist: extracted.tags.artist,
+            suggestedAlbum: extracted.tags.album,
+            suggestedAlbumArtist: extracted.tags.albumArtist,
             suggestedCoverData: extracted.coverData,
             webpageUrl: job.webpageUrl ?? job.sourceUrl,
           });
@@ -1525,212 +1607,6 @@ export class DownloadService extends EventEmitter {
     );
   }
 
-  private extractOsuAudioFromArchive(
-    archivePath: string,
-    outputDirectory: string,
-    beatmapsetId: string,
-  ): { outputPath: string; metadata: OsuArchiveMetadata; coverData: { data: Uint8Array; mimeType: string } | null } {
-    const archive = unzipSync(new Uint8Array(readFileSync(archivePath)));
-    const entries = Object.entries(archive)
-      .filter(([, data]) => data.length > 0)
-      .map(([name, data]) => ({ name, data }));
-    const metadata = this.pickOsuArchiveMetadata(entries);
-    const audioEntry = this.pickOsuAudioEntry(entries, metadata.audioFilename);
-    if (!audioEntry) {
-      throw new Error('osu! archive does not contain a supported audio file');
-    }
-    const coverEntry = this.pickOsuCoverEntry(entries, metadata.coverFilename);
-
-    const extension = extname(audioEntry.name).toLowerCase() || '.mp3';
-    const title = metadata.title ?? `osu! beatmapset ${beatmapsetId}`;
-    const outputName = [metadata.artist, title].filter(Boolean).join(' - ') || title;
-    const outputPath = this.uniqueOutputPath(outputDirectory, `${sanitizeFilePart(outputName)}${extension}`);
-    writeFileSync(outputPath, Buffer.from(audioEntry.data));
-
-    return {
-      outputPath,
-      metadata: {
-        ...metadata,
-        title,
-      },
-      coverData: coverEntry
-        ? {
-            data: coverEntry.data,
-            mimeType: this.mimeTypeForOsuCoverEntry(coverEntry.name),
-          }
-        : null,
-    };
-  }
-
-  private pickOsuArchiveMetadata(entries: OsuArchiveEntry[]): OsuArchiveMetadata {
-    const osuEntries = entries.filter((entry) => entry.name.toLowerCase().endsWith('.osu'));
-    for (const entry of osuEntries) {
-      const metadata = this.parseOsuFileMetadata(strFromU8(entry.data));
-      if (metadata.audioFilename) {
-        return metadata;
-      }
-    }
-
-    return osuEntries[0] ? this.parseOsuFileMetadata(strFromU8(osuEntries[0].data)) : {
-      audioFilename: null,
-      title: null,
-      artist: null,
-      coverFilename: null,
-      creator: null,
-      version: null,
-    };
-  }
-
-  private parseOsuFileMetadata(content: string): OsuArchiveMetadata {
-    let section = '';
-    const metadata: OsuArchiveMetadata = {
-      audioFilename: null,
-      coverFilename: null,
-      title: null,
-      artist: null,
-      creator: null,
-      version: null,
-    };
-
-    for (const rawLine of content.split(/\r?\n/u)) {
-      const line = rawLine.trim();
-      const sectionMatch = line.match(/^\[([^\]]+)\]$/u);
-      if (sectionMatch) {
-        section = sectionMatch[1].toLowerCase();
-        continue;
-      }
-
-      const separatorIndex = line.indexOf(':');
-      if (separatorIndex <= 0) {
-        continue;
-      }
-
-      const key = line.slice(0, separatorIndex).trim();
-      const value = line.slice(separatorIndex + 1).trim();
-      if (!value) {
-        continue;
-      }
-
-      if (section === 'general' && key === 'AudioFilename') {
-        metadata.audioFilename = value;
-      } else if (section === 'metadata') {
-        if (key === 'TitleUnicode') {
-          metadata.title = value;
-        } else if (key === 'Title') {
-          metadata.title = metadata.title ?? value;
-        } else if (key === 'ArtistUnicode') {
-          metadata.artist = value;
-        } else if (key === 'Artist') {
-          metadata.artist = metadata.artist ?? value;
-        } else if (key === 'Creator') {
-          metadata.creator = value;
-        } else if (key === 'Version') {
-          metadata.version = value;
-        }
-      } else if (section === 'events' && !metadata.coverFilename) {
-        metadata.coverFilename = this.parseOsuBackgroundFilename(line);
-      }
-    }
-
-    return metadata;
-  }
-
-  private parseOsuBackgroundFilename(line: string): string | null {
-    const parts = this.parseOsuCsvLine(line);
-    const eventType = parts[0]?.trim().toLowerCase();
-    if (eventType !== '0' && eventType !== 'background') {
-      return null;
-    }
-
-    const filename = parts[2]?.trim();
-    return filename && osuCoverExtensions.has(extname(filename).toLowerCase()) ? filename : null;
-  }
-
-  private parseOsuCsvLine(line: string): string[] {
-    const parts: string[] = [];
-    let current = '';
-    let quoted = false;
-
-    for (let index = 0; index < line.length; index += 1) {
-      const char = line[index];
-      if (char === '"') {
-        if (quoted && line[index + 1] === '"') {
-          current += '"';
-          index += 1;
-        } else {
-          quoted = !quoted;
-        }
-        continue;
-      }
-
-      if (char === ',' && !quoted) {
-        parts.push(current);
-        current = '';
-        continue;
-      }
-
-      current += char;
-    }
-
-    parts.push(current);
-    return parts;
-  }
-
-  private pickOsuAudioEntry(entries: OsuArchiveEntry[], audioFilename: string | null): OsuArchiveEntry | null {
-    const audioEntries = entries.filter((entry) => osuAudioExtensions.has(extname(entry.name).toLowerCase()));
-    if (audioEntries.length === 0) {
-      return null;
-    }
-
-    const normalizedAudioFilename = audioFilename ? this.normalizeArchivePath(audioFilename) : null;
-    if (normalizedAudioFilename) {
-      const namedEntry = audioEntries.find((entry) => {
-        const normalizedName = this.normalizeArchivePath(entry.name);
-        return normalizedName === normalizedAudioFilename || normalizedName.endsWith(`/${normalizedAudioFilename}`);
-      });
-      if (namedEntry) {
-        return namedEntry;
-      }
-    }
-
-    return [...audioEntries].sort((left, right) => right.data.length - left.data.length)[0] ?? null;
-  }
-
-  private pickOsuCoverEntry(entries: OsuArchiveEntry[], coverFilename: string | null): OsuArchiveEntry | null {
-    const coverEntries = entries.filter((entry) => osuCoverExtensions.has(extname(entry.name).toLowerCase()));
-    if (coverEntries.length === 0) {
-      return null;
-    }
-
-    const normalizedCoverFilename = coverFilename ? this.normalizeArchivePath(coverFilename) : null;
-    if (normalizedCoverFilename) {
-      const namedEntry = coverEntries.find((entry) => {
-        const normalizedName = this.normalizeArchivePath(entry.name);
-        return normalizedName === normalizedCoverFilename || normalizedName.endsWith(`/${normalizedCoverFilename}`);
-      });
-      if (namedEntry) {
-        return namedEntry;
-      }
-    }
-
-    return [...coverEntries].sort((left, right) => right.data.length - left.data.length)[0] ?? null;
-  }
-
-  private mimeTypeForOsuCoverEntry(entryName: string): string {
-    const extension = extname(entryName).toLowerCase();
-    if (extension === '.png') {
-      return 'image/png';
-    }
-    if (extension === '.webp') {
-      return 'image/webp';
-    }
-    return 'image/jpeg';
-  }
-
-  private normalizeArchivePath(value: string): string {
-    return value.replace(/\\/gu, '/').replace(/^\/+/u, '').toLowerCase();
-  }
-
   private async downloadDirectAudio(jobId: string, options: DownloadJobOptions): Promise<void> {
     const job = this.requireJob(jobId);
     const outputDirectory = this.getJobOutputDirectory(jobId);
@@ -1804,13 +1680,28 @@ export class DownloadService extends EventEmitter {
       Boolean(options.suggestedArtist) ||
       Boolean(options.suggestedAlbum) ||
       Boolean(options.suggestedAlbumArtist);
-    if (!hasMetadata && !options.suggestedCoverUrl) {
+    const coverUrl = options.suggestedCoverUrl ?? job.thumbnailUrl;
+    const hasCover = Boolean(options.suggestedCoverData) || Boolean(coverUrl);
+    if (!hasMetadata && !hasCover) {
       return;
     }
 
-    const coverData = options.suggestedCoverData ?? (options.suggestedCoverUrl ? await this.readDownloadCoverImage(options.suggestedCoverUrl).catch(() => null) : null);
+    const coverData = options.suggestedCoverData ?? (coverUrl ? await this.readDownloadCoverImage(coverUrl).catch(() => null) : null);
 
     try {
+      if (!hasMetadata) {
+        if (!coverData) {
+          return;
+        }
+
+        const writeCover = this.dependencies.writeEmbeddedCoverArt ?? writeEmbeddedCoverArt;
+        await writeCover({
+          filePath: job.outputPath,
+          coverData,
+        });
+        return;
+      }
+
       const writeTags = this.dependencies.writeEmbeddedTrackTags ?? writeEmbeddedTrackTags;
       await writeTags({
         filePath: job.outputPath,
@@ -2035,6 +1926,7 @@ export class DownloadService extends EventEmitter {
       streamingProvider: null,
       streamingProviderTrackId: null,
       streamingStableKey: null,
+      downloadAuthorizationToken: null,
     };
 
     if (!options.importToLibrary) {
@@ -2056,6 +1948,7 @@ export class DownloadService extends EventEmitter {
       Boolean(options.suggestedArtist) ||
       Boolean(options.suggestedAlbum) ||
       Boolean(options.suggestedAlbumArtist);
+    const coverUrl = options.suggestedCoverUrl ?? job.thumbnailUrl;
     const track = await importAudioFile(job.outputPath, {
       folderPath: importFolderPath,
       metadata: hasSuggestedMetadata
@@ -2066,7 +1959,7 @@ export class DownloadService extends EventEmitter {
             albumArtist: options.suggestedAlbumArtist ?? options.suggestedArtist ?? undefined,
           }
         : undefined,
-      coverUrl: options.suggestedCoverUrl ?? undefined,
+      coverUrl: coverUrl ?? undefined,
     });
     this.updateJob(jobId, { importedTrackId: track.id });
     if (options.streamingProvider && options.streamingProviderTrackId) {
@@ -2215,7 +2108,7 @@ export class DownloadService extends EventEmitter {
       return {
         title: typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : 'Untitled download',
         durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
-        thumbnailUrl: typeof parsed.thumbnail === 'string' && parsed.thumbnail.trim() ? parsed.thumbnail.trim() : null,
+        thumbnailUrl: this.thumbnailFromEntry(parsed as YtDlpSearchEntry),
         webpageUrl: typeof parsed.webpage_url === 'string' && parsed.webpage_url.trim() ? parsed.webpage_url.trim() : null,
       };
     } catch {

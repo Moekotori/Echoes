@@ -10,6 +10,34 @@ import { defaultChannelBalanceSettings } from '../app/appSettings';
 import { LyricsService } from './LyricsService';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 
+const tagWriterMock = vi.hoisted(() => ({
+  writeEmbeddedLyricsTag: vi.fn(async () => undefined),
+}));
+
+const audioSessionMock = vi.hoisted(() => {
+  const state = {
+    status: {
+      state: 'idle',
+      currentFilePath: null as string | null,
+    },
+  };
+
+  return {
+    state,
+    getStatus: vi.fn(() => state.status),
+  };
+});
+
+vi.mock('../library/TagWriter', () => ({
+  writeEmbeddedLyricsTag: tagWriterMock.writeEmbeddedLyricsTag,
+}));
+
+vi.mock('../audio/AudioSession', () => ({
+  getAudioSession: () => ({
+    getStatus: audioSessionMock.getStatus,
+  }),
+}));
+
 const tempRoots: string[] = [];
 
 const makeTempRoot = (): string => {
@@ -20,6 +48,15 @@ const makeTempRoot = (): string => {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
+  tagWriterMock.writeEmbeddedLyricsTag.mockReset();
+  tagWriterMock.writeEmbeddedLyricsTag.mockResolvedValue(undefined);
+  audioSessionMock.state.status = {
+    state: 'idle',
+    currentFilePath: null,
+  };
+  audioSessionMock.getStatus.mockClear();
+
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
@@ -746,6 +783,25 @@ describe('LyricsService', () => {
     expect(lyrics?.lines[0]).toEqual({ timeMs: 1000, text: 'Hello world' });
   });
 
+  it('does not auto-romanize Chinese provider lyrics', async () => {
+    const { service } = createHarness({
+      onlineProvider: {
+        getLyrics: vi.fn(async () =>
+          trackLyrics({
+            lines: [{ timeMs: 1000, text: '还为分手前那句抱歉在感动' }],
+            plainText: '还为分手前那句抱歉在感动',
+            syncedText: '[00:01.00]还为分手前那句抱歉在感动',
+          }),
+        ),
+        searchCandidates: vi.fn(async () => []),
+      },
+    });
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines[0]).toEqual({ timeMs: 1000, text: '还为分手前那句抱歉在感动' });
+  });
+
   it('returns provider plain lyrics', async () => {
     const { service } = createHarness({
       onlineProvider: {
@@ -868,6 +924,64 @@ describe('LyricsService', () => {
     ]);
     expect(cached?.provider).toBe('manual');
     expect(cached?.lines[0].text).toBe('Custom first');
+  });
+
+  it('queues cached synced lyrics for worker embedding', async () => {
+    vi.useFakeTimers();
+    const root = makeTempRoot();
+    const filePath = join(root, 'song.flac');
+    writeFileSync(filePath, 'audio');
+    const { service } = createHarness({ currentTrack: track(filePath) });
+
+    await service.applyCustomLrc('track-1', '[00:01.00]Line', 'custom.lrc');
+    const result = await service.embedLyricsToTrack('track-1');
+
+    expect(result).toMatchObject({
+      trackId: 'track-1',
+      queued: true,
+      textKind: 'synced',
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tagWriterMock.writeEmbeddedLyricsTag).toHaveBeenCalledWith(filePath, '[00:01.00]Line');
+  });
+
+  it('delays lyrics embedding while the edited track is playing', async () => {
+    vi.useFakeTimers();
+    const root = makeTempRoot();
+    const filePath = join(root, 'playing.flac');
+    writeFileSync(filePath, 'audio');
+    const { service } = createHarness({ currentTrack: track(filePath) });
+
+    audioSessionMock.state.status = {
+      state: 'playing',
+      currentFilePath: filePath,
+    };
+    await service.applyCustomLrc('track-1', '[00:01.00]Playing', 'custom.lrc');
+    await service.embedLyricsToTrack('track-1');
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(tagWriterMock.writeEmbeddedLyricsTag).not.toHaveBeenCalled();
+
+    audioSessionMock.state.status = {
+      state: 'idle',
+      currentFilePath: null,
+    };
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(tagWriterMock.writeEmbeddedLyricsTag).toHaveBeenCalledWith(filePath, '[00:01.00]Playing');
+  });
+
+  it('rejects lyrics embedding for remote tracks', async () => {
+    const root = makeTempRoot();
+    const filePath = join(root, 'remote.flac');
+    writeFileSync(filePath, 'audio');
+    const { service } = createHarness({ currentTrack: { ...track(filePath), mediaType: 'remote' } });
+
+    await service.applyCustomLrc('track-1', '[00:01.00]Remote', 'custom.lrc');
+
+    await expect(service.embedLyricsToTrack('track-1')).rejects.toThrow('远程、流媒体或临时曲目不能写入源文件');
+    expect(tagWriterMock.writeEmbeddedLyricsTag).not.toHaveBeenCalled();
   });
 
   it('folds same-timestamp romanization when applying custom LRC text', async () => {

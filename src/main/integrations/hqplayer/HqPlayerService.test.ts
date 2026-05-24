@@ -54,6 +54,11 @@ const createMediaServer = (): HqPlayerMediaServerBridge => ({
   createUrl: vi.fn().mockResolvedValue({
     url: 'http://192.168.1.10:17890/hqplayer-media/token',
     expiresAt: '2026-05-20T02:00:00.000Z',
+    port: 17890,
+    bindHost: '0.0.0.0',
+    publicHost: '192.168.1.10',
+    remoteAccess: true,
+    publicHostCandidates: ['192.168.1.10'],
   }),
 });
 
@@ -520,6 +525,13 @@ describe('HqPlayerService', () => {
         url: 'http://192.168.1.10:17890/hqplayer-media/token',
         exposure: 'media-server',
         expiresAt: '2026-05-20T02:00:00.000Z',
+        mediaServer: {
+          publicHost: '192.168.1.10',
+          bindHost: '0.0.0.0',
+          port: 17890,
+          remoteAccess: true,
+          publicHostCandidates: ['192.168.1.10'],
+        },
       },
     });
     expect(mediaServer.createUrl).toHaveBeenCalledWith(
@@ -530,6 +542,7 @@ describe('HqPlayerService', () => {
       {
         port: 17890,
         remoteAccess: true,
+        preferredRemoteHost: '127.0.0.1',
       },
     );
   });
@@ -569,6 +582,10 @@ describe('HqPlayerService', () => {
         url: 'http://192.168.1.10:17890/hqplayer-media/token',
         exposure: 'media-server',
         headers: {},
+        mediaServer: {
+          publicHost: '192.168.1.10',
+          port: 17890,
+        },
       },
       control: {
         state: 'prepared',
@@ -587,6 +604,7 @@ describe('HqPlayerService', () => {
       {
         port: null,
         remoteAccess: false,
+        preferredRemoteHost: null,
       },
     );
   });

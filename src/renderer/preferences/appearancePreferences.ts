@@ -3,7 +3,7 @@ import { getAppBridge } from '../utils/echoBridge';
 
 export type { AppearancePreferences } from '../../shared/types/appSettings';
 
-export type AppearanceFontSlot = 'main' | 'chinese' | 'fallback' | 'lyrics';
+export type AppearanceFontSlot = 'main' | 'chinese' | 'fallback' | 'lyrics' | 'desktopLyrics';
 
 export type AppearanceFontFile = {
   path: string;
@@ -155,7 +155,9 @@ export const registerAppearanceFontFile = async (slot: AppearanceFontSlot, fontF
         ? defaultAppearancePreferences.chineseFontFamily
         : slot === 'fallback'
           ? defaultAppearancePreferences.fallbackFontFamily
-          : 'Microsoft YaHei';
+          : slot === 'lyrics'
+            ? 'Microsoft YaHei'
+            : defaultAppearancePreferences.mainFontFamily;
   const family = normalizeFontName(fontFile.family, fallbackFamily);
   const fontFace = new FontFace(family, `url("${fontFile.dataUrl}")`);
   const loadedFontFace = await fontFace.load();

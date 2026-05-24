@@ -58,6 +58,8 @@ const defaultLogger = (message: string): void => {
   console.warn(message);
 };
 
+const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
+
 const sharedReadyTimeoutMs = 15_000;
 const slowNativeModeReadyTimeoutMs = 45_000;
 const sharedGracefulStopTimeoutMs = 2_500;
@@ -616,7 +618,7 @@ export class NativeOutputBridge extends EventEmitter {
         reject(error);
       };
 
-      this.logger(`[NativeOutputBridge] spawn: ${bin} ${args.join(' ')}`);
+      this.logVerbose(`[NativeOutputBridge] spawn: ${bin} ${args.join(' ')}`);
       this.proc = this.spawn(bin, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
@@ -659,7 +661,7 @@ export class NativeOutputBridge extends EventEmitter {
       const stderr = this.stderrReadline;
       stderr.on('line', (line) => {
         appendTailLine(stderrLines, line);
-        this.logger(`[echo-audio-host] ${line}`);
+        this.logVerbose(`[echo-audio-host] ${line}`);
       });
 
       this.proc.on('error', (error) => {
@@ -684,7 +686,7 @@ export class NativeOutputBridge extends EventEmitter {
         this.closeReadlineInterfaces();
 
         if (this.pendingGracefulStop?.proc === spawnedProc) {
-          this.logger('[NativeOutputBridge] process exited during graceful shutdown');
+          this.logVerbose('[NativeOutputBridge] process exited during graceful shutdown');
           this.resolvePendingGracefulStop();
           return;
         }
@@ -986,7 +988,7 @@ export class NativeOutputBridge extends EventEmitter {
       return this.pendingGracefulStop.promise;
     }
 
-    this.logger(`[NativeOutputBridge] graceful shutdown requested: ${reason}`);
+    this.logVerbose(`[NativeOutputBridge] graceful shutdown requested: ${reason}`);
     this.clearReadyTimer();
     this.stopRequested = true;
 
@@ -1054,7 +1056,7 @@ export class NativeOutputBridge extends EventEmitter {
           return;
         }
 
-        this.logger('[NativeOutputBridge] graceful shutdown timed out; killing host');
+        this.logVerbose('[NativeOutputBridge] graceful shutdown timed out; killing host');
         try {
           proc.kill('SIGKILL');
         } catch {
@@ -1067,7 +1069,7 @@ export class NativeOutputBridge extends EventEmitter {
               return;
             }
 
-            this.logger('[NativeOutputBridge] killed host did not report exit; continuing shutdown');
+            this.logVerbose('[NativeOutputBridge] killed host did not report exit; continuing shutdown');
             this.resolvePendingGracefulStop();
           }, forceKilledExitWaitMs);
           pendingGracefulStop.timeout?.unref?.();

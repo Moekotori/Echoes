@@ -126,6 +126,7 @@ const metadataResult = (overrides: Partial<ParsedTrackMetadata> = {}, extras: Pa
       sampleRate: metadata.sampleRate,
       bitDepth: metadata.bitDepth,
       bitrate: metadata.bitrate,
+      bpm: metadata.bpm,
     },
     fieldSources: metadata.fieldSources,
     embeddedCover: metadata.embeddedCover,

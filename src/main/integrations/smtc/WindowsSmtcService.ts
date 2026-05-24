@@ -3,7 +3,16 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { app } from 'electron';
-import type { SmtcCommand, SmtcEnabledActions, SmtcPlaybackState, SmtcService, SmtcTrackMetadata } from './SmtcService';
+import type {
+  SmtcCommand,
+  SmtcDiagnosticEvent,
+  SmtcDiagnostics,
+  SmtcEnabledActions,
+  SmtcHostState,
+  SmtcPlaybackState,
+  SmtcService,
+  SmtcTrackMetadata,
+} from './SmtcService';
 import { SmtcCoverCache } from './SmtcCoverCache';
 
 type SmtcLogger = {
@@ -29,6 +38,7 @@ export type WindowsSmtcServiceOptions = {
 };
 
 const helperName = 'echo-smtc-host.exe';
+const maxRecentDiagnosticErrors = 8;
 
 export const resolveDefaultSmtcHostPath = (): string => {
   if (app.isPackaged) {
@@ -54,6 +64,21 @@ export class WindowsSmtcService implements SmtcService {
   private pendingGracefulStop: Promise<void> | null = null;
   private stoppingGracefully = false;
   private currentHostPath: string | null = null;
+  private hostState: SmtcHostState = 'not-initialized';
+  private lastMetadataAt: string | null = null;
+  private lastMetadataTrackId: string | null = null;
+  private lastMetadataTitle: string | null = null;
+  private lastMetadataArtist: string | null = null;
+  private lastPlaybackState: SmtcPlaybackState | null = null;
+  private lastPlaybackStateAt: string | null = null;
+  private lastTimelineAt: string | null = null;
+  private lastTimelinePositionSeconds: number | null = null;
+  private lastTimelineDurationSeconds: number | null = null;
+  private enabledActions: SmtcEnabledActions | null = null;
+  private lastCommand: SmtcCommand | null = null;
+  private lastCommandAt: string | null = null;
+  private lastError: SmtcDiagnosticEvent | null = null;
+  private readonly recentErrors: SmtcDiagnosticEvent[] = [];
 
   constructor(options: WindowsSmtcServiceOptions | SmtcLogger = {}) {
     if ('info' in options && 'warn' in options) {
@@ -78,28 +103,35 @@ export class WindowsSmtcService implements SmtcService {
     }
 
     const hostPath = this.resolveHostPath();
+    this.currentHostPath = hostPath;
     if (!this.hostExists(hostPath)) {
       this.unavailable = true;
+      this.hostState = 'missing';
       this.logger.warn('[SMTC] Windows SMTC host binary is missing; using no-op bridge mode', { hostPath });
+      this.recordError('service', 'Windows SMTC host binary is missing');
       return;
     }
 
     this.initialized = true;
+    this.hostState = 'starting';
     try {
       this.host = this.spawnHost(hostPath, [], {
         windowsHide: true,
         stdio: 'pipe',
       });
       this.currentHostPath = hostPath;
+      this.hostState = 'running';
       this.bindHostProcess(this.host, hostPath);
       this.logger.info('[SMTC] Windows SMTC host initialized', { hostPath });
     } catch (error) {
       this.initialized = false;
       this.unavailable = true;
+      this.hostState = 'error';
       this.logger.warn('[SMTC] Failed to start Windows SMTC host; using no-op bridge mode', {
         hostPath,
         error: error instanceof Error ? error.message : String(error),
       });
+      this.recordError('service', `Failed to start Windows SMTC host: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -108,6 +140,7 @@ export class WindowsSmtcService implements SmtcService {
     await this.stopGracefullyImpl();
     this.commands.removeAllListeners();
     this.initialized = false;
+    this.hostState = 'stopped';
   }
 
   async stopGracefullyImpl(timeoutMs = 1000): Promise<void> {
@@ -122,12 +155,16 @@ export class WindowsSmtcService implements SmtcService {
     }
 
     this.stoppingGracefully = true;
+    this.hostState = 'stopping';
     this.pendingGracefulStop = this.stopHostProcess(host, timeoutMs).finally(() => {
       if (this.host === host) {
         this.host = null;
       }
       this.stoppingGracefully = false;
       this.pendingGracefulStop = null;
+      if (!this.disposed && this.hostState === 'stopping') {
+        this.hostState = 'stopped';
+      }
     });
 
     return this.pendingGracefulStop;
@@ -158,6 +195,7 @@ export class WindowsSmtcService implements SmtcService {
 
     if (!exited && !host.killed && host.exitCode === null) {
       this.logger.warn('[SMTC] graceful shutdown timed out, force killing');
+      this.recordError('service', 'Graceful shutdown timed out, force killing');
       try {
         host.kill('SIGKILL');
       } catch {
@@ -167,11 +205,17 @@ export class WindowsSmtcService implements SmtcService {
   }
 
   async setPlaybackState(state: SmtcPlaybackState): Promise<void> {
+    this.lastPlaybackState = state;
+    this.lastPlaybackStateAt = new Date().toISOString();
     await this.writeMessage({ type: 'setPlaybackState', state });
   }
 
   async setMetadata(metadata: SmtcTrackMetadata): Promise<void> {
     const coverPath = await this.coverCache.resolve(metadata.coverPath);
+    this.lastMetadataAt = new Date().toISOString();
+    this.lastMetadataTrackId = metadata.trackId;
+    this.lastMetadataTitle = metadata.title;
+    this.lastMetadataArtist = metadata.artist;
     await this.writeMessage({
       type: 'setMetadata',
       ...metadata,
@@ -180,6 +224,9 @@ export class WindowsSmtcService implements SmtcService {
   }
 
   async setTimeline(positionSeconds: number, durationSeconds: number): Promise<void> {
+    this.lastTimelineAt = new Date().toISOString();
+    this.lastTimelinePositionSeconds = this.safeNumber(positionSeconds);
+    this.lastTimelineDurationSeconds = this.safeNumber(durationSeconds);
     await this.writeMessage({
       type: 'setTimeline',
       positionSeconds: this.safeNumber(positionSeconds),
@@ -188,6 +235,7 @@ export class WindowsSmtcService implements SmtcService {
   }
 
   async setEnabledActions(actions: SmtcEnabledActions): Promise<void> {
+    this.enabledActions = { ...actions };
     await this.writeMessage({
       type: 'setEnabledActions',
       play: actions.play,
@@ -204,7 +252,35 @@ export class WindowsSmtcService implements SmtcService {
   }
 
   protected emitCommand(command: SmtcCommand): void {
+    this.lastCommand = command;
+    this.lastCommandAt = new Date().toISOString();
     this.commands.emit('command', command);
+  }
+
+  getDiagnostics(): SmtcDiagnostics {
+    return {
+      enabled: true,
+      platform: process.platform,
+      hostState: this.hostState,
+      initialized: this.initialized,
+      hostPath: this.currentHostPath,
+      lastMetadataAt: this.lastMetadataAt,
+      lastMetadataTrackId: this.lastMetadataTrackId,
+      lastMetadataTitle: this.lastMetadataTitle,
+      lastMetadataArtist: this.lastMetadataArtist,
+      lastPlaybackState: this.lastPlaybackState,
+      lastPlaybackStateAt: this.lastPlaybackStateAt,
+      lastTimelineAt: this.lastTimelineAt,
+      lastTimelinePositionSeconds: this.lastTimelinePositionSeconds,
+      lastTimelineDurationSeconds: this.lastTimelineDurationSeconds,
+      enabledActions: this.enabledActions ? { ...this.enabledActions } : null,
+      lastCommand: this.lastCommand,
+      lastCommandAt: this.lastCommandAt,
+      lastError: this.lastError ? { ...this.lastError } : null,
+      recentErrors: this.recentErrors.map((event) => ({ ...event })),
+      recoveryInFlight: false,
+      recoveryAttemptsInWindow: 0,
+    };
   }
 
   private bindHostProcess(host: SmtcHostProcess, hostPath: string): void {
@@ -226,10 +302,12 @@ export class WindowsSmtcService implements SmtcService {
 
     host.on('error', (error: Error) => {
       this.unavailable = true;
+      this.hostState = 'error';
       this.logger.warn('[SMTC] Windows SMTC host process error', {
         hostPath,
         error: error.message,
       });
+      this.recordError('host', error.message);
     });
 
     host.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
@@ -240,7 +318,11 @@ export class WindowsSmtcService implements SmtcService {
       }
       if (!this.disposed && !this.stoppingGracefully) {
         this.unavailable = true;
+        this.hostState = 'unavailable';
         this.logger.warn('[SMTC] Windows SMTC host exited unexpectedly', { hostPath, code, signal });
+        this.recordError('host', `Windows SMTC host exited unexpectedly: code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+      } else if (this.hostState === 'stopping') {
+        this.hostState = 'stopped';
       }
     });
   }
@@ -268,12 +350,14 @@ export class WindowsSmtcService implements SmtcService {
         this.emitCommand(command);
       } else if (message.type === 'error') {
         this.logger.warn('[SMTC] Windows SMTC host reported an error', { message: String(message.message ?? '') });
+        this.recordError('host', String(message.message ?? 'Windows SMTC host reported an error'));
       }
     } catch (error) {
       this.logger.warn('[SMTC] Failed to parse Windows SMTC host output', {
         line,
         error: error instanceof Error ? error.message : String(error),
       });
+      this.recordError('host', `Failed to parse Windows SMTC host output: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -315,10 +399,12 @@ export class WindowsSmtcService implements SmtcService {
     this.currentHostPath = null;
     this.initialized = false;
     this.unavailable = true;
+    this.hostState = 'unavailable';
     this.logger.warn('[SMTC] Windows SMTC host stdin closed; using no-op bridge mode', {
       hostPath,
       error: error instanceof Error ? error.message : String(error),
     });
+    this.recordError('service', `Windows SMTC host stdin closed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   private safeNumber(value: number): number {
@@ -338,6 +424,19 @@ export class WindowsSmtcService implements SmtcService {
     }
 
     return null;
+  }
+
+  private recordError(source: SmtcDiagnosticEvent['source'], message: string): void {
+    const event: SmtcDiagnosticEvent = {
+      at: new Date().toISOString(),
+      source,
+      message,
+    };
+    this.lastError = event;
+    this.recentErrors.push(event);
+    if (this.recentErrors.length > maxRecentDiagnosticErrors) {
+      this.recentErrors.splice(0, this.recentErrors.length - maxRecentDiagnosticErrors);
+    }
   }
 
   private isButtonCommand(value: unknown): value is Exclude<SmtcCommand, { type: 'seek' }> {

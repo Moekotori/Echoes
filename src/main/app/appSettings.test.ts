@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDefaultLocalShortcuts } from '../../shared/types/globalShortcuts';
 
 let userDataPath = process.cwd();
 const tempRoots: string[] = [];
@@ -44,6 +45,7 @@ describe('app settings normalization', () => {
     expect(settings.autoFetchArtistImages).toBe(false);
     expect(settings.artistImageFetchPaused).toBe(false);
     expect(settings.safeModeEnabled).toBe(false);
+    expect(settings.fastStartupEnabled).toBe(false);
     expect(settings.autoAccountCheckOnStartup).toBe(true);
     expect(settings.spotifyAutoLaunchOfficialPlayer).toBe(true);
     expect(settings.connectAutoStartReceiversEnabled).toBe(false);
@@ -81,6 +83,7 @@ describe('app settings normalization', () => {
     expect(settings.onlineArtistInfoRegion).toBeNull();
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.backgroundSpacePauseEnabled).toBe(false);
+    expect(settings.localShortcuts).toEqual(createDefaultLocalShortcuts());
     expect(settings.globalShortcuts?.playPause).toEqual({ enabled: false, accelerator: null });
     expect(settings.globalShortcuts?.nextTrack).toEqual({ enabled: false, accelerator: null });
     expect(settings.hideToTrayOnClose).toBe(true);
@@ -124,6 +127,8 @@ describe('app settings normalization', () => {
     expect(settings.lyricsCoverBlurPx).toBe(10);
     expect(settings.lyricsCoverBrightnessPercent).toBe(100);
     expect(settings.lyricsBackgroundScalePercent).toBe(100);
+    expect(settings.desktopLyricsFontFamily).toBe('Outfit');
+    expect(settings.desktopLyricsFontFilePath).toBeNull();
     expect(settings.mvEnabled).toBe(true);
     expect(settings.mvEnabledProviders).toEqual(['bilibili', 'youtube']);
     expect(settings.mvProviderOrder).toEqual(['bilibili', 'youtube']);
@@ -155,6 +160,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).safeModeEnabled).toBe(false);
     expect(normalizeSettings({ safeModeEnabled: true }).safeModeEnabled).toBe(true);
     expect(normalizeSettings({ safeModeEnabled: 'true' }).safeModeEnabled).toBe(false);
+  });
+
+  it('normalizes fast startup as an explicit opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).fastStartupEnabled).toBe(false);
+    expect(normalizeSettings({ fastStartupEnabled: true }).fastStartupEnabled).toBe(true);
+    expect(normalizeSettings({ fastStartupEnabled: 'true' }).fastStartupEnabled).toBe(false);
   });
 
   it('normalizes automatic data backup settings safely', async () => {
@@ -718,6 +731,16 @@ describe('app settings normalization', () => {
     expect(shortcuts?.showMainWindow).toEqual({ enabled: false, accelerator: null });
   });
 
+  it('normalizes local shortcut settings with focused-window defaults', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const shortcuts = normalizeSettings({}).localShortcuts;
+
+    expect(shortcuts?.playPause).toEqual({ enabled: true, accelerator: 'Space' });
+    expect(shortcuts?.previousTrack).toEqual({ enabled: false, accelerator: 'A' });
+    expect(shortcuts?.nextTrack).toEqual({ enabled: false, accelerator: 'D' });
+  });
+
   it('keeps valid global shortcuts and removes invalid or duplicate bindings', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
@@ -739,6 +762,28 @@ describe('app settings normalization', () => {
     expect(shortcuts?.stop).toEqual({ enabled: true, accelerator: 'MediaStop' });
     expect(shortcuts?.volumeUp).toEqual({ enabled: true, accelerator: 'F13' });
     expect(shortcuts?.volumeDown).toEqual({ enabled: true, accelerator: 'MouseButton4' });
+    expect(shortcuts?.seekBackward).toEqual({ enabled: false, accelerator: null });
+  });
+
+  it('keeps valid local shortcuts and removes invalid or duplicate bindings', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const shortcuts = normalizeSettings({
+      localShortcuts: {
+        playPause: { enabled: true, accelerator: 'ctrl + p' },
+        previousTrack: { enabled: true, accelerator: 'a' },
+        nextTrack: { enabled: true, accelerator: 'A' },
+        stop: { enabled: true, accelerator: 'MediaStop' },
+        volumeUp: { enabled: true, accelerator: 'Ctrl+Up' },
+        seekBackward: { enabled: true, accelerator: 'Ctrl+???' },
+      },
+    }).localShortcuts;
+
+    expect(shortcuts?.playPause).toEqual({ enabled: true, accelerator: 'Ctrl+P' });
+    expect(shortcuts?.previousTrack).toEqual({ enabled: true, accelerator: 'A' });
+    expect(shortcuts?.nextTrack).toEqual({ enabled: false, accelerator: null });
+    expect(shortcuts?.stop).toEqual({ enabled: true, accelerator: 'MediaStop' });
+    expect(shortcuts?.volumeUp).toEqual({ enabled: true, accelerator: 'Ctrl+Up' });
     expect(shortcuts?.seekBackward).toEqual({ enabled: false, accelerator: null });
   });
 
@@ -842,25 +887,26 @@ describe('app settings normalization', () => {
 
     expect(normalizeSettings({}).audioUseJuceOutput).toBe(true);
     expect(normalizeSettings({ audioUseJuceOutput: true }).audioUseJuceOutput).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
-    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(true);
   });
 
   it('migrates older settings to JUCE main output once', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).appMemoryVersion).toBe(2);
+    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).appMemoryVersion).toBe(3);
   });
 
-  it('keeps JUCE decode disabled until explicitly enabled', async () => {
+  it('normalizes JUCE decode as the default local decode fast path', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({}).audioUseJuceDecode).toBe(true);
     expect(normalizeSettings({ audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
-    expect(normalizeSettings({ audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
-    expect(normalizeSettings({ audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(true);
     expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(true);
   });
 
   it('normalizes ASIO unavailable fallback as an opt-in audio setting', async () => {

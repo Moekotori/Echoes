@@ -100,8 +100,8 @@ export class BpmAnalysisJobQueue {
 
           const result = await this.analyzer.analyze(track.path, track.duration);
           const status = result.confidence >= BPM_CONFIDENCE_THRESHOLD ? 'complete' : 'low_confidence';
-          const bpm = result.bpm > 0 ? result.bpm : null;
-          const beatOffsetMs = result.beatOffsetMs >= 0 ? result.beatOffsetMs : null;
+          const bpm = result.bpm > 0 && status === 'complete' ? result.bpm : null;
+          const beatOffsetMs = result.beatOffsetMs >= 0 && status === 'complete' ? result.beatOffsetMs : null;
           this.store.updateTrackBpmAnalysis(track.id, {
             bpm,
             confidence: result.confidence,

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import sharp from 'sharp';
 import {
   COVER_CACHE_VERSION,
@@ -29,9 +29,11 @@ type CacheMeta = {
   mimeType: string | null;
 };
 
-const sidecarNames = ['cover', 'folder', 'front'];
+const sidecarNames = ['cover', 'folder', 'front', 'albumart', 'album art', 'album_art', 'front cover', 'cover front'];
 const sidecarExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
 const maxCoverCandidateBytes = 20 * 1024 * 1024;
+const sidecarNameKeys = new Set(sidecarNames.map((name) => name.toLocaleLowerCase().replace(/[^a-z0-9]/gu, '')));
+const sidecarNamePrefixes = ['cover', 'folder', 'front', 'albumart'];
 
 export const defaultCoverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
 <rect width="512" height="512" fill="#20242b"/>
@@ -246,51 +248,98 @@ export class TsCoverExtractor implements CoverExtractor {
   }
 
   private findFolderCover(filePath: string): CoverCandidate | null {
-    const directory = dirname(filePath);
+    const candidates = this.folderCoverCandidates(filePath);
 
-    for (const name of sidecarNames) {
-      for (const extension of sidecarExtensions) {
-        const coverPath = join(directory, `${name}${extension}`);
-
-        if (!existsSync(coverPath)) {
-          continue;
-        }
-
-        try {
-          const coverSize = statSync(coverPath).size;
-          if (coverSize > maxCoverCandidateBytes) {
-            return {
-              source: 'default',
-              data: defaultCoverBytes,
-              mimeType: 'image/svg+xml',
-              originalPath: null,
-              warnings: [`${coverPath}: sidecar cover skipped: ${coverSize} bytes exceeds ${maxCoverCandidateBytes}`],
-              errors: [],
-            };
-          }
-
-          return {
-            source: 'folder',
-            data: readFileSync(coverPath),
-            mimeType: extensionToMimeType(extension),
-            originalPath: coverPath,
-            warnings: [],
-            errors: [],
-          };
-        } catch (error) {
+    for (const coverPath of candidates) {
+      try {
+        const coverSize = statSync(coverPath).size;
+        if (coverSize > maxCoverCandidateBytes) {
           return {
             source: 'default',
             data: defaultCoverBytes,
             mimeType: 'image/svg+xml',
             originalPath: null,
-            warnings: [],
-            errors: [`${coverPath}: ${error instanceof Error ? error.message : String(error)}`],
+            warnings: [`${coverPath}: sidecar cover skipped: ${coverSize} bytes exceeds ${maxCoverCandidateBytes}`],
+            errors: [],
           };
         }
+
+        return {
+          source: 'folder',
+          data: readFileSync(coverPath),
+          mimeType: extensionToMimeType(extname(coverPath)),
+          originalPath: coverPath,
+          warnings: [],
+          errors: [],
+        };
+      } catch (error) {
+        return {
+          source: 'default',
+          data: defaultCoverBytes,
+          mimeType: 'image/svg+xml',
+          originalPath: null,
+          warnings: [],
+          errors: [`${coverPath}: ${error instanceof Error ? error.message : String(error)}`],
+        };
       }
     }
 
     return null;
+  }
+
+  private folderCoverCandidates(filePath: string): string[] {
+    const directory = dirname(filePath);
+    const preferredPaths = sidecarNames.flatMap((name) =>
+      sidecarExtensions.map((extension) => join(directory, `${name}${extension}`)),
+    );
+    const audioBaseKey = this.normalizedCoverBaseName(basename(filePath, extname(filePath)));
+    const discovered: Array<{ path: string; rank: number; name: string }> = [];
+
+    try {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        const extension = extname(entry.name).toLocaleLowerCase();
+        if (!sidecarExtensions.includes(extension)) {
+          continue;
+        }
+
+        const baseKey = this.normalizedCoverBaseName(basename(entry.name, extname(entry.name)));
+        const rank =
+          sidecarNameKeys.has(baseKey)
+            ? 0
+            : sidecarNamePrefixes.some((prefix) => baseKey.startsWith(prefix))
+              ? 1
+              : audioBaseKey && baseKey === audioBaseKey
+                ? 2
+                : null;
+        if (rank === null) {
+          continue;
+        }
+
+        discovered.push({
+          path: join(directory, entry.name),
+          rank,
+          name: entry.name.toLocaleLowerCase(),
+        });
+      }
+    } catch {
+      // Missing or unreadable sidecar directories should not block metadata import.
+    }
+
+    const ordered = [
+      ...preferredPaths.filter((candidate) => existsSync(candidate)),
+      ...discovered
+        .sort((left, right) => left.rank - right.rank || left.name.localeCompare(right.name))
+        .map((candidate) => candidate.path),
+    ];
+    return [...new Set(ordered)];
+  }
+
+  private normalizedCoverBaseName(value: string): string {
+    return value.toLocaleLowerCase().replace(/[^a-z0-9]/gu, '');
   }
 
   private async writeThumb(data: Uint8Array, filePath: string): Promise<void> {

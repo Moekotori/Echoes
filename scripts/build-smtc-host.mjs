@@ -66,8 +66,25 @@ const stopRunningTargetBinary = (filePath) => {
 };
 
 const copyBuiltHost = (source, destination) => {
-  stopRunningTargetBinary(destination);
-  copyFileSync(source, destination);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    try {
+      stopRunningTargetBinary(destination);
+      copyFileSync(source, destination);
+      return;
+    } catch (error) {
+      lastError = error;
+
+      if (process.platform !== 'win32' || attempt === 10) {
+        break;
+      }
+
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+  }
+
+  throw lastError;
 };
 
 const findBuiltHost = () => {

@@ -59,11 +59,14 @@ import type {
 import type { MvSettings, NetworkMvProviderId } from '../../shared/types/mv';
 import {
   createDefaultGlobalShortcuts,
+  createDefaultLocalShortcuts,
   createRecommendedGlobalShortcuts,
+  createRecommendedLocalShortcuts,
   globalShortcutActions,
   validateGlobalShortcutAccelerator,
   type GlobalShortcutAction,
   type GlobalShortcutSettings,
+  type LocalShortcutSettings,
 } from '../../shared/types/globalShortcuts';
 import type { AppCacheInventory, CoverCacheMigrationResult } from '../../shared/types/coverCache';
 import type { LastCrashSummary } from '../../shared/types/diagnostics';
@@ -71,6 +74,7 @@ import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
 import type { DownloadSettings } from '../../shared/types/downloads';
 import type { DataBackupStatus } from '../../shared/types/settingsBackup';
 import type { LastFmStatus } from '../../shared/types/lastfm';
+import type { PlaybackStatus } from '../../shared/types/playback';
 import type { TaskbarPlaybackStatus } from '../../shared/types/taskbarPlayback';
 import type {
   ArtistImageCacheSummary,
@@ -90,7 +94,9 @@ import { NetworkMetadataPanel } from '../components/library/NetworkMetadataPanel
 import { LyricsSettingsPanel } from '../components/lyrics/LyricsSettingsDrawer';
 import { AudioProfessionalStatusPanel } from '../components/player/AudioProfessionalStatusPanel';
 import { PlaybackStabilityDiagnosticsPanel } from '../components/player/PlaybackStabilityDiagnosticsPanel';
+import { SegmentLoopPanel } from '../components/player/SegmentLoopPanel';
 import { formatAudioDiagnostics } from '../components/player/audioDiagnosticsFormat';
+import { titleFromPath } from '../components/player/playerFormat';
 import { DiagnosticsAssistantPanel } from '../components/settings/DiagnosticsAssistantPanel';
 import { RemoteSourcesPanel } from '../components/settings/RemoteSourcesPanel';
 import { StyledSelect } from '../components/ui/StyledSelect';
@@ -128,6 +134,8 @@ import {
 } from '../preferences/themePreferences';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { isSpotifyTrack, seekSpotifyPlayback } from '../integrations/spotify/spotifyPlayback';
+import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import {
   getAccountsBridge,
   getAppBridge,
@@ -200,6 +208,16 @@ const globalShortcutActionMeta: Array<{
   { action: 'openMvSettings', titleKey: 'settings.shortcuts.action.openMvSettings.title', descriptionKey: 'settings.shortcuts.action.openMvSettings.description' },
   { action: 'openLyricsSettings', titleKey: 'settings.shortcuts.action.openLyricsSettings.title', descriptionKey: 'settings.shortcuts.action.openLyricsSettings.description' },
 ];
+
+type ShortcutScope = 'local' | 'global';
+type RecordingShortcutTarget = {
+  action: GlobalShortcutAction;
+  scope: ShortcutScope;
+};
+type ShortcutMessageKey = `${ShortcutScope}:${GlobalShortcutAction}`;
+
+const shortcutMessageKey = (scope: ShortcutScope, action: GlobalShortcutAction): ShortcutMessageKey => `${scope}:${action}`;
+const localShortcutUnavailableActions = new Set<GlobalShortcutAction>(['showMainWindow']);
 
 const shortcutKeyAliases = new Map<string, string>([
   [' ', 'Space'],
@@ -289,8 +307,8 @@ const acceleratorFromMouseEvent = (event: MouseEvent): string | null => {
 const formatAcceleratorForDisplay = (accelerator: string | null | undefined, emptyLabel: string): string =>
   accelerator ? accelerator.split('+').join(' + ') : emptyLabel;
 
-const findDuplicateGlobalShortcutAction = (
-  shortcuts: GlobalShortcutSettings,
+const findDuplicateShortcutAction = (
+  shortcuts: GlobalShortcutSettings | LocalShortcutSettings,
   action: GlobalShortcutAction,
   accelerator: string,
 ): GlobalShortcutAction | null => {
@@ -649,6 +667,12 @@ type SettingRowProps = {
   children: ReactNode;
 };
 
+const playbackSeekedEvent = 'playback:seeked';
+
+const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
+  window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
+};
+
 const defaultSettingsChannelBalance: ChannelBalanceState = {
   enabled: false,
   balance: 0,
@@ -781,7 +805,7 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     '变速',
     '当前播放',
   ],
-  shortcuts: ['shortcuts', 'hotkeys', 'keyboard', 'global shortcut', 'record shortcut', '快捷键', '热键', '键盘', '全局快捷键'],
+  shortcuts: ['shortcuts', 'hotkeys', 'keyboard', 'local shortcut', 'global shortcut', 'record shortcut', '快捷键', '热键', '键盘', '普通快捷键', '局部快捷键', '全局快捷键'],
   lyrics: [
     'lyrics',
     'lrc',
@@ -3291,6 +3315,7 @@ const FontPickerModal = ({
 export const SettingsPage = (): JSX.Element => {
   const { locale, localeOptions, setLocale, t } = useI18n();
   const playbackQueue = usePlaybackQueue();
+  const sharedPlaybackStatus = useSharedPlaybackStatus();
   const [rendererPlatform] = useState<NodeJS.Platform | 'unknown'>(() => detectSettingsPlatform());
   const playbackOutputModesForPlatform = useMemo(() => getPlaybackOutputModesForPlatform(rendererPlatform), [rendererPlatform]);
   const sharedBackendOptionsForPlatform = useMemo(() => getSharedBackendOptionsForPlatform(rendererPlatform), [rendererPlatform]);
@@ -3392,8 +3417,8 @@ export const SettingsPage = (): JSX.Element => {
   const [dataBackupBusy, setDataBackupBusy] = useState<'choose' | 'run' | 'import' | 'open' | null>(null);
   const [dataBackupMessage, setDataBackupMessage] = useState<string | null>(null);
   const [pluginSettingsMessage, setPluginSettingsMessage] = useState<string | null>(null);
-  const [recordingShortcutAction, setRecordingShortcutAction] = useState<GlobalShortcutAction | null>(null);
-  const [shortcutMessages, setShortcutMessages] = useState<Partial<Record<GlobalShortcutAction, string | null>>>({});
+  const [recordingShortcutTarget, setRecordingShortcutTarget] = useState<RecordingShortcutTarget | null>(null);
+  const [shortcutMessages, setShortcutMessages] = useState<Partial<Record<ShortcutMessageKey, string | null>>>({});
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackFontFamilies);
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
@@ -3456,6 +3481,14 @@ export const SettingsPage = (): JSX.Element => {
         title: '首次启动指引',
         description: '重新打开首次启动向导，检查音乐文件夹、缓存位置、扫描模式和标准输出（系统音频）。',
         terms: ['首次启动指引', '新手指引', '新手引导', '向导', '引导', '标准输出', '系统音频', 'guide', 'onboarding', 'first run', 'welcome', 'system audio'],
+      },
+      {
+        id: 'row-fast-startup',
+        sectionKey: 'general',
+        targetId: 'settings-row-fast-startup',
+        title: '快速启动',
+        description: '启动时先做轻量只读曲库验证，窗口打开后再后台完成数据保护快照。',
+        terms: ['快速启动', '启动加速', '慢启动', 'data protection', 'startup', 'fast startup', 'quick startup', 'database snapshot', '曲库检查'],
       },
       {
         id: 'row-data-backup',
@@ -3772,12 +3805,20 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
+        id: 'row-streaming-download-actions',
+        sectionKey: 'library',
+        targetId: 'settings-row-streaming-download-actions',
+        title: '流媒体下载按钮',
+        description: '默认隐藏流媒体页下载入口，需要时再显示支持平台的下载按钮。',
+        terms: ['流媒体下载按钮', '隐藏下载', '显示下载', '下载入口', '流媒体', 'streaming download', 'download button'],
+      },
+      {
         id: 'row-safe-mode',
         sectionKey: 'about',
         targetId: 'settings-row-safe-mode',
         title: 'Safe mode',
-        description: '每次启动自动打开调试控制台，并记录启动阶段耗时；只诊断，不降级功能。',
-        terms: ['Safe mode', '安全模式', '启动诊断', '慢启动', '打开控制台', 'startup diagnostics', 'debug console', 'slow startup', 'boot timing'],
+        description: '每次启动自动打开异常记录器，单独显示异常、渲染器错误、音频错误和慢启动阶段。',
+        terms: ['Safe mode', '安全模式', '异常记录器', '启动诊断', '慢启动', '打开控制台', 'startup diagnostics', 'debug console', 'slow startup', 'exception recorder', 'boot timing'],
       },
       {
         id: 'row-dev-console',
@@ -3869,10 +3910,40 @@ export const SettingsPage = (): JSX.Element => {
           })),
     [compatibleDevices, outputMode, t],
   );
+  const localShortcuts = useMemo(
+    () => appSettings?.localShortcuts ?? createDefaultLocalShortcuts(),
+    [appSettings?.localShortcuts],
+  );
   const globalShortcuts = useMemo(
     () => appSettings?.globalShortcuts ?? createDefaultGlobalShortcuts(),
     [appSettings?.globalShortcuts],
   );
+  const segmentPlaybackStatus = sharedPlaybackStatus.playbackStatus;
+  const segmentAudioStatus = sharedPlaybackStatus.audioStatus ?? status;
+  const segmentTrackId = playbackQueue.currentTrackId ?? segmentPlaybackStatus?.currentTrackId ?? segmentAudioStatus?.currentTrackId ?? null;
+  const segmentQueueTracks = playbackQueue.tracks ?? [];
+  const segmentCurrentTrack = playbackQueue.currentTrack ?? segmentQueueTracks.find((track) => track.id === segmentTrackId) ?? null;
+  const segmentFilePath = segmentCurrentTrack?.path ?? segmentAudioStatus?.currentFilePath ?? segmentPlaybackStatus?.filePath ?? null;
+  const segmentTrackKey = segmentCurrentTrack?.stableKey ?? segmentCurrentTrack?.id ?? segmentTrackId ?? segmentFilePath ?? null;
+  const segmentDurationSeconds = Math.max(
+    0,
+    segmentAudioStatus?.durationSeconds ?? 0,
+    (segmentPlaybackStatus?.durationMs ?? 0) / 1000,
+    segmentCurrentTrack?.duration ?? 0,
+  );
+  const segmentPositionSeconds = Math.max(0, segmentAudioStatus?.positionSeconds ?? (segmentPlaybackStatus?.positionMs ?? 0) / 1000);
+  const segmentVisualState = getVisualPlaybackState({
+    audioStatus: segmentAudioStatus,
+    playbackStatus: segmentPlaybackStatus,
+    playbackVisualIntent: sharedPlaybackStatus.playbackVisualIntent,
+  });
+  const segmentIsSpotifyTrack = isSpotifyTrack(segmentCurrentTrack);
+  const segmentTitle = segmentCurrentTrack?.title ?? titleFromPath(segmentFilePath);
+  const segmentArtist = segmentCurrentTrack?.artist ?? segmentCurrentTrack?.albumArtist ?? '';
+  const segmentLoopDisabled =
+    segmentDurationSeconds <= 0 ||
+    (!segmentFilePath && !segmentIsSpotifyTrack) ||
+    Boolean(segmentAudioStatus?.currentTrackId?.startsWith('airplay-receiver:') || segmentAudioStatus?.currentFilePath?.startsWith('airplay://'));
 
   const accountStatusByProvider = useMemo(
     () => Object.fromEntries(accountStatuses.map((item) => [item.provider, item])) as Partial<Record<AccountProvider, AccountStatus>>,
@@ -3894,6 +3965,45 @@ export const SettingsPage = (): JSX.Element => {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
     }
   }, []);
+
+  const handleSegmentSeek = useCallback(
+    async (nextPositionSeconds: number): Promise<void> => {
+      if (segmentDurationSeconds <= 0) {
+        return;
+      }
+
+      const safePositionSeconds = Math.min(segmentDurationSeconds, Math.max(0, nextPositionSeconds));
+
+      try {
+        let nextStatus: PlaybackStatus;
+
+        if (segmentIsSpotifyTrack && segmentCurrentTrack) {
+          nextStatus = await seekSpotifyPlayback(segmentCurrentTrack, safePositionSeconds);
+          setPlaybackStatusSnapshot({ audioStatus: null, playbackStatus: nextStatus, error: null });
+        } else {
+          const playback = window.echo?.playback;
+
+          if (!playback) {
+            setError('Desktop bridge unavailable. Open ECHO Next in Electron to control playback.');
+            return;
+          }
+
+          const statusAfterSeek = await playback.seek(safePositionSeconds);
+          nextStatus = {
+            ...statusAfterSeek,
+            positionMs: Math.round(safePositionSeconds * 1000),
+          };
+          setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
+          void refreshPlaybackStatus();
+        }
+
+        dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? segmentTrackId);
+      } catch (seekError) {
+        setError(seekError instanceof Error ? seekError.message : String(seekError));
+      }
+    },
+    [segmentCurrentTrack, segmentDurationSeconds, segmentIsSpotifyTrack, segmentTrackId],
+  );
 
   const refreshHqPlayerStatus = useCallback(async () => {
     const hqPlayer = getHqPlayerBridge();
@@ -4536,7 +4646,7 @@ export const SettingsPage = (): JSX.Element => {
         sharedBackend: normalizedSharedBackend,
         latencyProfile: 'lowLatency',
         useJuceOutput: appSettings?.audioUseJuceOutput !== false,
-        useJuceDecode: appSettings?.audioUseJuceDecode === true,
+        useJuceDecode: appSettings?.audioUseJuceDecode !== false,
         dsdOutputMode: appSettings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
         asioNativeDsdExperimentalEnabled: appSettings?.audioAsioNativeDsdExperimentalEnabled === true,
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
@@ -4686,7 +4796,7 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const handleJuceDecodeToggle = async (): Promise<void> => {
-    const nextUseJuceDecode = !(appSettings?.audioUseJuceDecode ?? false);
+    const nextUseJuceDecode = !(appSettings?.audioUseJuceDecode !== false);
     patchAppSettings({ audioUseJuceDecode: nextUseJuceDecode });
 
     const audio = getAudioBridge();
@@ -6238,15 +6348,30 @@ export const SettingsPage = (): JSX.Element => {
       });
   };
 
-  const setShortcutMessage = useCallback((action: GlobalShortcutAction, message: string | null): void => {
-    setShortcutMessages((current) => ({ ...current, [action]: message }));
+  const setShortcutMessage = useCallback((scope: ShortcutScope, action: GlobalShortcutAction, message: string | null): void => {
+    setShortcutMessages((current) => ({ ...current, [shortcutMessageKey(scope, action)]: message }));
   }, []);
+
+  const patchLocalShortcuts = useCallback((nextShortcuts: LocalShortcutSettings): void => {
+    patchAppSettings({ localShortcuts: nextShortcuts });
+  }, [patchAppSettings]);
 
   const patchGlobalShortcuts = useCallback((nextShortcuts: GlobalShortcutSettings): void => {
     patchAppSettings({ globalShortcuts: nextShortcuts });
   }, [patchAppSettings]);
 
-  const patchGlobalShortcut = useCallback((action: GlobalShortcutAction, patch: Partial<GlobalShortcutSettings[GlobalShortcutAction]>): void => {
+  const patchShortcut = useCallback((scope: ShortcutScope, action: GlobalShortcutAction, patch: Partial<GlobalShortcutSettings[GlobalShortcutAction]>): void => {
+    if (scope === 'local') {
+      patchLocalShortcuts({
+        ...localShortcuts,
+        [action]: {
+          ...localShortcuts[action],
+          ...patch,
+        },
+      });
+      return;
+    }
+
     patchGlobalShortcuts({
       ...globalShortcuts,
       [action]: {
@@ -6254,9 +6379,13 @@ export const SettingsPage = (): JSX.Element => {
         ...patch,
       },
     });
-  }, [globalShortcuts, patchGlobalShortcuts]);
+  }, [globalShortcuts, localShortcuts, patchGlobalShortcuts, patchLocalShortcuts]);
 
-  const validateShortcutBeforeEnable = async (action: GlobalShortcutAction, accelerator: string | null): Promise<string | null> => {
+  const validateShortcutBeforeEnable = async (
+    scope: ShortcutScope,
+    action: GlobalShortcutAction,
+    accelerator: string | null,
+  ): Promise<string | null> => {
     if (!accelerator) {
       return t('settings.shortcuts.message.empty');
     }
@@ -6266,88 +6395,97 @@ export const SettingsPage = (): JSX.Element => {
       return t(validation.reason === 'unsafe' ? 'settings.shortcuts.message.unsafe' : 'settings.shortcuts.message.invalid');
     }
 
-    const duplicateAction = findDuplicateGlobalShortcutAction(globalShortcuts, action, validation.accelerator);
+    const shortcuts = scope === 'local' ? localShortcuts : globalShortcuts;
+    const duplicateAction = findDuplicateShortcutAction(shortcuts, action, validation.accelerator);
     if (duplicateAction) {
       return t('settings.shortcuts.message.duplicate');
     }
 
-    const bridgeValidation = await getAppBridge()?.validateGlobalShortcut?.(validation.accelerator);
-    if (bridgeValidation && (!bridgeValidation.valid || !bridgeValidation.available)) {
-      return t(bridgeValidation.reason === 'unavailable' ? 'settings.shortcuts.message.unavailable' : 'settings.shortcuts.message.invalid');
+    if (scope === 'global') {
+      const bridgeValidation = await getAppBridge()?.validateGlobalShortcut?.(validation.accelerator);
+      if (bridgeValidation && (!bridgeValidation.valid || !bridgeValidation.available)) {
+        return t(bridgeValidation.reason === 'unavailable' ? 'settings.shortcuts.message.unavailable' : 'settings.shortcuts.message.invalid');
+      }
     }
 
     return null;
   };
 
-  const handleShortcutToggle = async (action: GlobalShortcutAction): Promise<void> => {
-    const binding = globalShortcuts[action];
+  const handleShortcutToggle = async (scope: ShortcutScope, action: GlobalShortcutAction): Promise<void> => {
+    const binding = scope === 'local' ? localShortcuts[action] : globalShortcuts[action];
     if (binding.enabled) {
-      setShortcutMessage(action, null);
-      patchGlobalShortcut(action, { enabled: false });
+      setShortcutMessage(scope, action, null);
+      patchShortcut(scope, action, { enabled: false });
       return;
     }
 
-    const message = await validateShortcutBeforeEnable(action, binding.accelerator);
+    const message = await validateShortcutBeforeEnable(scope, action, binding.accelerator);
     if (message) {
-      setShortcutMessage(action, message);
-      patchGlobalShortcut(action, { enabled: false });
+      setShortcutMessage(scope, action, message);
+      patchShortcut(scope, action, { enabled: false });
       return;
     }
 
-    setShortcutMessage(action, null);
-    patchGlobalShortcut(action, { enabled: true });
+    setShortcutMessage(scope, action, null);
+    patchShortcut(scope, action, { enabled: true });
   };
 
-  const handleShortcutClear = (action: GlobalShortcutAction): void => {
-    setShortcutMessage(action, null);
-    patchGlobalShortcut(action, { enabled: false, accelerator: null });
+  const handleShortcutClear = (scope: ShortcutScope, action: GlobalShortcutAction): void => {
+    setShortcutMessage(scope, action, null);
+    patchShortcut(scope, action, { enabled: false, accelerator: null });
   };
 
   const handleShortcutRecommendedReset = (): void => {
-    setRecordingShortcutAction(null);
+    setRecordingShortcutTarget(null);
     setShortcutMessages({});
-    patchGlobalShortcuts(createRecommendedGlobalShortcuts());
+    patchAppSettings({
+      localShortcuts: createRecommendedLocalShortcuts(),
+      globalShortcuts: createRecommendedGlobalShortcuts(),
+    });
   };
 
   const commitRecordedShortcut = useCallback(
-    (action: GlobalShortcutAction, rawAccelerator: string | null): void => {
+    ({ action, scope }: RecordingShortcutTarget, rawAccelerator: string | null): void => {
       const validation = validateGlobalShortcutAccelerator(rawAccelerator);
       if (!validation.valid || !validation.accelerator) {
-        setShortcutMessage(action, t(validation.reason === 'unsafe' ? 'settings.shortcuts.message.unsafe' : 'settings.shortcuts.message.invalid'));
+        setShortcutMessage(scope, action, t(validation.reason === 'unsafe' ? 'settings.shortcuts.message.unsafe' : 'settings.shortcuts.message.invalid'));
         return;
       }
 
-      const duplicateAction = findDuplicateGlobalShortcutAction(globalShortcuts, action, validation.accelerator);
+      const shortcuts = scope === 'local' ? localShortcuts : globalShortcuts;
+      const duplicateAction = findDuplicateShortcutAction(shortcuts, action, validation.accelerator);
       if (duplicateAction) {
-        setShortcutMessage(action, t('settings.shortcuts.message.duplicate'));
+        setShortcutMessage(scope, action, t('settings.shortcuts.message.duplicate'));
         return;
       }
 
-      setShortcutMessage(action, null);
-      patchGlobalShortcut(action, {
+      setShortcutMessage(scope, action, null);
+      patchShortcut(scope, action, {
         accelerator: validation.accelerator,
         enabled: false,
       });
-      setRecordingShortcutAction(null);
+      setRecordingShortcutTarget(null);
     },
-    [globalShortcuts, patchGlobalShortcut, setShortcutMessage, t],
+    [globalShortcuts, localShortcuts, patchShortcut, setShortcutMessage, t],
   );
 
   useEffect(() => {
-    if (!recordingShortcutAction) {
+    if (!recordingShortcutTarget) {
       return undefined;
     }
+
+    document.body.dataset.echoShortcutRecording = 'true';
 
     const handleShortcutKeyDown = (event: KeyboardEvent): void => {
       event.preventDefault();
       event.stopPropagation();
 
       if (event.key === 'Escape') {
-        setRecordingShortcutAction(null);
+        setRecordingShortcutTarget(null);
         return;
       }
 
-      commitRecordedShortcut(recordingShortcutAction, acceleratorFromKeyboardEvent(event));
+      commitRecordedShortcut(recordingShortcutTarget, acceleratorFromKeyboardEvent(event));
     };
 
     const handleShortcutMouseEvent = (event: MouseEvent): void => {
@@ -6358,7 +6496,7 @@ export const SettingsPage = (): JSX.Element => {
 
       event.preventDefault();
       event.stopPropagation();
-      commitRecordedShortcut(recordingShortcutAction, rawAccelerator);
+      commitRecordedShortcut(recordingShortcutTarget, rawAccelerator);
     };
 
     const handleShortcutContextMenu = (event: MouseEvent): void => {
@@ -6377,8 +6515,9 @@ export const SettingsPage = (): JSX.Element => {
       window.removeEventListener('mouseup', handleShortcutMouseEvent, true);
       window.removeEventListener('auxclick', handleShortcutMouseEvent, true);
       window.removeEventListener('contextmenu', handleShortcutContextMenu, true);
+      delete document.body.dataset.echoShortcutRecording;
     };
-  }, [commitRecordedShortcut, recordingShortcutAction]);
+  }, [commitRecordedShortcut, recordingShortcutTarget]);
 
   const handleAutoFetchArtistImagesToggle = async (): Promise<void> => {
     const app = getAppBridge();
@@ -7726,6 +7865,18 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
+              <SettingRow
+                id="settings-row-fast-startup"
+                highlighted={highlightedSettingId === 'settings-row-fast-startup'}
+                title="快速启动"
+                description="开启后，启动时只做轻量只读曲库验证；完整数据保护快照会在窗口打开后后台完成。默认关闭。"
+              >
+                <ToggleButton
+                  active={appSettings?.fastStartupEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ fastStartupEnabled: !(appSettings?.fastStartupEnabled ?? false) })}
+                />
+              </SettingRow>
               <SettingRow title="简繁互搜" description="开启后，输入繁体可以搜到简体结果，输入简体也可以搜到繁体结果。">
                 <ToggleButton
                   active={appSettings?.chineseCrossScriptSearchEnabled ?? true}
@@ -7939,9 +8090,9 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleJuceOutputToggle()}
                 />
               </SettingRow>
-              <SettingRow title="JUCE 解码试验" description="默认关闭。本地 WAV/FLAC/MP3 在无需重采样时尝试 JUCE 解码；MP3 走 Windows Media，不承诺比 FFmpeg 更 HiFi；失败会自动回退 FFmpeg。">
+              <SettingRow title="长驻原生解码" description="默认开启。本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。">
                 <ToggleButton
-                  active={appSettings?.audioUseJuceDecode ?? false}
+                  active={appSettings?.audioUseJuceDecode !== false}
                   disabled={!appSettings}
                   onClick={() => void handleJuceDecodeToggle()}
                 />
@@ -8005,6 +8156,26 @@ export const SettingsPage = (): JSX.Element => {
                       {item.label}
                     </ChipButton>
                   ))}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-segment-loop"
+                highlighted={highlightedSettingId === 'settings-row-segment-loop'}
+                title="A-B 循环"
+                description="设置当前歌曲的 A/B 点、开启片段循环，并保存当前曲目的片段书签。"
+              >
+                <div className="settings-segment-loop-panel">
+                  <SegmentLoopPanel
+                    artist={segmentArtist}
+                    disabled={segmentLoopDisabled}
+                    durationSeconds={segmentDurationSeconds}
+                    isPlaying={segmentVisualState === 'playing'}
+                    positionSeconds={segmentPositionSeconds}
+                    title={segmentTitle}
+                    trackKey={segmentTrackKey}
+                    onSeek={(nextPositionSeconds) => void handleSegmentSeek(nextPositionSeconds)}
+                  />
                 </div>
               </SettingRow>
               <SettingRow
@@ -8376,10 +8547,63 @@ export const SettingsPage = (): JSX.Element => {
                   <p className="settings-inline-note">{t('settings.shortcuts.note')}</p>
                 </div>
               </SettingRow>
+              <div className="setting-row setting-row--shortcut setting-row--shortcut-header">
+                <span>{t('settings.shortcuts.column.function')}</span>
+                <span>{t('settings.shortcuts.column.local')}</span>
+                <span>{t('settings.shortcuts.column.global')}</span>
+              </div>
               {globalShortcutActionMeta.map((item) => {
-                const binding = globalShortcuts[item.action];
-                const isRecording = recordingShortcutAction === item.action;
-                const message = shortcutMessages[item.action] ?? null;
+                const localBinding = localShortcuts[item.action];
+                const globalBinding = globalShortcuts[item.action];
+                const isLocalRecording = recordingShortcutTarget?.scope === 'local' && recordingShortcutTarget.action === item.action;
+                const isGlobalRecording = recordingShortcutTarget?.scope === 'global' && recordingShortcutTarget.action === item.action;
+                const localMessage = shortcutMessages[shortcutMessageKey('local', item.action)] ?? null;
+                const globalMessage = shortcutMessages[shortcutMessageKey('global', item.action)] ?? null;
+                const localUnavailable = localShortcutUnavailableActions.has(item.action);
+
+                const renderShortcutControl = (
+                  scope: ShortcutScope,
+                  binding: LocalShortcutSettings[GlobalShortcutAction] | GlobalShortcutSettings[GlobalShortcutAction],
+                  isRecording: boolean,
+                  message: string | null,
+                ): JSX.Element => (
+                  <div className="settings-shortcut-control" role="group" aria-label={t(`settings.shortcuts.scope.${scope}` as TranslationKey)}>
+                    <button
+                      className={`settings-shortcut-key ${isRecording ? 'is-recording' : ''}`}
+                      type="button"
+                      disabled={!appSettings}
+                      onClick={() => setRecordingShortcutTarget({ scope, action: item.action })}
+                    >
+                      {isRecording
+                        ? t('settings.shortcuts.recording')
+                        : formatAcceleratorForDisplay(binding.accelerator, t('settings.shortcuts.empty'))}
+                    </button>
+                    <div className="settings-chip-row settings-chip-row--actions">
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        disabled={!appSettings}
+                        onClick={() => setRecordingShortcutTarget({ scope, action: item.action })}
+                      >
+                        {t('settings.shortcuts.action.record')}
+                      </button>
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        disabled={!appSettings || !binding.accelerator}
+                        onClick={() => handleShortcutClear(scope, item.action)}
+                      >
+                        {t('settings.shortcuts.action.clear')}
+                      </button>
+                      <ToggleButton
+                        active={binding.enabled}
+                        disabled={!appSettings || !binding.accelerator}
+                        onClick={() => void handleShortcutToggle(scope, item.action)}
+                      />
+                    </div>
+                    {message ? <p className="settings-inline-error">{message}</p> : null}
+                  </div>
+                );
 
                 return (
                   <SettingRow
@@ -8388,42 +8612,12 @@ export const SettingsPage = (): JSX.Element => {
                     title={t(item.titleKey)}
                     description={t(item.descriptionKey)}
                   >
-                    <div className="settings-shortcut-control">
-                      <button
-                        className={`settings-shortcut-key ${isRecording ? 'is-recording' : ''}`}
-                        type="button"
-                        disabled={!appSettings}
-                        onClick={() => setRecordingShortcutAction(item.action)}
-                      >
-                        {isRecording
-                          ? t('settings.shortcuts.recording')
-                          : formatAcceleratorForDisplay(binding.accelerator, t('settings.shortcuts.empty'))}
-                      </button>
-                      <div className="settings-chip-row settings-chip-row--actions">
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={!appSettings}
-                          onClick={() => setRecordingShortcutAction(item.action)}
-                        >
-                          {t('settings.shortcuts.action.record')}
-                        </button>
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={!appSettings || !binding.accelerator}
-                          onClick={() => handleShortcutClear(item.action)}
-                        >
-                          {t('settings.shortcuts.action.clear')}
-                        </button>
-                        <ToggleButton
-                          active={binding.enabled}
-                          disabled={!appSettings || !binding.accelerator}
-                          onClick={() => void handleShortcutToggle(item.action)}
-                        />
+                    {localUnavailable ? (
+                      <div className="settings-shortcut-unavailable" role="group" aria-label={t('settings.shortcuts.scope.local')}>
+                        {t('settings.shortcuts.localUnavailable')}
                       </div>
-                      {message ? <p className="settings-inline-error">{message}</p> : null}
-                    </div>
+                    ) : renderShortcutControl('local', localBinding, isLocalRecording, localMessage)}
+                    {renderShortcutControl('global', globalBinding, isGlobalRecording, globalMessage)}
                   </SettingRow>
                 );
               })}
@@ -9812,6 +10006,21 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
+                id="settings-row-streaming-download-actions"
+                highlighted={highlightedSettingId === 'settings-row-streaming-download-actions'}
+                title="流媒体下载按钮"
+                description="默认隐藏流媒体页下载入口；开启后才会在支持的平台歌曲行显示下载按钮。"
+              >
+                <div className="settings-inline-toggle settings-inline-toggle--compact">
+                  <span>{appSettings?.streamingDownloadActionsEnabled ? '已显示' : '已隐藏'}</span>
+                  <ToggleButton
+                    active={appSettings?.streamingDownloadActionsEnabled === true}
+                    disabled={!appSettings}
+                    onClick={() => patchAppSettings({ streamingDownloadActionsEnabled: !(appSettings?.streamingDownloadActionsEnabled ?? false) })}
+                  />
+                </div>
+              </SettingRow>
+              <SettingRow
                 title="歌单自动备份"
                 description="开启后，刷新、清空或删除歌单前会先在系统下载文件夹保存一份 JSON 备份。"
               >
@@ -10265,7 +10474,7 @@ export const SettingsPage = (): JSX.Element => {
                 id="settings-row-safe-mode"
                 highlighted={highlightedSettingId === 'settings-row-safe-mode'}
                 title="Safe mode"
-                description="持续开启后，每次启动会自动打开 ECHO Debug Console，并记录启动阶段耗时；只诊断，不关闭功能。"
+                description="持续开启后，每次启动会先打开异常记录器；只显示异常、渲染器错误、音频错误和慢启动阶段，不混入普通播放日志。"
               >
                 <div className="settings-cache-panel settings-cache-panel--diagnostics">
                   <div className="settings-status-grid">
@@ -10305,7 +10514,7 @@ export const SettingsPage = (): JSX.Element => {
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    下一次启动开始会先弹出调试窗口；启动时间线也会写入安全诊断包里的 startup-timeline.safe.json。
+                    早期 PowerShell 只盯 exceptions.safe.log：警告显示黄色，错误和致命错误显示红色；完整启动时间线仍会写入安全诊断包里的 startup-timeline.safe.json。
                   </p>
                   {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
                   {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}

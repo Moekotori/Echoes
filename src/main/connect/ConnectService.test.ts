@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hqPlayerConnectDeviceId, type ConnectStartRequest } from '../../shared/types/connect';
 import type { LibraryTrack } from '../../shared/types/library';
-import type { HqPlayerStatus } from '../../shared/types/hqplayer';
+import type { HqPlayerConnectionTestResult, HqPlayerSettings, HqPlayerStatus } from '../../shared/types/hqplayer';
 
 const mocks = vi.hoisted(() => {
   const audioSession = {
@@ -63,59 +63,116 @@ const hqStatus = (state: HqPlayerStatus['state'] = 'disabled'): HqPlayerStatus =
   lastError: null,
 });
 
-const createHqPlayerService = () => ({
-  getSettings: vi.fn().mockReturnValue({
-    enabled: false,
-    connectionMode: 'localDesktop',
-    host: '127.0.0.1',
-    port: 4321,
-    executablePath: null,
-    allowLaunch: false,
-    mediaServerEnabled: false,
-    mediaServerPort: null,
-    defaultPlaybackBackend: 'ask',
-    profileName: null,
-  }),
-  setSettings: vi.fn().mockImplementation((patch) => ({
-    enabled: true,
-    connectionMode: 'localDesktop',
-    host: '127.0.0.1',
-    port: 4321,
-    executablePath: null,
-    allowLaunch: false,
-    mediaServerEnabled: false,
-    mediaServerPort: null,
-    defaultPlaybackBackend: 'ask',
-    profileName: null,
-    ...patch,
-  })),
-  getStatus: vi.fn().mockReturnValue(hqStatus()),
-  testConnection: vi.fn().mockResolvedValue({
-    ok: true,
-    state: 'available',
-    endpoint: {
-      connectionMode: 'localDesktop',
-      host: '127.0.0.1',
-      port: 4321,
-    },
-    elapsedMs: 8,
-    checkedAt: '2026-05-21T01:00:00.000Z',
-    error: null,
-  }),
-  createPlaybackHandoff: vi.fn().mockResolvedValue({
-    state: 'ready',
-    reason: null,
-    control: {
-      state: 'prepared',
-      reason: null,
-    },
-  }),
-  sendLastPlaybackControl: vi.fn().mockResolvedValue({
-    state: 'sent',
-    reason: null,
-    message: null,
-  }),
+const hqSettings = (patch: Partial<HqPlayerSettings> = {}): HqPlayerSettings => ({
+  enabled: false,
+  connectionMode: 'localDesktop',
+  host: '127.0.0.1',
+  port: 4321,
+  executablePath: null,
+  allowLaunch: false,
+  mediaServerEnabled: false,
+  mediaServerPort: null,
+  defaultPlaybackBackend: 'ask',
+  profileName: null,
+  ...patch,
 });
+
+const hqConnectionOk = (settings: HqPlayerSettings = hqSettings({ enabled: true })): HqPlayerConnectionTestResult => ({
+  ok: true,
+  state: 'available',
+  endpoint: {
+    connectionMode: settings.connectionMode,
+    host: settings.host,
+    port: settings.port,
+  },
+  elapsedMs: 8,
+  checkedAt: '2026-05-21T01:00:00.000Z',
+  error: null,
+  playbackStatus: {
+    state: 'playing',
+    stateCode: 2,
+    track: 1,
+    trackId: localTrack.id,
+    tracksTotal: 1,
+    queued: false,
+    positionSeconds: 7,
+    durationSeconds: 180,
+    volume: null,
+    activeMode: null,
+    activeFilter: null,
+    activeShaper: null,
+    activeRate: null,
+    activeBits: null,
+    activeChannels: null,
+    inputFill: null,
+    outputFill: null,
+    outputDelayUs: null,
+    apodizing: null,
+    metadata: null,
+    receivedAt: '2026-05-21T01:00:00.000Z',
+  },
+});
+
+const createHqPlayerService = (initial: Partial<HqPlayerSettings> = {}) => {
+  let settings = hqSettings(initial);
+  return {
+    getSettings: vi.fn(() => settings),
+    setSettings: vi.fn().mockImplementation((patch: Partial<HqPlayerSettings>) => {
+      settings = { ...settings, ...patch };
+      return settings;
+    }),
+    getStatus: vi.fn().mockImplementation(() => ({
+      ...hqStatus(settings.enabled ? 'available' : 'disabled'),
+      enabled: settings.enabled,
+      endpoint: {
+        connectionMode: settings.connectionMode,
+        host: settings.host,
+        port: settings.port,
+      },
+    })),
+    testConnection: vi.fn().mockImplementation(async (patch?: Partial<HqPlayerSettings>) => hqConnectionOk({ ...settings, ...patch })),
+    createPlaybackHandoff: vi.fn().mockResolvedValue({
+      state: 'ready',
+      reason: null,
+      control: {
+        state: 'prepared',
+        reason: null,
+      },
+    }),
+    sendLastPlaybackControl: vi.fn().mockResolvedValue({
+      state: 'sent',
+      reason: null,
+      message: null,
+    }),
+  };
+};
+
+const hqConnectionRefused: HqPlayerConnectionTestResult = {
+  ok: false,
+  state: 'unavailable',
+  endpoint: {
+    connectionMode: 'localDesktop',
+    host: '127.0.0.1',
+    port: 4321,
+  },
+  elapsedMs: 12,
+  checkedAt: '2026-05-21T01:00:00.000Z',
+  error: 'hqplayer_connection_refused',
+};
+
+const hqConnectionWithoutPlayback: HqPlayerConnectionTestResult = {
+  ok: true,
+  state: 'available',
+  endpoint: {
+    connectionMode: 'localDesktop',
+    host: '127.0.0.1',
+    port: 4321,
+  },
+  elapsedMs: 8,
+  checkedAt: '2026-05-21T01:00:00.000Z',
+  error: null,
+  playbackStatus: null,
+};
 
 describe('ConnectService HQPlayer output device', () => {
   beforeEach(() => {
@@ -141,6 +198,7 @@ describe('ConnectService HQPlayer output device', () => {
         id: hqPlayerConnectDeviceId,
         name: 'HQPlayer Desktop',
         protocol: 'hqplayer',
+        state: 'unavailable',
         capabilities: expect.objectContaining({
           canPlay: false,
           canPause: false,
@@ -198,11 +256,8 @@ describe('ConnectService HQPlayer output device', () => {
 
     expect(hqPlayer.setSettings).toHaveBeenCalledWith(expect.objectContaining({
       enabled: true,
-      connectionMode: 'localDesktop',
-      host: '127.0.0.1',
-      port: 4321,
     }));
-    expect(hqPlayer.testConnection).toHaveBeenCalledOnce();
+    expect(hqPlayer.testConnection).toHaveBeenCalledTimes(2);
     expect(hqPlayer.createPlaybackHandoff).toHaveBeenCalledWith(expect.objectContaining({
       confirmed: true,
       startSeconds: 7,
@@ -216,21 +271,41 @@ describe('ConnectService HQPlayer output device', () => {
     expect(mocks.audioSession.pause).toHaveBeenCalledOnce();
   });
 
+  it('preserves configured remote HQPlayer endpoint when connecting', async () => {
+    const { ConnectService } = await import('./ConnectService');
+    const hqPlayer = createHqPlayerService({
+      enabled: true,
+      connectionMode: 'remote',
+      host: '10.0.0.8',
+      port: 4322,
+      mediaServerEnabled: true,
+    });
+    const service = new ConnectService(hqPlayer);
+
+    await expect(service.connect({
+      deviceId: hqPlayerConnectDeviceId,
+      track: localTrack,
+      filePath: localTrack.path,
+    })).resolves.toMatchObject({
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      state: 'playing',
+    });
+
+    expect(hqPlayer.setSettings).not.toHaveBeenCalled();
+    expect(hqPlayer.testConnection).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      connectionMode: 'remote',
+      host: '10.0.0.8',
+      port: 4322,
+      mediaServerEnabled: true,
+    }));
+  });
+
   it('keeps HQPlayer connection failures visible on the Connect session', async () => {
     const { ConnectService } = await import('./ConnectService');
     const hqPlayer = createHqPlayerService();
-    hqPlayer.testConnection.mockResolvedValueOnce({
-      ok: false,
-      state: 'unavailable',
-      endpoint: {
-        connectionMode: 'localDesktop',
-        host: '127.0.0.1',
-        port: 4321,
-      },
-      elapsedMs: 12,
-      checkedAt: '2026-05-21T01:00:00.000Z',
-      error: 'hqplayer_connection_refused',
-    });
+    hqPlayer.testConnection.mockResolvedValueOnce(hqConnectionRefused);
     const service = new ConnectService(hqPlayer);
 
     await expect(service.connect({
@@ -246,5 +321,27 @@ describe('ConnectService HQPlayer output device', () => {
       error: 'hqplayer_connection_refused',
     });
     expect(hqPlayer.sendLastPlaybackControl).not.toHaveBeenCalled();
+  });
+
+  it('does not mark HQPlayer as playing until Status confirms playback', async () => {
+    const { ConnectService } = await import('./ConnectService');
+    const hqPlayer = createHqPlayerService();
+    hqPlayer.testConnection.mockResolvedValue(hqConnectionWithoutPlayback);
+    const service = new ConnectService(hqPlayer);
+
+    await expect(service.connect({
+      deviceId: hqPlayerConnectDeviceId,
+      track: localTrack,
+      filePath: localTrack.path,
+    })).rejects.toThrow(/未确认播放/u);
+
+    expect(hqPlayer.sendLastPlaybackControl).toHaveBeenCalledOnce();
+    expect(service.getStatus()).toMatchObject({
+      deviceId: hqPlayerConnectDeviceId,
+      protocol: 'hqplayer',
+      state: 'error',
+      error: expect.stringMatching(/未确认播放/u),
+    });
+    expect(mocks.audioSession.pause).not.toHaveBeenCalled();
   });
 });

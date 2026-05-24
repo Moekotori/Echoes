@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessByStdio, SpawnOptionsWithStdioTuple } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { PassThrough, type Readable } from 'node:stream';
 import readline from 'node:readline';
 import { parseFile } from 'music-metadata';
@@ -33,6 +34,12 @@ type DecoderPipelineError = Error & {
   ffmpegErrorKind?: FfmpegDecodeErrorKind;
   stderrLines?: string[];
 };
+type ProbeCacheEntry = {
+  result: AudioProbeResult;
+  probePath: string;
+  size: number;
+  mtimeMs: number;
+};
 
 export type DecoderPipelineDependencies = {
   ffmpegPath?: string | null;
@@ -55,6 +62,8 @@ const normalizePositiveInteger = (value: unknown): number | null => {
 const defaultLogger = (message: string): void => {
   console.warn(message);
 };
+
+const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
 
 const appendTailLine = (lines: string[], line: string): void => {
   const trimmed = line.trim();
@@ -185,6 +194,7 @@ const normalizeSpawnError = (error: Error & { code?: string }): Error => {
 };
 
 const remotePcmStartupTimeoutMs = 30_000;
+const probeCacheMaxItems = 256;
 
 const isHttpInputPath = (value: string): boolean => /^https?:\/\//iu.test(value.trim());
 
@@ -208,6 +218,25 @@ const createRemoteInputArgs = (decodePath: string): string[] =>
 
 const getPcmStartupTimeoutMs = (decodePath: string): number | null => (isHttpInputPath(decodePath) ? remotePcmStartupTimeoutMs : null);
 
+const getProbeCacheFingerprint = async (probePath: string): Promise<{ size: number; mtimeMs: number } | null> => {
+  if (isHttpInputPath(probePath)) {
+    return null;
+  }
+
+  try {
+    const stats = await stat(probePath);
+    return stats.isFile() ? { size: stats.size, mtimeMs: stats.mtimeMs } : null;
+  } catch {
+    return null;
+  }
+};
+
+const cloneProbeResult = (result: AudioProbeResult): AudioProbeResult => ({ ...result });
+
+const mapFirstAudioStreamArgs = (inputIndex: number): string[] => ['-map', `${inputIndex}:a:0`];
+
+const disableNonAudioStreamArgs = (): string[] => ['-vn', '-sn', '-dn'];
+
 const normalizeTempoRatio = (value: unknown): number => {
   const ratio = Number(value);
   return Number.isFinite(ratio) && ratio > 0 ? Math.max(0.5, Math.min(2, ratio)) : 1;
@@ -229,6 +258,7 @@ export class DecoderPipeline {
   private readonly toolchainInfo: FfmpegToolchainInfo;
   private readonly spawn: DecoderSpawner;
   private readonly logger: (message: string) => void;
+  private readonly probeCache = new Map<string, ProbeCacheEntry>();
 
   constructor(dependencies: DecoderPipelineDependencies = {}) {
     this.toolchainInfo = resolveFfmpegToolchain({
@@ -238,11 +268,13 @@ export class DecoderPipeline {
     this.ffmpegPath = this.toolchainInfo.path;
     this.spawn = dependencies.spawn ?? (nodeSpawn as DecoderSpawner);
     this.logger = dependencies.logger ?? defaultLogger;
-    this.logger(
-      `[DecoderPipeline] ffmpeg: ${this.ffmpegPath} source=${this.toolchainInfo.source} version=${
-        this.toolchainInfo.version ?? 'n/a'
-      } soxr=${this.toolchainInfo.soxrAvailable}`,
-    );
+    if (verboseAudioLogsEnabled) {
+      this.logger(
+        `[DecoderPipeline] ffmpeg: ${this.ffmpegPath} source=${this.toolchainInfo.source} version=${
+          this.toolchainInfo.version ?? 'n/a'
+        } soxr=${this.toolchainInfo.soxrAvailable}`,
+      );
+    }
   }
 
   getToolchainInfo(): FfmpegToolchainInfo {
@@ -252,6 +284,22 @@ export class DecoderPipeline {
   async probeLocalFile(filePath: string): Promise<AudioProbeResult> {
     const cueTrack = resolveCueTrack(filePath);
     const probePath = cueTrack?.audioPath ?? filePath;
+    const fingerprint = await getProbeCacheFingerprint(probePath);
+    const cached = fingerprint ? this.probeCache.get(filePath) : null;
+    if (
+      cached &&
+      cached.probePath === probePath &&
+      cached.size === fingerprint?.size &&
+      cached.mtimeMs === fingerprint.mtimeMs
+    ) {
+      this.probeCache.delete(filePath);
+      this.probeCache.set(filePath, cached);
+      if (verboseAudioLogsEnabled) {
+        this.logger(`[DecoderPipeline] probe cache hit: file="${redactUrlSecrets(filePath)}"`);
+      }
+      return cloneProbeResult(cached.result);
+    }
+
     const metadata = await parseFile(probePath, {
       duration: true,
       skipCovers: true,
@@ -280,7 +328,9 @@ export class DecoderPipeline {
           result.channels = Math.max(1, Math.min(8, tagLibTechnical.channels ?? result.channels));
         }
       } catch (error) {
-        this.logger(`[DecoderPipeline] ALAC TagLib probe unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        if (verboseAudioLogsEnabled) {
+          this.logger(`[DecoderPipeline] ALAC TagLib probe unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
     if (isDsdProbe(result) && shouldProbeDsdNativeSampleRate(result)) {
@@ -291,13 +341,31 @@ export class DecoderPipeline {
       }
     }
 
-    this.logger(
-      `[DecoderPipeline] probe: file="${redactUrlSecrets(filePath)}" codec=${result.codec ?? 'n/a'} sampleRate=${
-        result.fileSampleRate ?? 'n/a'
-      } channels=${result.channels} duration=${result.durationSeconds}`,
-    );
+    if (verboseAudioLogsEnabled) {
+      this.logger(
+        `[DecoderPipeline] probe: file="${redactUrlSecrets(filePath)}" codec=${result.codec ?? 'n/a'} sampleRate=${
+          result.fileSampleRate ?? 'n/a'
+        } channels=${result.channels} duration=${result.durationSeconds}`,
+      );
+    }
 
-    return result;
+    if (fingerprint) {
+      this.probeCache.delete(filePath);
+      this.probeCache.set(filePath, {
+        result: cloneProbeResult(result),
+        probePath,
+        ...fingerprint,
+      });
+      while (this.probeCache.size > probeCacheMaxItems) {
+        const oldestKey = this.probeCache.keys().next().value as string | undefined;
+        if (!oldestKey) {
+          break;
+        }
+        this.probeCache.delete(oldestKey);
+      }
+    }
+
+    return cloneProbeResult(result);
   }
 
   decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
@@ -316,13 +384,15 @@ export class DecoderPipeline {
       '-loglevel',
       'error',
       '-nostdin',
+      '-nostats',
       '-ss',
       String(decodeStart),
       ...(inputHeaders ? ['-headers', inputHeaders] : []),
       ...createRemoteInputArgs(decodePath),
       '-i',
       decodePath,
-      '-vn',
+      ...mapFirstAudioStreamArgs(0),
+      ...disableNonAudioStreamArgs(),
       ...(cueDuration !== null ? ['-t', String(cueDuration)] : []),
       '-f',
       'f32le',
@@ -440,12 +510,13 @@ export class DecoderPipeline {
       '-loglevel',
       'error',
       '-nostdin',
+      '-nostats',
       ...inputArgs,
       '-filter_complex',
       filter,
       '-map',
       '[aout]',
-      '-vn',
+      ...disableNonAudioStreamArgs(),
       '-f',
       'f32le',
       '-ac',
@@ -455,13 +526,15 @@ export class DecoderPipeline {
       'pipe:1',
     ];
 
-    this.logger(
-      `[DecoderPipeline] automix: current="${redactUrlSecrets(request.current.filePath)}" next="${redactUrlSecrets(
-        request.next.filePath,
-      )}" tracks=${tracks.length} modes=${plans.map((plan) => plan.mode).join(',')} transitions=${plans
-        .map((plan) => plan.overlapSeconds.toFixed(3))
-        .join(',')}s`,
-    );
+    if (verboseAudioLogsEnabled) {
+      this.logger(
+        `[DecoderPipeline] automix: current="${redactUrlSecrets(request.current.filePath)}" next="${redactUrlSecrets(
+          request.next.filePath,
+        )}" tracks=${tracks.length} modes=${plans.map((plan) => plan.mode).join(',')} transitions=${plans
+          .map((plan) => plan.overlapSeconds.toFixed(3))
+          .join(',')}s`,
+      );
+    }
     const run = this.spawnSimpleDecode(
       args,
       request.current.resamplerEngine ?? 'default',
@@ -510,12 +583,13 @@ export class DecoderPipeline {
       '-loglevel',
       'error',
       '-nostdin',
+      '-nostats',
       ...inputArgs,
       '-filter_complex',
       filter,
       '-map',
       '[aout]',
-      '-vn',
+      ...disableNonAudioStreamArgs(),
       '-f',
       'f32le',
       '-ac',
@@ -525,9 +599,11 @@ export class DecoderPipeline {
       'pipe:1',
     ];
 
-    this.logger(
-      `[DecoderPipeline] gapless: current="${redactUrlSecrets(request.current.filePath)}" tracks=${tracks.length}`,
-    );
+    if (verboseAudioLogsEnabled) {
+      this.logger(
+        `[DecoderPipeline] gapless: current="${redactUrlSecrets(request.current.filePath)}" tracks=${tracks.length}`,
+      );
+    }
     const run = this.spawnSimpleDecode(
       args,
       request.current.resamplerEngine ?? 'default',
@@ -540,7 +616,9 @@ export class DecoderPipeline {
 
   private spawnProcess(args: string[]): DecoderChildProcess {
     try {
-      this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${redactFfmpegArgs(args).join(' ')}`);
+      if (verboseAudioLogsEnabled) {
+        this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${redactFfmpegArgs(args).join(' ')}`);
+      }
       return this.spawn(this.ffmpegPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
@@ -559,6 +637,15 @@ export class DecoderPipeline {
     const proc = this.spawnProcess(args);
     const stderrLines: string[] = [];
     let stopped = false;
+    let resolveReady: (() => void) | null = null;
+    let rejectReady: ((error: Error) => void) | null = null;
+    let readySettled = false;
+    const ready = pcmStartupTimeoutMs !== null
+      ? new Promise<void>((resolve, reject) => {
+          resolveReady = resolve;
+          rejectReady = reject;
+        })
+      : undefined;
 
     const stderr = readline.createInterface({ input: proc.stderr });
     stderr.on('line', (line) => {
@@ -567,17 +654,39 @@ export class DecoderPipeline {
       }
 
       appendTailLine(stderrLines, line);
-      this.logger(`[ffmpeg] ${line}`);
+      if (verboseAudioLogsEnabled) {
+        this.logger(`[ffmpeg] ${redactFfmpegDiagnosticLine(line)}`);
+      }
     });
 
     const done = new Promise<void>((resolve, reject) => {
       let settled = false;
       let watchdog: NodeJS.Timeout | null = null;
-      const clearWatchdog = (): void => {
+      const resolveReadyOnce = (): void => {
+        if (readySettled) {
+          return;
+        }
+
+        readySettled = true;
+        resolveReady?.();
+      };
+      const rejectReadyOnce = (error: Error): void => {
+        if (readySettled) {
+          return;
+        }
+
+        readySettled = true;
+        rejectReady?.(error);
+      };
+      const clearWatchdogTimer = (): void => {
         if (watchdog) {
           clearTimeout(watchdog);
           watchdog = null;
         }
+      };
+      const markReady = (): void => {
+        clearWatchdogTimer();
+        resolveReadyOnce();
       };
       const resolveOnce = (): void => {
         if (settled) {
@@ -585,7 +694,7 @@ export class DecoderPipeline {
         }
 
         settled = true;
-        clearWatchdog();
+        markReady();
         resolve();
       };
       const rejectOnce = (error: Error): void => {
@@ -594,11 +703,12 @@ export class DecoderPipeline {
         }
 
         settled = true;
-        clearWatchdog();
+        clearWatchdogTimer();
+        rejectReadyOnce(error);
         reject(error);
       };
 
-      proc.stdout.once('readable', clearWatchdog);
+      proc.stdout.once('readable', markReady);
       if (pcmStartupTimeoutMs !== null) {
         watchdog = setTimeout(() => {
           if (stopped || settled) {
@@ -616,6 +726,7 @@ export class DecoderPipeline {
 
       proc.on('error', (error: Error & { code?: string }) => {
         if (stopped) {
+          resolveReadyOnce();
           resolveOnce();
           return;
         }
@@ -630,6 +741,7 @@ export class DecoderPipeline {
 
       proc.on('exit', (code, signal) => {
         if (stopped || code === 0) {
+          resolveReadyOnce();
           resolveOnce();
           return;
         }
@@ -639,8 +751,11 @@ export class DecoderPipeline {
       });
     });
 
+    ready?.catch(() => undefined);
+
     return {
       stream: proc.stdout,
+      ready,
       done,
       waitForExitOnStop: true,
       resamplerEngine,
@@ -722,7 +837,9 @@ export class DecoderPipeline {
           }
 
           appendTailLine(stderrLines, line);
-          this.logger(`[ffmpeg] ${line}`);
+          if (verboseAudioLogsEnabled) {
+            this.logger(`[ffmpeg] ${redactFfmpegDiagnosticLine(line)}`);
+          }
         });
         proc.stdout.on('data', () => {
           sawPcmData = true;

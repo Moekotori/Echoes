@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TrackTagEditorDrawer, applyNetworkCandidateToForm, defaultNetworkFieldSelection } from './TrackTagEditorDrawer';
 import type { LibraryTrack, NetworkTagCandidate } from '../../../shared/types/library';
+import type { LyricsSearchCandidate, TrackLyrics } from '../../../shared/types/lyrics';
 
 const track = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   id: 'track-1',
@@ -49,13 +50,68 @@ const candidate = (overrides: Partial<NetworkTagCandidate> = {}): NetworkTagCand
   ...overrides,
 });
 
-const installEcho = (searchNetworkTagCandidates = vi.fn()) => {
+const lyricsCandidate = (overrides: Partial<LyricsSearchCandidate> = {}): LyricsSearchCandidate => ({
+  id: 'lyrics-candidate-1',
+  provider: 'lrclib',
+  providerLyricsId: 'lrclib-1',
+  title: 'Local Song',
+  artist: 'Local Artist',
+  album: 'Local Album',
+  durationSeconds: 180,
+  instrumental: false,
+  hasSynced: true,
+  hasPlain: true,
+  score: 0.96,
+  sourceLabel: 'LRCLIB',
+  risk: 'low',
+  ...overrides,
+});
+
+const trackLyrics = (overrides: Partial<TrackLyrics> = {}): TrackLyrics => ({
+  id: 'lyrics-1',
+  trackId: 'track-1',
+  provider: 'lrclib',
+  providerLyricsId: 'lrclib-1',
+  kind: 'synced',
+  title: 'Local Song',
+  artist: 'Local Artist',
+  album: 'Local Album',
+  durationSeconds: 180,
+  lines: [{ timeMs: 1000, text: 'Line' }],
+  plainText: 'Line',
+  syncedText: '[00:01.00]Line',
+  offsetMs: 0,
+  score: 0.96,
+  cachedAt: '2026-05-22T00:00:00.000Z',
+  updatedAt: '2026-05-22T00:00:00.000Z',
+  ...overrides,
+});
+
+const installEcho = (searchNetworkTagCandidates = vi.fn(), lyricsOverrides: Partial<NonNullable<typeof window.echo>['lyrics']> = {}) => {
   window.echo = {
     library: {
       searchNetworkTagCandidates,
       chooseTrackCover: vi.fn(),
       loadEmbeddedTrackTags: vi.fn(),
       updateTrackTags: vi.fn(),
+    },
+    lyrics: {
+      getForTrack: vi.fn().mockResolvedValue(null),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn().mockResolvedValue(trackLyrics()),
+      embedToTrack: vi.fn().mockResolvedValue({
+        trackId: 'track-1',
+        provider: 'lrclib',
+        kind: 'synced',
+        textKind: 'synced',
+        queued: true,
+        message: '已加入后台写入队列；如果正在播放或加载音频，会自动延后写入。',
+      }),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+      ...lyricsOverrides,
     },
   } as unknown as typeof window.echo;
 };
@@ -167,6 +223,7 @@ describe('TrackTagEditorDrawer network tags', () => {
 
     render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={onSave} />);
 
+    fireEvent.click(screen.getByRole('tab', { name: '网络候选' }));
     fireEvent.click(screen.getByRole('button', { name: '搜索候选' }));
     await screen.findByText('Network Song');
     fireEvent.click(screen.getByText('Network Song'));
@@ -177,8 +234,10 @@ describe('TrackTagEditorDrawer network tags', () => {
     expect(within(comparePanel).getByText('Local Song')).toBeTruthy();
     expect(within(comparePanel).getAllByText('Network Song').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: '应用到表单' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用选中字段' }));
 
+    expect(screen.getByText('已应用到表单，点击保存后才会写入文件和媒体库。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '标签' }));
     await waitFor(() => expect((screen.getByLabelText('标题') as HTMLInputElement).value).toBe('Network Song'));
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -228,6 +287,7 @@ describe('TrackTagEditorDrawer network tags', () => {
 
     render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
 
+    fireEvent.click(screen.getByRole('tab', { name: '网络候选' }));
     fireEvent.click(screen.getByRole('button', { name: '搜索候选' }));
     await screen.findByText('Network Song');
     fireEvent.click(screen.getByText('Network Song'));
@@ -271,13 +331,81 @@ describe('TrackTagEditorDrawer network tags', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('searches lyrics and applies a candidate to the lyrics cache without saving tags', async () => {
+    const onSave = vi.fn();
+    const searchCandidates = vi.fn().mockResolvedValue([
+      lyricsCandidate({ id: 'lyrics-candidate-cache', title: 'Lyrics Song', artist: 'Lyrics Artist' }),
+    ]);
+    const applyCandidate = vi.fn().mockResolvedValue(trackLyrics({ title: 'Lyrics Song', artist: 'Lyrics Artist' }));
+    installEcho(vi.fn(), { searchCandidates, applyCandidate });
+
+    render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '歌词' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索歌词' }));
+    await screen.findByText('Lyrics Song');
+    fireEvent.click(screen.getByRole('button', { name: '应用到歌词库' }));
+
+    await waitFor(() => expect(applyCandidate).toHaveBeenCalledWith('track-1', 'lyrics-candidate-cache'));
+    expect(screen.getByText('已应用到歌词库，不会写入源音频文件。')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('embeds a lyrics candidate through the new lyrics API', async () => {
+    const searchCandidates = vi.fn().mockResolvedValue([
+      lyricsCandidate({ id: 'lyrics-candidate-embed', title: 'Embed Lyrics', artist: 'Lyrics Artist' }),
+    ]);
+    const embedToTrack = vi.fn().mockResolvedValue({
+      trackId: 'track-1',
+      provider: 'lrclib',
+      kind: 'synced',
+      textKind: 'synced',
+      queued: true,
+      message: '已加入后台写入队列；如果正在播放或加载音频，会自动延后写入。',
+    });
+    installEcho(vi.fn(), { searchCandidates, embedToTrack, getForTrack: vi.fn().mockResolvedValue(trackLyrics()) });
+
+    render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '歌词' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索歌词' }));
+    await screen.findByText('Embed Lyrics');
+    fireEvent.click(screen.getByRole('button', { name: '应用并嵌入文件' }));
+
+    await waitFor(() =>
+      expect(embedToTrack).toHaveBeenCalledWith('track-1', {
+        candidateId: 'lyrics-candidate-embed',
+        preferSynced: true,
+      }),
+    );
+    expect(screen.getByText('已加入后台写入队列；如果正在播放或加载音频，会自动延后写入。')).toBeTruthy();
+  });
+
+  it('disables file embedding for remote tracks while keeping lyrics cache actions available', async () => {
+    const searchCandidates = vi.fn().mockResolvedValue([
+      lyricsCandidate({ id: 'lyrics-candidate-remote', title: 'Remote Lyrics' }),
+    ]);
+    installEcho(vi.fn(), { searchCandidates });
+
+    render(<TrackTagEditorDrawer track={track({ mediaType: 'remote' })} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '歌词' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索歌词' }));
+    await screen.findByText('Remote Lyrics');
+
+    expect(screen.getByText('此曲目只能应用到歌词库，不能写入源文件。')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '应用并嵌入文件' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '应用到歌词库' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('shows a friendly error when the network provider fails', async () => {
     installEcho(vi.fn().mockRejectedValue(new Error('网络来源暂时不可用，请稍后再试。')));
 
     render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
 
+    fireEvent.click(screen.getByRole('tab', { name: '网络候选' }));
     fireEvent.click(screen.getByRole('button', { name: '搜索候选' }));
 
-    expect(await screen.findByText('网络来源暂时不可用，请稍后再试。')).toBeTruthy();
+    expect(await screen.findByText('暂时没有拿到标签候选。请检查网络元数据来源或稍后重试；如果要搜歌词，请切到“歌词”页签。')).toBeTruthy();
   });
 });

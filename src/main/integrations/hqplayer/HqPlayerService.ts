@@ -368,6 +368,7 @@ export class HqPlayerService {
             headers: {},
             mimeType: resolvedSource?.mimeType ?? null,
             expiresAt: null,
+            mediaServer: null,
             streaming: null,
           },
           { url: sourceUrl, mimeType: resolvedSource?.mimeType ?? null },
@@ -382,6 +383,7 @@ export class HqPlayerService {
         headers: {},
         mimeType: resolvedSource?.mimeType ?? null,
         expiresAt: null,
+        mediaServer: null,
         streaming: null,
       };
     }
@@ -411,6 +413,7 @@ export class HqPlayerService {
             headers: {},
             mimeType: resolvedSource?.mimeType ?? null,
             expiresAt: stream.expiresAt,
+            mediaServer: null,
             streaming: null,
           },
           { url: stream.url, mimeType: resolvedSource?.mimeType ?? null },
@@ -425,6 +428,7 @@ export class HqPlayerService {
         headers: {},
         mimeType: resolvedSource?.mimeType ?? null,
         expiresAt: stream.expiresAt,
+        mediaServer: null,
         streaming: null,
       };
     }
@@ -477,6 +481,7 @@ export class HqPlayerService {
             headers: source.headers,
             mimeType: source.mimeType ?? null,
             expiresAt: source.expiresAt,
+            mediaServer: null,
             streaming: {
               provider: source.provider,
               providerTrackId: source.providerTrackId,
@@ -501,6 +506,7 @@ export class HqPlayerService {
             headers: {},
             mimeType: source.mimeType ?? null,
             expiresAt: source.expiresAt,
+            mediaServer: null,
             streaming: {
               provider: source.provider,
               providerTrackId: source.providerTrackId,
@@ -523,6 +529,7 @@ export class HqPlayerService {
         headers: source.headers,
         mimeType: source.mimeType ?? null,
         expiresAt: source.expiresAt,
+        mediaServer: null,
         streaming: {
           provider: source.provider,
           providerTrackId: source.providerTrackId,
@@ -551,6 +558,7 @@ export class HqPlayerService {
       const served = await this.mediaServer.createUrl(input, {
         port: settings.mediaServerPort,
         remoteAccess: settings.connectionMode === 'remote',
+        preferredRemoteHost: settings.connectionMode === 'remote' ? settings.host : null,
       });
       return {
         ...source,
@@ -558,6 +566,14 @@ export class HqPlayerService {
         exposure: 'media-server',
         headers: {},
         expiresAt: served.expiresAt,
+        mediaServer: {
+          url: served.url,
+          port: served.port,
+          bindHost: served.bindHost,
+          publicHost: served.publicHost,
+          remoteAccess: served.remoteAccess,
+          publicHostCandidates: served.publicHostCandidates,
+        },
       };
     } catch {
       return 'media_server_not_ready';

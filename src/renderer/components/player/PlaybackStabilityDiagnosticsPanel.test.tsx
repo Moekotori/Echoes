@@ -30,6 +30,7 @@ const baseStatus: AudioStatus = {
   outputDeviceType: null,
   outputBackend: null,
   activeOutputBackendImpl: null,
+  nativeOutputFormat: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
   useJuceDecodeRequested: false,
@@ -70,6 +71,7 @@ const diagnosticsFromStatus = (status: AudioStatus, overrides: Partial<AudioDiag
   outputMode: status.outputMode,
   outputBackend: status.outputBackend,
   activeOutputBackendImpl: status.activeOutputBackendImpl,
+  nativeOutputFormat: status.nativeOutputFormat ?? null,
   useJuceOutputRequested: status.useJuceOutputRequested,
   activeDecodeBackendImpl: status.activeDecodeBackendImpl,
   useJuceDecodeRequested: status.useJuceDecodeRequested,
@@ -135,6 +137,8 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
       host: 'ready',
       state: 'playing',
       outputBackend: 'wasapi-shared',
+      activeOutputBackendImpl: 'legacy-wasapi-shared',
+      nativeOutputFormat: 'pcm24in32',
       outputDeviceName: 'Speakers',
       currentFilePath: 'D:\\Music\\song.flac',
       currentTrackId: 'track-1',
@@ -158,6 +162,8 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
 
     expect(await screen.findByText('playing')).toBeTruthy();
     expect(screen.getByText('wasapi-shared')).toBeTruthy();
+    expect(screen.getByText('legacy-wasapi-shared')).toBeTruthy();
+    expect(screen.getByText('pcm24in32')).toBeTruthy();
     expect(screen.getByText('Speakers')).toBeTruthy();
     expect(screen.getByText('D:\\Music\\song.flac')).toBeTruthy();
     expect(screen.getByText('44100')).toBeTruthy();
@@ -199,6 +205,8 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
               ...baseStatus,
               state: 'playing',
               outputBackend: 'asio',
+              activeOutputBackendImpl: 'legacy-asio-sdk',
+              nativeOutputFormat: 'pcm16',
               currentTrackId: 'track-copy',
               warnings: ['sample_rate_mismatch'],
             },
@@ -231,6 +239,8 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     expect(copied).toContain('ECHO Next Playback Stability Diagnostics');
     expect(copied).toContain('state: playing');
     expect(copied).toContain('outputBackend: asio');
+    expect(copied).toContain('activeOutputBackendImpl: legacy-asio-sdk');
+    expect(copied).toContain('nativeOutputFormat: pcm16');
     expect(copied).toContain('warnings: sample_rate_mismatch');
     expect(copied).toContain('watchdogStatus: recovering');
     expect(copied).toContain('recentWatchdogRecoveryCount: 1');

@@ -4,8 +4,15 @@ import { dirnameFromImportPath, handleDroppedImportPaths, summarizeDroppedImport
 import type { EchoApi } from '../../../preload/apiTypes';
 import type { ImportPathClassification } from '../../../shared/types/library';
 
-const makeLibrary = (classification: ImportPathClassification): Pick<EchoApi['library'], 'addFolder' | 'classifyImportPaths' | 'scanFolder'> => ({
+const makeLibrary = (classification: ImportPathClassification): Pick<EchoApi['library'], 'addFolder' | 'classifyImportPaths' | 'importAudioFiles' | 'scanFolder'> => ({
   classifyImportPaths: vi.fn().mockResolvedValue(classification),
+  importAudioFiles: vi.fn().mockResolvedValue({
+    importedCount: 0,
+    skippedCount: 0,
+    failedCount: 0,
+    trackIds: [],
+    tracks: [],
+  }),
   addFolder: vi.fn(async (path: string) => ({
     id: `folder-${path}`,
     path,
@@ -42,6 +49,7 @@ describe('drag drop import helper', () => {
     const library = makeLibrary({
       folders: [],
       audioFiles: ['D:\\Music\\A\\one.flac', 'D:\\Music\\A\\two.opus', 'D:\\Music\\B\\three.dsf'],
+      osuArchives: [],
       unsupportedFiles: [],
       missingPaths: [],
     });
@@ -59,6 +67,7 @@ describe('drag drop import helper', () => {
     const library = makeLibrary({
       folders: ['D:\\Albums', 'D:\\Albums'],
       audioFiles: [],
+      osuArchives: [],
       unsupportedFiles: [],
       missingPaths: [],
     });
@@ -74,6 +83,7 @@ describe('drag drop import helper', () => {
     const library = makeLibrary({
       folders: [],
       audioFiles: ['D:\\Music\\song.flac'],
+      osuArchives: [],
       unsupportedFiles: ['D:\\Music\\cover.jpg', 'D:\\Music\\notes.txt'],
       missingPaths: ['D:\\Missing\\gone.flac'],
     });
@@ -84,5 +94,28 @@ describe('drag drop import helper', () => {
     expect(result.ignoredCount).toBe(2);
     expect(result.missingCount).toBe(1);
     expect(summarizeDroppedImport(result)).toContain('忽略 2 个不支持文件');
+  });
+
+  it('imports dropped osu archive paths directly', async () => {
+    const library = makeLibrary({
+      folders: [],
+      audioFiles: [],
+      osuArchives: ['D:\\Maps\\beatmap.osz'],
+      unsupportedFiles: [],
+      missingPaths: [],
+    });
+    vi.mocked(library.importAudioFiles).mockResolvedValue({
+      importedCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+      trackIds: ['track-osu'],
+      tracks: [],
+    });
+
+    const result = await handleDroppedImportPaths(['D:\\Maps\\beatmap.osz'], library);
+
+    expect(library.importAudioFiles).toHaveBeenCalledWith(['D:\\Maps\\beatmap.osz']);
+    expect(result.importedFileCount).toBe(1);
+    expect(summarizeDroppedImport(result)).toContain('已导入 1 个文件');
   });
 });

@@ -64,6 +64,7 @@ export type CreateDownloadUrlJobOptions = Partial<Pick<DownloadSettings, 'import
   streamingProvider?: StreamingProviderName;
   streamingProviderTrackId?: string;
   streamingStableKey?: string;
+  downloadAuthorizationToken?: string | null;
 };
 
 export type DownloadSearchRequest = {

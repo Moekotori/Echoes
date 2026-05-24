@@ -21,6 +21,10 @@ const normalizeStylePatch = (value: unknown): DesktopLyricsStylePatch => {
   return {
     ...(input.desktopLyricsFontSizePx !== undefined ? { desktopLyricsFontSizePx: Number(input.desktopLyricsFontSizePx) } : {}),
     ...(input.desktopLyricsScalePercent !== undefined ? { desktopLyricsScalePercent: Number(input.desktopLyricsScalePercent) } : {}),
+    ...(typeof input.desktopLyricsFontFamily === 'string' ? { desktopLyricsFontFamily: input.desktopLyricsFontFamily } : {}),
+    ...(typeof input.desktopLyricsFontFilePath === 'string' || input.desktopLyricsFontFilePath === null
+      ? { desktopLyricsFontFilePath: input.desktopLyricsFontFilePath }
+      : {}),
     ...(typeof input.desktopLyricsColor === 'string' ? { desktopLyricsColor: input.desktopLyricsColor } : {}),
     ...(typeof input.desktopLyricsStrokeColor === 'string' ? { desktopLyricsStrokeColor: input.desktopLyricsStrokeColor } : {}),
     ...(input.desktopLyricsOpacityPercent !== undefined ? { desktopLyricsOpacityPercent: Number(input.desktopLyricsOpacityPercent) } : {}),

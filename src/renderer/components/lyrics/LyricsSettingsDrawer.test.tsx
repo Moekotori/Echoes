@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AppSettings } from '../../../shared/types/appSettings';
+import type { DesktopLyricsState } from '../../../shared/types/desktopLyrics';
 import type { LyricsSearchCandidate, TrackLyrics } from '../../../shared/types/lyrics';
 import type { MvSettings } from '../../../shared/types/mv';
 import { LyricsSettingsDrawer, LyricsSettingsPanel } from './LyricsSettingsDrawer';
@@ -144,6 +145,25 @@ const makeMvSettings = (overrides: Partial<MvSettings> = {}): MvSettings => ({
   ...overrides,
 });
 
+const makeDesktopLyricsState = (overrides: Partial<DesktopLyricsState> = {}): DesktopLyricsState => ({
+  visible: false,
+  locked: false,
+  bounds: null,
+  settings: {
+    desktopLyricsEnabled: false,
+    desktopLyricsLocked: false,
+    desktopLyricsFontSizePx: 34,
+    desktopLyricsScalePercent: 100,
+    desktopLyricsFontFamily: 'Outfit',
+    desktopLyricsFontFilePath: null,
+    desktopLyricsColor: '#FFFFFF',
+    desktopLyricsStrokeColor: '#111827',
+    desktopLyricsOpacityPercent: 96,
+    desktopLyricsBounds: null,
+  },
+  ...overrides,
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -236,6 +256,68 @@ describe('LyricsSettingsDrawer', () => {
     fireEvent.click(qqMusicSource as HTMLInputElement);
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsEnabledProviders: ['local', 'lrclib', 'qqmusic'] }));
+  });
+
+  it('controls desktop lyrics from the lyrics settings drawer', async () => {
+    const show = vi.fn().mockResolvedValue(makeDesktopLyricsState({ visible: true }));
+    const setLocked = vi.fn().mockResolvedValue(makeDesktopLyricsState({ visible: true, locked: true }));
+    const resetBounds = vi.fn().mockResolvedValue(makeDesktopLyricsState({ visible: true, locked: true }));
+    const setStyle = vi.fn((patch: Partial<AppSettings>) =>
+      Promise.resolve(makeDesktopLyricsState({
+        visible: true,
+        settings: {
+          ...makeDesktopLyricsState({ visible: true }).settings,
+          ...patch,
+        },
+      })),
+    );
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings: vi.fn(),
+        chooseLyricsWallpaper: vi.fn(),
+      },
+      desktopLyrics: {
+        show,
+        hide: vi.fn(),
+        getState: vi.fn().mockResolvedValue(makeDesktopLyricsState()),
+        setLocked,
+        setStyle,
+        resetBounds,
+        getLastAudioStatus: vi.fn(),
+        onStateChanged: vi.fn(() => vi.fn()),
+        onAudioStatus: vi.fn(() => vi.fn()),
+      },
+    } as unknown as Window['echo'];
+
+    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    const desktopLyricsToggle = (await screen.findByRole('checkbox', { name: '桌面歌词' })) as HTMLInputElement;
+    expect(desktopLyricsToggle.checked).toBe(false);
+
+    fireEvent.click(desktopLyricsToggle);
+
+    await waitFor(() => expect(show).toHaveBeenCalledTimes(1));
+    expect((screen.getByRole('checkbox', { name: '桌面歌词' }) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '锁定桌面歌词' }));
+    await waitFor(() => expect(setLocked).toHaveBeenCalledWith(true));
+
+    fireEvent.click(screen.getByRole('button', { name: /重置桌面歌词位置/ }));
+    await waitFor(() => expect(resetBounds).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /默认 Outfit/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Inter/ }));
+    await waitFor(() => expect(setStyle).toHaveBeenCalledWith({
+      desktopLyricsFontFamily: 'Inter',
+      desktopLyricsFontFilePath: null,
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: /恢复桌面歌词默认字体/ }));
+    await waitFor(() => expect(setStyle).toHaveBeenCalledWith({
+      desktopLyricsFontFamily: 'Outfit',
+      desktopLyricsFontFilePath: null,
+    }));
   });
 
   it('updates the lyrics match threshold from 30 to 100 percent with a 50 percent default', async () => {
@@ -882,7 +964,11 @@ describe('LyricsSettingsDrawer', () => {
     const { container } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(queryLocalFonts).toHaveBeenCalled());
-    fireEvent.click(container.querySelector('.lyrics-font-picker-button') as HTMLButtonElement);
+    const lyricsFontButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.lyrics-font-picker-button')).find((button) =>
+      button.closest('.lyrics-font-panel')?.textContent?.includes('歌词字体') &&
+      !button.closest('.lyrics-font-panel')?.textContent?.includes('桌面歌词字体'),
+    ) as HTMLButtonElement;
+    fireEvent.click(lyricsFontButton);
     fireEvent.click(await screen.findByRole('button', { name: /HarmonyOS Sans SC/ }));
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsFontFamily: 'HarmonyOS Sans SC', lyricsFontFilePath: null }));

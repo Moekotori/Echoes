@@ -6,7 +6,7 @@ import type { StreamingAudioQuality, StreamingProviderName } from '../../shared/
 import { TrackList } from '../components/library/TrackList';
 import { TrackContextMenu, type TrackMenuAction } from '../components/library/TrackContextMenu';
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
-import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
 
@@ -33,6 +33,7 @@ const streamingQualityOptions: Array<{ value: StreamingAudioQuality; label: stri
 const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
 const runningDownloadStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 const failedDownloadStatuses = new Set<DownloadJobStatus>(['failed', 'cancelled']);
+const qualitySwitchPlaybackStates = new Set(['loading', 'playing']);
 
 type PlaylistDownloadSession = {
   runId: number;
@@ -276,7 +277,7 @@ export const PlaylistsPage = (): JSX.Element => {
   const newPlaylistInputRef = useRef<HTMLInputElement>(null);
   const qualityMenuRef = useRef<HTMLDivElement | null>(null);
   const playlistMenuRef = useRef<HTMLDivElement | null>(null);
-  const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
+  const { currentTrack, currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
   const selectedPlaylist = useMemo(
     () => playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? playlists[0] ?? null,
     [playlists, selectedPlaylistId],
@@ -351,6 +352,56 @@ export const PlaylistsPage = (): JSX.Element => {
   const queueSource = useMemo(
     () => ({ type: 'manual' as const, label: selectedPlaylist ? `Playlist: ${selectedPlaylist.name}` : 'Playlist' }),
     [selectedPlaylist],
+  );
+
+  const handleStreamingQualityChange = useCallback(
+    (nextQuality: StreamingAudioQuality): void => {
+      setStreamingQuality(nextQuality);
+      setQualityMenuOpen(false);
+
+      if (
+        !currentTrack ||
+        currentTrack.mediaType !== 'streaming' ||
+        currentTrack.provider !== selectedPlaylist?.sourceProvider ||
+        currentTrack.streamingQuality === nextQuality
+      ) {
+        return;
+      }
+
+      const playback = window.echo?.playback;
+      if (!playback?.getStatus) {
+        return;
+      }
+
+      void (async () => {
+        const status = await playback.getStatus();
+        if (
+          status.currentTrackId !== currentTrack.id ||
+          !qualitySwitchPlaybackStates.has(status.state)
+        ) {
+          return;
+        }
+
+        await playTrack(
+          { ...currentTrack, streamingQuality: nextQuality },
+          {
+            source: queueSource,
+            startSeconds: Math.max(0, status.positionMs / 1000),
+            forceRefresh: true,
+          },
+        );
+        setError(null);
+        setStatusMessage(`已切换音质：${streamingQualityOptions.find((option) => option.value === nextQuality)?.label ?? nextQuality}`);
+      })().catch((qualityError) => {
+        if (isPlaybackCancellationError(qualityError)) {
+          return;
+        }
+
+        setError(qualityError instanceof Error ? qualityError.message : '切换音质失败');
+        setStatusMessage(null);
+      });
+    },
+    [currentTrack, playTrack, queueSource, selectedPlaylist?.sourceProvider],
   );
 
   const loadPlaylists = useCallback(async (): Promise<void> => {
@@ -771,6 +822,7 @@ export const PlaylistsPage = (): JSX.Element => {
         streamingProvider: provider,
         streamingProviderTrackId: track.providerTrackId,
         streamingStableKey: track.stableKey ?? undefined,
+        downloadAuthorizationToken: source.downloadAuthorizationToken,
       });
     },
     [streamingQuality],
@@ -998,7 +1050,7 @@ export const PlaylistsPage = (): JSX.Element => {
   const handleAddLocalFilesToPlaylist = async (): Promise<void> => {
     const library = window.echo?.library;
     const playback = window.echo?.playback;
-    if (!library?.addLocalAudioFilesToPlaylist || !playback || !selectedPlaylist) {
+    if (!library?.addLocalAudioFilesToPlaylist || (!library.chooseImportFiles && !playback) || !selectedPlaylist) {
       setError('Desktop bridge unavailable. Open ECHO Next in Electron to add local songs.');
       setStatusMessage(null);
       return;
@@ -1014,9 +1066,11 @@ export const PlaylistsPage = (): JSX.Element => {
     setError(null);
     setStatusMessage(null);
     try {
-      const filePaths = playback.openLocalAudioFiles
-        ? await playback.openLocalAudioFiles()
-        : await playback.openLocalAudioFile().then((path) => (path ? [path] : null));
+      const filePaths = library.chooseImportFiles
+        ? await library.chooseImportFiles()
+        : playback?.openLocalAudioFiles
+          ? await playback.openLocalAudioFiles()
+          : await playback?.openLocalAudioFile().then((path) => (path ? [path] : null));
 
       if (!filePaths?.length) {
         return;
@@ -1469,10 +1523,7 @@ export const PlaylistsPage = (): JSX.Element => {
                             type="button"
                             role="option"
                             aria-selected={option.value === streamingQuality}
-                            onClick={() => {
-                              setStreamingQuality(option.value);
-                              setQualityMenuOpen(false);
-                            }}
+                            onClick={() => handleStreamingQualityChange(option.value)}
                           >
                             <span>{option.label}</span>
                             {option.value === streamingQuality ? <Check size={14} /> : null}

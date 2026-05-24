@@ -169,6 +169,16 @@ html[data-theme="dark"] .app-wallpaper-layer {
   background: transparent;
 }
 
+.page-surface::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.page-surface::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .page-surface::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
@@ -453,6 +463,11 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control:hover {
 
 .page-surface:has(.liked-page) {
   padding: 26px 34px 28px;
+  scrollbar-width: none;
+}
+
+.page-surface:has(.liked-page)::-webkit-scrollbar {
+  display: none;
 }
 
 .page-surface:has(.queue-page) {

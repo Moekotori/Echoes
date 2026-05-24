@@ -23,6 +23,9 @@ const tokenRefreshSkewMs = 60_000;
 const spotifyConnectPollIntervalMs = 1_000;
 const spotifyConnectDesktopWaitMs = 8_000;
 const spotifyConnectTotalWaitMs = 20_000;
+const spotifyApiRequestTimeoutMs = 12_000;
+const spotifyTokenRequestTimeoutMs = 12_000;
+const spotifyConnectDevicePollTimeoutMs = 2_500;
 
 let activeSpotifyLoginCleanup: (() => void) | null = null;
 
@@ -96,9 +99,34 @@ type SpotifyFetchOptions = {
   method?: string;
   body?: unknown;
   token?: string;
+  timeoutMs?: number;
 };
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const abortSignalForTimeout = (timeoutMs: number): AbortSignal | undefined => {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof AbortSignal.timeout !== 'function') {
+    return undefined;
+  }
+
+  return AbortSignal.timeout(timeoutMs);
+};
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const isTimeoutLikeError = (error: unknown): boolean => {
+  const name = typeof (error as { name?: unknown })?.name === 'string' ? (error as { name: string }).name : '';
+  const message = errorMessage(error);
+  return /abort|timeout|timed out/iu.test(name) || /abort|timeout|timed out/iu.test(message);
+};
+
+const spotifyNetworkError = (error: unknown, context: string): Error => {
+  if (isTimeoutLikeError(error)) {
+    return new Error(`${context} timed out. Check Spotify connectivity or proxy settings.`);
+  }
+
+  return new Error(`${context} failed: ${errorMessage(error)}`);
+};
 
 const isSpotifyTrackUri = (value: string): boolean => /^spotify:track:[A-Za-z0-9]+$/u.test(value.trim());
 
@@ -177,6 +205,27 @@ const readErrorText = async (response: Response): Promise<string> => {
   return text.slice(0, 500);
 };
 
+const spotifyHttpErrorMessage = (status: number, detail: string): string => {
+  const suffix = detail ? ` (${detail})` : '';
+  if (status === 401) {
+    return `Spotify login expired. Please reconnect Spotify.${suffix}`;
+  }
+  if (status === 403) {
+    return `Spotify Premium or regional permission is required for this Spotify action.${suffix}`;
+  }
+  if (status === 404) {
+    return `Spotify content or playback device was not found.${suffix}`;
+  }
+  if (status === 429) {
+    return `Spotify rate limit reached. Try again in a moment.${suffix}`;
+  }
+  if (status >= 500) {
+    return `Spotify service is temporarily unavailable: HTTP ${status}${suffix}`;
+  }
+
+  return `Spotify request failed: HTTP ${status}${suffix}`;
+};
+
 const spotifyFetch = async <T>(path: string, options: SpotifyFetchOptions = {}): Promise<T> => {
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -188,14 +237,20 @@ const spotifyFetch = async <T>(path: string, options: SpotifyFetchOptions = {}):
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetchWithNetworkProxy(`${spotifyApiBaseUrl}${path}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  let response: Response;
+  try {
+    response = await fetchWithNetworkProxy(`${spotifyApiBaseUrl}${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: abortSignalForTimeout(options.timeoutMs ?? spotifyApiRequestTimeoutMs),
+    });
+  } catch (error) {
+    throw spotifyNetworkError(error, 'Spotify API request');
+  }
 
   if (!response.ok) {
-    throw new Error(await readErrorText(response));
+    throw new Error(spotifyHttpErrorMessage(response.status, await readErrorText(response)));
   }
 
   if (response.status === 204) {
@@ -206,13 +261,19 @@ const spotifyFetch = async <T>(path: string, options: SpotifyFetchOptions = {}):
 };
 
 const exchangeToken = async (body: URLSearchParams): Promise<SpotifyTokenResponse> => {
-  const response = await fetchWithNetworkProxy(`${spotifyAccountsBaseUrl}/api/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  });
+  let response: Response;
+  try {
+    response = await fetchWithNetworkProxy(`${spotifyAccountsBaseUrl}/api/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+      signal: abortSignalForTimeout(spotifyTokenRequestTimeoutMs),
+    });
+  } catch (error) {
+    throw spotifyNetworkError(error, 'Spotify token request');
+  }
   const payload = (await response.json().catch(() => ({}))) as SpotifyTokenResponse;
 
   if (!response.ok || !payload.access_token) {
@@ -223,6 +284,8 @@ const exchangeToken = async (body: URLSearchParams): Promise<SpotifyTokenRespons
 };
 
 export class SpotifyAuthService {
+  private refreshAccessTokenPromise: Promise<string> | null = null;
+
   constructor(private readonly accountService: AccountService = getAccountService()) {}
 
   async startLoginWindow(): Promise<AccountLoginStartResult> {
@@ -273,23 +336,14 @@ export class SpotifyAuthService {
       throw new Error('Spotify session expired. Sign in again from Settings.');
     }
 
-    const token = await exchangeToken(
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: record.refreshToken,
-        client_id: spotifyClientId,
-      }),
-    );
-
-    this.accountService.saveSpotifyTokens({
-      accessToken: token.access_token!,
-      refreshToken: token.refresh_token ?? record.refreshToken,
-      tokenType: token.token_type,
-      scope: token.scope ?? record.scope,
-      expiresAt: expiresAtFromSeconds(token.expires_in),
+    this.refreshAccessTokenPromise ??= this.refreshAccessToken({
+      refreshToken: record.refreshToken,
+      scope: record.scope,
+    }).finally(() => {
+      this.refreshAccessTokenPromise = null;
     });
 
-    return token.access_token!;
+    return this.refreshAccessTokenPromise;
   }
 
   async checkAccount(): Promise<AccountStatus> {
@@ -322,8 +376,11 @@ export class SpotifyAuthService {
     });
   }
 
-  async getDevices(): Promise<SpotifyConnectDevice[]> {
-    const data = await spotifyFetch<SpotifyDevicesResponse>('/me/player/devices', { token: await this.getAccessToken() });
+  async getDevices(options: { timeoutMs?: number } = {}): Promise<SpotifyConnectDevice[]> {
+    const data = await spotifyFetch<SpotifyDevicesResponse>('/me/player/devices', {
+      token: await this.getAccessToken(),
+      timeoutMs: options.timeoutMs,
+    });
     return (data.devices ?? [])
       .filter((device): device is NonNullable<SpotifyDevicesResponse['devices']>[number] & { id: string } =>
         typeof device.id === 'string' && device.id.trim().length > 0,
@@ -347,7 +404,28 @@ export class SpotifyAuthService {
     const webUrl = normalizeSpotifyWebUrl(input.webUrl, uri);
     const startedAt = Date.now();
     let launched: SpotifyEnsureConnectDeviceResult['launched'] = 'none';
-    let device = pickSpotifyDevice(await this.getDevices(), input.preferredDeviceId);
+    let lastDeviceError: string | null = null;
+    const readDevices = async (): Promise<SpotifyConnectDevice[]> => {
+      try {
+        return await this.getDevices({ timeoutMs: spotifyConnectDevicePollTimeoutMs });
+      } catch (error) {
+        lastDeviceError = errorMessage(error);
+        return [];
+      }
+    };
+    const waitForDevice = async (deadlineMs: number): Promise<SpotifyConnectDevice | null> => {
+      while (Date.now() - startedAt < deadlineMs) {
+        await delay(spotifyConnectPollIntervalMs);
+        const nextDevice = pickSpotifyDevice(await readDevices(), input.preferredDeviceId);
+        if (nextDevice) {
+          return nextDevice;
+        }
+      }
+
+      return null;
+    };
+
+    let device = pickSpotifyDevice(await readDevices(), input.preferredDeviceId);
     if (device) {
       return {
         deviceId: device.id,
@@ -360,36 +438,31 @@ export class SpotifyAuthService {
     launched = 'desktop';
     await shell.openExternal('spotify:').catch(() => undefined);
 
-    while (Date.now() - startedAt < spotifyConnectDesktopWaitMs) {
-      await delay(spotifyConnectPollIntervalMs);
-      device = pickSpotifyDevice(await this.getDevices(), input.preferredDeviceId);
-      if (device) {
-        return {
-          deviceId: device.id,
-          deviceName: device.name,
-          launched,
-          waitedMs: Date.now() - startedAt,
-        };
-      }
+    device = await waitForDevice(spotifyConnectDesktopWaitMs);
+    if (device) {
+      return {
+        deviceId: device.id,
+        deviceName: device.name,
+        launched,
+        waitedMs: Date.now() - startedAt,
+      };
     }
 
     launched = 'web';
-    await shell.openExternal(webUrl);
+    await shell.openExternal(webUrl).catch(() => undefined);
 
-    while (Date.now() - startedAt < spotifyConnectTotalWaitMs) {
-      await delay(spotifyConnectPollIntervalMs);
-      device = pickSpotifyDevice(await this.getDevices(), input.preferredDeviceId);
-      if (device) {
-        return {
-          deviceId: device.id,
-          deviceName: device.name,
-          launched,
-          waitedMs: Date.now() - startedAt,
-        };
-      }
+    device = await waitForDevice(spotifyConnectTotalWaitMs);
+    if (device) {
+      return {
+        deviceId: device.id,
+        deviceName: device.name,
+        launched,
+        waitedMs: Date.now() - startedAt,
+      };
     }
 
-    throw new Error('请在打开的 Spotify 桌面端或网页中点击一次播放，然后回到 ECHO 再点播放，ECHO 会接管 Spotify Connect 控制。');
+    const diagnostic = lastDeviceError ? ` 最近一次设备检查失败：${lastDeviceError}` : '';
+    throw new Error(`请在打开的 Spotify 桌面端或网页中点击一次播放，然后回到 ECHO 再点播放，ECHO 会接管 Spotify Connect 控制。${diagnostic}`);
   }
 
   async getPlaybackState(): Promise<SpotifyPlaybackState> {
@@ -452,6 +525,26 @@ export class SpotifyAuthService {
 
   private async fetchProfile(accessToken: string): Promise<SpotifyProfileResponse> {
     return spotifyFetch<SpotifyProfileResponse>('/me', { token: accessToken });
+  }
+
+  private async refreshAccessToken(record: { refreshToken?: string | null; scope?: string | null }): Promise<string> {
+    const token = await exchangeToken(
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: record.refreshToken ?? '',
+        client_id: spotifyClientId,
+      }),
+    );
+
+    this.accountService.saveSpotifyTokens({
+      accessToken: token.access_token!,
+      refreshToken: token.refresh_token ?? record.refreshToken,
+      tokenType: token.token_type,
+      scope: token.scope ?? record.scope,
+      expiresAt: expiresAtFromSeconds(token.expires_in),
+    });
+
+    return token.access_token!;
   }
 
   private async requestAuthorizationCode(

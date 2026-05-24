@@ -16,12 +16,27 @@ describe('LyricsLine', () => {
     expect(screen.getByText('sakura')).toBeTruthy();
   });
 
-  it('prefers kana over romanization when both are available', () => {
+  it('uses romanization instead of cached kana by default', () => {
     render(
       <LyricsLine
         active={false}
         line={{ ...line, kana: 'さくら' }}
         past={false}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('sakura')).toBeTruthy();
+    expect(screen.queryByText('さくら')).toBeNull();
+  });
+
+  it('prefers kana over romanization when requested', () => {
+    render(
+      <LyricsLine
+        active={false}
+        line={{ ...line, kana: 'さくら' }}
+        past={false}
+        preferKanaPronunciation
         onSeek={vi.fn()}
       />,
     );
@@ -82,6 +97,48 @@ describe('LyricsLine', () => {
 
     expect(container.querySelector('.lyrics-word')).toBeNull();
     expect(screen.getByText('Hello world')).toBeTruthy();
+    expect(container.querySelector('.lyrics-line')?.getAttribute('data-word-highlight')).toBe('false');
+  });
+
+  it('coalesces noisy character-level timings into calmer phrase marks', () => {
+    const text = '世界中のすべて';
+    const timedLine = {
+      timeMs: 1000,
+      text,
+      words: Array.from(text).map((char, index) => ({
+        text: char,
+        startMs: 1000 + index * 180,
+        endMs: 1000 + (index + 1) * 180,
+      })),
+    };
+
+    const { container } = render(
+      <LyricsLine active line={timedLine} past={false} onSeek={vi.fn()} wordHighlightEnabled />,
+    );
+    const words = Array.from(container.querySelectorAll('.lyrics-word'));
+
+    expect(words.length).toBeGreaterThanOrEqual(2);
+    expect(words.length).toBeLessThan(Array.from(text).length);
+    expect(words.map((word) => word.textContent).join('')).toBe(text);
+  });
+
+  it('falls back to plain text when word timings are too jittery', () => {
+    const timedLine = {
+      timeMs: 1000,
+      text: 'abcdef',
+      words: Array.from('abcdef').map((char, index) => ({
+        text: char,
+        startMs: 1000 + index * 30,
+        endMs: 1000 + (index + 1) * 30,
+      })),
+    };
+
+    const { container } = render(
+      <LyricsLine active line={timedLine} past={false} onSeek={vi.fn()} wordHighlightEnabled />,
+    );
+
+    expect(container.querySelector('.lyrics-word')).toBeNull();
+    expect(screen.getByText('abcdef')).toBeTruthy();
     expect(container.querySelector('.lyrics-line')?.getAttribute('data-word-highlight')).toBe('false');
   });
 });

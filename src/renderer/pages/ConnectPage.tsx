@@ -501,6 +501,9 @@ export const ConnectPage = (): JSX.Element => {
   const hqPlayerEngineLabel = formatHqPlayerEngine(hqPlayerControlInfo);
   const hqPlayerRemotePositionLabel = formatHqPlayerRemotePosition(hqPlayerPlaybackStatus);
   const hqPlayerSignalLabel = formatHqPlayerSignal(hqPlayerPlaybackStatus);
+  const hqPlayerMediaServerLabel = hqPlayerLastHandoff?.source?.mediaServer
+    ? `${hqPlayerLastHandoff.source.mediaServer.publicHost ?? 'unknown'}:${hqPlayerLastHandoff.source.mediaServer.port ?? 'auto'}`
+    : null;
   const activeDeviceCapabilities = activeDevice?.capabilities ?? null;
 
   const refreshDevices = useCallback(async (): Promise<void> => {
@@ -1067,6 +1070,12 @@ export const ConnectPage = (): JSX.Element => {
                   : '暂无'}
               </strong>
             </div>
+            {hqPlayerMediaServerLabel ? (
+              <div className="connect-hqplayer-plan-row">
+                <em>Media URL</em>
+                <strong>{hqPlayerMediaServerLabel}</strong>
+              </div>
+            ) : null}
             <div className="connect-hqplayer-plan-row">
               <em>Track</em>
               <strong>{hqPlayerControlPlan?.metadata?.title ?? hqPlayerCurrentPlayable?.title ?? '暂无当前歌曲'}</strong>
@@ -1276,7 +1285,7 @@ export const ConnectPage = (): JSX.Element => {
           {devices.map((device) => {
             const isActive = device.id === status.deviceId;
             const isBusy = busyDeviceId === device.id;
-            const disabled = device.state === 'unsupported' || isBusy || (!currentTrack && !currentFilePath);
+            const disabled = device.state === 'unsupported' || device.state === 'unavailable' || isBusy || (!currentTrack && !currentFilePath);
             return (
               <article className="connect-device-row" data-active={isActive ? 'true' : undefined} key={device.id}>
                 <div className="connect-device-icon" data-protocol={device.protocol}>

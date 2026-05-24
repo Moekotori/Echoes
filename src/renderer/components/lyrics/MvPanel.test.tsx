@@ -716,6 +716,77 @@ describe('MvPanel', () => {
     await waitFor(() => expect(container.querySelector('video')?.getAttribute('src')).toBe('echo-video://mv/video-1'));
   });
 
+  it('binds Bilibili streaming tracks directly to their source video for MV playback', async () => {
+    const boundVideo = makeVideo({
+      id: 'bilibili:BVdirect',
+      trackId: 'streaming:bilibili:BVdirect',
+      provider: 'bilibili',
+      sourceType: 'manual',
+      sourceId: 'BVdirect',
+      providerUrl: 'https://www.bilibili.com/video/BVdirect',
+      mediaUrl: null,
+      playableInApp: false,
+    });
+    const resolvedVideo = {
+      ...boundVideo,
+      mediaUrl: 'echo-video://mv/bilibili-direct',
+      playableInApp: true,
+    };
+    window.echo = {
+      playback: {
+        seek: vi.fn(),
+      },
+      streaming: {
+        getMv: vi.fn(),
+      },
+      mv: {
+        getSelected: vi.fn().mockResolvedValue(null),
+        getSettings: vi.fn().mockResolvedValue(defaultMvSettings),
+        setSettings: vi.fn(),
+        findLocalCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidatesForSnapshot: vi.fn().mockResolvedValue([]),
+        getCandidates: vi.fn().mockResolvedValue([]),
+        resolveStreams: vi.fn().mockResolvedValue({ video: resolvedVideo, variants: [] }),
+        setQuality: vi.fn(),
+        chooseLocalVideo: vi.fn().mockResolvedValue(null),
+        bindLocalVideo: vi.fn(),
+        bindUrl: vi.fn().mockResolvedValue(boundVideo),
+        selectVideo: vi.fn(),
+        clearSelected: vi.fn(),
+        openExternal: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <MvPanel
+        trackId={null}
+        streamingTarget={{ provider: 'bilibili', providerTrackId: 'BVdirect' }}
+        title="Bilibili Source"
+        artist="Source UP"
+        coverUrl="echo-cover://thumb/bili"
+        isAudioPlaying
+        audioClock={makeAudioClock(37)}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(window.echo.mv.bindUrl).toHaveBeenCalledWith(
+        'streaming:bilibili:BVdirect',
+        'https://www.bilibili.com/video/BVdirect',
+      ),
+    );
+    expect(window.echo.streaming.getMv).not.toHaveBeenCalled();
+    expect(window.echo.mv.searchNetworkCandidatesForSnapshot).not.toHaveBeenCalled();
+    const video = await waitFor(() => {
+      const element = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
+      expect(element?.getAttribute('src')).toBe('echo-video://mv/bilibili-direct');
+      return element!;
+    });
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBeCloseTo(37, 1);
+  });
+
   it('applies immersive MV visual tuning variables', async () => {
     const { container } = renderPanel(makeVideo(), true, {
       ...defaultMvSettings,

@@ -38,6 +38,40 @@ type SnapshotResult = {
   libraryBackupMethod: 'none' | 'sqlite-backup' | 'file-copy';
 };
 
+type LibraryDatabaseSnapshotSignature = {
+  databaseSizeBytes: number | null;
+  databaseMtimeMs: number | null;
+  walSizeBytes: number | null;
+  walMtimeMs: number | null;
+  shmSizeBytes: number | null;
+  shmMtimeMs: number | null;
+};
+
+type SnapshotManifest = {
+  reason?: string;
+  createdAt?: string;
+  copied?: string[];
+  skipped?: string[];
+  libraryHealth?: DatabaseHealthResult;
+  libraryBackupMethod?: string;
+} & Partial<LibraryDatabaseSnapshotSignature>;
+
+export type DeferredStartupSnapshotDecision = {
+  shouldCreate: boolean;
+  reason:
+    | 'recent-scan-snapshot'
+    | 'recent-startup-snapshot'
+    | 'unchanged-database'
+    | 'no-comparable-snapshot'
+    | 'legacy-snapshot-missing-signature'
+    | 'latest-snapshot-unhealthy'
+    | 'database-changed'
+    | 'recent-startup-snapshot-expired';
+  snapshotCount: number;
+  currentSignature: LibraryDatabaseSnapshotSignature;
+  snapshotId?: string;
+};
+
 type RestoreResult = {
   restored: string[];
   skipped: string[];
@@ -273,6 +307,68 @@ const listSnapshotPaths = (userDataPath: string): string[] => {
     })
     .sort()
     .reverse();
+};
+
+const checkLibraryFastStartupHealth = (userDataPath: string): DatabaseHealthResult => {
+  const databasePath = libraryPathFor(userDataPath);
+  const checkedAt = new Date().toISOString();
+
+  if (!existsSync(databasePath)) {
+    if (listSnapshotPaths(userDataPath).length > 0) {
+      return {
+        status: 'unreadable',
+        databasePath,
+        checkedAt,
+        message: 'library database is missing while protected snapshots are available',
+      };
+    }
+
+    return {
+      status: 'ok',
+      databasePath,
+      checkedAt,
+      message: 'database does not exist yet',
+    };
+  }
+
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    database.pragma('schema_version');
+    const tracksTable = database
+      .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tracks' LIMIT 1")
+      .get();
+
+    if (!tracksTable) {
+      return {
+        status: 'unreadable',
+        databasePath,
+        checkedAt,
+        message: 'library database is missing the tracks table',
+      };
+    }
+
+    database.prepare('SELECT 1 FROM tracks LIMIT 1').get();
+    return {
+      status: 'ok',
+      databasePath,
+      checkedAt,
+      message: 'fast startup deferred full data protection',
+    };
+  } catch (error) {
+    return {
+      status: 'unreadable',
+      databasePath,
+      checkedAt,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // Ignore close errors while reporting the lightweight startup result.
+    }
+  }
 };
 
 const pruneOldSnapshots = (userDataPath: string): void => {
@@ -1037,6 +1133,130 @@ const fileSize = (path: string): number => {
 
 const fileSizeOrNull = (path: string): number | null => (existsSync(path) ? fileSize(path) : null);
 
+const fileSignaturePart = (path: string): { sizeBytes: number | null; mtimeMs: number | null } => {
+  try {
+    const stats = statSync(path);
+    return stats.isFile()
+      ? { sizeBytes: stats.size, mtimeMs: Math.round(stats.mtimeMs) }
+      : { sizeBytes: null, mtimeMs: null };
+  } catch {
+    return { sizeBytes: null, mtimeMs: null };
+  }
+};
+
+const getLibraryDatabaseSnapshotSignature = (rootPath: string): LibraryDatabaseSnapshotSignature => {
+  const database = fileSignaturePart(libraryPathFor(rootPath));
+  const wal = fileSignaturePart(libraryWalPathFor(rootPath));
+  const shm = fileSignaturePart(libraryShmPathFor(rootPath));
+
+  return {
+    databaseSizeBytes: database.sizeBytes,
+    databaseMtimeMs: database.mtimeMs,
+    walSizeBytes: wal.sizeBytes,
+    walMtimeMs: wal.mtimeMs,
+    shmSizeBytes: shm.sizeBytes,
+    shmMtimeMs: shm.mtimeMs,
+  };
+};
+
+const snapshotSignatureKeys = [
+  'databaseSizeBytes',
+  'databaseMtimeMs',
+  'walSizeBytes',
+  'walMtimeMs',
+  'shmSizeBytes',
+  'shmMtimeMs',
+] as const;
+
+const hasComparableSnapshotSignature = (value: SnapshotManifest): value is SnapshotManifest & LibraryDatabaseSnapshotSignature =>
+  snapshotSignatureKeys.every((key) => typeof value[key] === 'number' || value[key] === null);
+
+const sameSnapshotSignature = (left: LibraryDatabaseSnapshotSignature, right: LibraryDatabaseSnapshotSignature): boolean =>
+  snapshotSignatureKeys.every((key) => left[key] === right[key]);
+
+const readSnapshotManifest = (snapshotPath: string): SnapshotManifest | null =>
+  safeReadJson<SnapshotManifest>(join(snapshotPath, 'snapshot.json'));
+
+export const getLibraryDatabaseStartupMetrics = (userDataPath = app.getPath('userData')): {
+  databaseSizeBytes: number | null;
+  walSizeBytes: number | null;
+  snapshotCount: number;
+} => {
+  const signature = getLibraryDatabaseSnapshotSignature(userDataPath);
+  return {
+    databaseSizeBytes: signature.databaseSizeBytes,
+    walSizeBytes: signature.walSizeBytes,
+    snapshotCount: listSnapshotPaths(userDataPath).length,
+  };
+};
+
+export const shouldCreateDeferredStartupSnapshot = (
+  userDataPath = app.getPath('userData'),
+  date = new Date(),
+): DeferredStartupSnapshotDecision => {
+  const currentSignature = getLibraryDatabaseSnapshotSignature(userDataPath);
+  const snapshotPaths = listSnapshotPaths(userDataPath);
+  const snapshotCount = snapshotPaths.length;
+  const manifests = snapshotPaths.map((snapshotPath) => ({
+    id: basename(snapshotPath),
+    manifest: readSnapshotManifest(snapshotPath),
+  }));
+  const latest = manifests[0] ?? null;
+
+  if (!latest?.manifest) {
+    return { shouldCreate: true, reason: 'no-comparable-snapshot', snapshotCount, currentSignature };
+  }
+
+  if (latest.manifest.libraryHealth?.status && latest.manifest.libraryHealth.status !== 'ok') {
+    return { shouldCreate: true, reason: 'latest-snapshot-unhealthy', snapshotCount, currentSignature, snapshotId: latest.id };
+  }
+
+  const latestHealthy = manifests.find((snapshot) =>
+    snapshot.manifest?.libraryHealth?.status === 'ok' &&
+    Array.isArray(snapshot.manifest.copied) &&
+    snapshot.manifest.copied.includes(libraryFileName),
+  );
+
+  if (!latestHealthy?.manifest) {
+    return { shouldCreate: true, reason: 'latest-snapshot-unhealthy', snapshotCount, currentSignature, snapshotId: latest.id };
+  }
+
+  if (!hasComparableSnapshotSignature(latestHealthy.manifest)) {
+    return {
+      shouldCreate: true,
+      reason: 'legacy-snapshot-missing-signature',
+      snapshotCount,
+      currentSignature,
+      snapshotId: latestHealthy.id,
+    };
+  }
+
+  if (!sameSnapshotSignature(currentSignature, latestHealthy.manifest)) {
+    return { shouldCreate: true, reason: 'database-changed', snapshotCount, currentSignature, snapshotId: latestHealthy.id };
+  }
+
+  if (latestHealthy.manifest.reason === 'scan-completed-library-snapshot') {
+    return { shouldCreate: false, reason: 'recent-scan-snapshot', snapshotCount, currentSignature, snapshotId: latestHealthy.id };
+  }
+
+  if (latestHealthy.manifest.reason === 'startup') {
+    const createdAt = typeof latestHealthy.manifest.createdAt === 'string' ? Date.parse(latestHealthy.manifest.createdAt) : Number.NaN;
+    if (Number.isFinite(createdAt) && date.getTime() - createdAt <= 24 * 60 * 60 * 1000) {
+      return { shouldCreate: false, reason: 'recent-startup-snapshot', snapshotCount, currentSignature, snapshotId: latestHealthy.id };
+    }
+
+    return {
+      shouldCreate: true,
+      reason: 'recent-startup-snapshot-expired',
+      snapshotCount,
+      currentSignature,
+      snapshotId: latestHealthy.id,
+    };
+  }
+
+  return { shouldCreate: false, reason: 'unchanged-database', snapshotCount, currentSignature, snapshotId: latestHealthy.id };
+};
+
 const listArchivePaths = (userDataPath: string): string[] => {
   const archivesPath = getCorruptArchivesPath(userDataPath);
   if (!existsSync(archivesPath)) {
@@ -1060,14 +1280,7 @@ const isLibraryBackupMethod = (value: unknown): value is LibraryDatabaseSnapshot
   value === 'none' || value === 'sqlite-backup' || value === 'file-copy';
 
 const getSnapshotInfo = (snapshotPath: string): LibraryDatabaseSnapshotInfo => {
-  const manifest = safeReadJson<{
-    reason?: string;
-    createdAt?: string;
-    copied?: string[];
-    skipped?: string[];
-    libraryHealth?: DatabaseHealthResult;
-    libraryBackupMethod?: string;
-  }>(join(snapshotPath, 'snapshot.json'));
+  const manifest = readSnapshotManifest(snapshotPath);
   const databasePath = libraryPathFor(snapshotPath);
   const health = existsSync(databasePath) ? checkDatabaseHealth(databasePath) : manifest?.libraryHealth ?? checkDatabaseHealth(databasePath);
 
@@ -1081,7 +1294,12 @@ const getSnapshotInfo = (snapshotPath: string): LibraryDatabaseSnapshotInfo => {
     libraryHealth: health,
     libraryBackupMethod: isLibraryBackupMethod(manifest?.libraryBackupMethod) ? manifest.libraryBackupMethod : 'none',
     databasePath: existsSync(databasePath) ? databasePath : null,
-    databaseSizeBytes: fileSizeOrNull(databasePath),
+    databaseSizeBytes: manifest?.databaseSizeBytes ?? fileSizeOrNull(databasePath),
+    databaseMtimeMs: manifest?.databaseMtimeMs ?? null,
+    walSizeBytes: manifest?.walSizeBytes ?? null,
+    walMtimeMs: manifest?.walMtimeMs ?? null,
+    shmSizeBytes: manifest?.shmSizeBytes ?? null,
+    shmMtimeMs: manifest?.shmMtimeMs ?? null,
   };
 };
 
@@ -1676,6 +1894,7 @@ export const createDataProtectionSnapshot = async (
   const skipped: string[] = [];
   let libraryBackupMethod: SnapshotResult['libraryBackupMethod'] = 'none';
   let libraryHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
+  const librarySignature = getLibraryDatabaseSnapshotSignature(userDataPath);
 
   mkdirSync(snapshotPath, { recursive: true });
 
@@ -1746,6 +1965,7 @@ export const createDataProtectionSnapshot = async (
         skipped,
         libraryHealth,
         libraryBackupMethod,
+        ...librarySignature,
       },
       null,
       2,
@@ -2144,6 +2364,36 @@ export const isProtectedLibraryAvailable = (): boolean =>
 export const assertProtectedLibraryAvailable = (): void => {
   if (!isProtectedLibraryAvailable()) {
     throw new LibraryDatabaseUnavailableError(lastDataProtectionResult?.recovery ?? null);
+  }
+};
+
+export const ensureDataProtectionFastStartup = async (
+  reason: DataProtectionReason = 'startup',
+  explicitUserDataPath?: string,
+): Promise<DataProtectionResult> => {
+  const userDataPath = explicitUserDataPath ?? initializeProtectedUserDataPath();
+
+  try {
+    writeDataProtectionManifest(userDataPath);
+    const libraryHealth = checkLibraryFastStartupHealth(userDataPath);
+
+    if (libraryHealth.status !== 'ok') {
+      return ensureDataProtection(reason, userDataPath);
+    }
+
+    const recovery: LibraryRecoveryResult = { action: 'none', health: libraryHealth };
+    lastDataProtectionResult = {
+      userDataPath,
+      migration: { sourcePath: null, migrated: [], skipped: protectedDataEntries.map((entry) => entry.name) },
+      restore: { restored: [], skipped: protectedDataEntries.map((entry) => entry.name) },
+      snapshot: skippedSnapshot(libraryHealth),
+      libraryHealth,
+      recovery,
+    };
+
+    return lastDataProtectionResult;
+  } catch {
+    return ensureDataProtection(reason, userDataPath);
   }
 };
 

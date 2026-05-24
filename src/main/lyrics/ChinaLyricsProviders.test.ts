@@ -272,6 +272,60 @@ describe('China lyrics providers', () => {
     expect(candidate.plainLyrics).toBe('Plain line');
   });
 
+  it('uses QQ Music streaming source id directly when searching lyrics candidates', async () => {
+    const streamingQuery: LyricsQuery = {
+      ...query,
+      trackId: 'streaming:qqmusic:123456',
+      mediaType: 'streaming',
+      sourceId: '123456',
+      stableKey: 'streaming:qqmusic:123456',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(mockJsonResponse({ code: 0, data: [] }))
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            code: 0,
+            data: [
+              {
+                id: 123456,
+                mid: 'normalized-song-mid',
+                name: 'Echo Song',
+                interval: 120,
+                singer: [{ name: 'Echo Artist' }],
+                album: { name: 'Echo Album' },
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            lyric: '[00:01.00]Direct streaming line',
+          }),
+        ),
+    );
+
+    const [candidate] = await new QQMusicLyricsProvider().search({
+      query: streamingQuery,
+      normalized: buildNormalizedLyricsQuery(streamingQuery),
+      timeoutMs: 4500,
+    });
+
+    expect(candidate).toMatchObject({
+      provider: 'qqmusic',
+      providerLyricsId: 'qqmusic:normalized-song-mid',
+      title: 'Echo Song',
+      artist: 'Echo Artist',
+      syncedLyrics: '[00:01.00]Direct streaming line',
+    });
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(String(fetchMock.mock.calls[0][0])).toContain('songmid=123456');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('songid=123456');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('songmid=normalized-song-mid');
+  });
+
   it('keeps QQ Music qrc lyrics even when ordinary lyrics are missing', async () => {
     vi.stubGlobal(
       'fetch',

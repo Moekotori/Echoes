@@ -58,6 +58,13 @@ describe('HqPlayerMediaServer', () => {
 
     expect(served.url).toContain('/hqplayer-media/');
     expect(served.url).not.toContain('song.flac');
+    expect(served).toMatchObject({
+      port: expect.any(Number),
+      bindHost: '127.0.0.1',
+      publicHost: '127.0.0.1',
+      remoteAccess: false,
+      publicHostCandidates: ['127.0.0.1'],
+    });
 
     const head = await fetch(served.url, { method: 'HEAD' });
     expect(head.status).toBe(200);
@@ -103,5 +110,24 @@ describe('HqPlayerMediaServer', () => {
     expect(response.status).toBe(200);
     expect(Buffer.from(await response.arrayBuffer()).equals(audioBytes)).toBe(true);
     expect(receivedAuthorization).toBe('Bearer secret-token');
+  });
+
+  it('reports the public host selected for remote HQPlayer media URLs', async () => {
+    const filePath = join(root, 'remote-song.flac');
+    await writeFile(filePath, audioBytes);
+
+    const served = await server.createUrl(
+      { url: filePath, mimeType: 'audio/flac' },
+      { port: null, remoteAccess: true, preferredRemoteHost: '127.0.0.1' },
+    );
+
+    expect(served.url).toContain(`:${served.port}/hqplayer-media/`);
+    expect(served).toMatchObject({
+      port: expect.any(Number),
+      bindHost: '0.0.0.0',
+      publicHost: expect.any(String),
+      remoteAccess: true,
+      publicHostCandidates: expect.any(Array),
+    });
   });
 });

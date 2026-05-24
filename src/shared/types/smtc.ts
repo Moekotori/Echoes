@@ -28,3 +28,45 @@ export type SmtcEnabledActions = {
   next: boolean;
   seek?: boolean;
 };
+
+export type SmtcHostState =
+  | 'disabled'
+  | 'unsupported'
+  | 'not-initialized'
+  | 'missing'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'unavailable'
+  | 'error';
+
+export type SmtcDiagnosticEvent = {
+  at: string;
+  source: 'service' | 'host' | 'sync' | 'command' | 'recovery';
+  message: string;
+};
+
+export type SmtcDiagnostics = {
+  enabled: boolean;
+  platform: string;
+  hostState: SmtcHostState;
+  initialized: boolean;
+  hostPath: string | null;
+  lastMetadataAt: string | null;
+  lastMetadataTrackId: string | null;
+  lastMetadataTitle: string | null;
+  lastMetadataArtist: string | null;
+  lastPlaybackState: SmtcPlaybackState | null;
+  lastPlaybackStateAt: string | null;
+  lastTimelineAt: string | null;
+  lastTimelinePositionSeconds: number | null;
+  lastTimelineDurationSeconds: number | null;
+  enabledActions: SmtcEnabledActions | null;
+  lastCommand: SmtcCommand | null;
+  lastCommandAt: string | null;
+  lastError: SmtcDiagnosticEvent | null;
+  recentErrors: SmtcDiagnosticEvent[];
+  recoveryInFlight: boolean;
+  recoveryAttemptsInWindow: number;
+};

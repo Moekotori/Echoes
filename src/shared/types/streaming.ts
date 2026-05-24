@@ -142,6 +142,7 @@ export type StreamingPlaybackSource = {
   headers: Record<string, string>;
   requiresProxy: boolean;
   supportsRange: boolean;
+  downloadAuthorizationToken?: string | null;
 };
 
 export type StreamingLyricsLine = {

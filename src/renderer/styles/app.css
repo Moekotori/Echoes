@@ -4538,6 +4538,17 @@
   opacity: 0.72;
 }
 
+.settings-segment-loop-panel {
+  display: grid;
+  width: 100%;
+  justify-items: start;
+}
+
+.settings-segment-loop-panel .segment-loop-panel__controls,
+.settings-segment-loop-panel .segment-loop-bookmarks {
+  justify-content: flex-start;
+}
+
 .player-error {
   overflow: hidden;
   color: #d45159;
@@ -7610,8 +7621,18 @@
 }
 
 .setting-row--shortcut {
-  grid-template-columns: minmax(220px, 310px) minmax(300px, 1fr);
+  grid-template-columns: minmax(190px, 280px) minmax(220px, 1fr) minmax(220px, 1fr);
   align-items: center;
+}
+
+.setting-row--shortcut-header {
+  min-height: 0;
+  padding: 6px 0 8px;
+  color: var(--theme-muted-text);
+  font-size: 11px;
+  font-weight: 840;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .settings-shortcut-toolbar,
@@ -7626,9 +7647,13 @@
   justify-items: start;
 }
 
+.settings-shortcut-control {
+  min-width: 0;
+}
+
 .settings-shortcut-key {
   display: inline-flex;
-  width: min(320px, 100%);
+  width: min(280px, 100%);
   min-height: 38px;
   align-items: center;
   justify-content: center;
@@ -7653,6 +7678,20 @@
 .settings-shortcut-key:disabled {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.settings-shortcut-unavailable {
+  display: inline-flex;
+  min-height: 38px;
+  width: min(280px, 100%);
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px dashed var(--theme-button-border);
+  border-radius: 8px;
+  color: var(--theme-muted-text);
+  font-size: 12px;
+  font-weight: 780;
 }
 
 .setting-row--compact-panel {
@@ -12613,20 +12652,20 @@ html[data-theme="dark"] .history-play-count {
     font-size: 11px;
   }
 
-  .segment-loop-panel {
+  .player-center .segment-loop-panel {
     gap: 4px;
   }
 
-  .segment-loop-panel__controls {
+  .player-center .segment-loop-panel__controls {
     gap: 4px;
   }
 
-  .segment-loop-panel__range {
+  .player-center .segment-loop-panel__range {
     min-width: 78px;
     padding: 0 6px;
   }
 
-  .segment-loop-bookmarks {
+  .player-center .segment-loop-bookmarks {
     display: none;
   }
 
@@ -12805,7 +12844,7 @@ html[data-theme="dark"] .history-play-count {
     gap: 6px;
   }
 
-  .segment-loop-panel__label {
+  .player-center .segment-loop-panel__label {
     display: none;
   }
 }

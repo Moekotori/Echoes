@@ -1126,6 +1126,47 @@ describe('AppLayout standalone routes', () => {
 });
 
 describe('AppLayout local file open integration', () => {
+  it('imports selected audio and osu archive files through the library bridge', async () => {
+    const chooseImportFiles = vi.fn().mockResolvedValue(['D:\\Music\\song.flac', 'D:\\Maps\\beatmap.osz']);
+    const importAudioFiles = vi.fn().mockResolvedValue({
+      importedCount: 2,
+      skippedCount: 0,
+      failedCount: 0,
+      trackIds: ['track-audio', 'track-osu'],
+      tracks: [],
+    });
+    const localRoutes: AppRoute[] = [
+      routes[0],
+      {
+        id: 'import-file',
+        label: 'Import File',
+        labelKey: 'route.importFile.label',
+        description: 'Import File',
+        icon: Music2,
+        placement: 'utility',
+        element: <div>Import file placeholder</div>,
+      },
+    ];
+    window.echo = {
+      library: {
+        chooseImportFiles,
+        importAudioFiles,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /导入文件|Import File/ }));
+
+    await waitFor(() => expect(chooseImportFiles).toHaveBeenCalledTimes(1));
+    expect(importAudioFiles).toHaveBeenCalledWith(['D:\\Music\\song.flac', 'D:\\Maps\\beatmap.osz']);
+    expect(await screen.findByText(/已入库 2 个文件/)).toBeTruthy();
+  });
+
   it('opens system-provided local audio files through the playback queue', async () => {
     const track: LibraryTrack = {
       id: 'temporary-local:file',

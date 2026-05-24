@@ -1017,7 +1017,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     ])
       .then(([remembered, settings]) => {
         const useJuceOutput = settings?.audioUseJuceOutput !== false;
-        const useJuceDecode = settings?.audioUseJuceDecode === true;
+        const useJuceDecode = settings?.audioUseJuceDecode !== false;
         const dsdOutputMode = settings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm';
         const asioNativeDsdExperimentalEnabled = settings?.audioAsioNativeDsdExperimentalEnabled === true;
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
@@ -1147,14 +1147,18 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     const playback = window.echo?.playback;
     const library = window.echo?.library;
 
-    if (!playback) {
+    if (!library?.chooseImportFiles && !playback) {
       fileInputRef.current?.click();
       setChromeNotice(t('notice.browserFolderPicker'));
       return;
     }
 
     try {
-      const filePaths = playback.openLocalAudioFiles ? await playback.openLocalAudioFiles() : await playback.openLocalAudioFile().then((path) => (path ? [path] : null));
+      const filePaths = library?.chooseImportFiles
+        ? await library.chooseImportFiles()
+        : playback?.openLocalAudioFiles
+          ? await playback.openLocalAudioFiles()
+          : await playback?.openLocalAudioFile().then((path) => (path ? [path] : null));
 
       if (!filePaths?.length) {
         return;
