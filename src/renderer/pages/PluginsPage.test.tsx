@@ -31,6 +31,7 @@ const security: PluginSummary['security'] = {
   hasPanel: true,
   sandboxedPanel: true,
   commandCount: 1,
+  metadataProviderCount: 0,
 };
 
 const plugins: PluginSummary[] = [
@@ -54,6 +55,7 @@ const plugins: PluginSummary[] = [
       commands: [{ id: 'show-status', title: '显示状态' }],
     },
     commands: [{ id: 'show-status', title: '显示状态', pluginId: 'echo.playback-panel' }],
+    metadataProviders: [],
   },
 ];
 

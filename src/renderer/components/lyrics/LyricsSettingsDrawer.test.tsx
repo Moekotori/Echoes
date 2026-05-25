@@ -1140,7 +1140,7 @@ describe('LyricsSettingsDrawer', () => {
 
     await waitFor(() => expect(window.echo?.app.getSettings).toHaveBeenCalled());
     fireEvent.change(screen.getByRole('searchbox', { name: /搜索歌词文本|鎼滅储姝岃瘝鏂囨湰/ }), { target: { value: 'rough query' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     expect(await screen.findByText('Low Match Song')).toBeTruthy();
     expect(screen.getByText('12%')).toBeTruthy();
@@ -1214,7 +1214,7 @@ describe('LyricsSettingsDrawer', () => {
 
     await waitFor(() => expect(window.echo?.app.getSettings).toHaveBeenCalled());
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索歌词文本' }), { target: { value: 'manual query' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     fireEvent.click(screen.getByRole('button', { name: /重新匹配/ }));
 
     expect(searchListener).toHaveBeenCalledTimes(1);

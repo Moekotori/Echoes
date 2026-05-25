@@ -26,6 +26,7 @@ import './styles/layout.css';
 import './styles/app.css';
 import './styles/songs.css';
 import './styles/folders.css';
+import './styles/home.css';
 import './styles/eq.css';
 import './styles/album-detail.css';
 import './styles/artist-detail.css';

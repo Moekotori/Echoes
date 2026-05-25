@@ -616,6 +616,21 @@ const preferredSecondaryFields = (settings: LyricsSettings): Array<'translation'
   ...(settings.lyricsRomanizationEnabled ? ['romanization' as const] : []),
 ];
 
+const lrclibManualSearchTimeoutMs = 8000;
+const lrclibManualSearchTotalTimeoutMs = 9000;
+
+const settingsForCandidateSearchProvider = (
+  settings: LyricsSettings,
+  providerId?: string | null,
+): LyricsSettings =>
+  providerId === 'lrclib'
+    ? {
+        ...settings,
+        lyricsProviderTimeoutMs: Math.max(settings.lyricsProviderTimeoutMs ?? 0, lrclibManualSearchTimeoutMs),
+        lyricsTotalMatchTimeoutMs: Math.max(settings.lyricsTotalMatchTimeoutMs ?? 0, lrclibManualSearchTotalTimeoutMs),
+      }
+    : settings;
+
 export class LyricsService {
   private readonly matchEngine: LyricsMatchEngine;
   private readonly secondaryLyricsRefreshMisses = new Set<string>();
@@ -726,7 +741,7 @@ export class LyricsService {
     query: LyricsQuery,
     providerId?: string | null,
   ): Promise<LyricsSearchCandidate[]> {
-    const settings = safeSettings(this.readAppSettings);
+    const settings = settingsForCandidateSearchProvider(safeSettings(this.readAppSettings), providerId);
     const storedCandidates: StoredCandidate[] = [];
     const enabledProviders = isSearchableLyricsProvider(providerId) ? [providerId] : settings.lyricsEnabledProviders;
 

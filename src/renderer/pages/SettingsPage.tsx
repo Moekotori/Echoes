@@ -159,6 +159,8 @@ import {
   getSmtcBridge,
 } from '../utils/echoBridge';
 
+const automixTemporarilyDisabled = true;
+
 const normalizeAsioOutputChannelStart = (value: unknown): number | undefined => {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric >= 0 ? numeric : undefined;
@@ -612,19 +614,19 @@ const accountLoginUrls: Record<AccountProvider, string> = {
 };
 
 const cookieAccountProviders: AccountProvider[] = ['netease', 'qqmusic', 'bilibili', 'soundcloud', 'osu'];
-const youtubeBrowserOptions: Array<{ value: YouTubeBrowser; label: string }> = [
+const buildYouTubeBrowserOptions = (t: (key: TranslationKey, params?: Record<string, string | number>) => string): Array<{ value: YouTubeBrowser; label: string }> => [
   { value: 'edge', label: 'Edge' },
   { value: 'chrome', label: 'Chrome' },
   { value: 'firefox', label: 'Firefox' },
-  { value: 'none', label: '不使用' },
+  { value: 'none', label: t('settings.integrations.accounts.youtube.browserNone') },
 ];
 
 const defaultNetworkProxyBypassRules =
   '<local>;localhost;127.0.0.1;::1;*.local;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
-const networkProxyModeOptions: Array<{ value: NetworkProxyMode; label: string }> = [
-  { value: 'off', label: '关闭' },
-  { value: 'system', label: '系统代理' },
-  { value: 'manual', label: '手动代理' },
+const buildNetworkProxyModeOptions = (t: (key: TranslationKey, params?: Record<string, string | number>) => string): Array<{ value: NetworkProxyMode; label: string }> => [
+  { value: 'off', label: t('settings.integrations.networkProxy.mode.off') },
+  { value: 'system', label: t('settings.integrations.networkProxy.mode.system') },
+  { value: 'manual', label: t('settings.integrations.networkProxy.mode.manual') },
   { value: 'pac', label: 'PAC' },
 ];
 
@@ -1304,8 +1306,8 @@ const themePresetOptions: Array<{
     preset: 'classic',
     labelKey: 'settings.appearance.themePreset.classic',
     descriptionKey: 'settings.appearance.themePreset.classic.description',
-    preview: 'linear-gradient(135deg, #f8fbfd 0%, #eef3f7 52%, #dfe8f2 100%)',
-    swatches: ['#eef3f7', '#2f6da8', '#101318'],
+    preview: 'linear-gradient(135deg, #ffffff 0%, #f6f6f7 52%, #e6e7ea 100%)',
+    swatches: ['#f6f6f7', '#4b55e8', '#727987'],
   },
   {
     preset: 'echoTwilight',
@@ -1551,29 +1553,29 @@ type ThemeExportPayload = ThemeLegacyExportPayload | ThemeCustomExportPayload;
 
 const baseThemeEditorDefaults: Record<ThemeTone, ThemeEditorDefaults> = {
   light: {
-    appBg: '#f8fbfd',
-    appBg2: '#eef3f7',
-    appBg3: '#dfe8f2',
+    appBg: '#f6f6f7',
+    appBg2: '#edeef0',
+    appBg3: '#e6e7ea',
     panel: '#ffffff',
-    panelSoft: '#eff5fc',
-    accent: '#2f6da8',
-    accentStrong: '#164b7d',
-    secondary: '#42b3a8',
-    heading: '#1c2735',
-    text: '#32455d',
-    muted: '#65758a',
-    border: '#283e58',
+    panelSoft: '#eff0f2',
+    accent: '#4b55e8',
+    accentStrong: '#3239c7',
+    secondary: '#727987',
+    heading: '#1e2025',
+    text: '#2d3036',
+    muted: '#6c7179',
+    border: '#26282e',
     onAccent: '#ffffff',
-    buttonText: '#32455d',
+    buttonText: '#3c4048',
     titlebar: '#ffffff',
-    sidebar: '#eff5fc',
-    player: '#ffffff',
+    sidebar: '#eff0f2',
+    player: '#fafafb',
     field: '#ffffff',
     row: '#ffffff',
-    rowHover: '#f3f7fb',
-    rowActive: '#2f6da8',
+    rowHover: '#f8f8f9',
+    rowActive: '#eceeff',
     chip: '#ffffff',
-    focus: '#2f6da8',
+    focus: '#4b55e8',
     danger: '#d64545',
     success: '#2f8f72',
     warning: '#c98a16',
@@ -1629,20 +1631,20 @@ const baseThemeEditorDefaults: Record<ThemeTone, ThemeEditorDefaults> = {
 const themeEditorDefaults: Record<AppThemePreset, Record<ThemeTone, Partial<ThemeEditorDefaults>>> = {
   classic: {
     light: {
-      appBg: '#f8fbfd',
-      appBg2: '#eef3f7',
-      appBg3: '#dfe8f2',
+      appBg: '#f6f6f7',
+      appBg2: '#edeef0',
+      appBg3: '#e6e7ea',
       panel: '#ffffff',
-      panelSoft: '#eff5fc',
-      accent: '#2f6da8',
-      accentStrong: '#164b7d',
-      secondary: '#42b3a8',
-      heading: '#1c2735',
-      text: '#32455d',
-      muted: '#65758a',
-      border: '#283e58',
+      panelSoft: '#eff0f2',
+      accent: '#4b55e8',
+      accentStrong: '#3239c7',
+      secondary: '#727987',
+      heading: '#1e2025',
+      text: '#2d3036',
+      muted: '#6c7179',
+      border: '#26282e',
       onAccent: '#ffffff',
-      buttonText: '#32455d',
+      buttonText: '#344540',
       panelOpacityPercent: 72,
       glassPercent: 18,
       shadowPercent: 100,
@@ -3225,50 +3227,53 @@ const AccountCookieCard = ({
   onSave: () => void;
   provider: AccountProvider;
   status?: AccountStatus;
-}): JSX.Element => (
-  <article className="settings-account-row" aria-label={accountProviderLabels[provider]}>
-    <div className="settings-account-summary">
-      <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
-      <div>
-        <h3>{accountProviderLabels[provider]}</h3>
-        <p>{provider === 'bilibili' ? '用于 MV 解析和高清画质。' : '歌词、元数据和下载接入预留。'}</p>
+}): JSX.Element => {
+  const { t } = useI18n();
+  return (
+    <article className="settings-account-row" aria-label={accountProviderLabels[provider]}>
+      <div className="settings-account-summary">
+        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        <div>
+          <h3>{accountProviderLabels[provider]}</h3>
+          <p>{provider === 'bilibili' ? t('settings.integrations.accounts.description.bilibili') : t('settings.integrations.accounts.description.default')}</p>
+        </div>
       </div>
-    </div>
-    <label className="settings-account-cookie-field">
-      <input
-        type="password"
-        value={cookieValue}
-        placeholder="粘贴 Cookie 后保存"
-        onChange={(event) => onChangeCookie(event.target.value)}
-        autoComplete="off"
-      />
-    </label>
-    <div className="settings-account-actions">
-      <button className="settings-action-button" type="button" disabled={busyAction === 'save' || cookieValue.trim().length === 0} onClick={onSave}>
-        <Save size={15} />
-        {busyAction === 'save' ? '保存中...' : '手动保存'}
-      </button>
-      <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
-        {busyAction === 'check' ? '检查中...' : '检查'}
-      </button>
-      <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
-        <ExternalLink size={15} />
-        {busyAction === 'login' ? '等待登录...' : '登录并同步'}
-      </button>
-      <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
-        {busyAction === 'clear' ? '退出中...' : '退出'}
-      </button>
-    </div>
-    <div className="settings-account-meta">
-      <span>推荐点击“登录并同步”；手动粘贴 Cookie 作为备用方式。</span>
-      <span>登录 {status?.lastLoginAt ?? 'n/a'} · 检查 {status?.lastCheckedAt ?? 'n/a'}</span>
-    </div>
-    {provider === 'soundcloud' ? <p className="settings-inline-note settings-account-note">SoundCloud 流播放使用这里保存的登录 Cookie，不需要 Artist Pro 或开发者 API。</p> : null}
-    {provider === 'osu' ? <p className="settings-inline-note settings-account-note">osu! 谱面下载会优先使用这里保存的登录 Cookie；官方失败时会自动尝试 Sayobot、Catboy 和 NeriNyan 镜像。</p> : null}
-    {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
-    {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
-  </article>
-);
+      <label className="settings-account-cookie-field">
+        <input
+          type="password"
+          value={cookieValue}
+          placeholder={t('settings.integrations.accounts.cookiePlaceholder')}
+          onChange={(event) => onChangeCookie(event.target.value)}
+          autoComplete="off"
+        />
+      </label>
+      <div className="settings-account-actions">
+        <button className="settings-action-button" type="button" disabled={busyAction === 'save' || cookieValue.trim().length === 0} onClick={onSave}>
+          <Save size={15} />
+          {busyAction === 'save' ? t('settings.integrations.accounts.manualSaveBusy') : t('settings.integrations.accounts.manualSave')}
+        </button>
+        <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
+          {busyAction === 'check' ? t('settings.integrations.accounts.checkBusy') : t('settings.integrations.accounts.check')}
+        </button>
+        <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
+          <ExternalLink size={15} />
+          {busyAction === 'login' ? t('settings.integrations.accounts.loginBusy') : t('settings.integrations.accounts.loginAndSync')}
+        </button>
+        <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
+          {busyAction === 'clear' ? t('settings.integrations.accounts.logoutBusy') : t('settings.integrations.accounts.logout')}
+        </button>
+      </div>
+      <div className="settings-account-meta">
+        <span>{t('settings.integrations.accounts.cookieFallback')}</span>
+        <span>{t('settings.integrations.accounts.loginMeta', { loginAt: status?.lastLoginAt ?? 'n/a', checkedAt: status?.lastCheckedAt ?? 'n/a' })}</span>
+      </div>
+      {provider === 'soundcloud' ? <p className="settings-inline-note settings-account-note">{t('settings.integrations.accounts.soundcloudNote')}</p> : null}
+      {provider === 'osu' ? <p className="settings-inline-note settings-account-note">{t('settings.integrations.accounts.osuNote')}</p> : null}
+      {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
+      {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
+    </article>
+  );
+};
 
 const YouTubeAccountCard = ({
   browser,
@@ -3290,45 +3295,49 @@ const YouTubeAccountCard = ({
   onClear: () => void;
   onOpenLogin: () => void;
   status?: AccountStatus;
-}): JSX.Element => (
-  <article className="settings-account-row" aria-label="YouTube">
-    <div className="settings-account-summary">
-      <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
-      <div>
-        <h3>YouTube</h3>
-        <p>沿用系统浏览器登录逻辑，供后续解析/下载使用。</p>
+}): JSX.Element => {
+  const { t } = useI18n();
+  const youtubeBrowserOptions = buildYouTubeBrowserOptions(t);
+  return (
+    <article className="settings-account-row" aria-label="YouTube">
+      <div className="settings-account-summary">
+        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        <div>
+          <h3>YouTube</h3>
+          <p>{t('settings.integrations.accounts.youtube.description')}</p>
+        </div>
       </div>
-    </div>
-    <label className="settings-select-field settings-account-browser-field">
-      <span>浏览器</span>
-      <select value={browser} onChange={(event) => onBrowserChange(event.target.value as YouTubeBrowser)} disabled={busyAction === 'browser'}>
-        {youtubeBrowserOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-    <div className="settings-account-actions">
-      <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
-        {busyAction === 'check' ? '检查中...' : '检查'}
-      </button>
-      <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
-        <ExternalLink size={15} />
-        {busyAction === 'login' ? '等待登录...' : '登录并同步'}
-      </button>
-      <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
-        {busyAction === 'clear' ? '退出中...' : '退出'}
-      </button>
-    </div>
-    <div className="settings-account-meta">
-      <span>{status?.displayName ?? '选择浏览器后会保存系统浏览器登录状态。'}</span>
-      <span>检查 {status?.lastCheckedAt ?? 'n/a'}</span>
-    </div>
-    {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
-    {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
-  </article>
-);
+      <label className="settings-select-field settings-account-browser-field">
+        <span>{t('settings.integrations.accounts.youtube.browser')}</span>
+        <select value={browser} onChange={(event) => onBrowserChange(event.target.value as YouTubeBrowser)} disabled={busyAction === 'browser'}>
+          {youtubeBrowserOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="settings-account-actions">
+        <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
+          {busyAction === 'check' ? t('settings.integrations.accounts.checkBusy') : t('settings.integrations.accounts.check')}
+        </button>
+        <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
+          <ExternalLink size={15} />
+          {busyAction === 'login' ? t('settings.integrations.accounts.loginBusy') : t('settings.integrations.accounts.loginAndSync')}
+        </button>
+        <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
+          {busyAction === 'clear' ? t('settings.integrations.accounts.logoutBusy') : t('settings.integrations.accounts.logout')}
+        </button>
+      </div>
+      <div className="settings-account-meta">
+        <span>{status?.displayName ?? t('settings.integrations.accounts.youtube.savedStatus')}</span>
+        <span>{t('settings.integrations.accounts.check')} {status?.lastCheckedAt ?? 'n/a'}</span>
+      </div>
+      {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
+      {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
+    </article>
+  );
+};
 
 const SpotifyAccountCard = ({
   busyAction,
@@ -3346,35 +3355,38 @@ const SpotifyAccountCard = ({
   onClear: () => void;
   onOpenLogin: () => void;
   status?: AccountStatus;
-}): JSX.Element => (
-  <article className="settings-account-row" aria-label="Spotify">
-    <div className="settings-account-summary">
-      <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
-      <div>
-        <h3>Spotify</h3>
-        <p>官方播放器接入，需要 Premium；请在 Spotify Dashboard 注册 http://127.0.0.1:43879/spotify/callback。</p>
+}): JSX.Element => {
+  const { t } = useI18n();
+  return (
+    <article className="settings-account-row" aria-label="Spotify">
+      <div className="settings-account-summary">
+        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        <div>
+          <h3>Spotify</h3>
+          <p>{t('settings.integrations.accounts.spotify.description')}</p>
+        </div>
       </div>
-    </div>
-    <div className="settings-account-actions">
-      <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
-        {busyAction === 'check' ? '检查中...' : '检查'}
-      </button>
-      <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
-        <ExternalLink size={15} />
-        {busyAction === 'login' ? '等待授权...' : '登录 Spotify'}
-      </button>
-      <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
-        {busyAction === 'clear' ? '退出中...' : '退出'}
-      </button>
-    </div>
-    <div className="settings-account-meta">
-      <span>{status?.displayName ?? status?.username ?? '使用 OAuth PKCE 授权，不保存 Client Secret；下载功能不适用于 Spotify。'}</span>
-      <span>登录 {status?.lastLoginAt ?? 'n/a'} · 检查 {status?.lastCheckedAt ?? 'n/a'}</span>
-    </div>
-    {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
-    {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
-  </article>
-);
+      <div className="settings-account-actions">
+        <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
+          {busyAction === 'check' ? t('settings.integrations.accounts.checkBusy') : t('settings.integrations.accounts.check')}
+        </button>
+        <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
+          <ExternalLink size={15} />
+          {busyAction === 'login' ? t('settings.integrations.accounts.spotify.loginBusy') : t('settings.integrations.accounts.spotify.login')}
+        </button>
+        <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
+          {busyAction === 'clear' ? t('settings.integrations.accounts.logoutBusy') : t('settings.integrations.accounts.logout')}
+        </button>
+      </div>
+      <div className="settings-account-meta">
+        <span>{status?.displayName ?? status?.username ?? t('settings.integrations.accounts.spotify.savedStatus')}</span>
+        <span>{t('settings.integrations.accounts.loginMeta', { loginAt: status?.lastLoginAt ?? 'n/a', checkedAt: status?.lastCheckedAt ?? 'n/a' })}</span>
+      </div>
+      {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
+      {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
+    </article>
+  );
+};
 
 const NumberRangeField = ({
   max,
@@ -3631,33 +3643,41 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-first-run-wizard',
         sectionKey: 'general',
         targetId: 'settings-row-first-run-wizard',
-        title: '首次启动指引',
-        description: '重新打开首次启动向导，检查音乐文件夹、缓存位置、扫描模式和标准输出（系统音频）。',
-        terms: ['首次启动指引', '新手指引', '新手引导', '向导', '引导', '标准输出', '系统音频', 'guide', 'onboarding', 'first run', 'welcome', 'system audio'],
+        title: t('settings.general.firstRunWizard.title'),
+        description: t('settings.general.firstRunWizard.description'),
+        terms: [t('settings.general.firstRunWizard.title'), t('settings.general.firstRunWizard.description'), '首次启动指引', '新手指引', '新手引导', '向导', '引导', '標準輸出', '標準出力', '标准输出', '系统音频', 'システムオーディオ', 'guide', 'onboarding', 'first run', 'welcome', 'system audio'],
       },
       {
         id: 'row-fast-startup',
         sectionKey: 'general',
         targetId: 'settings-row-fast-startup',
-        title: '快速启动',
-        description: '启动时先做轻量只读曲库验证，窗口打开后再后台完成数据保护快照。',
-        terms: ['快速启动', '启动加速', '慢启动', 'data protection', 'startup', 'fast startup', 'quick startup', 'database snapshot', '曲库检查'],
+        title: t('settings.general.fastStartup.title'),
+        description: t('settings.general.fastStartup.description'),
+        terms: [t('settings.general.fastStartup.title'), t('settings.general.fastStartup.description'), '快速启动', '快速啟動', '高速起動', '启动加速', '慢启动', 'data protection', 'startup', 'fast startup', 'quick startup', 'database snapshot', '曲库检查'],
+      },
+      {
+        id: 'row-player-waveform-progress',
+        sectionKey: 'general',
+        targetId: 'settings-row-player-waveform-progress',
+        title: t('settings.general.playerWaveformProgress.title'),
+        description: t('settings.general.playerWaveformProgress.description'),
+        terms: [t('settings.general.playerWaveformProgress.title'), t('settings.general.playerWaveformProgress.description'), '波形进度条', '波形進度條', '波形播放进度', 'waveform progress', 'waveform seekbar', 'waveform scrubber', 'roon'],
       },
       {
         id: 'row-artist-streaming-albums',
         sectionKey: 'general',
         targetId: 'settings-row-artist-streaming-albums',
-        title: '流媒体专辑',
-        description: '在艺人专辑页下方按需搜索并展示流媒体专辑，默认关闭。',
-        terms: ['流媒体专辑', '艺人流媒体专辑', '在线专辑', '专辑页', 'streaming albums', 'artist streaming albums'],
+        title: t('settings.general.artistStreamingAlbums.title'),
+        description: t('settings.general.artistStreamingAlbums.description'),
+        terms: [t('settings.general.artistStreamingAlbums.title'), t('settings.general.artistStreamingAlbums.description'), '流媒体专辑', '串流專輯', 'ストリーミングアルバム', '艺人流媒体专辑', '在线专辑', '专辑页', 'streaming albums', 'artist streaming albums'],
       },
       {
         id: 'row-artist-online-info-sources',
         sectionKey: 'general',
         targetId: 'settings-row-artist-online-info-sources',
-        title: '艺人信息源',
-        description: '选择艺人简介优先使用的在线百科来源，可关闭 Wikipedia 并改用中文站点。',
-        terms: ['艺人信息源', '歌手信息源', '百度百科', '萌娘百科', '维基百科', 'Wikipedia', 'Baike', 'Moegirl', 'artist info source'],
+        title: t('settings.general.artistInfoSources.title'),
+        description: t('settings.general.artistInfoSources.description'),
+        terms: [t('settings.general.artistInfoSources.title'), t('settings.general.artistInfoSources.description'), '艺人信息源', '藝人資訊來源', 'アーティスト情報ソース', '歌手信息源', '百度百科', '萌娘百科', '维基百科', 'Wikipedia', 'Baike', 'Moegirl', 'artist info source'],
       },
       {
         id: 'row-data-backup',
@@ -3694,9 +3714,20 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-network-proxy',
         sectionKey: 'integrations',
         targetId: 'settings-row-network-proxy',
-        title: '网络代理',
-        description: '为登录、封面、歌词、MV 和网络元数据请求应用代理；媒体播放流默认不走代理。',
-        terms: ['网络代理', '代理', 'proxy', 'http proxy', 'socks', 'socks5', 'pac', 'vpn', '网络', '歌词', '封面', 'mv', 'metadata'],
+        title: t('settings.integrations.networkProxy.title'),
+        description: t('settings.integrations.networkProxy.description'),
+        terms: [
+          t('settings.integrations.networkProxy.title'),
+          t('settings.integrations.networkProxy.description'),
+          'proxy',
+          'http proxy',
+          'socks',
+          'socks5',
+          'pac',
+          'vpn',
+          'mv',
+          'metadata',
+        ],
       },
       {
         id: 'row-online-artist-info',
@@ -3776,9 +3807,19 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-account-startup-refresh',
         sectionKey: 'integrations',
         targetId: 'settings-row-account-startup-refresh',
-        title: '启动时刷新账号登录状态',
-        description: '仅检查以前登录过的账号，从未登录过的平台会保持静默。',
-        terms: ['启动时刷新账号登录状态', '账号状态', '登录状态', 'account status', 'login status', 'startup account refresh', 'youtube', 'bilibili', 'spotify', '状态'],
+        title: t('settings.integrations.accountStartupRefresh.title'),
+        description: t('settings.integrations.accountStartupRefresh.description'),
+        terms: [
+          t('settings.integrations.accountStartupRefresh.title'),
+          t('settings.integrations.accountStartupRefresh.description'),
+          t('settings.integrations.accounts.loginStatus'),
+          'account status',
+          'login status',
+          'startup account refresh',
+          'youtube',
+          'bilibili',
+          'spotify',
+        ],
       },
       {
         id: 'row-account-expiry-notices',
@@ -3818,41 +3859,41 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-fixed-volume',
         sectionKey: 'playback',
         targetId: 'settings-row-fixed-volume',
-        title: '固定音量',
-        description: '锁定 ECHO 音量控制为 100%，ReplayGain 仍独立生效。',
-        terms: ['固定音量', 'fixed volume', 'roon', '音量锁定', 'volume lock', 'ReplayGain'],
+        title: t('settings.playback.fixedVolume.title'),
+        description: t('settings.playback.fixedVolume.description'),
+        terms: [t('settings.playback.fixedVolume.title'), t('settings.playback.fixedVolume.description'), '固定音量', '固定音量', '固定音量', 'fixed volume', 'roon', '音量锁定', 'volume lock', 'ReplayGain'],
       },
       {
         id: 'row-mini-player',
         sectionKey: 'playback',
         targetId: 'settings-row-mini-player',
-        title: '迷你播放器',
-        description: '独立透明置顶小窗，适合游戏时看封面、歌名和进度。',
-        terms: ['迷你播放器', 'mini player', 'overlay', 'always on top', '置顶', '游戏', '进度条', '封面', '隐藏主界面', '托盘'],
+        title: t('settings.playback.miniPlayer.title'),
+        description: t('settings.playback.miniPlayer.description'),
+        terms: [t('settings.playback.miniPlayer.title'), t('settings.playback.miniPlayer.description'), '迷你播放器', '迷你播放器', 'ミニプレイヤー', 'mini player', 'overlay', 'always on top', '置顶', '游戏', '进度条', '封面', '隐藏主界面', '托盘'],
       },
       {
         id: 'row-gapless-playback',
         sectionKey: 'playback',
         targetId: 'settings-row-gapless-playback',
-        title: '真无缝播放',
-        description: '0 秒间隔，不淡入淡出；第一版只保证原生输出链路。',
-        terms: ['真无缝播放', '无缝播放', 'gapless', 'gapless playback', '0 秒间隔', '连续播放'],
+        title: t('settings.playback.gapless.title'),
+        description: t('settings.playback.gapless.description'),
+        terms: [t('settings.playback.gapless.title'), t('settings.playback.gapless.description'), '专辑无缝播放', '專輯無縫播放', 'ギャップレス', '无缝播放', 'gapless', 'gapless playback', '0 秒间隔', '连续播放'],
       },
       {
         id: 'row-volume-balance',
         sectionKey: 'playback',
         targetId: 'settings-row-volume-balance',
-        title: '音量标准化',
-        description: 'Spotify Normal 风格的响度拉齐；只读取标签或写入 ECHO 数据库。',
-        terms: ['音量标准化', '音量自动平衡', '音量平衡', '响度', 'Spotify', 'ReplayGain', 'replay gain', 'loudness', 'lufs'],
+        title: t('settings.playback.replayGain.title'),
+        description: t('settings.playback.replayGain.description'),
+        terms: [t('settings.playback.replayGain.title'), t('settings.playback.replayGain.description'), '音量标准化', '音量標準化', '音量ノーマライズ', '音量自动平衡', '音量平衡', '响度', 'Spotify', 'ReplayGain', 'replay gain', 'loudness', 'lufs'],
       },
       {
         id: 'row-mono-audio',
         sectionKey: 'playback',
         targetId: 'settings-row-mono-audio',
-        title: '单声道音频',
-        description: '把左右声道合并后同时输出到两边，默认关闭。',
-        terms: ['单声道', 'mono', 'mono sum', '左右声道', '声道合并', '单耳'],
+        title: t('settings.playback.monoAudio.title'),
+        description: t('settings.playback.monoAudio.description'),
+        terms: [t('settings.playback.monoAudio.title'), t('settings.playback.monoAudio.description'), '单声道', '單聲道', 'モノラル', 'mono', 'mono sum', '左右声道', '声道合并', '单耳'],
       },
       {
         id: 'row-output-device',
@@ -4709,11 +4750,11 @@ export const SettingsPage = (): JSX.Element => {
 
   useEffect(() => {
     const displayName = accountStatusByProvider.youtube?.displayName?.toLowerCase() ?? '';
-    const savedBrowser = youtubeBrowserOptions.find((option) => option.value !== 'none' && displayName.includes(option.value))?.value;
+    const savedBrowser = buildYouTubeBrowserOptions(t).find((option) => option.value !== 'none' && displayName.includes(option.value))?.value;
     if (savedBrowser) {
       setYoutubeBrowser(savedBrowser);
     }
-  }, [accountStatusByProvider.youtube?.displayName]);
+  }, [accountStatusByProvider.youtube?.displayName, t]);
 
   useEffect(() => {
     if (statusSelectedDevice && compatibleDevices.some((device) => device.id === statusSelectedDevice.id)) {
@@ -7619,6 +7660,44 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const handleDeleteAllUserData = async (): Promise<void> => {
+    if (!requireDangerConfirmWord('删除所有内容', '这会删除 ECHO Next 的设置、账号、插件、曲库数据库、播放记录、缓存、日志、壁纸和保护快照；音乐文件不会被删除。')) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        '彻底删除所有 ECHO Next 本地内容？这会清空 ECHO 的 userData 和外部封面缓存目录，删除后需要重启应用；音乐文件夹和下载输出目录不会被主动删除。',
+      )
+    ) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+
+    if (!library?.deleteAllUserData) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to delete all local data.');
+      return;
+    }
+
+    try {
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.deleteAllUserData();
+      const removed = result.removedPaths.length;
+      const failed = result.failedPaths.length;
+      const failedText = failed > 0 ? ` 有 ${failed} 个路径删除失败，请关闭 ECHO 后手动检查。` : '';
+      setDangerMessage(`ECHO 本地内容已清理：删除 ${removed} 个路径。${failedText}请立即重启 ECHO Next。`);
+      window.dispatchEvent(new Event('library:changed'));
+    } catch (deleteError) {
+      setDangerMessage(null);
+      setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
   const handleResetDefaultSettings = async (): Promise<void> => {
     if (!window.confirm('恢复默认设置？这会重置应用偏好、封面缓存目录和外观偏好，不会删除音乐文件或曲库文件夹。')) {
       return;
@@ -8172,8 +8251,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-first-run-wizard"
                 highlighted={highlightedSettingId === 'settings-row-first-run-wizard'}
-                title="首次启动指引"
-                description="打开后会重新显示第一次启动时的向导，可选择标准输出（系统音频）、WASAPI、Exclusive 或 ASIO；完成或跳过后会自动关闭这个开关。"
+                title={t('settings.general.firstRunWizard.title')}
+                description={t('settings.general.firstRunWizard.description')}
               >
                 <ToggleButton
                   active={appSettings?.onboardingCompleted === false}
@@ -8188,7 +8267,7 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={handleCloseToTrayToggle}
                 />
               </SettingRow>
-              <SettingRow title="记住窗口尺寸" description="开启后会记住你上次拖拽后的窗口宽高，下次启动自动恢复。">
+              <SettingRow title={t('settings.general.rememberWindowSize.title')} description={t('settings.general.rememberWindowSize.description')}>
                 <ToggleButton
                   active={appSettings?.rememberWindowSizeEnabled ?? true}
                   disabled={!appSettings}
@@ -8202,8 +8281,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-fast-startup"
                 highlighted={highlightedSettingId === 'settings-row-fast-startup'}
-                title="快速启动"
-                description="开启后，启动时只做轻量只读曲库验证；完整数据保护快照会在窗口打开后后台完成。默认关闭。"
+                title={t('settings.general.fastStartup.title')}
+                description={t('settings.general.fastStartup.description')}
               >
                 <ToggleButton
                   active={appSettings?.fastStartupEnabled === true}
@@ -8211,7 +8290,23 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => patchAppSettings({ fastStartupEnabled: !(appSettings?.fastStartupEnabled ?? false) })}
                 />
               </SettingRow>
-              <SettingRow title="简繁互搜" description="开启后，输入繁体可以搜到简体结果，输入简体也可以搜到繁体结果。">
+              <SettingRow
+                id="settings-row-player-waveform-progress"
+                highlighted={highlightedSettingId === 'settings-row-player-waveform-progress'}
+                title={t('settings.general.playerWaveformProgress.title')}
+                description={t('settings.general.playerWaveformProgress.description')}
+              >
+                <ToggleButton
+                  active={appSettings?.playerWaveformProgressEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      playerWaveformProgressEnabled: !(appSettings?.playerWaveformProgressEnabled ?? false),
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow title={t('settings.general.searchTraditionalVariants.title')} description={t('settings.general.searchTraditionalVariants.description')}>
                 <ToggleButton
                   active={appSettings?.chineseCrossScriptSearchEnabled ?? true}
                   disabled={!appSettings}
@@ -8225,8 +8320,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-artist-streaming-albums"
                 highlighted={highlightedSettingId === 'settings-row-artist-streaming-albums'}
-                title="流媒体专辑"
-                description="开启后，艺人详情的专辑页会在本地专辑下方按需搜索并显示流媒体专辑；默认关闭，避免增加页面和网络压力。"
+                title={t('settings.general.artistStreamingAlbums.title')}
+                description={t('settings.general.artistStreamingAlbums.description')}
               >
                 <ToggleButton
                   active={appSettings?.artistStreamingAlbumsEnabled === true}
@@ -8241,8 +8336,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-artist-online-info-sources"
                 highlighted={highlightedSettingId === 'settings-row-artist-online-info-sources'}
-                title="艺人信息源"
-                description="选择刷新艺人简介时使用的百科来源；百度百科和萌娘百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。"
+                title={t('settings.general.artistInfoSources.title')}
+                description={t('settings.general.artistInfoSources.description')}
               >
                 <div className="settings-chip-row">
                   {artistOnlineInfoSourceOptions.map((option) => (
@@ -8509,8 +8604,8 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
-                title="音频问题诊断窗口"
-                description="默认关闭。用户反馈播放异常时开启，会弹出浮窗记录状态、进度、duration、native 缓冲、underrun、backend、警告和 ended 标记。"
+                title={t('settings.playback.issueDiagnostics.title')}
+                description={t('settings.playback.issueDiagnostics.description')}
               >
                 <ToggleButton
                   active={appSettings?.audioIssueDiagnosticsWindowEnabled ?? false}
@@ -8522,14 +8617,14 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
-              <SettingRow title="JUCE 主输出" description="默认关闭。FFmpeg 兼容路径作为默认输出；需要时可手动开启 JUCE 输出，失败时自动回退。">
+              <SettingRow title={t('settings.playback.juceOutput.title')} description={t('settings.playback.juceOutput.description')}>
                 <ToggleButton
                   active={appSettings?.audioUseJuceOutput === true}
                   disabled={!appSettings}
                   onClick={() => void handleJuceOutputToggle()}
                 />
               </SettingRow>
-              <SettingRow title="长驻原生解码" description="默认关闭。开启后，本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。">
+              <SettingRow title={t('settings.playback.nativeDecode.title')} description={t('settings.playback.nativeDecode.description')}>
                 <ToggleButton
                   active={appSettings?.audioUseJuceDecode === true}
                   disabled={!appSettings}
@@ -8539,11 +8634,11 @@ export const SettingsPage = (): JSX.Element => {
               {advancedNativeOutputAvailable ? (
                 <>
               <SettingRow
-                title="DSD DoP 直出试验"
+                title={t('settings.playback.dsdDop.title')}
                 description={
                   <>
-                    默认关闭。本地 DSF 在 ASIO 下尝试 DoP 直出；失败会自动回退 FFmpeg PCM，最终以 DAC 显示为准。
-                    <span className="settings-inline-warning-text">需要使用 ASIO</span>
+                    {t('settings.playback.dsdDop.description')}
+                    <span className="settings-inline-warning-text">{t('settings.playback.dsdDop.requiresAsio')}</span>
                   </>
                 }
               >
@@ -8554,11 +8649,11 @@ export const SettingsPage = (): JSX.Element => {
                 />
               </SettingRow>
               <SettingRow
-                title="ASIO 原生 DSD 实验"
+                title={t('settings.playback.asioNativeDsd.title')}
                 description={
                   <>
-                    默认关闭。仅在 ASIO + 本地 DSF + DoP 开启且无 EQ/音量/变速/DSP 时尝试；失败会退回现有 DoP/PCM。
-                    <span className="settings-inline-warning-text">需要使用 ASIO</span>
+                    {t('settings.playback.asioNativeDsd.description')}
+                    <span className="settings-inline-warning-text">{t('settings.playback.dsdDop.requiresAsio')}</span>
                   </>
                 }
               >
@@ -8604,7 +8699,7 @@ export const SettingsPage = (): JSX.Element => {
                   ))}
                 </div>
               </SettingRow>
-              <SettingRow title="音频导出格式" description="底栏导出按钮使用这个格式；导出速度跟随当前播放速度。">
+              <SettingRow title={t('settings.playback.exportFormat.title')} description={t('settings.playback.exportFormat.description')}>
                 <div className="settings-chip-row">
                   {audioExportFormatOptions.map((item) => (
                     <ChipButton
@@ -8620,12 +8715,12 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-fixed-volume"
                 highlighted={highlightedSettingId === 'settings-row-fixed-volume'}
-                title="固定音量"
-                description="像 Roon Fixed Volume 一样锁定 ECHO 音量控制为 100%；ReplayGain 仍会独立生效。"
+                title={t('settings.playback.fixedVolume.title')}
+                description={t('settings.playback.fixedVolume.description')}
               >
                 <div className="settings-chip-row">
                   <StatusText tone={appSettings?.fixedVolumeEnabled ? 'good' : 'muted'}>
-                    {appSettings?.fixedVolumeEnabled ? '已固定' : '可调音量'}
+                    {appSettings?.fixedVolumeEnabled ? t('settings.playback.fixedVolume.status.fixed') : t('settings.playback.fixedVolume.status.adjustable')}
                   </StatusText>
                   <ToggleButton
                     active={appSettings?.fixedVolumeEnabled ?? false}
@@ -8646,12 +8741,12 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-mini-player"
                 highlighted={highlightedSettingId === 'settings-row-mini-player'}
-                title="迷你播放器"
-                description="独立透明置顶小窗，只显示封面、歌名和进度；窗口会收紧到播放器本体，避免透明空白挡住其他软件。"
+                title={t('settings.playback.miniPlayer.title')}
+                description={t('settings.playback.miniPlayer.description')}
               >
                 <div className="settings-chip-row">
                   <StatusText tone={appSettings?.miniPlayerEnabled ? 'good' : 'muted'}>
-                    {appSettings?.miniPlayerEnabled ? '已显示' : '未显示'}
+                    {appSettings?.miniPlayerEnabled ? t('settings.playback.miniPlayer.status.visible') : t('settings.playback.miniPlayer.status.hidden')}
                   </StatusText>
                   <button
                     className="settings-action-button"
@@ -8660,7 +8755,7 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => void handleMiniPlayerVisibleChange(!(appSettings?.miniPlayerEnabled ?? false))}
                   >
                     <Headphones size={15} />
-                    {appSettings?.miniPlayerEnabled ? '隐藏' : '显示'}
+                    {appSettings?.miniPlayerEnabled ? t('settings.playback.miniPlayer.action.hide') : t('settings.playback.miniPlayer.action.show')}
                   </button>
                   <button
                     className="settings-action-button"
@@ -8669,11 +8764,11 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => void handleMiniPlayerResetBounds()}
                   >
                     <RotateCcw size={15} />
-                    重置位置
+                    {t('miniPlayer.action.resetPosition')}
                   </button>
                 </div>
                 <div className="settings-chip-row">
-                  <span className="settings-inline-note">打开迷你播放器时隐藏主界面到右下角托盘</span>
+                  <span className="settings-inline-note">{t('settings.playback.miniPlayer.autoHideNote')}</span>
                   <ToggleButton
                     active={appSettings?.miniPlayerAutoHideMainWindow ?? false}
                     disabled={!appSettings}
@@ -8685,8 +8780,8 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-segment-loop"
                 highlighted={highlightedSettingId === 'settings-row-segment-loop'}
-                title="A-B 循环"
-                description="设置当前歌曲的 A/B 点、开启片段循环，并保存当前曲目的片段书签。"
+                title={t('settings.playback.segmentLoop.title')}
+                description={t('settings.playback.segmentLoop.description')}
               >
                 <div className="settings-segment-loop-panel">
                   <SegmentLoopPanel
@@ -8708,21 +8803,27 @@ export const SettingsPage = (): JSX.Element => {
                 description={t('settings.playback.automix.description')}
               >
                 <div className="settings-chip-row">
-                  {status?.automix?.active && !status.automix.gapless && status.automix.transitionMode ? (
+                  {automixTemporarilyDisabled ? (
+                    <StatusText tone="muted">暂停中</StatusText>
+                  ) : status?.automix?.active && !status.automix.gapless && status.automix.transitionMode ? (
                     <StatusText tone="good">
                       {`${status.automix.engine ?? 'fallback'} / ${status.automix.transitionMode} / ${
                         status.automix.overlapSeconds?.toFixed(1) ?? '?'
                       }s / tempo ${status.automix.tempoRatio?.toFixed(3) ?? '1.000'}`}
                     </StatusText>
                   ) : null}
-                  <ToggleButton active={playbackQueue.automixEnabled} onClick={() => playbackQueue.setAutomixEnabled(!playbackQueue.automixEnabled)} />
+                  <ToggleButton
+                    active={automixTemporarilyDisabled ? false : playbackQueue.automixEnabled}
+                    disabled={automixTemporarilyDisabled}
+                    onClick={() => playbackQueue.setAutomixEnabled(!playbackQueue.automixEnabled)}
+                  />
                 </div>
               </SettingRow>
               <SettingRow
                 id="settings-row-gapless-playback"
                 highlighted={highlightedSettingId === 'settings-row-gapless-playback'}
-                title="真无缝播放"
-                description="0 秒间隔，不淡入淡出；第一版只保证原生输出链路。Automix 开启时会自动优先。"
+                title={t('settings.playback.gapless.title')}
+                description={t('settings.playback.gapless.description')}
               >
                 <ToggleButton
                   active={appSettings?.gaplessPlaybackEnabled ?? false}
@@ -8734,13 +8835,13 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-volume-balance"
                 highlighted={highlightedSettingId === 'settings-row-volume-balance'}
-                title="音量标准化"
-                description="Spotify Normal 风格的响度拉齐；只读取标签或写入 ECHO 数据库，不修改你的音乐文件。"
+                title={t('settings.playback.replayGain.title')}
+                description={t('settings.playback.replayGain.description')}
               >
                 <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
-                      <span>{appSettings?.replayGainEnabled ? '已开启' : '未开启'}</span>
+                      <span>{appSettings?.replayGainEnabled ? t('settings.playback.replayGain.status.enabled') : t('settings.playback.replayGain.status.disabled')}</span>
                       <ToggleButton
                         active={appSettings?.replayGainEnabled ?? false}
                         disabled={!appSettings}
@@ -8754,7 +8855,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleStartReplayGainAnalysis()}
                     >
                       <RotateCw className={replayGainAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
-                      {replayGainAnalysisBusy ? '分析中...' : '分析缺失音量'}
+                      {replayGainAnalysisBusy ? t('settings.playback.replayGain.action.analyzing') : t('settings.playback.replayGain.action.analyzeMissing')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -8762,7 +8863,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => setReplayGainAdvancedOpen((open) => !open)}
                     >
                       <SlidersHorizontal size={15} />
-                      高级
+                      {t('settings.playback.replayGain.action.advanced')}
                     </button>
                   </div>
                   <div className="settings-chip-row settings-chip-row--left">
@@ -8797,24 +8898,24 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                   <div className="settings-status-grid">
                     <span>
-                      <em>模式</em>
-                      <strong>{(appSettings?.replayGainMode ?? 'track') === 'album' ? '专辑' : (appSettings?.replayGainMode ?? 'track') === 'off' ? '关闭' : '单曲'}</strong>
+                      <em>{t('settings.playback.replayGain.field.mode')}</em>
+                      <strong>{(appSettings?.replayGainMode ?? 'track') === 'album' ? t('settings.playback.replayGain.mode.album') : (appSettings?.replayGainMode ?? 'track') === 'off' ? t('settings.playback.replayGain.mode.off') : t('settings.playback.replayGain.mode.track')}</strong>
                     </span>
                     <span>
-                      <em>目标响度</em>
+                      <em>{t('settings.playback.replayGain.field.target')}</em>
                       <strong>{appSettings?.replayGainTargetLufs ?? SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS} LUFS</strong>
                     </span>
                     <span>
-                      <em>当前应用</em>
+                      <em>{t('settings.playback.replayGain.field.applied')}</em>
                       <strong>{Number.isFinite(status?.replayGainAppliedDb) ? `${status?.replayGainAppliedDb?.toFixed(2)} dB` : '0 dB'}</strong>
                     </span>
                     <span>
-                      <em>防削波</em>
-                      <strong>{appSettings?.replayGainPreventClipping ?? true ? '开启' : '关闭'}</strong>
+                      <em>{t('settings.playback.replayGain.field.preventClipping')}</em>
+                      <strong>{appSettings?.replayGainPreventClipping ?? true ? t('settings.playback.status.on') : t('settings.playback.status.off')}</strong>
                     </span>
                     <span>
-                      <em>进度</em>
-                      <strong>{replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : '尚未运行'}</strong>
+                      <em>{t('settings.playback.replayGain.field.progress')}</em>
+                      <strong>{replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : t('settings.playback.replayGain.notRun')}</strong>
                     </span>
                   </div>
                   {replayGainAdvancedOpen ? (
@@ -8826,13 +8927,13 @@ export const SettingsPage = (): JSX.Element => {
                             key={mode}
                             onClick={() => patchAppSettings({ replayGainMode: mode })}
                           >
-                            {mode === 'track' ? '单曲' : mode === 'album' ? '专辑' : '关闭'}
+                            {mode === 'track' ? t('settings.playback.replayGain.mode.track') : mode === 'album' ? t('settings.playback.replayGain.mode.album') : t('settings.playback.replayGain.mode.off')}
                           </ChipButton>
                         ))}
                       </div>
                       <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                         <div className="settings-inline-toggle">
-                          <span>防削波</span>
+                          <span>{t('settings.playback.replayGain.toggle.preventClipping')}</span>
                           <ToggleButton
                             active={appSettings?.replayGainPreventClipping ?? true}
                             disabled={!appSettings}
@@ -8840,7 +8941,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-inline-toggle">
-                          <span>播放时分析</span>
+                          <span>{t('settings.playback.replayGain.toggle.analyzeOnPlay')}</span>
                           <ToggleButton
                             active={appSettings?.replayGainAnalyzeOnPlay ?? true}
                             disabled={!appSettings}
@@ -8848,7 +8949,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-inline-toggle">
-                          <span>扫描后分析</span>
+                          <span>{t('settings.playback.replayGain.toggle.analyzeOnScan')}</span>
                           <ToggleButton
                             active={appSettings?.replayGainAnalyzeMissingOnScan ?? false}
                             disabled={!appSettings}
@@ -8862,7 +8963,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <label className="settings-number-field">
-                          <span>目标 LUFS</span>
+                          <span>{t('settings.playback.replayGain.field.target')} LUFS</span>
                           <input
                             type="number"
                             min={-24}
@@ -8887,14 +8988,14 @@ export const SettingsPage = (): JSX.Element => {
                     </>
                   ) : null}
                   {replayGainAnalysisMessage ? <p className="settings-inline-note">{replayGainAnalysisMessage}</p> : null}
-                  {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">音量分析错误 {replayGainAnalysisJob.errorCount} 个，已跳过问题文件。</p> : null}
+                  {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">{t('settings.playback.replayGain.error', { count: replayGainAnalysisJob.errorCount })}</p> : null}
                 </div>
               </SettingRow>
               <SettingRow
                 id="settings-row-mono-audio"
                 highlighted={highlightedSettingId === 'settings-row-mono-audio'}
-                title="单声道音频"
-                description="把左右声道合并后同时输出到两边；默认关闭，适合单耳听、坏声道耳机或临时检查混音。"
+                title={t('settings.playback.monoAudio.title')}
+                description={t('settings.playback.monoAudio.description')}
               >
                 <ToggleButton
                   active={channelBalanceState.enabled && channelBalanceState.monoMode === 'sum'}
@@ -9235,32 +9336,32 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full"
                 id="settings-row-network-proxy"
                 highlighted={highlightedSettingId === 'settings-row-network-proxy'}
-                title="网络代理"
-                description="给登录页、网络封面、歌词、MV 搜索和元数据补全使用。媒体播放流默认不走代理，避免影响缓冲和 Range 请求。"
+                title={t('settings.integrations.networkProxy.title')}
+                description={t('settings.integrations.networkProxy.description')}
               >
                 <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--network-proxy">
                   <div className="settings-proxy-grid">
                     <label className="settings-proxy-field">
-                      <span>模式</span>
+                      <span>{t('settings.integrations.networkProxy.mode')}</span>
                       <StyledSelect
                         className="settings-select-control"
                         value={networkProxyDraft.mode}
-                        options={networkProxyModeOptions}
+                        options={buildNetworkProxyModeOptions(t)}
                         onChange={(mode) => {
                           setNetworkProxyDraft((current) => ({ ...current, mode }));
                           setNetworkProxyTestResult(null);
                         }}
-                        ariaLabel="网络代理模式"
+                        ariaLabel={t('settings.integrations.networkProxy.modeAria')}
                         disabled={!appSettings || networkProxyBusy !== null}
                         showFilterIcon={false}
                       />
                     </label>
                     <label className="settings-proxy-field">
-                      <span>手动代理地址</span>
+                      <span>{t('settings.integrations.networkProxy.manualUrl')}</span>
                       <input
                         type="text"
                         value={networkProxyDraft.proxyUrl}
-                        placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
+                        placeholder={t('settings.integrations.networkProxy.manualPlaceholder')}
                         disabled={networkProxyDraft.mode !== 'manual' || networkProxyBusy !== null}
                         onChange={(event) => {
                           setNetworkProxyDraft((current) => ({ ...current, proxyUrl: event.target.value }));
@@ -9269,7 +9370,7 @@ export const SettingsPage = (): JSX.Element => {
                       />
                     </label>
                     <label className="settings-proxy-field">
-                      <span>PAC 地址</span>
+                      <span>{t('settings.integrations.networkProxy.pacUrl')}</span>
                       <input
                         type="text"
                         value={networkProxyDraft.pacUrl}
@@ -9282,7 +9383,7 @@ export const SettingsPage = (): JSX.Element => {
                       />
                     </label>
                     <label className="settings-proxy-field settings-proxy-field--wide">
-                      <span>绕过地址</span>
+                      <span>{t('settings.integrations.networkProxy.bypass')}</span>
                       <input
                         type="text"
                         value={networkProxyDraft.bypassRules}
@@ -9297,15 +9398,15 @@ export const SettingsPage = (): JSX.Element => {
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" disabled={!appSettings || networkProxyBusy !== null} onClick={handleNetworkProxySave}>
                       <Save size={15} />
-                      {networkProxyBusy === 'save' ? '保存中...' : '保存并应用'}
+                      {networkProxyBusy === 'save' ? t('settings.integrations.networkProxy.saveBusy') : t('settings.integrations.networkProxy.save')}
                     </button>
                     <button className="settings-action-button" type="button" disabled={!appSettings || networkProxyBusy !== null} onClick={handleNetworkProxyTest}>
                       <RotateCw size={15} />
-                      {networkProxyBusy === 'test' ? '测试中...' : '测试连接'}
+                      {networkProxyBusy === 'test' ? t('settings.integrations.networkProxy.testBusy') : t('settings.integrations.networkProxy.test')}
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    第一版只默认代理普通联网能力；远程曲库和播放字节流保持直连，避免影响正在播放的稳定性。
+                    {t('settings.integrations.networkProxy.note')}
                   </p>
                   {networkProxyTestResult ? (
                     <p className={`settings-inline-note settings-proxy-result ${networkProxyTestResult.ok ? 'is-ok' : 'is-error'}`}>
@@ -9536,8 +9637,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-account-startup-refresh"
                 highlighted={highlightedSettingId === 'settings-row-account-startup-refresh'}
-                title="启动时刷新账号登录状态"
-                description="仅检查以前登录过的账号，从未登录过的平台会保持静默。"
+                title={t('settings.integrations.accountStartupRefresh.title')}
+                description={t('settings.integrations.accountStartupRefresh.description')}
               >
                 <ToggleButton
                   active={appSettings?.autoAccountCheckOnStartup ?? true}
@@ -9567,11 +9668,11 @@ export const SettingsPage = (): JSX.Element => {
               <div className="settings-account-panel">
                 <header className="settings-account-panel-header">
                   <div>
-                    <h3>账号登录</h3>
-                    <p>保存平台登录状态，供后续歌词、元数据、MV、下载和流媒体接入使用。</p>
+                    <h3>{t('settings.integrations.accountPanel.title')}</h3>
+                    <p>{t('settings.integrations.accountPanel.description')}</p>
                   </div>
                   <button className="settings-action-button" type="button" onClick={() => void refreshAccountStatuses()}>
-                    刷新全部
+                    {t('settings.integrations.accountPanel.refreshAll')}
                   </button>
                 </header>
                 <div className="settings-account-list">
@@ -11302,6 +11403,11 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow title="删除曲库数据库" description="比重建更硬：只归档并删除数据库文件，不主动创建新库；适合重建也失败或数据库文件被严重损坏时使用。">
                 <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleDeleteLibraryDatabase()}>
                   {dangerBusy ? '处理中...' : '删除曲库数据库'}
+                </button>
+              </SettingRow>
+              <SettingRow title="删除所有 ECHO 本地内容" description="清空设置、账号、插件、曲库数据库、缓存、日志、壁纸、保护快照和下载任务记录；不会主动删除音乐文件夹或下载输出目录。确认词：删除所有内容">
+                <button className="settings-danger-button" type="button" disabled={dangerBusy} onClick={() => void handleDeleteAllUserData()}>
+                  {dangerBusy ? '处理中...' : '删除所有内容'}
                 </button>
               </SettingRow>
               {dangerMessage ? <p className="settings-inline-note">{dangerMessage}</p> : null}

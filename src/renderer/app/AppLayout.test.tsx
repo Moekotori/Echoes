@@ -39,6 +39,19 @@ const routes: AppRoute[] = [
   },
 ];
 
+const routesWithHome: AppRoute[] = [
+  {
+    id: 'home',
+    label: 'Home',
+    labelKey: 'route.home.label',
+    description: 'Home',
+    icon: Music2,
+    placement: 'main',
+    element: <div>Home shell</div>,
+  },
+  ...routes,
+];
+
 const routesWithQueue: AppRoute[] = [
   routes[0],
   routes[1],
@@ -67,6 +80,61 @@ afterEach(() => {
 });
 
 describe('AppLayout standalone routes', () => {
+  it('starts on Home when a home route is available without mounting Songs', async () => {
+    window.localStorage.clear();
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={routesWithHome} />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByText('Home shell')).toBeTruthy();
+    expect(container.querySelector('[data-route-id="home"]')?.hasAttribute('hidden')).toBe(false);
+    expect(container.querySelector('[data-route-id="songs"]')).toBeNull();
+  });
+
+  it('mounts Songs lazily and keeps it mounted only after the first visit', async () => {
+    window.localStorage.clear();
+    const onSongsMount = vi.fn();
+    const onSongsUnmount = vi.fn();
+    const SongsProbe = (): JSX.Element => {
+      useEffect(() => {
+        onSongsMount();
+        return () => onSongsUnmount();
+      }, []);
+
+      return <div>Songs lazy probe</div>;
+    };
+    const localRoutes: AppRoute[] = [
+      routesWithHome[0],
+      {
+        ...routes[0],
+        element: <SongsProbe />,
+      },
+      routes[1],
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Home shell')).toBeTruthy());
+    expect(onSongsMount).not.toHaveBeenCalled();
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Songs' }));
+
+    await waitFor(() => expect(onSongsMount).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(onSongsUnmount).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-route-id="songs"]')?.hasAttribute('hidden')).toBe(true);
+  });
+
   it('lets upper-left chrome notices be closed manually', async () => {
     (window as unknown as { echo?: Window['echo'] }).echo = undefined;
 

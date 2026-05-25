@@ -36,6 +36,13 @@ export type LibraryDatabaseDeleteResult = {
   removedDatabaseFiles: string[];
 };
 
+export type LibraryAllUserDataDeleteResult = {
+  userDataPath: string;
+  coverCachePath: string | null;
+  removedPaths: string[];
+  failedPaths: Array<{ path: string; error: string }>;
+};
+
 export type LibraryDatabaseHealthStatus = 'ok' | 'corrupt' | 'unreadable';
 
 export type LibraryDatabaseHealthInfo = {

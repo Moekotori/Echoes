@@ -47,6 +47,7 @@ import type {
   ImportAudioFilesResult,
   ImportPathClassification,
   LibraryAlbum,
+  LibraryAllUserDataDeleteResult,
   LibraryAlbumDetail,
   LibraryAlbumTagUpdateRequest,
   LibraryArtist,
@@ -171,6 +172,8 @@ import type {
   PluginImportPackageResult,
   PluginListResult,
   PluginLogEntry,
+  PluginMetadataLookupRequest,
+  PluginMetadataLookupResult,
   PluginRunCommandRequest,
   PluginSummary,
 } from '../shared/types/plugins';
@@ -414,6 +417,7 @@ export type EchoApi = {
     clearCache: () => Promise<LibraryCacheClearResult>;
     repairDatabase: () => Promise<LibraryDatabaseRepairResult>;
     deleteDatabase: () => Promise<LibraryDatabaseDeleteResult>;
+    deleteAllUserData: () => Promise<LibraryAllUserDataDeleteResult>;
     getDatabaseProtectionStatus: (options?: LibraryDatabaseProtectionStatusOptions) => Promise<LibraryDatabaseProtectionStatus>;
     createDatabaseSnapshot: () => Promise<LibraryDatabaseProtectionStatus>;
     restoreDatabaseSnapshot: (snapshotId: string) => Promise<LibraryDatabaseRestoreResult>;
@@ -657,6 +661,7 @@ export type EchoApi = {
     exportPackage: (pluginId: string) => Promise<string | null>;
     importPackage: () => Promise<PluginImportPackageResult | null>;
     runCommand: (request: PluginRunCommandRequest) => Promise<unknown>;
+    queryMetadata: (request: PluginMetadataLookupRequest) => Promise<PluginMetadataLookupResult>;
     getLogs: (pluginId?: string) => Promise<PluginLogEntry[]>;
   };
   accounts: {

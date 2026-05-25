@@ -192,8 +192,127 @@ const patchNodeLibraopWindowsBuild = (openSslRoot) => {
     writeFileSync(platformPath, platform, 'utf8');
   }
 
+  const addonPath = join(packageRoot, 'native', 'addon.cc');
+  let addon = readFileSync(addonPath, 'utf8');
+  addon = addon.replace(/\bcase RAOP_PCM:/g, 'case RAOP_RECEIVER_PCM:');
+  if (addon.includes('#ifdef RAOP_PCM')) {
+    addon = addon.replace(
+      [
+        '#ifdef RAOP_PCM',
+        '    case RAOP_RECEIVER_PCM: {',
+      ].join('\n'),
+      '    case RAOP_RECEIVER_PCM: {',
+    );
+    addon = addon.replace(
+      [
+        '      break;',
+        '    }',
+        '#endif',
+        '    default:',
+      ].join('\n'),
+      [
+        '      break;',
+        '    }',
+        '    default:',
+      ].join('\n'),
+    );
+  }
+  writeFileSync(addonPath, addon, 'utf8');
+
+  const serverHeaderPath = join(packageRoot, 'vendor', 'libraop', 'src', 'raop_server.h');
+  let serverHeader = readFileSync(serverHeaderPath, 'utf8');
+  serverHeader = serverHeader.replace(/\bRAOP_PCM\b/g, 'RAOP_RECEIVER_PCM');
+  if (!serverHeader.includes('RAOP_RECEIVER_PCM')) {
+    serverHeader = serverHeader.replace(
+      'typedef enum { RAOP_STREAM, RAOP_PLAY, RAOP_FLUSH, RAOP_PAUSE, RAOP_STOP, RAOP_VOLUME, RAOP_METADATA, RAOP_ARTWORK } raopsr_event_t ;',
+      'typedef enum { RAOP_STREAM, RAOP_PLAY, RAOP_FLUSH, RAOP_PAUSE, RAOP_STOP, RAOP_VOLUME, RAOP_METADATA, RAOP_ARTWORK, RAOP_RECEIVER_PCM } raopsr_event_t ;',
+    );
+  }
+  writeFileSync(serverHeaderPath, serverHeader, 'utf8');
+
+  const streamerHeaderPath = join(packageRoot, 'vendor', 'libraop', 'src', 'raop_streamer.h');
+  let streamerHeader = readFileSync(streamerHeaderPath, 'utf8');
+  if (!streamerHeader.includes('RAOP_STREAMER_PCM')) {
+    streamerHeader = streamerHeader
+      .replace(
+        'typedef enum { RAOP_STREAMER_PLAY } raopst_event_t;',
+        'typedef enum { RAOP_STREAMER_PLAY, RAOP_STREAMER_PCM } raopst_event_t;',
+      )
+      .replace(
+        'typedef\tvoid (*raopst_cb_t)(void *owner, raopst_event_t event);',
+        'typedef\tvoid (*raopst_cb_t)(void *owner, raopst_event_t event, ...);',
+      );
+    writeFileSync(streamerHeaderPath, streamerHeader, 'utf8');
+  }
+
+  const streamerPath = join(packageRoot, 'vendor', 'libraop', 'src', 'raop_streamer.c');
+  let streamer = readFileSync(streamerPath, 'utf8');
+  if (!streamer.includes('RAOP direct PCM frame')) {
+    streamer = streamer.replace(
+      [
+        '\t\t// just discard all silences frames at the beginning (might be an iOS flush + silence)',
+        '\t\tif (silence && ctx->ab_write - ctx->ab_read > 1) ctx->audio_buffer[BUFIDX(ctx->ab_read++)].ready = false;',
+        '',
+        '\t\tif (ctx->state == RTP_PLAY && ctx->silence && !silence) {',
+      ].join('\n'),
+      [
+        '\t\t// just discard all silences frames at the beginning (might be an iOS flush + silence)',
+        '\t\tif (silence && ctx->ab_write - ctx->ab_read > 1) ctx->audio_buffer[BUFIDX(ctx->ab_read++)].ready = false;',
+        '',
+        '\t\tif (ctx->state == RTP_PLAY && abuf->len > 0) {',
+        '\t\t\tLOG_SDEBUG("[%p]: RAOP direct PCM frame %d bytes", ctx, abuf->len);',
+        '\t\t\tctx->event_cb(ctx->owner, RAOP_STREAMER_PCM, (uint8_t*) abuf->data, (size_t) abuf->len);',
+        '\t\t}',
+        '',
+        '\t\tif (ctx->state == RTP_PLAY && ctx->silence && !silence) {',
+      ].join('\n'),
+    );
+    writeFileSync(streamerPath, streamer, 'utf8');
+  }
+
   const serverPath = join(packageRoot, 'vendor', 'libraop', 'src', 'raop_server.c');
   let server = readFileSync(serverPath, 'utf8');
+  server = server.replace(/\bRAOP_PCM\b/g, 'RAOP_RECEIVER_PCM');
+  if (!server.includes('#include <stdarg.h>')) {
+    server = server.replace('#include <string.h>\n', '#include <string.h>\n#include <stdarg.h>\n');
+  }
+  if (!server.includes('RAOP_STREAMER_PCM')) {
+    server = server.replace(
+      [
+        'static void event_cb(void *owner, raopst_event_t event) {',
+        '\traopsr_t *ctx = (raopsr_t*) owner;',
+        '',
+        '\tswitch(event) {',
+        '\t\tcase RAOP_STREAMER_PLAY:',
+        '\t\t\tctx->raop_cb(ctx->owner, RAOP_PLAY, (uint32_t) ctx->hport);',
+        '\t\t\t// in case of play after FLUSH, usually no metadata is re-sent',
+        '\t\t\tif (ctx->metadata.title) ctx->raop_cb(ctx->owner, RAOP_METADATA, &ctx->metadata);',
+        '\t\t\tbreak;',
+        '\t\tdefault:',
+      ].join('\n'),
+      [
+        'static void event_cb(void *owner, raopst_event_t event, ...) {',
+        '\traopsr_t *ctx = (raopsr_t*) owner;',
+        '',
+        '\tswitch(event) {',
+        '\t\tcase RAOP_STREAMER_PLAY:',
+        '\t\t\tctx->raop_cb(ctx->owner, RAOP_PLAY, (uint32_t) ctx->hport);',
+        '\t\t\t// in case of play after FLUSH, usually no metadata is re-sent',
+        '\t\t\tif (ctx->metadata.title) ctx->raop_cb(ctx->owner, RAOP_METADATA, &ctx->metadata);',
+        '\t\t\tbreak;',
+        '\t\tcase RAOP_STREAMER_PCM: {',
+        '\t\t\tva_list args;',
+        '\t\t\tva_start(args, event);',
+        '\t\t\tuint8_t *data = va_arg(args, uint8_t*);',
+        '\t\t\tsize_t len = va_arg(args, size_t);',
+        '\t\t\tif (data && len > 0) ctx->raop_cb(ctx->owner, RAOP_RECEIVER_PCM, data, len);',
+        '\t\t\tva_end(args);',
+        '\t\t\tbreak;',
+        '\t\t}',
+        '\t\tdefault:',
+      ].join('\n'),
+    );
+  }
   server = server.replace(
     'port.offset = rand() % port_range;',
     'port.offset = 0;',

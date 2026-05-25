@@ -27,6 +27,9 @@ const activePlaybackStates = new Set<AudioStatus['state']>(['loading', 'playing'
 const automixLateArmWindowSeconds = 60;
 const automixShortTrackArmRatio = 0.35;
 const automixBpmAnalysisStatusPollMs = 1500;
+const gaplessLosslessCodecs = new Set(['flac', 'wav', 'wave', 'alac', 'aiff', 'aif', 'pcm']);
+const gaplessLosslessExtensions = new Set(['flac', 'wav', 'wave', 'aiff', 'aif']);
+const dsdCodecs = new Set(['dsd', 'dsf', 'dff', 'sacd']);
 const clampPlaybackRate = (value: number): number => Math.max(0.5, Math.min(2, value));
 const normalizePlaybackSpeedMode = (value: unknown): PlaybackSpeedMode | null =>
   value === 'daycore' || value === 'speed' || value === 'nightcore' ? value : null;
@@ -280,6 +283,7 @@ const PlaybackQueueContext = createContext<PlaybackQueueContextValue | null>(nul
 const playbackModeMemoryKey = 'echo-next:playback-mode';
 const automixEnabledMemoryKey = 'echo-next:automix-enabled';
 const playbackQueueMemoryKey = 'echo-next:playback-queue';
+const automixTemporarilyDisabled = true;
 
 const defaultPlaybackModeMemory: PlaybackModeMemory = {
   isShuffleEnabled: false,
@@ -389,6 +393,10 @@ const writePlaybackModeMemory = (memory: PlaybackModeMemory): void => {
 };
 
 const readAutomixEnabledMemory = (): boolean => {
+  if (automixTemporarilyDisabled) {
+    return false;
+  }
+
   if (typeof window === 'undefined') {
     return false;
   }
@@ -402,7 +410,7 @@ const readAutomixEnabledMemory = (): boolean => {
 
 const writeAutomixEnabledMemory = (enabled: boolean): void => {
   try {
-    window.localStorage.setItem(automixEnabledMemoryKey, enabled ? 'true' : 'false');
+    window.localStorage.setItem(automixEnabledMemoryKey, enabled && !automixTemporarilyDisabled ? 'true' : 'false');
   } catch {
     // Automix is optional; storage failures should not block playback.
   }
@@ -475,7 +483,7 @@ const clearLegacyPlaybackMemory = (): void => {
 const readLegacyPlaybackSession = (): HydratedPlaybackSession => ({
   ...readPlaybackQueueMemory(),
   mode: readPlaybackModeMemory(),
-  automixEnabled: readAutomixEnabledMemory(),
+  automixEnabled: automixTemporarilyDisabled ? false : readAutomixEnabledMemory(),
 });
 
 const hasLegacyPlaybackSession = (session: HydratedPlaybackSession): boolean =>
@@ -485,7 +493,7 @@ const hasLegacyPlaybackSession = (session: HydratedPlaybackSession): boolean =>
   Boolean(session.lastPlayedTrack) ||
   session.mode.isShuffleEnabled ||
   session.mode.repeatMode !== 'off' ||
-  session.automixEnabled;
+  (!automixTemporarilyDisabled && session.automixEnabled);
 
 const isResumeMemory = (
   value: unknown,
@@ -535,7 +543,7 @@ const playbackSessionFromPersisted = (session: PersistedPlaybackSessionV1 | null
       isShuffleEnabled: session.mode?.isShuffleEnabled === true,
       repeatMode: isRepeatMode(session.mode?.repeatMode) ? session.mode.repeatMode : 'off',
     },
-    automixEnabled: session.mode?.automixEnabled === true,
+    automixEnabled: !automixTemporarilyDisabled && session.mode?.automixEnabled === true,
   };
 };
 
@@ -804,6 +812,54 @@ const createProbeFromTrack = (track: LibraryTrack, options: { durationSeconds?: 
   bpmConfidence: track.bpmConfidence,
   beatOffsetMs: track.beatOffsetMs,
 });
+
+const normalizeGaplessText = (value: string | null | undefined): string =>
+  (value ?? '').trim().toLocaleLowerCase();
+
+const getFileExtension = (filePath: string | null | undefined): string => {
+  const match = (filePath ?? '').toLocaleLowerCase().match(/\.([a-z0-9]+)(?:[?#].*)?$/);
+  return match?.[1] ?? '';
+};
+
+const isDsdTrack = (track: LibraryTrack): boolean => {
+  const codec = normalizeGaplessText(track.codec);
+  const extension = getFileExtension(track.path);
+  return dsdCodecs.has(codec) || dsdCodecs.has(extension);
+};
+
+const isGaplessLosslessTrack = (track: LibraryTrack): boolean => {
+  const codec = normalizeGaplessText(track.codec);
+  const extension = getFileExtension(track.path);
+  return gaplessLosslessCodecs.has(codec) || gaplessLosslessExtensions.has(extension);
+};
+
+const isLocalGaplessCandidate = (track: LibraryTrack): boolean =>
+  !isSpotifyTrack(track) &&
+  track.unavailable !== true &&
+  (track.mediaType === undefined || track.mediaType === 'local') &&
+  Boolean(track.path) &&
+  !isDsdTrack(track) &&
+  isGaplessLosslessTrack(track);
+
+const isGaplessAlbumAdjacent = (current: LibraryTrack, next: LibraryTrack): boolean => {
+  const currentAlbum = normalizeGaplessText(current.album);
+  const nextAlbum = normalizeGaplessText(next.album);
+  const currentAlbumArtist = normalizeGaplessText(current.albumArtist || current.artist);
+  const nextAlbumArtist = normalizeGaplessText(next.albumArtist || next.artist);
+  if (!currentAlbum || !nextAlbum || currentAlbum !== nextAlbum || currentAlbumArtist !== nextAlbumArtist) {
+    return false;
+  }
+
+  const currentTrackNo = Number(current.trackNo);
+  const nextTrackNo = Number(next.trackNo);
+  if (!Number.isInteger(currentTrackNo) || !Number.isInteger(nextTrackNo) || currentTrackNo <= 0 || nextTrackNo <= 0) {
+    return false;
+  }
+
+  const currentDiscNo = Number.isInteger(Number(current.discNo)) && Number(current.discNo) > 0 ? Number(current.discNo) : 1;
+  const nextDiscNo = Number.isInteger(Number(next.discNo)) && Number(next.discNo) > 0 ? Number(next.discNo) : 1;
+  return currentDiscNo === nextDiscNo && nextTrackNo === currentTrackNo + 1;
+};
 
 const statusForPlaybackFailure = (track: LibraryTrack): PlaybackStatus => ({
   state: 'error',
@@ -1102,8 +1158,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       setIsShuffleEnabled(session.mode.isShuffleEnabled);
       repeatModeRef.current = session.mode.repeatMode;
       setRepeatMode(session.mode.repeatMode);
-      automixEnabledRef.current = session.automixEnabled;
-      setAutomixEnabledState(session.automixEnabled);
+      const hydratedAutomixEnabled = automixTemporarilyDisabled ? false : session.automixEnabled;
+      automixEnabledRef.current = hydratedAutomixEnabled;
+      setAutomixEnabledState(hydratedAutomixEnabled);
     },
     [setCurrentQueueId, setCurrentTrackIdInternal, setHistory, setItems, setLastPlayedTrack, setResumeMemory],
   );
@@ -1121,7 +1178,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         isShuffleEnabled: isShuffleEnabledRef.current,
         repeatMode: repeatModeRef.current,
       },
-      automixEnabled: automixEnabledRef.current,
+      automixEnabled: automixTemporarilyDisabled ? false : automixEnabledRef.current,
     }), []);
 
   const persistPlaybackSessionNow = useCallback(async (): Promise<void> => {
@@ -1647,14 +1704,22 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     };
   }, [getStableShuffleAutomixNextItem]);
 
-  const createGaplessOptions = useCallback((item: QueueItem): {
+  const createGaplessOptions = useCallback((item: QueueItem, output?: Pick<AudioOutputSettings, 'playbackRate'>): {
     enabled: boolean;
     nextItem: PlayableTrack | null;
     nextProbe?: ReturnType<typeof createProbeFromTrack>;
     upcomingItems?: PlayableTrack[];
     upcomingProbes?: ReturnType<typeof createProbeFromTrack>[];
   } | undefined => {
-    if (!gaplessPlaybackEnabledRef.current || automixEnabledRef.current || repeatModeRef.current === 'one' || isShuffleEnabledRef.current) {
+    const playbackRate = typeof output?.playbackRate === 'number' && Number.isFinite(output.playbackRate) ? output.playbackRate : 1;
+    if (
+      !gaplessPlaybackEnabledRef.current ||
+      automixEnabledRef.current ||
+      repeatModeRef.current === 'one' ||
+      isShuffleEnabledRef.current ||
+      Math.abs(playbackRate - 1) > 1e-6 ||
+      !isLocalGaplessCandidate(item.track)
+    ) {
       return undefined;
     }
 
@@ -1666,14 +1731,19 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         : index === current.length - 1 && repeatModeRef.current === 'all' && current.length > 1
           ? current[0]
           : null;
-    if (!next || isSpotifyTrack(item.track) || isSpotifyTrack(next.track)) {
+    if (!next || !isLocalGaplessCandidate(next.track) || !isGaplessAlbumAdjacent(item.track, next.track)) {
       return undefined;
     }
 
-    const upcoming = current
-      .slice(index + 2)
-      .filter((candidate) => !isSpotifyTrack(candidate.track))
-      .slice(0, 3);
+    const upcoming: QueueItem[] = [];
+    let previous = next;
+    for (const candidate of current.slice(index + 2)) {
+      if (upcoming.length >= 3 || !isLocalGaplessCandidate(candidate.track) || !isGaplessAlbumAdjacent(previous.track, candidate.track)) {
+        break;
+      }
+      upcoming.push(candidate);
+      previous = candidate;
+    }
 
     return {
       enabled: true,
@@ -1768,7 +1838,6 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       force: options.forceAutomix === true,
       includeUpcoming: options.automixIncludeUpcoming !== false,
     });
-    const gapless = automix ? undefined : createGaplessOptions(item);
     const silentRearm = options.silentRearm === true && options.forceAutomix === true;
     if (!silentRearm) {
       void finishPlaybackHistorySession();
@@ -1803,6 +1872,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         }
 
         const output = await resolvePlaybackSpeedOutput();
+        const gapless = automix ? undefined : createGaplessOptions(item, output);
         if (playRequestTokenRef.current !== requestToken) {
           throw new Error(playbackCancellationErrorMessage);
         }

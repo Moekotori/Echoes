@@ -35,6 +35,16 @@ const createNavIcon = (displayName: string, paths: ReactNode): LucideIcon => {
   return Icon as LucideIcon;
 };
 
+export const EchoHomeIcon = createNavIcon(
+  'EchoHomeIcon',
+  <>
+    <path d="M4.8 11.2 12 5.3l7.2 5.9" />
+    <path d="M6.6 10.3v7.2c0 .9.7 1.6 1.6 1.6h7.6c.9 0 1.6-.7 1.6-1.6v-7.2" />
+    <path d="M9.2 15.5c1.7-1.7 3.9-1.7 5.6 0" />
+    <path d="M10.9 17.1c.7-.6 1.5-.6 2.2 0" />
+  </>,
+);
+
 export const EchoSongsIcon = createNavIcon(
   'EchoSongsIcon',
   <>

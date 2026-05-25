@@ -33,7 +33,7 @@ describe('app settings normalization', () => {
     });
 
     expect(settings.coverCacheDir).toBeNull();
-    expect(settings.appearanceTheme).toBe('dark');
+    expect(settings.appearanceTheme).toBe('light');
     expect(settings.appearanceThemePreset).toBe('classic');
     expect(settings.appearanceThemePresetOverrides).toEqual({});
     expect(settings.appearanceCustomThemes).toEqual([]);
@@ -309,10 +309,10 @@ describe('app settings normalization', () => {
   it('normalizes appearance theme modes', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).appearanceTheme).toBe('dark');
+    expect(normalizeSettings({}).appearanceTheme).toBe('light');
     expect(normalizeSettings({ appearanceTheme: 'dark' }).appearanceTheme).toBe('dark');
     expect(normalizeSettings({ appearanceTheme: 'system' }).appearanceTheme).toBe('system');
-    expect(normalizeSettings({ appearanceTheme: 'midnight' as never }).appearanceTheme).toBe('dark');
+    expect(normalizeSettings({ appearanceTheme: 'midnight' as never }).appearanceTheme).toBe('light');
   });
 
   it('normalizes appearance theme presets', async () => {

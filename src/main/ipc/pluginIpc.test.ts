@@ -16,6 +16,7 @@ const serviceMock = {
   exportPluginPackage: vi.fn(async () => 'D:\\Echo\\plugins\\echo.playback-panel.echo-plugin.json'),
   importPluginPackage: vi.fn(async () => ({ pluginId: 'echo.playback-panel', directory: 'D:\\Echo\\plugins\\echo.playback-panel', importedFileCount: 2 })),
   runCommand: vi.fn(async () => ({ ok: true })),
+  queryMetadata: vi.fn(async () => ({ providers: [], candidates: [] })),
   getLogs: vi.fn(() => []),
 };
 
@@ -49,6 +50,7 @@ describe('plugin IPC', () => {
     expect(serviceMock.scheduleAutoStart).toHaveBeenCalledTimes(1);
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsList, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsRunCommand, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsQueryMetadata, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsImportPackage, expect.any(Function));
   });
 
@@ -61,6 +63,7 @@ describe('plugin IPC', () => {
     await expect(handlers[IpcChannels.PluginsExportPackage]!(null, 'echo.playback-panel')).resolves.toContain('echo.playback-panel');
     await expect(handlers[IpcChannels.PluginsImportPackage]!(null)).resolves.toMatchObject({ pluginId: 'echo.playback-panel' });
     await expect(handlers[IpcChannels.PluginsRunCommand]!(null, { pluginId: 'echo.playback-panel', commandId: 'show-status' })).resolves.toEqual({ ok: true });
+    await expect(handlers[IpcChannels.PluginsQueryMetadata]!(null, { track: { title: 'Song' } })).resolves.toEqual({ providers: [], candidates: [] });
     expect(handlers[IpcChannels.PluginsGetLogs]!(null, 'echo.playback-panel')).toEqual([]);
 
     expect(serviceMock.createExample).toHaveBeenCalledWith('playback-panel');
@@ -68,6 +71,7 @@ describe('plugin IPC', () => {
     expect(serviceMock.exportPluginPackage).toHaveBeenCalledWith('echo.playback-panel');
     expect(serviceMock.importPluginPackage).toHaveBeenCalledTimes(1);
     expect(serviceMock.runCommand).toHaveBeenCalledWith({ pluginId: 'echo.playback-panel', commandId: 'show-status' });
+    expect(serviceMock.queryMetadata).toHaveBeenCalledWith({ track: { title: 'Song' } });
   });
 
   it('rejects malformed plugin IPC payloads before reaching the service', () => {
@@ -76,5 +80,6 @@ describe('plugin IPC', () => {
     expect(() => handlers[IpcChannels.PluginsDisable]!(null, '')).toThrow('pluginId must be a non-empty string');
     expect(() => handlers[IpcChannels.PluginsExportPackage]!(null, '')).toThrow('pluginId must be a non-empty string');
     expect(() => handlers[IpcChannels.PluginsRunCommand]!(null, null)).toThrow('plugin command request must be an object');
+    expect(() => handlers[IpcChannels.PluginsQueryMetadata]!(null, null)).toThrow('plugin metadata request must be an object');
   });
 });

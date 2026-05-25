@@ -8,6 +8,7 @@ import type {
   LibraryDatabaseProtectionStatus,
   LibraryDatabaseRepairResult,
   LibraryDatabaseRestoreResult,
+  LibraryAllUserDataDeleteResult,
   LibraryHealthReport,
 } from '../../shared/types/library';
 import type { RemoteBackgroundGlobalStatus, RemoteSource } from '../../shared/types/remoteSources';
@@ -67,6 +68,10 @@ const databaseManagerMock = vi.hoisted(() => ({
     protectionRecoveryAction: null,
   })),
   runExclusiveMaintenance: vi.fn((_reason: string, action: () => unknown) => Promise.resolve().then(action)),
+}));
+const downloadServiceMock = vi.hoisted(() => ({
+  dispose: vi.fn(),
+  getSettings: vi.fn(() => ({ outputDirectory: null })),
 }));
 const appSettingsMock = vi.hoisted(() => ({
   current: {
@@ -160,6 +165,10 @@ vi.mock('../app/appSettings', () => ({
 
 vi.mock('../database/LibraryDatabaseManager', () => ({
   getLibraryDatabaseManager: () => databaseManagerMock,
+}));
+
+vi.mock('../downloads/DownloadService', () => ({
+  getDownloadService: () => downloadServiceMock,
 }));
 
 const resetHandlers = (): void => {
@@ -608,6 +617,9 @@ describe('library IPC', () => {
     databaseManagerMock.getState.mockClear();
     databaseManagerMock.runExclusiveMaintenance.mockClear();
     databaseManagerMock.runExclusiveMaintenance.mockImplementation((_reason: string, action: () => unknown) => Promise.resolve().then(action));
+    downloadServiceMock.dispose.mockReset();
+    downloadServiceMock.getSettings.mockReset();
+    downloadServiceMock.getSettings.mockReturnValue({ outputDirectory: null });
     osuArchiveImportMock.importOsuArchiveAsMp3Queued.mockClear();
     const { app } = await import('electron');
     vi.mocked(app.getPath).mockImplementation((name: string) => (name === 'downloads' ? 'D:\\Downloads' : 'D:\\UserData'));
@@ -1464,6 +1476,39 @@ describe('library IPC', () => {
     expect(result.archivePath).toBeTruthy();
     expect(existsSync(join(result.archivePath!, 'echo-library.sqlite'))).toBe(true);
     expect(existsSync(join(root, 'echo-library.sqlite'))).toBe(false);
+    expect(closeDatabaseUserMocks.lyrics).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseUserMocks.mv).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseUserMocks.streaming).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseUserMocks.remote).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseUserMocks.library).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes all ECHO user data and external cover cache contents after closing database users', async () => {
+    const root = makeTempRoot();
+    const externalCoverCache = makeTempRoot();
+    const { app } = await import('electron');
+    vi.mocked(app.getPath).mockImplementation((name: string) => (name === 'downloads' ? 'D:\\Downloads' : root));
+    mkdirSync(join(root, 'plugins'), { recursive: true });
+    mkdirSync(join(root, 'cover-cache'), { recursive: true });
+    writeFileSync(join(root, 'echo-settings.json'), '{}\n', 'utf8');
+    writeFileSync(join(root, 'plugins', 'plugin-state.json'), '{}\n', 'utf8');
+    writeFileSync(join(root, 'cover-cache', 'cover.webp'), 'cover', 'utf8');
+    writeFileSync(join(externalCoverCache, 'external-cover.webp'), 'cover', 'utf8');
+    getLibraryServiceMock.mockReturnValue({
+      ...installLibraryService(),
+      getCoverCacheDir: () => externalCoverCache,
+    });
+
+    const result = await handlers[IpcChannels.LibraryDeleteAllUserData]!() as LibraryAllUserDataDeleteResult;
+
+    expect(result.userDataPath).toBe(root);
+    expect(result.coverCachePath).toBe(externalCoverCache);
+    expect(result.failedPaths).toEqual([]);
+    expect(existsSync(join(root, 'echo-settings.json'))).toBe(false);
+    expect(existsSync(join(root, 'plugins'))).toBe(false);
+    expect(existsSync(join(externalCoverCache, 'external-cover.webp'))).toBe(false);
+    expect(existsSync(externalCoverCache)).toBe(true);
+    expect(downloadServiceMock.dispose).toHaveBeenCalledTimes(1);
     expect(closeDatabaseUserMocks.lyrics).toHaveBeenCalledTimes(1);
     expect(closeDatabaseUserMocks.mv).toHaveBeenCalledTimes(1);
     expect(closeDatabaseUserMocks.streaming).toHaveBeenCalledTimes(1);

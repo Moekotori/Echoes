@@ -178,6 +178,8 @@ const readSuppressAccountExpiryNotices = (settings: Partial<AppSettings> | null 
   settings?.suppressAccountExpiryNotices === true;
 
 const readInitialRouteId = (routes: AppRoute[]): AppRouteId => {
+  const defaultRoute = routes.find((route) => route.id === 'home') ?? routes.find((route) => route.id === 'songs') ?? routes[0];
+
   try {
     const pendingRoute = window.localStorage.getItem(pendingRouteStorageKey);
     if (pendingRoute && routes.some((route) => route.id === pendingRoute)) {
@@ -185,10 +187,10 @@ const readInitialRouteId = (routes: AppRoute[]): AppRouteId => {
       return pendingRoute as AppRouteId;
     }
   } catch {
-    // Fall back to the normal songs entrypoint when localStorage is unavailable.
+    // Fall back to the normal entrypoint when localStorage is unavailable.
   }
 
-  return 'songs';
+  return defaultRoute?.id ?? 'songs';
 };
 
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
@@ -240,7 +242,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     [activeRouteId, navigableRoutes, routes],
   );
   const [mountedPersistentRouteIds, setMountedPersistentRouteIds] = useState<AppRouteId[]>(() =>
-    persistentRouteIds.has(activeRouteId) ? [activeRouteId] : ['songs'],
+    persistentRouteIds.has(activeRouteId) ? [activeRouteId] : [],
   );
   const renderedRoutes = useMemo(() => {
     const activeRouteIds = new Set<AppRouteId>();
@@ -989,6 +991,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    const handleNavigateRoute = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      if (typeof detail !== 'string' || !routes.some((route) => route.id === detail)) {
+        return;
+      }
+
+      navigateRoute(detail as AppRouteId);
+    };
     const handleNavigateImportFolder = (): void => {
       navigateRoute('import-folder');
     };
@@ -1042,6 +1052,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       navigateRoute('artists');
     };
 
+    window.addEventListener('app:navigate:route', handleNavigateRoute);
     window.addEventListener('app:navigate:import-folder', handleNavigateImportFolder);
     window.addEventListener('app:navigate:songs', handleNavigateSongs);
     window.addEventListener('app:navigate:settings', handleNavigateSettings);
@@ -1053,6 +1064,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     window.addEventListener(albumDetailNavigationEvent, handleNavigateAlbumDetail);
     window.addEventListener(artistDetailNavigationEvent, handleNavigateArtistDetail);
     return () => {
+      window.removeEventListener('app:navigate:route', handleNavigateRoute);
       window.removeEventListener('app:navigate:import-folder', handleNavigateImportFolder);
       window.removeEventListener('app:navigate:songs', handleNavigateSongs);
       window.removeEventListener('app:navigate:settings', handleNavigateSettings);
@@ -1064,7 +1076,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       window.removeEventListener(albumDetailNavigationEvent, handleNavigateAlbumDetail);
       window.removeEventListener(artistDetailNavigationEvent, handleNavigateArtistDetail);
     };
-  }, [activeLyricsViewMode, activeRouteId, navigateRoute, setLyricsViewMode]);
+  }, [activeLyricsViewMode, activeRouteId, navigateRoute, routes, setLyricsViewMode]);
 
   useEffect(() => {
     const handleOpenAudioSettings = (): void => setIsAudioDrawerOpen(true);

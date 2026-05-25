@@ -744,6 +744,24 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ bufferSizeFrames: 128 }));
   });
 
+  it('clears manual ASIO buffer when a latency profile is selected', async () => {
+    const status = {
+      ...baseStatus,
+      outputMode: 'asio' as const,
+      outputBackend: 'asio',
+      latencyProfile: 'lowLatency' as const,
+      nativeRequestedBufferFrames: 256,
+      nativeActualBufferFrames: 256,
+    };
+    const setOutput = vi.fn().mockResolvedValue({ ...status, latencyProfile: 'balanced', nativeRequestedBufferFrames: 2048 });
+    renderDrawer(status, setOutput);
+    openBufferControls();
+
+    fireEvent.click(screen.getByRole('button', { name: /Balanced/ }));
+
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ latencyProfile: 'balanced', bufferSizeFrames: null }));
+  });
+
   it('recovers controls after an ASIO output switch fails', async () => {
     const sharedStatus = {
       ...baseStatus,

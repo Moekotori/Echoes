@@ -301,7 +301,7 @@ export class LibraryService {
 
   rescanEmbeddedTags(mode: Exclude<NonNullable<LibraryScanOptions['mode']>, 'normal'>): LibraryScanStatus[] {
     const folders = this.getFolders();
-    return folders.map((folder) => this.scanFolder(folder.id, { mode }));
+    return folders.map((folder) => this.scanJobQueue.scanStoredTracks(folder, { mode }));
   }
 
   getScanStatus(jobId: string): LibraryScanStatus {

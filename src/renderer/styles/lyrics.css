@@ -42,20 +42,25 @@
   z-index: 0;
   background:
     radial-gradient(
-      circle at 72% 26%,
-      rgba(199, 216, 232, 0.34),
+      ellipse at 70% 22%,
+      rgba(255, 255, 255, 0.82),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 18% 84%,
+      rgba(75, 85, 232, 0.1),
       transparent 34%
     ),
     radial-gradient(
-      circle at 21% 16%,
-      rgba(122, 160, 198, 0.28),
+      circle at 82% 82%,
+      rgba(160, 164, 170, 0.2),
       transparent 36%
     ),
     linear-gradient(
       180deg,
-      #eef3f7 0%,
-      #e7edf3 48%,
-      #dfe6ee 100%
+      #fbfbfc 0%,
+      #f4f4f6 52%,
+      #ebecef 100%
     );
   pointer-events: none;
 }
@@ -78,16 +83,17 @@
   inset: 0;
   z-index: 1;
   background:
-    linear-gradient(
-      90deg,
-      rgba(232, 238, 245, 0.88),
-      rgba(232, 238, 245, 0.72) 56%,
-      rgba(232, 238, 245, 0.9)
+    radial-gradient(
+      ellipse at 50% 42%,
+      rgba(255, 255, 255, 0.68),
+      rgba(255, 255, 255, 0.34) 34%,
+      transparent 64%
     ),
     linear-gradient(
       180deg,
-      var(--theme-legacy-white-a14),
-      rgba(211, 222, 234, 0.24)
+      rgba(255, 255, 255, 0.08),
+      rgba(238, 239, 242, 0.34) 72%,
+      rgba(231, 232, 236, 0.66)
     );
   content: "";
   opacity: var(--lyrics-background-surface-alpha);
@@ -2670,6 +2676,30 @@ html[data-theme="dark"] .lyrics-queue-drag-handle {
   background: none;
 }
 
+html[data-theme="light"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop,
+html:not([data-theme="dark"]) .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop {
+  background:
+    radial-gradient(ellipse at 18% 84%, rgba(75, 85, 232, 0.1), transparent 34%),
+    radial-gradient(ellipse at 82% 78%, rgba(116, 121, 135, 0.16), transparent 38%),
+    radial-gradient(ellipse at 50% 38%, rgba(255, 255, 255, 0.86), transparent 48%),
+    linear-gradient(180deg, #fbfbfc 0%, #f5f5f6 48%, #ebecef 100%);
+}
+
+html[data-theme="light"] .lyrics-page[data-background="theme"]:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop::after,
+html:not([data-theme="dark"]) .lyrics-page[data-background="theme"]:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop::after {
+  filter: blur(96px) brightness(1.08) saturate(0.96);
+  opacity: 0.2;
+  transform: scale(1.18);
+}
+
+html[data-theme="light"] .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop::before,
+html:not([data-theme="dark"]) .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-backdrop::before {
+  background:
+    radial-gradient(ellipse at 50% 43%, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.38) 34%, transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(238, 239, 242, 0.28) 72%, rgba(232, 233, 236, 0.7));
+  opacity: 1;
+}
+
 .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-left-panel {
   grid-column: 1;
   grid-row: 1;
@@ -2702,7 +2732,14 @@ html[data-theme="dark"] .lyrics-queue-drag-handle {
   width: min(100%, 1380px);
   align-self: stretch;
   justify-self: center;
-  padding: clamp(86px, 15vh, 156px) clamp(24px, 7vw, 150px) clamp(48px, 8vh, 96px);
+  padding: clamp(92px, 16vh, 166px) clamp(24px, 7vw, 150px) clamp(56px, 9vh, 108px);
+  border-inline: 1px solid rgba(38, 40, 46, 0.035);
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34) 16%, rgba(255, 255, 255, 0.46) 50%, rgba(255, 255, 255, 0.34) 84%, transparent),
+    radial-gradient(ellipse at 50% 46%, rgba(255, 255, 255, 0.5), transparent 56%);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.58),
+    inset -1px 0 0 rgba(255, 255, 255, 0.46);
   transform: none;
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -2744,11 +2781,14 @@ html[data-theme="dark"] .lyrics-queue-drag-handle {
   align-items: start;
   gap: clamp(6px, 0.8vw, 12px);
   padding: 6px clamp(26px, 4vw, 62px) 44px clamp(18px, 3.4vw, 52px);
-  border-top: 1px solid rgba(40, 46, 54, 0.06);
-  background: #f7f8fa;
+  border-top: 1px solid rgba(38, 40, 46, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(250, 250, 251, 0.86)),
+    rgba(245, 246, 248, 0.72);
   box-shadow:
-    0 -22px 50px rgba(35, 40, 48, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+    0 -28px 64px rgba(36, 39, 48, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px) saturate(1.04);
   transform: none;
 }
 
@@ -2758,12 +2798,13 @@ html[data-theme="dark"] .lyrics-queue-drag-handle {
   justify-self: start;
   margin-top: calc(clamp(88px, 12vh, 132px) * -1);
   color: var(--theme-muted-text);
-  border: 8px solid var(--theme-legacy-surface-a92);
-  border-radius: 4px;
+  border: 7px solid rgba(255, 255, 255, 0.92);
+  border-radius: 6px;
   background: #f9fafb;
   box-shadow:
-    0 28px 58px rgba(30, 37, 47, 0.18),
-    inset 0 0 0 1px rgba(29, 29, 31, 0.05);
+    0 30px 72px rgba(30, 37, 47, 0.2),
+    0 0 0 1px rgba(38, 40, 46, 0.06),
+    inset 0 0 0 1px rgba(29, 29, 31, 0.04);
 }
 
 .lyrics-page:has(.lyrics-mv-panel[data-mv-enabled="false"]) .lyrics-track-copy {

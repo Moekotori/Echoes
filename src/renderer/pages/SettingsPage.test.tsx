@@ -678,7 +678,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    const row = screen.getByText('首次启动指引').closest('.setting-row') as HTMLElement;
+    const row = screen.getByText('settings.general.firstRunWizard.title').closest('.setting-row') as HTMLElement;
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ onboardingCompleted: false }));
@@ -1623,7 +1623,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
 
-    const gaplessRow = screen.getByText('真无缝播放').closest('.setting-row') as HTMLElement;
+    const gaplessRow = screen.getByText('专辑无缝播放').closest('.setting-row') as HTMLElement;
     fireEvent.click(within(gaplessRow).getByRole('button'));
 
     const row = screen.getByText('音量标准化').closest('.setting-row') as HTMLElement;

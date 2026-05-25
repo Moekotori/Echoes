@@ -283,23 +283,23 @@ html[data-theme="light"][data-theme-preset="matchaCream"] {
 }
 
 html[data-theme="light"][data-theme-custom="true"][data-theme-preset="classic"] {
-  --preset-app-bg: #f8fbfd;
-  --preset-app-bg-2: #eef3f7;
-  --preset-app-bg-3: #dfe8f2;
+  --preset-app-bg: #f6f6f7;
+  --preset-app-bg-2: #edeef0;
+  --preset-app-bg-3: #e6e7ea;
   --preset-panel-rgb: 255 255 255;
-  --preset-soft-rgb: 239 245 252;
-  --preset-border-rgb: 40 62 88;
-  --preset-shadow-rgb: 31 47 69;
-  --preset-text: #32455d;
-  --preset-heading: #1c2735;
-  --preset-muted: #65758a;
-  --preset-subtle: #8b98a8;
-  --preset-accent: #2f6da8;
-  --preset-accent-strong: #164b7d;
-  --preset-accent-rgb: 47 109 168;
-  --preset-secondary: #42b3a8;
-  --preset-secondary-rgb: 66 179 168;
-  --preset-success-text: #276b65;
+  --preset-soft-rgb: 239 240 242;
+  --preset-border-rgb: 38 40 46;
+  --preset-shadow-rgb: 36 39 48;
+  --preset-text: #2d3036;
+  --preset-heading: #1e2025;
+  --preset-muted: #6c7179;
+  --preset-subtle: #a0a4aa;
+  --preset-accent: #4b55e8;
+  --preset-accent-strong: #3239c7;
+  --preset-accent-rgb: 75 85 232;
+  --preset-secondary: #727987;
+  --preset-secondary-rgb: 114 121 135;
+  --preset-success-text: #566a5d;
   --preset-on-accent: #ffffff;
 }
 

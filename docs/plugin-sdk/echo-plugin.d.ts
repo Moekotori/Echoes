@@ -69,6 +69,47 @@ type EchoPluginTrack = Partial<Record<EchoPluginTrackField, unknown>> & {
   unavailable?: boolean;
 };
 
+type EchoPluginMetadataLookupTrack = {
+  id?: string;
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  duration?: number;
+};
+
+type EchoPluginMetadataLookupRequest = {
+  track: EchoPluginMetadataLookupTrack;
+  provider?: {
+    pluginId: string;
+    providerId: string;
+  };
+};
+
+type EchoPluginMetadataCandidate = {
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  genre?: string;
+  year?: number;
+  trackNo?: number;
+  discNo?: number;
+  bpm?: number;
+  confidence?: number;
+  source?: string;
+  sourceUrl?: string;
+};
+
+type EchoPluginMetadataProviderResult = {
+  candidates?: EchoPluginMetadataCandidate[];
+};
+
+type EchoPluginMetadataProviderOptions = {
+  title?: string;
+  description?: string;
+};
+
 type EchoPluginTrackQuery = {
   page?: number;
   pageSize?: number;
@@ -99,6 +140,7 @@ type EchoPluginCommandOptions = {
  * - command results are limited to 256 KB serialized JSON
  * - commands time out after 2 seconds
  * - async event handlers that exceed 2 seconds are logged as timeouts
+ * - metadata providers return candidates only; the host decides whether and how to apply them
  * - plugins do not get Node, Electron, SQLite, app DOM, decoder, DSP, or output access
  */
 type EchoPluginApi = {
@@ -110,6 +152,10 @@ type EchoPluginApi = {
   commands: {
     register(commandId: string, handler: (...args: unknown[]) => unknown): void;
     register(commandId: string, options: EchoPluginCommandOptions, handler: (...args: unknown[]) => unknown): void;
+  };
+  metadata: {
+    registerProvider(providerId: string, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginMetadataProviderResult | Promise<EchoPluginMetadataProviderResult>): void;
+    registerProvider(providerId: string, options: EchoPluginMetadataProviderOptions, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginMetadataProviderResult | Promise<EchoPluginMetadataProviderResult>): void;
   };
   playback: {
     getStatus(): Promise<EchoPlaybackStatus>;

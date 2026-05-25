@@ -255,11 +255,11 @@ describe('theme preferences', () => {
     expect(mediaQuery.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));
   });
 
-  it('falls back to dark for invalid theme values', () => {
+  it('falls back to light for invalid theme values', () => {
     applyThemeMode('sepia' as never);
 
-    expect(document.documentElement.dataset.themeMode).toBe('dark');
-    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.dataset.themeMode).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
     expect(document.documentElement.dataset.themePreset).toBe('classic');
   });
 

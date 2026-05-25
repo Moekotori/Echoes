@@ -1666,6 +1666,36 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-cover")).toBe(`url("${coverUrl}")`);
   });
 
+  it("upgrades proxied streaming thumbnails before using them as the cover-following lyrics background", async () => {
+    const track = makeTrack({
+      mediaType: "streaming",
+      provider: "netease",
+      providerTrackId: "netease-track-1",
+      coverId: null,
+      coverThumb: "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg%3Fparam%3D160y160?referer=https%3A%2F%2Fmusic.163.com%2F",
+    });
+    mockEcho(track, 0, {
+      lyricsBackgroundMode: "cover",
+      lyricsHighResolutionNetworkCoverEnabled: false,
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Test Song" });
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+    const upgradedCoverUrl = "echo-image://remote/https%3A%2F%2Fp.music.126.net%2Fcover.jpg?referer=https%3A%2F%2Fmusic.163.com%2F";
+
+    expect(container.querySelector(".lyrics-track-cover img")?.getAttribute("src")).toBe(upgradedCoverUrl);
+    expect(page.dataset.background).toBe("cover");
+    expect(page.style.getPropertyValue("--lyrics-cover")).toBe(`url("${upgradedCoverUrl}")`);
+  });
+
   it("uses a high resolution network cover for cover-following lyrics background when available", async () => {
     const track = makeTrack({ coverId: "cover 1" });
     mockEcho(track, 0, {
@@ -1916,6 +1946,31 @@ describe("LyricsPage", () => {
   it("hides smart lyrics alignment when disabled", async () => {
     const track = makeTrack();
     mockEcho(track, 0, { lyricsSmartAlignmentEnabled: false });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics()),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("First line")).toBeTruthy();
+    expect(container.querySelector(".lyrics-smart-alignment")).toBeNull();
+  });
+
+  it("keeps smart lyrics alignment controls hidden unless per-track offset controls are enabled", async () => {
+    const track = makeTrack();
+    mockEcho(track, 0, { lyricsSmartAlignmentEnabled: true, lyricsOffsetControlsEnabled: false });
     window.echo.lyrics = {
       getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics()),
       searchCandidates: vi.fn().mockResolvedValue([]),

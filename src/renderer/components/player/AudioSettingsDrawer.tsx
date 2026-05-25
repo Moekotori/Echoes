@@ -1277,7 +1277,9 @@ export const AudioSettingsDrawer = ({
         currentBufferSizeFrames,
       );
 
-      if (
+      if (nextOutputMode === 'asio') {
+        settings.bufferSizeFrames = null;
+      } else if (
         latencyProfile === 'lowLatency' &&
         currentBufferSizeFrames !== null &&
         sanitizedBufferSizeFrames !== currentBufferSizeFrames

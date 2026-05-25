@@ -247,6 +247,19 @@ export class ScanJobQueue {
     return job;
   }
 
+  scanStoredTracks(folder: LibraryFolder, options: LibraryScanOptions = {}): LibraryScanStatus {
+    const job = this.store.createScanJob(folder.id);
+    const run = this.runStoredTracksJob(job.id, folder, options.mode ?? 'normal', options.deferGroupingRefresh === true).finally(async () => {
+      this.runningJobs.delete(job.id);
+      this.notifyScanSettled(job.id);
+      await this.recoverPendingDatabaseFailure(job.id);
+    });
+
+    this.runningJobs.set(job.id, run);
+
+    return job;
+  }
+
   getScanStatus(jobId: string): LibraryScanStatus {
     const job = this.store.getScanJob(jobId);
 
@@ -336,6 +349,59 @@ export class ScanJobQueue {
         totalFiles: files.length,
         errors,
       });
+      await this.runFilesJob(jobId, folder, files, mode, progress, errors, false, deferGroupingRefresh);
+    } catch (error) {
+      this.finishFailedOrCancelledJob(jobId, progress, errors, error, {
+        processedFiles: 0,
+        skippedFiles: 0,
+        addedTracks: 0,
+        updatedTracks: 0,
+        removedTracks: 0,
+        coverCount: 0,
+      });
+    }
+  }
+
+  private async runStoredTracksJob(
+    jobId: string,
+    folder: LibraryFolder,
+    mode: LibraryScanMode,
+    deferGroupingRefresh: boolean,
+  ): Promise<void> {
+    const progress = this.createProgressReporter(jobId);
+    const errors: string[] = [];
+
+    try {
+      progress.flushNow({
+        status: 'running',
+        phase: 'discovering',
+        startedAt: new Date().toISOString(),
+      });
+
+      await yieldToMainLoop();
+      const files = await this.collectStoredTrackRescanFiles(jobId, folder, mode, progress, errors);
+      progress.flushNow({
+        phase: 'discovering',
+        totalFiles: files.length,
+        errors,
+      });
+      if (files.length === 0) {
+        progress.flushNow({
+          status: 'completed',
+          phase: 'finished',
+          totalFiles: 0,
+          processedFiles: 0,
+          skippedFiles: 0,
+          addedTracks: 0,
+          updatedTracks: 0,
+          removedTracks: 0,
+          coverCount: 0,
+          errors,
+          finishedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
       await this.runFilesJob(jobId, folder, files, mode, progress, errors, false, deferGroupingRefresh);
     } catch (error) {
       this.finishFailedOrCancelledJob(jobId, progress, errors, error, {
@@ -901,6 +967,73 @@ export class ScanJobQueue {
     }
 
     return SCANNABLE_AUDIO_EXTENSIONS.has(extension);
+  }
+
+  private shouldRescanStoredTrack(mode: LibraryScanMode, state: StoredTrackCoverState): boolean {
+    if (mode === 'normal') {
+      return true;
+    }
+
+    if (mode === 'embedded-tags-all') {
+      return true;
+    }
+
+    return this.isMissingOrDefaultCover(state);
+  }
+
+  private async collectStoredTrackRescanFiles(
+    jobId: string,
+    folder: LibraryFolder,
+    mode: LibraryScanMode,
+    progress: ScanProgressReporter,
+    errors: string[],
+  ): Promise<ScannedAudioFile[]> {
+    const files: ScannedAudioFile[] = [];
+    const states = this.store.getTrackCacheStatesByFolder(folder.id);
+    let checkedFiles = 0;
+
+    for (const [trackPath, state] of states) {
+      this.throwIfCancelled(jobId);
+      checkedFiles += 1;
+
+      if (!this.shouldRescanStoredTrack(mode, state)) {
+        if (checkedFiles % cacheCheckYieldFileDelta === 0) {
+          await yieldToMainLoop();
+        }
+        continue;
+      }
+
+      const normalizedTrackPath = resolve(trackPath);
+      const physicalPath = resolve(this.resolvePhysicalAudioPath(normalizedTrackPath));
+      if (!this.isPathInsideFolder(folder.path, physicalPath) || !this.isLocalRescanCandidate(physicalPath)) {
+        continue;
+      }
+
+      try {
+        const fileStat = statSync(physicalPath);
+        if (fileStat.isFile()) {
+          files.push({
+            path: normalizedTrackPath,
+            folderId: folder.id,
+            sizeBytes: fileStat.size,
+            mtimeMs: Math.round(fileStat.mtimeMs),
+          });
+        }
+      } catch (error) {
+        errors.push(`${normalizedTrackPath}: scanner: file_stat: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
+      }
+
+      if (checkedFiles % cacheCheckYieldFileDelta === 0) {
+        progress.update({
+          phase: 'discovering',
+          totalFiles: files.length,
+          errors,
+        });
+        await yieldToMainLoop();
+      }
+    }
+
+    return files;
   }
 
   private isPathInsideFolder(folderPath: string, filePath: string): boolean {

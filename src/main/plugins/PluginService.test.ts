@@ -391,4 +391,118 @@ describe('PluginService', () => {
     expect(summary.security.limitedPermissions).toEqual(['fs:plugin']);
     expect(summary.security.highRiskPermissions).toEqual(['network', 'library:write']);
   });
+
+  it('registers metadata providers and returns bounded candidates without writing library data', async () => {
+    const manifest: PluginManifest = {
+      id: 'echo.metadata-provider',
+      name: 'Metadata Provider',
+      version: '0.0.1',
+      apiVersion: 1,
+      entry: 'plugin.js',
+      permissions: ['library:read'],
+      contributes: {
+        metadataProviders: [{ id: 'tags', title: 'Tag Helper' }],
+      },
+    };
+    writePlugin(pluginRoot, manifest, [
+      "echo.metadata.registerProvider('tags', { title: 'Tag Helper' }, async ({ track }) => ({",
+      '  candidates: [{',
+      "    title: `${track.title} Remastered`,",
+      "    artist: 'Plugin Artist',",
+      "    album: 'Plugin Album',",
+      "    genre: 'Plugin Genre',",
+      '    year: 2026,',
+      '    trackNo: 9999,',
+      '    confidence: 2,',
+      "    ignored: 'nope'",
+      '  }]',
+      '}));',
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.metadata-provider', trustedPermissions: ['library:read'] });
+
+    const result = await service.queryMetadata({ track: { id: 'track-1', title: 'Song', artist: 'Artist', duration: 180 } });
+
+    expect(result.providers).toEqual([{ id: 'tags', title: 'Tag Helper', pluginId: 'echo.metadata-provider' }]);
+    expect(result.candidates).toEqual([{
+      title: 'Song Remastered',
+      artist: 'Plugin Artist',
+      album: 'Plugin Album',
+      genre: 'Plugin Genre',
+      year: 2026,
+      trackNo: 999,
+      confidence: 1,
+      pluginId: 'echo.metadata-provider',
+      providerId: 'tags',
+    }]);
+    const summary = service.list().plugins[0];
+    expect(summary.security.metadataProviderCount).toBe(1);
+    expect(summary.metadataProviders).toEqual([{ id: 'tags', title: 'Tag Helper', pluginId: 'echo.metadata-provider' }]);
+    expect(mocks.getTracksMock).not.toHaveBeenCalled();
+  });
+
+  it('can query one metadata provider without invoking the others', async () => {
+    const manifest: PluginManifest = {
+      id: 'echo.metadata-filter',
+      name: 'Metadata Filter',
+      version: '0.0.1',
+      apiVersion: 1,
+      entry: 'plugin.js',
+      permissions: ['library:read'],
+    };
+    writePlugin(pluginRoot, manifest, [
+      "echo.metadata.registerProvider('first', () => ({ candidates: [{ title: 'First' }] }));",
+      "echo.metadata.registerProvider('second', () => { throw new Error('second should not run'); });",
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.metadata-filter', trustedPermissions: ['library:read'] });
+
+    await expect(service.queryMetadata({
+      track: { title: 'Song' },
+      provider: { pluginId: 'echo.metadata-filter', providerId: 'first' },
+    })).resolves.toMatchObject({
+      providers: [{ id: 'first', title: 'first', pluginId: 'echo.metadata-filter' }],
+      candidates: [{ title: 'First', pluginId: 'echo.metadata-filter', providerId: 'first' }],
+    });
+    expect(service.getLogs('echo.metadata-filter').some((entry) => entry.message.includes('second should not run'))).toBe(false);
+  });
+
+  it('requires library read permission and logs metadata provider timeout failures', async () => {
+    const noPermissionManifest: PluginManifest = {
+      id: 'echo.metadata-denied',
+      name: 'Metadata Denied',
+      version: '0.0.1',
+      apiVersion: 1,
+      entry: 'plugin.js',
+      permissions: [],
+    };
+    writePlugin(pluginRoot, noPermissionManifest, [
+      "echo.metadata.registerProvider('denied', () => ({ candidates: [{ title: 'Nope' }] }));",
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.metadata-denied', trustedPermissions: [] });
+    await expect(service.queryMetadata({ track: { title: 'Song' } })).resolves.toEqual({ providers: [], candidates: [] });
+    expect(service.getLogs('echo.metadata-denied').some((entry) => entry.message.includes('plugin_permission_denied:library:read'))).toBe(true);
+
+    const timeoutManifest: PluginManifest = {
+      id: 'echo.metadata-timeout',
+      name: 'Metadata Timeout',
+      version: '0.0.1',
+      apiVersion: 1,
+      entry: 'plugin.js',
+      permissions: ['library:read'],
+    };
+    writePlugin(pluginRoot, timeoutManifest, [
+      "echo.metadata.registerProvider('slow', () => new Promise(() => undefined));",
+    ].join('\n'));
+    service.enable({ pluginId: 'echo.metadata-timeout', trustedPermissions: ['library:read'] });
+
+    const resultPromise = service.queryMetadata({ track: { title: 'Song' } });
+    await vi.advanceTimersByTimeAsync(2_500);
+    await expect(resultPromise).resolves.toMatchObject({
+      providers: [{ id: 'slow', title: 'slow', pluginId: 'echo.metadata-timeout' }],
+      candidates: [],
+    });
+    expect(service.getLogs('echo.metadata-timeout').some((entry) => entry.message.includes('plugin_metadata_provider_timeout'))).toBe(true);
+  });
 });

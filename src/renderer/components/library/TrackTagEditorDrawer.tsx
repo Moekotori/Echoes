@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Check, CloudDownload, Disc3, FileAudio, FileText, ImagePlus, ListChecks, RefreshCw, Save, Search, Tag, X } from 'lucide-react';
 import type { EditableTrackTags, LibraryTrack, NetworkTagCandidate, TrackCoverSelection } from '../../../shared/types/library';
 import type { LyricsEmbedToTrackResult, LyricsProviderId, LyricsSearchCandidate, TrackLyrics } from '../../../shared/types/lyrics';
+import type { PluginLogEntry, PluginMetadataLookupResult, PluginMetadataProvider } from '../../../shared/types/plugins';
 
 type TrackTagEditorDrawerProps = {
   track: LibraryTrack | null;
@@ -174,6 +175,49 @@ const formatAudioSummary = (track: LibraryTrack): string =>
     .filter(Boolean)
     .join(' / ') || '本地音频';
 
+const pluginMetadataCandidatesToNetworkCandidates = (
+  result: PluginMetadataLookupResult,
+  track: LibraryTrack,
+): NetworkTagCandidate[] =>
+  result.candidates.map((candidate, index) => ({
+    id: `plugin:${candidate.pluginId}:${candidate.providerId}:${index}`,
+    provider: 'mock',
+    confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.7,
+    title: candidate.title ?? track.title ?? '',
+    artist: candidate.artist ?? track.artist ?? '',
+    album: candidate.album ?? track.album ?? '',
+    albumArtist: candidate.albumArtist ?? track.albumArtist ?? '',
+    trackNo: candidate.trackNo ?? null,
+    discNo: candidate.discNo ?? null,
+    year: candidate.year ?? null,
+    genre: candidate.genre ?? null,
+    duration: track.duration ?? null,
+    coverUrl: null,
+    coverPreviewUrl: null,
+    coverMimeType: null,
+    raw: {
+      ...candidate,
+      pluginSourceLabel: candidate.source || `${candidate.pluginId}/${candidate.providerId}`,
+    },
+  }));
+
+const networkCandidateProviderLabel = (candidate: NetworkTagCandidate): string => {
+  const raw = candidate.raw;
+  if (raw && typeof raw === 'object' && 'pluginSourceLabel' in raw) {
+    const label = (raw as { pluginSourceLabel?: unknown }).pluginSourceLabel;
+    if (typeof label === 'string' && label.trim()) {
+      return label;
+    }
+  }
+
+  return candidate.provider;
+};
+
+const pluginMetadataProviderKey = (provider: Pick<PluginMetadataProvider, 'pluginId' | 'id'>): string => `${provider.pluginId}::${provider.id}`;
+
+const isMetadataPluginLog = (log: PluginLogEntry): boolean =>
+  log.level !== 'info' && (log.message.includes('metadata') || log.message.includes('元数据') || log.message.includes('provider'));
+
 const candidateFieldValue = (candidate: NetworkTagCandidate, key: keyof TagFormState): string => {
   switch (key) {
     case 'trackNo':
@@ -281,6 +325,10 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
   const [loadedCoverThumb, setLoadedCoverThumb] = useState<string | null>(null);
   const [isLoadingEmbedded, setIsLoadingEmbedded] = useState(false);
   const [isSearchingNetwork, setIsSearchingNetwork] = useState(false);
+  const [isSearchingPluginMetadata, setIsSearchingPluginMetadata] = useState(false);
+  const [pluginMetadataProviders, setPluginMetadataProviders] = useState<PluginMetadataProvider[]>([]);
+  const [selectedPluginMetadataProviderKey, setSelectedPluginMetadataProviderKey] = useState('all');
+  const [pluginMetadataLogs, setPluginMetadataLogs] = useState<PluginLogEntry[]>([]);
   const [networkCandidates, setNetworkCandidates] = useState<NetworkTagCandidate[]>([]);
   const [selectedNetworkCandidate, setSelectedNetworkCandidate] = useState<NetworkTagCandidate | null>(null);
   const [networkFieldSelection, setNetworkFieldSelection] = useState<NetworkFieldSelection>(() => emptyNetworkSelection());
@@ -301,7 +349,7 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
   const previewCover = selectedCover?.dataUrl ?? pendingNetworkCover?.previewUrl ?? loadedCoverThumb ?? track?.coverThumb ?? null;
   const initialForm = useMemo(() => stateFromTrack(track), [track]);
   const validationErrors = useMemo(() => getValidationErrors(form), [form]);
-  const isBusy = isSaving || isLoadingEmbedded || isSearchingNetwork;
+  const isBusy = isSaving || isLoadingEmbedded || isSearchingNetwork || isSearchingPluginMetadata;
   const isLyricsBusy = isSearchingLyrics || Boolean(applyingLyricsCandidateId) || Boolean(embeddingLyricsCandidateId);
   const isDirty = useMemo(
     () =>
@@ -335,6 +383,9 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
       setPendingNetworkCover(null);
       setLoadedCoverThumb(null);
       setNetworkCandidates([]);
+      setPluginMetadataProviders([]);
+      setSelectedPluginMetadataProviderKey('all');
+      setPluginMetadataLogs([]);
       setSelectedNetworkCandidate(null);
       setNetworkFieldSelection(emptyNetworkSelection());
       setNetworkMessage(null);
@@ -356,6 +407,40 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
       }
     }
   }, [track]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'network') {
+      return;
+    }
+
+    const plugins = window.echo?.plugins;
+    if (!plugins?.list) {
+      setPluginMetadataProviders([]);
+      return;
+    }
+
+    let cancelled = false;
+    void plugins.list().then((result) => {
+      if (cancelled) {
+        return;
+      }
+      const providers = result.plugins
+        .filter((plugin) => plugin.enabled && plugin.status !== 'disabled')
+        .flatMap((plugin) => plugin.metadataProviders ?? []);
+      setPluginMetadataProviders(providers);
+      if (selectedPluginMetadataProviderKey !== 'all' && !providers.some((provider) => pluginMetadataProviderKey(provider) === selectedPluginMetadataProviderKey)) {
+        setSelectedPluginMetadataProviderKey('all');
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setPluginMetadataProviders([]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, isOpen, selectedPluginMetadataProviderKey]);
 
   const requestClose = (): void => {
     if (isSaving) {
@@ -504,6 +589,75 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
       );
     } finally {
       setIsSearchingNetwork(false);
+    }
+  };
+
+  const loadPluginMetadataLogs = async (pluginIds: string[]): Promise<void> => {
+    const plugins = window.echo?.plugins;
+    if (!plugins?.getLogs) {
+      setPluginMetadataLogs([]);
+      return;
+    }
+
+    try {
+      const uniquePluginIds = [...new Set(pluginIds.filter(Boolean))];
+      const logLists = uniquePluginIds.length
+        ? await Promise.all(uniquePluginIds.map((pluginId) => plugins.getLogs(pluginId)))
+        : [await plugins.getLogs()];
+      setPluginMetadataLogs(logLists.flat().filter(isMetadataPluginLog).slice(-3).reverse());
+    } catch {
+      setPluginMetadataLogs([]);
+    }
+  };
+
+  const handleSearchPluginMetadata = async (): Promise<void> => {
+    const plugins = window.echo?.plugins;
+    if (!plugins?.queryMetadata) {
+      setLocalError('当前运行环境不支持插件元数据候选。');
+      return;
+    }
+    const selectedProvider = pluginMetadataProviders.find((provider) => pluginMetadataProviderKey(provider) === selectedPluginMetadataProviderKey);
+
+    setActiveTab('network');
+    setIsSearchingPluginMetadata(true);
+    setLocalError(null);
+    setNetworkMessage('正在查询插件候选...');
+    setPluginMetadataLogs([]);
+    setSelectedNetworkCandidate(null);
+    setNetworkFieldSelection(emptyNetworkSelection());
+
+    try {
+      const result = await plugins.queryMetadata({
+        track: {
+          id: track.id,
+          title: form.title || track.title,
+          artist: form.artist || track.artist,
+          album: form.album || track.album,
+          albumArtist: form.albumArtist || track.albumArtist,
+          duration: track.duration ?? undefined,
+        },
+        ...(selectedProvider
+          ? { provider: { pluginId: selectedProvider.pluginId, providerId: selectedProvider.id } }
+          : {}),
+      });
+      const candidates = pluginMetadataCandidatesToNetworkCandidates(result, track);
+      setNetworkCandidates(candidates);
+      if (!candidates.length && result.providers.length) {
+        await loadPluginMetadataLogs(result.providers.map((provider) => provider.pluginId));
+      }
+      setNetworkMessage(
+        candidates.length
+          ? null
+          : result.providers.length
+            ? '插件没有返回合适的元数据候选。'
+            : '没有可用的插件元数据 provider。',
+      );
+    } catch (searchError) {
+      setNetworkCandidates([]);
+      await loadPluginMetadataLogs(selectedProvider ? [selectedProvider.pluginId] : pluginMetadataProviders.map((provider) => provider.pluginId));
+      setNetworkMessage(searchError instanceof Error ? searchError.message : '插件元数据候选暂时不可用。');
+    } finally {
+      setIsSearchingPluginMetadata(false);
     }
   };
 
@@ -847,13 +1001,56 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
                 <section className="tag-editor-section tag-editor-network-panel tag-editor-tab-panel" aria-label="网络候选对比" role="tabpanel">
                   <div className="tag-editor-section-heading">
                     <h3>网络候选</h3>
-                    <button type="button" onClick={() => void handleSearchNetwork()} disabled={isBusy}>
-                      <CloudDownload size={16} />
-                      {isSearchingNetwork ? '搜索中' : '搜索候选'}
-                    </button>
+                    <div className="tag-editor-heading-actions">
+                      <button type="button" onClick={() => void handleSearchNetwork()} disabled={isBusy}>
+                        <CloudDownload size={16} />
+                        {isSearchingNetwork ? '搜索中' : '搜索候选'}
+                      </button>
+                      <button type="button" onClick={() => void handleSearchPluginMetadata()} disabled={isBusy}>
+                        <ListChecks size={16} />
+                        {isSearchingPluginMetadata ? '查询中' : '插件候选'}
+                      </button>
+                    </div>
                   </div>
 
                   {networkMessage ? <p className="tag-editor-network-message">{networkMessage}</p> : null}
+
+                  {pluginMetadataLogs.length ? (
+                    <div className="tag-editor-plugin-log-hints" aria-label="插件元数据最近错误">
+                      <span>最近插件日志</span>
+                      {pluginMetadataLogs.map((log) => (
+                        <p key={log.id}>
+                          <strong>{log.pluginId}</strong>
+                          <em>{log.message}</em>
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {pluginMetadataProviders.length ? (
+                    <div className="tag-editor-filter-row" aria-label="插件元数据来源筛选">
+                      <button
+                        type="button"
+                        data-active={selectedPluginMetadataProviderKey === 'all'}
+                        onClick={() => setSelectedPluginMetadataProviderKey('all')}
+                      >
+                        全部插件
+                      </button>
+                      {pluginMetadataProviders.map((provider) => {
+                        const providerKey = pluginMetadataProviderKey(provider);
+                        return (
+                          <button
+                            key={providerKey}
+                            type="button"
+                            data-active={selectedPluginMetadataProviderKey === providerKey}
+                            onClick={() => setSelectedPluginMetadataProviderKey(providerKey)}
+                          >
+                            {provider.title || provider.id}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
 
                   {networkCandidates.length ? (
                     <div className="tag-editor-network-content">
@@ -875,7 +1072,7 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
                               <small>{[candidate.album, candidate.albumArtist, candidate.year, formatDuration(candidate.duration)].filter(Boolean).join(' · ')}</small>
                             </span>
                             <span className="tag-editor-network-score">
-                              <b>{candidate.provider}</b>
+                              <b>{networkCandidateProviderLabel(candidate)}</b>
                               <em>{Math.round(candidate.confidence * 100)}%</em>
                             </span>
                           </button>

@@ -97,9 +97,16 @@ export type PluginCommandContribution = {
   description?: string;
 };
 
+export type PluginMetadataProviderContribution = {
+  id: string;
+  title: string;
+  description?: string;
+};
+
 export type PluginManifestContributes = {
   commands?: PluginCommandContribution[];
   panels?: PluginPanelContribution[];
+  metadataProviders?: PluginMetadataProviderContribution[];
   settings?: Array<{
     id: string;
     title: string;
@@ -167,6 +174,56 @@ export type PluginLibraryTrack = Partial<Pick<LibraryTrack, PluginLibraryTrackFi
 
 export type PluginLibraryTrackPage = Omit<LibraryPage<PluginLibraryTrack>, 'items'> & {
   items: PluginLibraryTrack[];
+};
+
+export type PluginMetadataLookupTrack = {
+  id?: string;
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  duration?: number;
+};
+
+export type PluginMetadataLookupProvider = {
+  pluginId: string;
+  providerId: string;
+};
+
+export type PluginMetadataLookupRequest = {
+  track: PluginMetadataLookupTrack;
+  provider?: PluginMetadataLookupProvider;
+};
+
+export type PluginMetadataCandidate = {
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  genre?: string;
+  year?: number;
+  trackNo?: number;
+  discNo?: number;
+  bpm?: number;
+  confidence?: number;
+  source?: string;
+  sourceUrl?: string;
+};
+
+export type PluginMetadataProviderResult = {
+  candidates?: PluginMetadataCandidate[];
+};
+
+export type PluginMetadataProvider = PluginMetadataProviderContribution & {
+  pluginId: string;
+};
+
+export type PluginMetadataLookupResult = {
+  providers: PluginMetadataProvider[];
+  candidates: Array<PluginMetadataCandidate & {
+    pluginId: string;
+    providerId: string;
+  }>;
 };
 
 export const pluginPanelBridgeChannel = 'echo:plugin-panel';
@@ -245,6 +302,7 @@ export type PluginSecuritySummary = {
   hasPanel: boolean;
   sandboxedPanel: boolean;
   commandCount: number;
+  metadataProviderCount: number;
 };
 
 export type PluginCommand = PluginCommandContribution & {
@@ -269,6 +327,7 @@ export type PluginSummary = {
   security: PluginSecuritySummary;
   contributes: PluginManifestContributes;
   commands: PluginCommand[];
+  metadataProviders: PluginMetadataProvider[];
 };
 
 export type PluginListResult = {

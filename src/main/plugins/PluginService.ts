@@ -21,6 +21,12 @@ import type {
   PluginLogEntry,
   PluginManifest,
   PluginManifestContributes,
+  PluginMetadataCandidate,
+  PluginMetadataLookupRequest,
+  PluginMetadataLookupResult,
+  PluginMetadataLookupTrack,
+  PluginMetadataProvider,
+  PluginMetadataProviderResult,
   PluginPackage,
   PluginPackageFile,
   PluginPermission,
@@ -53,10 +59,18 @@ type RuntimeCommand = {
   handler: (...args: unknown[]) => unknown;
 };
 
+type RuntimeMetadataProvider = {
+  id: string;
+  title: string;
+  description?: string;
+  handler: (request: PluginMetadataLookupRequest) => unknown;
+};
+
 type RuntimeRecord = {
   manifest: PluginManifest;
   directory: string;
   commands: Map<string, RuntimeCommand>;
+  metadataProviders: Map<string, RuntimeMetadataProvider>;
   eventHandlers: Map<string, Set<(payload: unknown) => unknown>>;
   statusTimer: ReturnType<typeof setTimeout> | null;
   pendingStatus: AudioStatus | null;
@@ -77,9 +91,12 @@ const stateFileName = 'plugin-state.json';
 const storageFileName = 'plugin-storage.json';
 const commandTimeoutMs = 2_000;
 const eventHandlerTimeoutMs = 2_000;
+const metadataProviderTimeoutMs = 2_500;
 const maxLogEntries = 160;
 const maxLogMessageLength = 1_000;
 const maxEventHandlersPerPlugin = 24;
+const maxMetadataProvidersPerPlugin = 8;
+const maxMetadataCandidatesPerProvider = 5;
 const playbackStatusThrottleMs = 500;
 const maxPluginLibraryPageSize = 100;
 const defaultPluginLibraryPageSize = 50;
@@ -90,6 +107,8 @@ const maxPluginStorageBytes = 256 * 1024;
 const maxPluginSettingsPatchBytes = 32 * 1024;
 const maxPluginCommandArgsBytes = 64 * 1024;
 const maxPluginCommandResultBytes = 256 * 1024;
+const maxPluginMetadataRequestBytes = 32 * 1024;
+const maxPluginMetadataResultBytes = 64 * 1024;
 const pluginCrashLoopWindowMs = 10 * 60 * 1_000;
 const pluginCrashLoopLimit = 3;
 const pluginPackageType = 'echo-next-plugin-package';
@@ -117,6 +136,16 @@ const defaultPluginLibraryTrackFields: PluginLibraryTrackField[] = [
   'coverThumb',
   'unavailable',
 ];
+
+const metadataTextFieldMaxLengths: Partial<Record<keyof PluginMetadataCandidate, number>> = {
+  title: 180,
+  artist: 180,
+  album: 180,
+  albumArtist: 180,
+  genre: 80,
+  source: 80,
+  sourceUrl: 500,
+};
 
 const exampleTemplates: Record<PluginCreateExampleKind, { id: string; name: string; manifest: PluginManifest; script: string; panel?: string }> = {
   'playback-panel': {
@@ -356,6 +385,90 @@ const toPluginLibraryTrackPage = (page: unknown, fields: PluginLibraryTrackField
     total: Math.max(0, Math.floor(Number(page.total ?? 0))),
     hasMore: page.hasMore === true,
   };
+};
+
+const boundedText = (value: unknown, maxLength: number): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, maxLength) : undefined;
+};
+
+const boundedPositiveNumber = (value: unknown, max: number): number | undefined => {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) && normalized > 0 ? Math.min(max, normalized) : undefined;
+};
+
+const boundedInteger = (value: unknown, max: number): number | undefined => {
+  const normalized = Math.floor(Number(value));
+  return Number.isFinite(normalized) && normalized > 0 ? Math.min(max, normalized) : undefined;
+};
+
+const normalizePluginMetadataLookupTrack = (value: unknown): PluginMetadataLookupTrack => {
+  const input = isRecord(value) ? value : {};
+  return {
+    ...(boundedText(input.id, 120) ? { id: boundedText(input.id, 120) } : {}),
+    ...(boundedText(input.title, 180) ? { title: boundedText(input.title, 180) } : {}),
+    ...(boundedText(input.artist, 180) ? { artist: boundedText(input.artist, 180) } : {}),
+    ...(boundedText(input.album, 180) ? { album: boundedText(input.album, 180) } : {}),
+    ...(boundedText(input.albumArtist, 180) ? { albumArtist: boundedText(input.albumArtist, 180) } : {}),
+    ...(boundedPositiveNumber(input.duration, 24 * 60 * 60) ? { duration: boundedPositiveNumber(input.duration, 24 * 60 * 60) } : {}),
+  };
+};
+
+const normalizePluginMetadataLookupProvider = (value: unknown): PluginMetadataLookupRequest['provider'] => {
+  const input = isRecord(value) ? value : {};
+  const pluginId = boundedText(input.pluginId, 120);
+  const providerId = boundedText(input.providerId, 120);
+  return pluginId && providerId ? { pluginId, providerId } : undefined;
+};
+
+const normalizePluginMetadataCandidate = (value: unknown): PluginMetadataCandidate | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const candidate: PluginMetadataCandidate = {};
+  for (const [field, maxLength] of Object.entries(metadataTextFieldMaxLengths) as Array<[keyof PluginMetadataCandidate, number]>) {
+    const text = boundedText(value[field], maxLength);
+    if (text) {
+      candidate[field] = text as never;
+    }
+  }
+
+  const year = boundedInteger(value.year, 9999);
+  if (year) {
+    candidate.year = year;
+  }
+  const trackNo = boundedInteger(value.trackNo, 999);
+  if (trackNo) {
+    candidate.trackNo = trackNo;
+  }
+  const discNo = boundedInteger(value.discNo, 99);
+  if (discNo) {
+    candidate.discNo = discNo;
+  }
+  const bpm = boundedPositiveNumber(value.bpm, 400);
+  if (bpm) {
+    candidate.bpm = bpm;
+  }
+  if (typeof value.confidence === 'number' && Number.isFinite(value.confidence)) {
+    candidate.confidence = Math.max(0, Math.min(1, value.confidence));
+  }
+
+  return Object.keys(candidate).length > 0 ? candidate : null;
+};
+
+const normalizePluginMetadataProviderResult = (value: unknown): PluginMetadataProviderResult => {
+  const input = isRecord(value) ? value : {};
+  const candidates = Array.isArray(input.candidates)
+    ? input.candidates
+        .map(normalizePluginMetadataCandidate)
+        .filter((item): item is PluginMetadataCandidate => Boolean(item))
+        .slice(0, maxMetadataCandidatesPerProvider)
+    : [];
+  return { candidates };
 };
 
 const timeout = <T>(promise: Promise<T>, timeoutMs: number, errorCode: string): Promise<T> =>
@@ -618,6 +731,62 @@ export class PluginService {
     }
   }
 
+  async queryMetadata(request: PluginMetadataLookupRequest): Promise<PluginMetadataLookupResult> {
+    this.scan();
+    const providerFilter = normalizePluginMetadataLookupProvider(request?.provider);
+    const safeRequest: PluginMetadataLookupRequest = {
+      track: normalizePluginMetadataLookupTrack(request?.track),
+      ...(providerFilter ? { provider: providerFilter } : {}),
+    };
+    assertJsonByteLimit(safeRequest, maxPluginMetadataRequestBytes, 'plugin_metadata_request_too_large');
+
+    const providers: PluginMetadataProvider[] = [];
+    const candidates: PluginMetadataLookupResult['candidates'] = [];
+
+    for (const record of this.records.values()) {
+      if (!record.enabled || !record.manifest) {
+        continue;
+      }
+      if (safeRequest.provider && safeRequest.provider.pluginId !== record.manifest.id) {
+        continue;
+      }
+
+      const runtime = await this.ensureRuntime(record.manifest.id);
+      for (const provider of runtime.metadataProviders.values()) {
+        if (safeRequest.provider && safeRequest.provider.providerId !== provider.id) {
+          continue;
+        }
+        providers.push({
+          id: provider.id,
+          title: provider.title,
+          description: provider.description,
+          pluginId: record.manifest.id,
+        });
+        try {
+          const rawResult = await timeout(
+            Promise.resolve(provider.handler(jsonClone(safeRequest))),
+            metadataProviderTimeoutMs,
+            'plugin_metadata_provider_timeout',
+          );
+          assertJsonByteLimit(rawResult, maxPluginMetadataResultBytes, 'plugin_metadata_result_too_large');
+          const result = normalizePluginMetadataProviderResult(rawResult);
+          for (const candidate of result.candidates ?? []) {
+            candidates.push({
+              ...candidate,
+              pluginId: record.manifest.id,
+              providerId: provider.id,
+            });
+          }
+        } catch (error) {
+          this.recordPluginErrorActivity(record.manifest.id);
+          this.log(record.manifest.id, 'error', `元数据 provider 失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
+    return { providers, candidates };
+  }
+
   getLogs(pluginId?: string): PluginLogEntry[] {
     return this.logs.filter((entry) => !pluginId || entry.pluginId === pluginId);
   }
@@ -748,6 +917,7 @@ export class PluginService {
       manifest: record.manifest,
       directory: record.directory,
       commands: new Map(),
+      metadataProviders: new Map(),
       eventHandlers: new Map(),
       statusTimer: null,
       pendingStatus: null,
@@ -789,6 +959,25 @@ export class PluginService {
           runtime.commands.set(commandId.trim(), {
             id: commandId.trim(),
             title: isRecord(options) && typeof options.title === 'string' && options.title.trim() ? options.title.trim() : commandId.trim(),
+            description: isRecord(options) && typeof options.description === 'string' && options.description.trim() ? options.description.trim() : undefined,
+            handler: actualHandler,
+          });
+        },
+      }),
+      metadata: Object.freeze({
+        registerProvider: (providerId: string, options: { title?: unknown; description?: unknown } | ((request: PluginMetadataLookupRequest) => unknown), handler?: (request: PluginMetadataLookupRequest) => unknown): void => {
+          requirePermission('library:read');
+          const actualHandler = typeof options === 'function' ? options : handler;
+          if (typeof providerId !== 'string' || !providerId.trim() || typeof actualHandler !== 'function') {
+            throw new Error('plugin_metadata_provider_invalid');
+          }
+          if (runtime.metadataProviders.size >= maxMetadataProvidersPerPlugin) {
+            throw new Error('plugin_metadata_provider_limit');
+          }
+          const id = providerId.trim();
+          runtime.metadataProviders.set(id, {
+            id,
+            title: isRecord(options) && typeof options.title === 'string' && options.title.trim() ? options.title.trim() : id,
             description: isRecord(options) && typeof options.description === 'string' && options.description.trim() ? options.description.trim() : undefined,
             handler: actualHandler,
           });
@@ -967,6 +1156,15 @@ export class PluginService {
         pluginId: manifest?.id ?? basename(record.directory),
       })) : []),
     ];
+    const metadataProviders: PluginMetadataProvider[] = [
+      ...(contributes.metadataProviders ?? []).map((provider) => ({ ...provider, pluginId: manifest?.id ?? basename(record.directory) })),
+      ...(runtime ? [...runtime.metadataProviders.values()].map((provider) => ({
+        id: provider.id,
+        title: provider.title,
+        description: provider.description,
+        pluginId: manifest?.id ?? basename(record.directory),
+      })) : []),
+    ];
 
     return {
       id: manifest?.id ?? basename(record.directory),
@@ -986,11 +1184,14 @@ export class PluginService {
       security: this.createSecuritySummary(record, commands),
       contributes,
       commands: commands.filter((command, index, list) => list.findIndex((item) => item.id === command.id) === index),
+      metadataProviders: metadataProviders.filter((provider, index, list) => list.findIndex((item) => item.id === provider.id && item.pluginId === provider.pluginId) === index),
     };
   }
 
   private createSecuritySummary(record: PluginRecord, commands: PluginCommand[]): PluginSecuritySummary {
     const requestedPermissions = record.manifest?.permissions ?? [];
+    const manifestProviderCount = record.manifest?.contributes?.metadataProviders?.length ?? 0;
+    const runtimeProviderCount = record.manifest ? this.runtimes.get(record.manifest.id)?.metadataProviders.size ?? 0 : 0;
     return {
       requestedPermissionCount: requestedPermissions.length,
       trustedPermissionCount: record.trustedPermissions.length,
@@ -1002,6 +1203,7 @@ export class PluginService {
       hasPanel: Boolean(record.manifest?.panel),
       sandboxedPanel: Boolean(record.manifest?.panel),
       commandCount: commands.filter((command, index, list) => list.findIndex((item) => item.id === command.id) === index).length,
+      metadataProviderCount: Math.max(manifestProviderCount, runtimeProviderCount),
     };
   }
 

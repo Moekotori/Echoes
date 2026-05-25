@@ -87,7 +87,11 @@ const trackLyrics = (overrides: Partial<TrackLyrics> = {}): TrackLyrics => ({
   ...overrides,
 });
 
-const installEcho = (searchNetworkTagCandidates = vi.fn(), lyricsOverrides: Partial<NonNullable<typeof window.echo>['lyrics']> = {}) => {
+const installEcho = (
+  searchNetworkTagCandidates = vi.fn(),
+  lyricsOverrides: Partial<NonNullable<typeof window.echo>['lyrics']> = {},
+  pluginOverrides: Partial<NonNullable<typeof window.echo>['plugins']> = {},
+) => {
   window.echo = {
     library: {
       searchNetworkTagCandidates,
@@ -112,6 +116,12 @@ const installEcho = (searchNetworkTagCandidates = vi.fn(), lyricsOverrides: Part
       setOffset: vi.fn(),
       clearCache: vi.fn(),
       ...lyricsOverrides,
+    },
+    plugins: {
+      list: vi.fn().mockResolvedValue({ directory: 'D:\\Echo\\plugins', plugins: [] }),
+      queryMetadata: vi.fn().mockResolvedValue({ providers: [], candidates: [] }),
+      getLogs: vi.fn().mockResolvedValue([]),
+      ...pluginOverrides,
     },
   } as unknown as typeof window.echo;
 };
@@ -240,6 +250,125 @@ describe('TrackTagEditorDrawer network tags', () => {
     fireEvent.click(screen.getByRole('tab', { name: '标签' }));
     await waitFor(() => expect((screen.getByLabelText('标题') as HTMLInputElement).value).toBe('Network Song'));
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('queries plugin metadata candidates manually without saving the file', async () => {
+    const onSave = vi.fn();
+    const queryMetadata = vi.fn().mockResolvedValue({
+      providers: [{ pluginId: 'echo.meta', id: 'tags', label: 'Plugin Tags' }],
+      candidates: [
+        {
+          pluginId: 'echo.meta',
+          providerId: 'tags',
+          title: 'Plugin Song',
+          artist: 'Plugin Artist',
+          album: 'Plugin Album',
+          year: 2026,
+          confidence: 0.82,
+          source: 'Plugin Tags',
+        },
+      ],
+    });
+    installEcho(vi.fn(), {}, { queryMetadata });
+
+    render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '网络候选' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件候选' }));
+
+    await screen.findByText('Plugin Song');
+    expect(queryMetadata).toHaveBeenCalledWith({
+      track: {
+        id: 'track-1',
+        title: 'Local Song',
+        artist: 'Local Artist',
+        album: 'Local Album',
+        albumArtist: 'Local Artist',
+        duration: 180,
+      },
+    });
+    expect(screen.getByText('Plugin Tags')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('can limit plugin metadata search to a selected provider', async () => {
+    const queryMetadata = vi.fn().mockResolvedValue({
+      providers: [{ pluginId: 'echo.meta', id: 'tags', title: 'Plugin Tags' }],
+      candidates: [],
+    });
+    installEcho(vi.fn(), {}, {
+      list: vi.fn().mockResolvedValue({
+        directory: 'D:\\Echo\\plugins',
+        plugins: [
+          {
+            id: 'echo.meta',
+            enabled: true,
+            status: 'running',
+            metadataProviders: [{ pluginId: 'echo.meta', id: 'tags', title: 'Plugin Tags' }],
+          },
+        ],
+      }),
+      queryMetadata,
+    });
+
+    render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '网络候选' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Plugin Tags' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件候选' }));
+
+    await waitFor(() =>
+      expect(queryMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: { pluginId: 'echo.meta', providerId: 'tags' },
+        }),
+      ),
+    );
+  });
+
+  it('shows recent plugin metadata logs when plugin candidate search fails', async () => {
+    const queryMetadata = vi.fn().mockRejectedValue(new Error('plugin_metadata_provider_timeout'));
+    const getLogs = vi.fn().mockResolvedValue([
+      {
+        id: 'log-1',
+        pluginId: 'echo.meta',
+        level: 'error',
+        message: 'metadata provider failed: plugin_metadata_provider_timeout',
+        createdAt: '2026-05-25T00:00:00.000Z',
+      },
+      {
+        id: 'log-2',
+        pluginId: 'echo.meta',
+        level: 'info',
+        message: 'ordinary log',
+        createdAt: '2026-05-25T00:00:01.000Z',
+      },
+    ]);
+    installEcho(vi.fn(), {}, {
+      list: vi.fn().mockResolvedValue({
+        directory: 'D:\\Echo\\plugins',
+        plugins: [
+          {
+            id: 'echo.meta',
+            enabled: true,
+            status: 'running',
+            metadataProviders: [{ pluginId: 'echo.meta', id: 'tags', title: 'Plugin Tags' }],
+          },
+        ],
+      }),
+      queryMetadata,
+      getLogs,
+    });
+
+    render(<TrackTagEditorDrawer track={track()} isOpen isSaving={false} error={null} onClose={vi.fn()} onSave={vi.fn()} />);
+
+    fireEvent.click(screen.getAllByRole('tab')[1]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Plugin Tags' }));
+    fireEvent.click(document.querySelector('.tag-editor-heading-actions button:last-child')!);
+
+    await screen.findByText('metadata provider failed: plugin_metadata_provider_timeout');
+    expect(getLogs).toHaveBeenCalledWith('echo.meta');
+    expect(screen.queryByText('ordinary log')).toBeNull();
   });
 
   it('loading embedded tags updates the form and notifies the parent with the refreshed track', async () => {

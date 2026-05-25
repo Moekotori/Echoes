@@ -222,6 +222,7 @@ export type AudioSessionDependencies = {
 
 const fallbackSampleRate = 44100;
 const fallbackSharedMixSampleRate = 48000;
+const maxReliableSharedOutputSampleRate = 96000;
 const preparedLocalPlaybackTtlMs = 2 * 60 * 1000;
 const preparedLocalPlaybackMaxItems = 50;
 const defaultWatchdogIntervalMs = 2000;
@@ -363,7 +364,7 @@ const directSoundSharedProfile: SharedOutputProfile = {
 
 const latencyProfiles: Record<AudioLatencyProfile, Pick<NativeOutputStartOptions, 'bufferSizeFrames'>> = {
   lowLatency: {
-    bufferSizeFrames: 256,
+    bufferSizeFrames: 1024,
   },
   balanced: {
     bufferSizeFrames: 2048,
@@ -421,6 +422,9 @@ const normalizePositiveInteger = (value: unknown): number | null => {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? Math.round(numberValue) : null;
 };
+
+const capSharedOutputSampleRate = (sampleRate: number): number =>
+  sampleRate > maxReliableSharedOutputSampleRate ? maxReliableSharedOutputSampleRate : sampleRate;
 
 const normalizeResetReason = (reason: string): string => {
   const normalized = reason.trim().replace(/[\r\n]+/gu, ' ').slice(0, 96);
@@ -1897,15 +1901,17 @@ export class AudioSession extends EventEmitter {
         this.currentOutputSettings,
         bridge,
       );
-      const nativeGapless = nativeAutomix
-        ? null
-        : await this.createNativeGaplessPlayback(
+      // Prefer the single FFmpeg concat path; native dual-deck gapless stays as a decoder-compat fallback.
+      const shouldUseNativeGaplessFallback = !nativeAutomix && !this.decoder.decodeGaplessSequence;
+      const nativeGapless = shouldUseNativeGaplessFallback
+        ? await this.createNativeGaplessPlayback(
             request,
             probe,
             pcmPlan,
             this.currentOutputSettings,
             bridge,
-          );
+          )
+        : null;
       const automixRun = nativeAutomix
         ? null
         : nativeGapless
@@ -4174,10 +4180,13 @@ export class AudioSession extends EventEmitter {
       (outputMode === 'shared' ? normalizePositiveInteger(selectedDevice?.sampleRate) : null);
     const currentReadySampleRate =
       outputMode === 'shared' ? normalizePositiveInteger(this.currentReadyResult?.actualDeviceSampleRate) : null;
+    const sharedRequestedSampleRate =
+      sharedDeviceSampleRate ?? currentReadySampleRate ?? fallbackSharedMixSampleRate;
+    const cappedSharedRequestedSampleRate = capSharedOutputSampleRate(sharedRequestedSampleRate);
     const requestedOutputSampleRate =
       residentOutputSampleRate ??
       (outputMode === 'shared'
-        ? sharedDeviceSampleRate ?? currentReadySampleRate ?? fallbackSharedMixSampleRate
+        ? cappedSharedRequestedSampleRate
         : asioNativeDsdSampleRate ?? dsdDopTransportSampleRate ?? dsdPcmOutputSampleRate ?? explicitRequestedSampleRate ?? sourceOutputSampleRate);
     const decoderOutputSampleRate =
       outputMode === 'shared'
@@ -4200,6 +4209,10 @@ export class AudioSession extends EventEmitter {
     );
     if (dsdDopDisabledWarning) {
       warnings.push(dsdDopDisabledWarning);
+    }
+
+    if (outputMode === 'shared' && sharedRequestedSampleRate !== cappedSharedRequestedSampleRate) {
+      warnings.push(`shared_output_sample_rate_capped:${sharedRequestedSampleRate}->${cappedSharedRequestedSampleRate}`);
     }
 
     const asioNativeDsdDisabledWarning = getAsioNativeDsdDisabledWarning(
@@ -4348,7 +4361,7 @@ export class AudioSession extends EventEmitter {
             }),
             name: readyDeviceName ?? selectedDevice?.name ?? this.currentOutputSettings.deviceName ?? 'Selected output',
             sampleRate: readySampleRate,
-            sharedDeviceSampleRate: readySampleRate,
+            sharedDeviceSampleRate: readySharedRate ?? selectedDevice?.sharedDeviceSampleRate ?? readySampleRate,
           }
         : selectedDevice;
 
@@ -5290,23 +5303,48 @@ export class AudioSession extends EventEmitter {
           return;
         }
 
+        if (this.state !== 'playing' && this.state !== 'loading') {
+          this.recordPlaybackDiagnosticEvent('ended', 'info', 'ended_ignored_while_not_playing', {
+            positionSeconds: this.clock.getPositionSeconds(),
+            details: {
+              token,
+              state: this.state,
+            },
+          });
+          return;
+        }
+
         this.updatePositionFromOutput();
+        this.maybeAdvanceAutomix(token);
+        const activeChainedPlayback = this.activeAutomix;
+        const expectedEndSeconds = activeChainedPlayback
+          ? activeChainedPlayback.compositeStartSeconds + activeChainedPlayback.compositeDurationSeconds
+          : this.currentProbe?.durationSeconds ?? 0;
         this.state = 'ended';
         const endedPositionSeconds = this.clock.getPositionSeconds();
-        const durationSeconds = this.currentProbe?.durationSeconds ?? 0;
         const premature =
-          durationSeconds > 0 && endedPositionSeconds < durationSeconds - prematureLocalEndToleranceSeconds;
-        const clearlyCorrupt = premature && isClearlyCorruptLocalEnd(endedPositionSeconds, durationSeconds);
-        this.recordPlaybackDiagnosticEvent('ended', premature ? 'suspect' : 'info', premature ? 'ended_before_duration' : 'ended', {
-          positionSeconds: endedPositionSeconds,
-          durationSeconds,
-          details: {
-            token,
-            remainingSeconds: durationSeconds > 0 ? Math.max(0, durationSeconds - endedPositionSeconds) : null,
+          expectedEndSeconds > 0 && endedPositionSeconds < expectedEndSeconds - prematureLocalEndToleranceSeconds;
+        const clearlyCorrupt = premature && isClearlyCorruptLocalEnd(endedPositionSeconds, expectedEndSeconds);
+        this.recordPlaybackDiagnosticEvent(
+          'ended',
+          premature ? 'suspect' : 'info',
+          premature
+            ? activeChainedPlayback
+              ? 'ended_before_chained_duration'
+              : 'ended_before_duration'
+            : 'ended',
+          {
+            positionSeconds: endedPositionSeconds,
+            durationSeconds: expectedEndSeconds,
+            details: {
+              token,
+              chainedPlaybackActive: Boolean(activeChainedPlayback),
+              remainingSeconds: expectedEndSeconds > 0 ? Math.max(0, expectedEndSeconds - endedPositionSeconds) : null,
+            },
           },
-        });
-        if (clearlyCorrupt && isLocalPlaybackPath(this.currentFilePath)) {
-          this.handleError(createPossibleCorruptAudioFileError(endedPositionSeconds, durationSeconds));
+        );
+        if (clearlyCorrupt && !activeChainedPlayback && isLocalPlaybackPath(this.currentFilePath)) {
+          this.handleError(createPossibleCorruptAudioFileError(endedPositionSeconds, expectedEndSeconds));
           return;
         }
         this.resetWatchdogProgress();

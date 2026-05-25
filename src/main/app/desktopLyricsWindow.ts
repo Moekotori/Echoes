@@ -117,11 +117,11 @@ export const resolveInitialDesktopLyricsBounds = (): DesktopLyricsBounds => {
 const applyDesktopLyricsAlwaysOnTop = (window: BrowserWindow): void => {
   window.setAlwaysOnTop(true, process.platform === 'darwin' ? 'floating' : 'screen-saver');
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  window.moveTop();
 };
 
 const applyDesktopLyricsLockState = (window: BrowserWindow): void => {
-  const locked = getAppSettings().desktopLyricsLocked === true;
-  window.setIgnoreMouseEvents(locked || desktopLyricsMousePassthrough, { forward: true });
+  window.setIgnoreMouseEvents(desktopLyricsMousePassthrough, { forward: true });
 };
 
 const rememberDesktopLyricsBounds = (window: BrowserWindow): void => {
@@ -273,7 +273,7 @@ export const closeDesktopLyricsWindow = (): void => {
 
 export const setDesktopLyricsLocked = (locked: boolean): DesktopLyricsState => {
   setAppSettings({ desktopLyricsLocked: locked });
-  desktopLyricsMousePassthrough = false;
+  desktopLyricsMousePassthrough = locked;
   if (desktopLyricsWindow && !desktopLyricsWindow.isDestroyed()) {
     applyDesktopLyricsLockState(desktopLyricsWindow);
     applyDesktopLyricsAlwaysOnTop(desktopLyricsWindow);

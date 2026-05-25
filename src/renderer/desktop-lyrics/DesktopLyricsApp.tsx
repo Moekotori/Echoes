@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 import { Languages, Lock, Minus, Palette, Plus, RotateCcw, X } from 'lucide-react';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { AppSettings } from '../../shared/types/appSettings';
@@ -470,8 +470,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
   useEffect(() => {
     const desktopLyrics = window.echo?.desktopLyrics;
-    if (!desktopLyrics?.setMousePassthrough || settings.desktopLyricsLocked) {
-      desktopLyrics?.setMousePassthrough?.(false);
+    if (!desktopLyrics?.setMousePassthrough) {
       return undefined;
     }
 
@@ -492,7 +491,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
     window.addEventListener('mousemove', updatePassthrough);
     window.addEventListener('mouseleave', passthroughOnLeave);
-    setPassthrough(false);
+    setPassthrough(settings.desktopLyricsLocked);
 
     return () => {
       window.removeEventListener('mousemove', updatePassthrough);
@@ -663,6 +662,22 @@ export const DesktopLyricsApp = (): JSX.Element => {
     }
   }, []);
 
+  const unlockFromContextMenu = useCallback(async (event: ReactMouseEvent): Promise<void> => {
+    if (!settings.desktopLyricsLocked) {
+      return;
+    }
+
+    event.preventDefault();
+    try {
+      const state = await window.echo?.desktopLyrics?.setLocked?.(false);
+      if (state) {
+        setSettings(pickDesktopLyricsSettings(state.settings));
+      }
+    } catch {
+      setSettings((current) => current);
+    }
+  }, [settings.desktopLyricsLocked]);
+
   const hideWindow = useCallback((): void => {
     void window.echo?.desktopLyrics?.hide?.();
   }, []);
@@ -736,7 +751,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
       style={style}
     >
       <section className="desktop-lyrics-stage" aria-label={t('desktopLyrics.aria.stage')}>
-        <div className="desktop-lyrics-lines">
+        <div className="desktop-lyrics-lines" onContextMenu={(event) => void unlockFromContextMenu(event)}>
           <strong style={primaryTextStyle}>{primaryText}</strong>
           {visibleFittingSecondaryTexts.map((text, index) => (
             <span key={`${index}-${text}`}>{text}</span>

@@ -90,6 +90,23 @@ const readAudioAnalysisEnabledPatch = (patch: unknown): boolean | null => {
   return typeof value === 'boolean' ? value : null;
 };
 
+const readPlayerWaveformProgressEnabled = (settings: unknown): boolean => {
+  if (!settings || typeof settings !== 'object') {
+    return false;
+  }
+
+  return (settings as { playerWaveformProgressEnabled?: unknown }).playerWaveformProgressEnabled === true;
+};
+
+const readPlayerWaveformProgressEnabledPatch = (patch: unknown): boolean | null => {
+  if (!patch || typeof patch !== 'object') {
+    return null;
+  }
+
+  const value = (patch as { playerWaveformProgressEnabled?: unknown }).playerWaveformProgressEnabled;
+  return typeof value === 'boolean' ? value : null;
+};
+
 const readFixedVolumeEnabled = (settings: unknown): boolean => {
   if (!settings || typeof settings !== 'object') {
     return false;
@@ -463,6 +480,7 @@ export const PlayerBar = ({
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
   const [smtcEnabled, setSmtcEnabled] = useState(true);
   const [audioAnalysisEnabled, setAudioAnalysisEnabled] = useState<boolean | null>(null);
+  const [playerWaveformProgressEnabled, setPlayerWaveformProgressEnabled] = useState(false);
   const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
   const [audioExportFormat, setAudioExportFormat] = useState<AudioExportFormat>('mp3');
   const [isAudioExporting, setIsAudioExporting] = useState(false);
@@ -1038,6 +1056,7 @@ export const PlayerBar = ({
       const getSettings = window.echo?.app?.getSettings;
       if (typeof getSettings !== 'function') {
         setAudioAnalysisEnabled(true);
+        setPlayerWaveformProgressEnabled(false);
         setFixedVolumeEnabled(false);
         setAudioExportFormat('mp3');
         return;
@@ -1047,6 +1066,7 @@ export const PlayerBar = ({
         .then((settings) => {
           if (!cancelled) {
             setAudioAnalysisEnabled(readAudioAnalysisEnabled(settings));
+            setPlayerWaveformProgressEnabled(readPlayerWaveformProgressEnabled(settings));
             setFixedVolumeEnabled(readFixedVolumeEnabled(settings));
             setAudioExportFormat(readAudioExportFormat(settings));
           }
@@ -1054,6 +1074,7 @@ export const PlayerBar = ({
         .catch(() => {
           if (!cancelled) {
             setAudioAnalysisEnabled(true);
+            setPlayerWaveformProgressEnabled(false);
             setFixedVolumeEnabled(false);
             setAudioExportFormat('mp3');
           }
@@ -1065,6 +1086,10 @@ export const PlayerBar = ({
         const audioAnalysisPatch = readAudioAnalysisEnabledPatch(event.detail);
         if (audioAnalysisPatch !== null) {
           setAudioAnalysisEnabled(audioAnalysisPatch);
+        }
+        const playerWaveformProgressPatch = readPlayerWaveformProgressEnabledPatch(event.detail);
+        if (playerWaveformProgressPatch !== null) {
+          setPlayerWaveformProgressEnabled(playerWaveformProgressPatch);
         }
         const fixedVolumePatch = readFixedVolumeEnabledPatch(event.detail);
         if (fixedVolumePatch !== null) {
@@ -2040,6 +2065,8 @@ export const PlayerBar = ({
         <PlayerProgress
           disabled={isAirPlayReceiverPlaybackActive || (!filePath && !isSpotifyCurrentTrack)}
           durationSeconds={durationSeconds}
+          waveformEnabled={playerWaveformProgressEnabled}
+          waveformSeed={trackId ?? filePath ?? title}
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
         />

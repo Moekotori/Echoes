@@ -8,6 +8,7 @@ import type { LibraryTrack } from '../../shared/types/library';
 import type { LyricsSearchCandidate, TrackLyrics } from '../../shared/types/lyrics';
 import { defaultChannelBalanceSettings } from '../app/appSettings';
 import { LyricsService } from './LyricsService';
+import type { LyricsProvider, LyricsProviderResult } from './LyricsProvider';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 
 const tagWriterMock = vi.hoisted(() => ({
@@ -590,6 +591,65 @@ describe('LyricsService', () => {
 
     expect(online.getLyrics).toHaveBeenCalled();
     expect(candidates.map((item) => item.provider)).toEqual(expect.arrayContaining(['local', 'lrclib']));
+  });
+
+  it('gives manual LRCLIB candidate search enough time for slow public responses', async () => {
+    vi.useFakeTimers();
+    const lrclibResult: LyricsProviderResult = {
+      provider: 'lrclib',
+      providerLyricsId: 'lrclib-slow',
+      title: 'Echo Song',
+      artist: 'Echo Artist',
+      album: 'Echo Album',
+      durationSeconds: 120,
+      instrumental: false,
+      plainLyrics: 'Slow LRCLIB line',
+      syncedLyrics: null,
+      sourceLabel: 'LRCLIB',
+      raw: { id: 'lrclib-slow' },
+    };
+    const slowLrclibProvider: LyricsProvider = {
+      id: 'lrclib',
+      label: 'LRCLIB',
+      priority: 700,
+      capabilities: {
+        synced: true,
+        plain: true,
+        translation: false,
+        romanization: false,
+        byDuration: true,
+        byIsrc: false,
+        byMusicBrainzId: false,
+        needsAccount: false,
+      },
+      search: vi.fn(
+        (request) =>
+          new Promise<LyricsProviderResult[]>((resolve) => {
+            request.signal?.addEventListener('abort', () => resolve([]), { once: true });
+            setTimeout(() => resolve([lrclibResult]), 1200);
+          }),
+      ),
+    };
+    const { service } = createHarness({
+      appSettings: settings({
+        lyricsEnabledProviders: ['lrclib'],
+        lyricsProviderOrder: ['lrclib'],
+        lyricsProviderTimeoutMs: 1000,
+        lyricsTotalMatchTimeoutMs: 1500,
+      }),
+      onlineProvider: slowLrclibProvider as never,
+    });
+
+    const candidatesPromise = service.searchLyricsCandidates('track-1', undefined, 'lrclib');
+    await vi.advanceTimersByTimeAsync(1200);
+    const candidates = await candidatesPromise;
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      provider: 'lrclib',
+      providerLyricsId: 'lrclib-slow',
+      sourceLabel: 'LRCLIB',
+    });
   });
 
   it('returns provider synced lyrics and caches them', async () => {

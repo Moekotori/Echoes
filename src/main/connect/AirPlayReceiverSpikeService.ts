@@ -78,6 +78,7 @@ type AirPlayReceiverDependencies = {
   loadRaopModule?: () => Promise<RaopModule>;
   getAdvertiseInterfaces?: () => AirPlayAdvertiseInterface[];
   createMdnsAdvertiser?: () => AirPlayMdnsAdvertiserLike;
+  useHttpPcmBridge?: boolean;
   now?: () => number;
 };
 
@@ -102,6 +103,7 @@ const airPlayOutputBufferFrames = 8192;
 const airPlayHttpPcmFallbackMs = 1_500;
 const airPlayHttpPcmReconnectMs = 120;
 const airPlayRaopLatencies = '1000:1000';
+const shouldUseAirPlayHttpPcmBridge = (): boolean => process.env.ECHO_AIRPLAY_HTTP_PCM === '1';
 
 type AirPlayAdvertiseInterface = {
   name: string;
@@ -211,6 +213,15 @@ const normalizeVolume = (value: unknown): number => {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) {
     return 100;
+  }
+
+  if (numberValue <= 0) {
+    if (numberValue <= -144) {
+      return 0;
+    }
+
+    const dbValue = Math.max(-30, numberValue);
+    return Math.max(1, Math.min(100, Math.round(10 ** (dbValue / 20) * 100)));
   }
 
   if (numberValue <= 1 && numberValue >= 0) {
@@ -668,6 +679,7 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
   private readonly loadRaopModule: () => Promise<RaopModule>;
   private readonly getAdvertiseInterfaces: () => AirPlayAdvertiseInterface[];
   private readonly createMdnsAdvertiser: () => AirPlayMdnsAdvertiserLike;
+  private readonly useHttpPcmBridge: boolean;
   private readonly now: () => number;
   private raopModule: RaopModule | null = null;
   private receiverHandle: number | null = null;
@@ -698,6 +710,7 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
     this.loadRaopModule = dependencies.loadRaopModule ?? loadDefaultRaopModule;
     this.getAdvertiseInterfaces = dependencies.getAdvertiseInterfaces ?? getAdvertiseInterfaces;
     this.createMdnsAdvertiser = dependencies.createMdnsAdvertiser ?? (() => new AirPlayMdnsAdvertiser());
+    this.useHttpPcmBridge = dependencies.useHttpPcmBridge ?? shouldUseAirPlayHttpPcmBridge();
     this.now = dependencies.now ?? Date.now;
     this.status = this.createDisabledStatus();
     this.audioSession.on('status', this.handleAudioStatus);
@@ -940,7 +953,11 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
       case 'stream':
         this.clearHttpPcmReconnectTimer();
         this.prepareIncomingStream(event);
-        this.startHttpPcmPlayback(event);
+        if (this.useHttpPcmBridge) {
+          this.startHttpPcmPlayback(event);
+        } else {
+          this.addDebugEvent('stream', 'using direct PCM events');
+        }
         break;
       case 'metadata':
         this.applyMetadataEvent(event);
@@ -960,7 +977,7 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
         this.setPositionAnchor(this.estimatePosition(this.status));
         this.setStatus({ state: 'paused' });
         if (type === 'flush') {
-          this.scheduleHttpPcmReconnect('flush');
+          this.handleFlushEvent();
         }
         break;
       case 'stop':
@@ -1257,6 +1274,10 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
   }
 
   private scheduleHttpPcmReconnect(reason: string): void {
+    if (!this.useHttpPcmBridge) {
+      return;
+    }
+
     const sourceId = this.currentSourceId;
     const port = this.lastHttpPcmPort;
     if (!sourceId || !port) {
@@ -1275,6 +1296,15 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
       }
       this.startHttpPcmPlayback({ type: 'stream', port });
     }, airPlayHttpPcmReconnectMs);
+  }
+
+  private handleFlushEvent(): void {
+    if (this.httpPcmRequest && this.httpPcmTransform && this.httpPcmBytesReceived > 0) {
+      this.addDebugEvent('stream', 'keep PCM HTTP alive after flush');
+      return;
+    }
+
+    this.scheduleHttpPcmReconnect('flush');
   }
 
   private enableDirectPcmFallback(sourceId: string, reason: string): void {

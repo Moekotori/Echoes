@@ -1642,6 +1642,125 @@ describe('PlaybackQueueProvider playback history session', () => {
     expect(playLocalFile.mock.calls[0]?.[0].automix).toBeUndefined();
   });
 
+  it.each([
+    ['different album', { album: 'Other Album' }],
+    ['missing track number', { trackNo: null }],
+    ['DSD source', { codec: 'dsf', path: 'D:\\Music\\track-2.dsf' }],
+    ['remote source', { mediaType: 'remote' as const, sourceId: 'nas', remotePath: '/track-2.flac' }],
+  ])('does not create a gapless plan for %s', async (_label, nextPatch) => {
+    const first = makeTrack(1);
+    const second = { ...makeTrack(2), ...nextPatch };
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: first.duration * 1000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ gaplessPlaybackEnabled: true }),
+      },
+      playback: {
+        playLocalFile,
+      },
+    } as unknown as Window['echo'];
+
+    const GaplessProbe = (): null => {
+      const queue = usePlaybackQueue();
+      const didSeedRef = useRef(false);
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (!didSeedRef.current) {
+          didSeedRef.current = true;
+          queue.replaceQueue([first, second]);
+        }
+
+        if (queue.gaplessPlaybackEnabled && !didStartRef.current) {
+          didStartRef.current = true;
+          void queue.playTrack(first);
+        }
+      }, [queue]);
+
+      return null;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <GaplessProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(1));
+    expect(playLocalFile.mock.calls[0]?.[0].gapless).toBeUndefined();
+  });
+
+  it('does not create a gapless plan while playback speed is not 1x', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: first.duration * 1000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          gaplessPlaybackEnabled: true,
+          playbackSpeed: 1.25,
+          playbackSpeedMode: 'speed',
+        }),
+      },
+      playback: {
+        playLocalFile,
+      },
+    } as unknown as Window['echo'];
+
+    const GaplessProbe = (): null => {
+      const queue = usePlaybackQueue();
+      const didSeedRef = useRef(false);
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (!didSeedRef.current) {
+          didSeedRef.current = true;
+          queue.replaceQueue([first, second]);
+        }
+
+        if (queue.gaplessPlaybackEnabled && !didStartRef.current) {
+          didStartRef.current = true;
+          void queue.playTrack(first);
+        }
+      }, [queue]);
+
+      return null;
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <GaplessProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(1));
+    expect(playLocalFile.mock.calls[0]?.[0]).toMatchObject({
+      output: {
+        playbackRate: 1.25,
+        playbackSpeedMode: 'speed',
+      },
+    });
+    expect(playLocalFile.mock.calls[0]?.[0].gapless).toBeUndefined();
+  });
+
   it('does not restart current playback when automix is enabled mid-song', async () => {
     const first = makeTrack(1);
     const second = makeTrack(2);
@@ -3390,7 +3509,7 @@ describe('PlaybackQueueProvider persisted queue session', () => {
     expect(screen.getByLabelText('current-track').textContent).toBe('track-2');
     expect(screen.getByLabelText('repeat-mode').textContent).toBe('one');
     expect(screen.getByLabelText('shuffle-mode').textContent).toBe('on');
-    expect(screen.getByLabelText('automix-mode').textContent).toBe('on');
+    expect(screen.getByLabelText('automix-mode').textContent).toBe('off');
   });
 
   it('does not write an empty queue before main-process hydration finishes', () => {
@@ -3421,7 +3540,7 @@ describe('PlaybackQueueProvider persisted queue session', () => {
       mode: {
         isShuffleEnabled: true,
         repeatMode: 'all',
-        automixEnabled: true,
+        automixEnabled: false,
       },
     });
     window.localStorage.setItem('echo-next:playback-queue', JSON.stringify({
@@ -3456,7 +3575,7 @@ describe('PlaybackQueueProvider persisted queue session', () => {
       mode: {
         isShuffleEnabled: true,
         repeatMode: 'all',
-        automixEnabled: true,
+        automixEnabled: false,
       },
     });
     expect(window.localStorage.getItem('echo-next:playback-queue')).toBeNull();

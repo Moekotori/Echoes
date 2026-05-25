@@ -32,6 +32,8 @@ import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
 
+const automixTemporarilyDisabled = true;
+
 const formatDuration = (duration: number): string => {
   if (!Number.isFinite(duration) || duration <= 0) {
     return '--:--';
@@ -764,7 +766,14 @@ export const QueuePage = (): JSX.Element => {
           <History size={16} />
           {isGeneratingHistoryQueue ? t('queue.action.generatingHistory') : t('queue.action.generateFromHistory')}
         </button>
-        <button className={`queue-tool-button ${queue.automixEnabled ? 'is-active' : ''}`} type="button" aria-pressed={queue.automixEnabled} onClick={() => queue.setAutomixEnabled(!queue.automixEnabled)}>
+        <button
+          className={`queue-tool-button ${!automixTemporarilyDisabled && queue.automixEnabled ? 'is-active' : ''}`}
+          type="button"
+          aria-pressed={!automixTemporarilyDisabled && queue.automixEnabled}
+          disabled={automixTemporarilyDisabled}
+          title={automixTemporarilyDisabled ? 'Automix 暂时禁用' : undefined}
+          onClick={() => queue.setAutomixEnabled(!queue.automixEnabled)}
+        >
           <Wand2 size={16} />
           智能下一首
         </button>

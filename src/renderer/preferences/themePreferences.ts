@@ -253,22 +253,22 @@ const fallbackToneDefaults: Record<EffectiveTheme, {
   onAccent: string;
 }> = {
   light: {
-    appBg: '#f8fbfd',
-    appBg2: '#eef3f7',
-    appBg3: '#dfe8f2',
+    appBg: '#f6f6f7',
+    appBg2: '#edeef0',
+    appBg3: '#e6e7ea',
     panelRgb: '255 255 255',
-    panelSoftRgb: '239 245 252',
-    borderRgb: '40 62 88',
-    shadowRgb: '31 47 69',
-    text: '#32455d',
-    heading: '#1c2735',
-    muted: '#65758a',
-    subtle: '#8b98a8',
-    accent: '#2f6da8',
-    accentStrong: '#164b7d',
-    accentRgb: '47 109 168',
-    secondary: '#42b3a8',
-    secondaryRgb: '66 179 168',
+    panelSoftRgb: '239 240 242',
+    borderRgb: '38 40 46',
+    shadowRgb: '36 39 48',
+    text: '#2d3036',
+    heading: '#1e2025',
+    muted: '#6c7179',
+    subtle: '#a0a4aa',
+    accent: '#4b55e8',
+    accentStrong: '#3239c7',
+    accentRgb: '75 85 232',
+    secondary: '#727987',
+    secondaryRgb: '114 121 135',
     onAccent: '#ffffff',
   },
   dark: {
@@ -292,7 +292,7 @@ const fallbackToneDefaults: Record<EffectiveTheme, {
   },
 };
 
-export const defaultThemeMode: AppThemeMode = 'dark';
+export const defaultThemeMode: AppThemeMode = 'light';
 export const defaultThemePreset: AppThemePreset = 'classic';
 
 export const normalizeThemeMode = (value: unknown): AppThemeMode =>

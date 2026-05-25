@@ -599,9 +599,11 @@ export const AlbumsPage = (): JSX.Element => {
                 </div>
                 <div className="album-copy">
                   <strong>{album.title}</strong>
-                  <span>{album.albumArtist}</span>
+                  <div className="album-meta-row">
+                    <span>{album.albumArtist}</span>
+                    <small>{t('library.albums.card.tracks', { count: album.trackCount })}</small>
+                  </div>
                   {album.mediaType === 'remote' ? <small className="remote-media-source">{album.sourceDisplayName ?? album.provider ?? t('library.source.remote')}</small> : null}
-                  <small>{t('library.albums.card.tracks', { count: album.trackCount })}</small>
                 </div>
               </article>
             );

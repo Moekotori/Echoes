@@ -1320,7 +1320,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               />
             </div>
             <button type="submit" disabled={isBusy || isLyricsCandidateLoading || !effectiveSettings.lyricsEnabled}>
-              Search
+              {t('lyricsSettings.action.search')}
             </button>
           </form>
 
@@ -1364,12 +1364,12 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                           </small>
                           <small>
                             {candidate.hasSynced
-                              ? 'Synced'
+                              ? t('lyricsSettings.candidate.type.synced')
                               : candidate.hasPlain
-                                ? 'Plain'
+                                ? t('lyricsSettings.candidate.type.plain')
                                 : candidate.instrumental
-                                  ? 'Instrumental'
-                                  : 'Lyrics'}
+                                  ? t('lyricsSettings.candidate.type.instrumental')
+                                  : t('lyricsSettings.candidate.type.lyrics')}
                           </small>
                           <small>{candidate.sourceLabel}</small>
                           <small>{formatScore(candidate.score)}</small>
@@ -1397,7 +1397,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               <strong>{t('lyricsSettings.currentTrack.rematch')}</strong>
               <small>{t('lyricsSettings.currentTrack.rematchHint')}</small>
             </span>
-            <em>Match</em>
+            <em>{t('lyricsSettings.action.match')}</em>
           </button>
 
           <button
@@ -1417,7 +1417,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               <strong>{currentLyricsKind === 'instrumental' ? t('lyricsSettings.currentTrack.instrumentalMarked') : t('lyricsSettings.currentTrack.markInstrumental')}</strong>
               <small>{t('lyricsSettings.currentTrack.markInstrumentalHint')}</small>
             </span>
-            <em>Music</em>
+            <em>{t('lyricsSettings.action.music')}</em>
           </button>
         </section>
       ) : null}
@@ -1491,7 +1491,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                       <strong>{t('lyricsSettings.font.applySystem')}</strong>
                       <small>{t('lyricsSettings.font.desktopOnly')}</small>
                     </span>
-                    <em>Fonts</em>
+                    <em>{t('lyricsSettings.action.fonts')}</em>
                   </button>
                   <button
                     className="audio-device-pill"
@@ -1504,7 +1504,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                       <strong>{t('lyricsSettings.font.importDesktop')}</strong>
                       <small>TTF / OTF / WOFF / WOFF2</small>
                     </span>
-                    <em>Choose</em>
+                    <em>{t('lyricsSettings.action.choose')}</em>
                   </button>
                   <button
                     className="audio-device-pill"
@@ -1523,7 +1523,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                       <strong>{t('lyricsSettings.font.restoreDesktopDefault')}</strong>
                       <small>{fallbackSettings.desktopLyricsFontFamily}</small>
                     </span>
-                    <em>Reset</em>
+                    <em>{t('lyricsSettings.action.reset')}</em>
                   </button>
                 </div>
               </div>
@@ -1579,7 +1579,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                       <strong>{t('lyricsSettings.display.resetDesktopPosition')}</strong>
                       <small>{t('lyricsSettings.display.resetDesktopPositionHint')}</small>
                     </span>
-                    <em>Reset</em>
+                    <em>{t('lyricsSettings.action.reset')}</em>
                   </button>
                 </>
               ) : null}
@@ -1901,7 +1901,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                   <strong>{t('lyricsSettings.font.applySystem')}</strong>
                   <small>{t('lyricsSettings.font.lyricsOnly')}</small>
                 </span>
-                <em>Fonts</em>
+                <em>{t('lyricsSettings.action.fonts')}</em>
               </button>
               <button className="audio-device-pill" type="button" disabled={isBusy} onClick={() => void chooseFontFileForTarget('lyrics')}>
                 <Upload size={15} />
@@ -1909,7 +1909,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                   <strong>{t('lyricsSettings.font.importFile')}</strong>
                   <small>TTF / OTF / WOFF / WOFF2</small>
                 </span>
-                <em>Choose</em>
+                <em>{t('lyricsSettings.action.choose')}</em>
               </button>
               <button
                 className="audio-device-pill"
@@ -1929,7 +1929,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                   <strong>{t('lyricsSettings.font.restoreLyricsDefault')}</strong>
                   <small>{fallbackSettings.lyricsFontFamily}</small>
                 </span>
-                <em>Reset</em>
+                <em>{t('lyricsSettings.action.reset')}</em>
               </button>
             </div>
           </div>
@@ -2073,8 +2073,8 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               className="lyrics-color-preview"
               style={{ '--lyrics-preview-color': effectiveSettings.lyricsColor } as CSSProperties}
             >
-              <span>Lyrics preview</span>
-              <small>Secondary lyric line</small>
+              <span>{t('lyricsSettings.preview.primary')}</span>
+              <small>{t('lyricsSettings.preview.secondary')}</small>
             </div>
           </div>
           ) : null}
@@ -2226,7 +2226,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                 <strong>{t('lyricsSettings.background.chooseWallpaper')}</strong>
                 <small>{effectiveSettings.lyricsCustomWallpaperPath ? t('lyricsSettings.background.wallpaperSaved') : 'JPG / PNG / WEBP'}</small>
               </span>
-              <em>Choose</em>
+              <em>{t('lyricsSettings.action.choose')}</em>
             </button>
             {effectiveSettings.lyricsCustomWallpaperPath ? (
               <button
@@ -2459,7 +2459,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               <strong>{t('lyricsSettings.timing.restoreDefaults')}</strong>
               <small>{t('lyricsSettings.timing.restoreDefaultsHint')}</small>
             </span>
-            <em>Reset</em>
+            <em>{t('lyricsSettings.action.reset')}</em>
           </button>
         </section>
         ) : null}

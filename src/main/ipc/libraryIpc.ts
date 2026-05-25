@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { copyFile as copyFileAsync, rm as rmAsync, writeFile as writeFileAsync } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +49,7 @@ import type {
   ReplayGainAnalysisStartOptions,
   AddLocalAudioFilesToPlaylistResult,
   LibraryScanMode,
+  LibraryAllUserDataDeleteResult,
 } from '../../shared/types/library';
 import { getAppSettings } from '../app/appSettings';
 import { getAppCacheInventory } from '../app/cacheInventory';
@@ -123,6 +124,87 @@ const closeLibraryDatabaseUsers = (): void => {
   closeDefaultRemoteSourceService();
   closeDefaultLibraryService();
   getLibraryDatabaseManager().closeAllUsers('manual-library-maintenance');
+};
+
+const isSameOrInside = (parentPath: string, candidatePath: string): boolean => {
+  const parent = resolve(parentPath).toLowerCase();
+  const candidate = resolve(candidatePath).toLowerCase();
+  return candidate === parent || candidate.startsWith(`${parent}\\`) || candidate.startsWith(`${parent}/`);
+};
+
+const isSafeExternalCacheDirectory = (targetPath: string): boolean => {
+  const name = basename(resolve(targetPath)).toLowerCase();
+  return name.includes('echo') || name.includes('cover') || name.includes('cache');
+};
+
+const listExistingChildren = (directory: string): string[] => {
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  try {
+    return readdirSync(directory).map((entry) => join(directory, entry));
+  } catch {
+    return [directory];
+  }
+};
+
+const removePathForWipe = async (
+  targetPath: string,
+  removedPaths: string[],
+  failedPaths: Array<{ path: string; error: string }>,
+): Promise<void> => {
+  if (!existsSync(targetPath)) {
+    return;
+  }
+
+  try {
+    await rmAsync(targetPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    removedPaths.push(targetPath);
+  } catch (error) {
+    failedPaths.push({ path: targetPath, error: error instanceof Error ? error.message : String(error) });
+  }
+};
+
+const resolveCoverCachePathForWipe = (): string | null => {
+  try {
+    return getLibraryService().getCoverCacheDir();
+  } catch {
+    const configuredCoverCacheDir = getAppSettings().coverCacheDir;
+    return typeof configuredCoverCacheDir === 'string' && configuredCoverCacheDir.trim()
+      ? resolve(configuredCoverCacheDir.trim())
+      : null;
+  }
+};
+
+const deleteAllUserData = async (coverCachePath: string | null): Promise<LibraryAllUserDataDeleteResult> => {
+  const userDataPath = app.getPath('userData');
+  const removedPaths: string[] = [];
+  const failedPaths: Array<{ path: string; error: string }> = [];
+
+  let externalCoverCacheChildren: string[] = [];
+  if (coverCachePath && !isSameOrInside(userDataPath, coverCachePath)) {
+    if (isSafeExternalCacheDirectory(coverCachePath)) {
+      externalCoverCacheChildren = listExistingChildren(coverCachePath);
+    } else {
+      failedPaths.push({
+        path: coverCachePath,
+        error: 'Skipped external cover cache directory because its name does not look ECHO/cache-specific.',
+      });
+    }
+  }
+  const userDataChildren = listExistingChildren(userDataPath);
+
+  for (const targetPath of [...externalCoverCacheChildren, ...userDataChildren]) {
+    await removePathForWipe(targetPath, removedPaths, failedPaths);
+  }
+
+  return {
+    userDataPath,
+    coverCachePath,
+    removedPaths,
+    failedPaths,
+  };
 };
 
 const scheduleLibraryRecoveryRelaunch = () => {
@@ -2088,6 +2170,15 @@ export const registerLibraryIpc = (): void => {
     return getLibraryDatabaseManager().runExclusiveMaintenance('manual-library-database-delete', () => {
       closeLibraryDatabaseUsers();
       return deleteProtectedLibraryDatabase(app.getPath('userData'));
+    });
+  });
+  ipcMain.handle(IpcChannels.LibraryDeleteAllUserData, () => {
+    assertNoRunningLibraryScan();
+    return getLibraryDatabaseManager().runExclusiveMaintenance('manual-delete-all-user-data', async () => {
+      const coverCachePath = resolveCoverCachePathForWipe();
+      closeLibraryDatabaseUsers();
+      getDownloadService().dispose();
+      return deleteAllUserData(coverCachePath);
     });
   });
   ipcMain.handle(IpcChannels.LibraryNetworkRepairMissingMetadata, (_event, trackId: unknown) =>

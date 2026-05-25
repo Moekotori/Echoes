@@ -338,6 +338,31 @@ describe('AirPlayReceiverSpikeService', () => {
     expect(status.metadata?.coverHttpUrl).toMatch(/^data:image\/png;base64,/u);
   });
 
+  it('waits for direct AirPlay PCM before starting audio playback by default', async () => {
+    const audio = new FakeAudioSession();
+    const harness: { handler?: (event: Record<string, unknown>) => void } = {};
+    const service = new AirPlayReceiverSpikeService({
+      audioSession: audio as never,
+      loadRaopModule: async () => ({
+        startReceiver: (_options, nextHandler) => {
+          harness.handler = nextHandler;
+          return 19;
+        },
+        stopReceiver: vi.fn(),
+        sendRemoteCommand: vi.fn(() => true),
+      }),
+      now: () => 1_000,
+    });
+
+    await service.setEnabled(true);
+    harness.handler?.({ type: 'stream', port: 9, remoteAddress: '192.168.1.51' });
+    await Promise.resolve();
+
+    expect(audio.playPcmStream).not.toHaveBeenCalled();
+    expect(service.getStatus().state).toBe('ready');
+    expect(service.getStatus().debugEvents.some((event) => event.action === 'stream' && event.message === 'using direct PCM events')).toBe(true);
+  });
+
   it('falls back to direct PCM events when AirPlay HTTP PCM has not produced audio', async () => {
     const audio = new FakeAudioSession();
     const harness: { handler?: (event: Record<string, unknown>) => void } = {};
@@ -351,6 +376,7 @@ describe('AirPlayReceiverSpikeService', () => {
         stopReceiver: vi.fn(),
         sendRemoteCommand: vi.fn(() => true),
       }),
+      useHttpPcmBridge: true,
       now: () => 1_000,
     });
 
@@ -405,6 +431,29 @@ describe('AirPlayReceiverSpikeService', () => {
     await service.playPlayback();
     expect(sendRemoteCommand).toHaveBeenCalledWith(15, 'play');
     expect(service.getStatus().state).toBe('playing');
+  });
+
+  it('maps AirPlay dB volume events without muting normal playback', async () => {
+    const audio = new FakeAudioSession();
+    const harness: { handler?: (event: Record<string, unknown>) => void } = {};
+    const service = new AirPlayReceiverSpikeService({
+      audioSession: audio as never,
+      loadRaopModule: async () => ({
+        startReceiver: (_options, nextHandler) => {
+          harness.handler = nextHandler;
+          return 19;
+        },
+        stopReceiver: vi.fn(),
+        sendRemoteCommand: vi.fn(() => true),
+      }),
+    });
+
+    await service.setEnabled(true);
+    harness.handler?.({ type: 'volume', value: -20 });
+    await Promise.resolve();
+
+    expect(audio.setOutput).toHaveBeenCalledWith({ volume: 0.1 });
+    expect(service.getStatus().volume).toBe(10);
   });
 
   it('does not fake AirPlay seek state when the native backend cannot seek the sender', async () => {
@@ -462,6 +511,37 @@ describe('AirPlayReceiverSpikeService', () => {
     expect(status.metadata?.title).toBe('Second Song');
     expect(status.positionSeconds).toBe(0);
     expect(status.durationSeconds).toBe(200);
+  });
+
+  it('keeps an active AirPlay PCM HTTP stream alive across flush events', async () => {
+    const service = new AirPlayReceiverSpikeService({
+      audioSession: new FakeAudioSession() as never,
+      loadRaopModule: async () => ({
+        startReceiver: vi.fn(() => 18),
+        stopReceiver: vi.fn(),
+        sendRemoteCommand: vi.fn(() => true),
+      }),
+    });
+    const internals = service as unknown as {
+      currentSourceId: string;
+      httpPcmRequest: { destroy: () => void };
+      httpPcmTransform: { destroy: () => void };
+      httpPcmBytesReceived: number;
+      handleRaopEvent: (event: Record<string, unknown>) => void;
+    };
+
+    await service.setEnabled(true);
+    internals.currentSourceId = 'airplay-receiver:active';
+    internals.httpPcmRequest = { destroy: vi.fn() };
+    internals.httpPcmTransform = { destroy: vi.fn() };
+    internals.httpPcmBytesReceived = 4;
+
+    internals.handleRaopEvent({ type: 'flush' });
+
+    expect(internals.httpPcmRequest.destroy).not.toHaveBeenCalled();
+    expect(internals.httpPcmTransform.destroy).not.toHaveBeenCalled();
+    expect(service.getStatus().state).toBe('paused');
+    expect(service.getStatus().debugEvents.some((event) => event.action === 'stream' && event.message === 'keep PCM HTTP alive after flush')).toBe(true);
   });
 
   it('uses album metadata when AirPlay sends a generic instrumental title', async () => {

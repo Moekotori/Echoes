@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import type { PluginCreateExampleKind, PluginEnableRequest, PluginRunCommandRequest } from '../../shared/types/plugins';
+import type { PluginCreateExampleKind, PluginEnableRequest, PluginMetadataLookupRequest, PluginRunCommandRequest } from '../../shared/types/plugins';
 import { getPluginService } from '../plugins/PluginService';
 
 const requireText = (value: unknown, field: string): string => {
@@ -41,6 +41,12 @@ export const registerPluginIpc = (): void => {
       throw new Error('plugin command request must be an object');
     }
     return service.runCommand(request as PluginRunCommandRequest);
+  });
+  ipcMain.handle(IpcChannels.PluginsQueryMetadata, (_event, request: unknown) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new Error('plugin metadata request must be an object');
+    }
+    return service.queryMetadata(request as PluginMetadataLookupRequest);
   });
   ipcMain.handle(IpcChannels.PluginsGetLogs, (_event, pluginId: unknown) =>
     service.getLogs(typeof pluginId === 'string' && pluginId.trim() ? pluginId.trim() : undefined),

@@ -138,6 +138,10 @@ const SecurityOverview = ({ plugin }: { plugin: PluginSummary }): JSX.Element =>
           <TerminalSquare size={16} />
           {plugin.security.commandCount} 个命令
         </span>
+        <span>
+          <Code2 size={16} />
+          {plugin.security.metadataProviderCount} 个元数据 provider
+        </span>
       </div>
       <PermissionList plugin={plugin} />
     </section>

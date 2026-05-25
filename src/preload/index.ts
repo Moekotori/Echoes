@@ -699,6 +699,10 @@ const ensureSystemAudioElement = (): HTMLAudioElement => {
     emitSystemAudioStatus();
   });
   element.addEventListener('ended', () => {
+    if (systemAudioState !== 'playing' && systemAudioState !== 'loading') {
+      return;
+    }
+
     const endedPositionSeconds = getSystemPositionSeconds();
     const durationSeconds = getSystemDurationSeconds();
     const premature =
@@ -1351,6 +1355,7 @@ const echoApi: EchoApi = {
     clearCache: () => ipcRenderer.invoke(IpcChannels.LibraryClearCache),
     repairDatabase: () => ipcRenderer.invoke(IpcChannels.LibraryRepairDatabase),
     deleteDatabase: () => ipcRenderer.invoke(IpcChannels.LibraryDeleteDatabase),
+    deleteAllUserData: () => ipcRenderer.invoke(IpcChannels.LibraryDeleteAllUserData),
     getDatabaseProtectionStatus: (options) => ipcRenderer.invoke(IpcChannels.LibraryGetDatabaseProtectionStatus, options),
     createDatabaseSnapshot: () => ipcRenderer.invoke(IpcChannels.LibraryCreateDatabaseSnapshot),
     restoreDatabaseSnapshot: (snapshotId) => ipcRenderer.invoke(IpcChannels.LibraryRestoreDatabaseSnapshot, snapshotId),
@@ -1761,6 +1766,7 @@ const echoApi: EchoApi = {
     exportPackage: (pluginId) => ipcRenderer.invoke(IpcChannels.PluginsExportPackage, pluginId),
     importPackage: () => ipcRenderer.invoke(IpcChannels.PluginsImportPackage),
     runCommand: (request) => ipcRenderer.invoke(IpcChannels.PluginsRunCommand, request),
+    queryMetadata: (request) => ipcRenderer.invoke(IpcChannels.PluginsQueryMetadata, request),
     getLogs: (pluginId) => ipcRenderer.invoke(IpcChannels.PluginsGetLogs, pluginId),
   },
   accounts: {

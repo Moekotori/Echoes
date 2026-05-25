@@ -5,6 +5,7 @@ import { ConnectPage } from '../pages/ConnectPage';
 import { DownloadsPage } from '../pages/DownloadsPage';
 import { FoldersPage } from '../pages/FoldersPage';
 import { HistoryPage } from '../pages/HistoryPage';
+import { HomePage } from '../pages/HomePage';
 import { ImportFolderPage } from '../pages/ImportFolderPage';
 import { InboxPage } from '../pages/InboxPage';
 import { PlaylistsPage } from '../pages/PlaylistsPage';
@@ -24,6 +25,7 @@ import {
   EchoDownloadsIcon,
   EchoFoldersIcon,
   EchoHistoryIcon,
+  EchoHomeIcon,
   EchoImportFileIcon,
   EchoImportFolderIcon,
   EchoLikedIcon,
@@ -40,6 +42,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import type { TranslationKey } from '../i18n/locales';
 
 export type AppRouteId =
+  | 'home'
   | 'songs'
   | 'inbox'
   | 'downloads'
@@ -89,6 +92,16 @@ const PlaceholderPage = ({
 );
 
 export const appRoutes: AppRoute[] = [
+  {
+    id: 'home',
+    label: 'Home',
+    labelKey: 'route.home.label',
+    description: 'Library overview and recent listening.',
+    descriptionKey: 'route.home.description',
+    icon: EchoHomeIcon,
+    placement: 'main',
+    element: <HomePage />,
+  },
   {
     id: 'songs',
     label: 'Songs',

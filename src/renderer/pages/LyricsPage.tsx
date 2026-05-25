@@ -653,6 +653,57 @@ const originalCoverUrlFromCachedVariant = (coverUrl: string | null | undefined):
   return originalUrl?.startsWith("echo-cover://original/") ? originalUrl : null;
 };
 
+const highResolutionRemoteArtworkUrl = (coverUrl: string | null | undefined): string | null => {
+  if (!coverUrl?.trim()) {
+    return null;
+  }
+
+  const upgradeTarget = (rawUrl: string): string | null => {
+    try {
+      const url = new URL(rawUrl);
+      let changed = false;
+
+      if (url.hostname.endsWith("music.126.net") && url.searchParams.has("param")) {
+        url.searchParams.delete("param");
+        changed = true;
+      }
+
+      if (url.hostname.endsWith("gtimg.cn") && /T002R\d+x\d+M000/u.test(url.href)) {
+        return url.href.replace(/T002R\d+x\d+M000/u, "T002R0x0M000");
+      }
+
+      if (url.hostname.endsWith("coverartarchive.org") && /\/front-\d+(?=$|[?#])/u.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/front-\d+$/u, "/front");
+        changed = true;
+      }
+
+      return changed ? url.toString() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    const proxiedUrl = new URL(coverUrl);
+    if (proxiedUrl.protocol === "echo-image:" && proxiedUrl.hostname === "remote") {
+      const targetUrl = decodeURIComponent(proxiedUrl.pathname.replace(/^\/+/u, ""));
+      const upgradedTargetUrl = upgradeTarget(targetUrl);
+      if (!upgradedTargetUrl) {
+        return null;
+      }
+
+      const referer = proxiedUrl.searchParams.get("referer");
+      return `echo-image://remote/${encodeURIComponent(upgradedTargetUrl)}${
+        referer ? `?referer=${encodeURIComponent(referer)}` : ""
+      }`;
+    }
+  } catch {
+    return null;
+  }
+
+  return upgradeTarget(coverUrl);
+};
+
 const isRemoteArtworkUrl = (coverUrl: string | null | undefined): coverUrl is string =>
   Boolean(coverUrl && !coverUrl.startsWith("data:") && !coverUrl.startsWith("echo-cover://"));
 
@@ -667,9 +718,9 @@ const safeOriginalCoverUrl = (track: LibraryTrack | null): string | null => {
     ? (coverLarge ?? coverThumb)
     : null;
   const streamCover = isStreamBackedTrack(track) && isRemoteArtworkUrl(coverLarge)
-    ? coverLarge
+    ? highResolutionRemoteArtworkUrl(coverLarge) ?? coverLarge
     : isStreamBackedTrack(track) && isRemoteArtworkUrl(coverThumb)
-      ? coverThumb
+      ? highResolutionRemoteArtworkUrl(coverThumb) ?? coverThumb
       : null;
   const coverUrl = track?.coverId
     ? `echo-cover://original/${encodeURIComponent(track.coverId)}`
@@ -3713,7 +3764,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
         {lyricsControls}
         {lyricsOffsetControls}
-        {lyricsSmartAlignmentControls}
+        {lyricsDisplaySettings.lyricsOffsetControlsEnabled ? lyricsSmartAlignmentControls : null}
         {lyricsDisplaySettings.lyricsEnabled ? (
           <LyricsView
             durationMs={displayDurationSeconds * 1000}

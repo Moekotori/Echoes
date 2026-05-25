@@ -2212,6 +2212,13 @@
   white-space: nowrap;
 }
 
+.tag-editor-heading-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .tag-editor-section-heading button {
   display: inline-flex;
   min-height: 32px;
@@ -2231,6 +2238,40 @@
   color: var(--tag-drawer-muted-text);
   font-size: 12px;
   font-weight: 780;
+}
+
+.tag-editor-plugin-log-hints {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  color: var(--tag-drawer-muted-text);
+  border: 1px solid color-mix(in srgb, var(--theme-warning-border) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-warning-bg) 58%, transparent);
+  font-size: 12px;
+}
+
+.tag-editor-plugin-log-hints span {
+  color: var(--tag-drawer-text);
+  font-weight: 860;
+}
+
+.tag-editor-plugin-log-hints p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.tag-editor-plugin-log-hints strong,
+.tag-editor-plugin-log-hints em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-style: normal;
+}
+
+.tag-editor-plugin-log-hints strong {
+  color: var(--tag-drawer-text);
+  font-weight: 820;
 }
 
 .tag-editor-network-panel {
@@ -3703,8 +3744,17 @@ html[data-theme="dark"] .tag-editor-actions {
   gap: 3px;
 }
 
+.album-meta-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .album-copy strong,
-.album-copy span {
+.album-copy span,
+.album-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3720,6 +3770,10 @@ html[data-theme="dark"] .tag-editor-actions {
 .album-copy small {
   color: var(--theme-muted-text);
   font-size: 12px;
+}
+
+.album-meta-row small {
+  justify-self: end;
 }
 
 .artist-wall {

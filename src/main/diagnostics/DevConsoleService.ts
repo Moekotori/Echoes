@@ -22,7 +22,7 @@ let consoleWindow: BrowserWindow | null = null;
 let captureInitialized = false;
 let nextEntryId = 1;
 let entries: DiagnosticConsoleEntry[] = [];
-const ansiSequencePattern = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
 
 const truncateLine = (line: string): string =>
   line.length > maxLineLength ? `${line.slice(0, maxLineLength)}...` : line;
@@ -477,6 +477,8 @@ const createDevConsoleHtml = (): string => {
     let autoScroll = true;
     let wrapLines = true;
     let unread = 0;
+    let pendingEntries = [];
+    let entryFlushTimer = null;
     const ansiCodePattern = /\\u001b\\[([0-9;?]*)m/g;
     const ansiStripPattern = /\\u001b\\[[0-9;?]*[ -/]*[@-~]/g;
     const fgCodes = new Set(['30', '31', '32', '33', '34', '35', '36', '37', '90', '91', '92', '93', '94', '95', '96', '97']);
@@ -671,8 +673,8 @@ const createDevConsoleHtml = (): string => {
       unread = 0;
       renderStats(entries.filter(passesFilters));
     };
-    const render = () => {
-      const stick = autoScroll && isNearBottom();
+    const render = (stickOverride) => {
+      const stick = typeof stickOverride === 'boolean' ? stickOverride : autoScroll && isNearBottom();
       const visible = entries.filter(passesFilters);
       consoleEl.replaceChildren();
       if (!visible.length) {
@@ -724,6 +726,48 @@ const createDevConsoleHtml = (): string => {
         scrollToBottom();
       }
     };
+    const appendEntries = (nextEntries) => {
+      if (!nextEntries.length) {
+        return;
+      }
+      const stick = autoScroll && isNearBottom();
+      entries = entries.concat(nextEntries).slice(-2500);
+      if (paused) {
+        unread += nextEntries.length;
+        renderStats(entries.filter(passesFilters));
+        return;
+      }
+      if (!autoScroll || !stick) {
+        unread += nextEntries.length;
+      }
+      render(stick);
+    };
+    const flushPendingEntries = () => {
+      entryFlushTimer = null;
+      const nextEntries = pendingEntries;
+      pendingEntries = [];
+      appendEntries(nextEntries);
+    };
+    const scheduleEntryFlush = () => {
+      if (entryFlushTimer !== null) {
+        return;
+      }
+      entryFlushTimer = window.setTimeout(flushPendingEntries, 80);
+    };
+    const flushPendingEntriesNow = () => {
+      if (entryFlushTimer !== null) {
+        window.clearTimeout(entryFlushTimer);
+        entryFlushTimer = null;
+      }
+      flushPendingEntries();
+    };
+    const discardPendingEntries = () => {
+      pendingEntries = [];
+      if (entryFlushTimer !== null) {
+        window.clearTimeout(entryFlushTimer);
+        entryFlushTimer = null;
+      }
+    };
 
     api.getSnapshot().then((snapshot) => {
       entries = snapshot.entries;
@@ -735,22 +779,24 @@ const createDevConsoleHtml = (): string => {
     });
 
     api.onEntry((entry) => {
-      entries = [...entries, entry].slice(-2500);
-      if (paused) {
-        unread += 1;
-        renderStats(entries.filter(passesFilters));
-        return;
-      }
-      if (!autoScroll || !isNearBottom()) {
-        unread += 1;
-      }
-      render();
+      pendingEntries.push(entry);
+      scheduleEntryFlush();
     });
 
-    filterEl.addEventListener('input', render);
-    sourceEl.addEventListener('change', render);
-    levelEl.addEventListener('change', render);
+    filterEl.addEventListener('input', () => {
+      flushPendingEntriesNow();
+      render();
+    });
+    sourceEl.addEventListener('change', () => {
+      flushPendingEntriesNow();
+      render();
+    });
+    levelEl.addEventListener('change', () => {
+      flushPendingEntriesNow();
+      render();
+    });
     problemsButton.addEventListener('click', () => {
+      flushPendingEntriesNow();
       onlyProblems = !onlyProblems;
       render();
     });
@@ -766,9 +812,11 @@ const createDevConsoleHtml = (): string => {
       render();
     });
     bottomButton.addEventListener('click', () => {
+      flushPendingEntriesNow();
       scrollToBottom();
     });
     pauseButton.addEventListener('click', () => {
+      flushPendingEntriesNow();
       paused = !paused;
       if (!paused) {
         unread = 0;
@@ -781,15 +829,18 @@ const createDevConsoleHtml = (): string => {
       }
     });
     clearButton.addEventListener('click', () => {
+      discardPendingEntries();
       entries = [];
       unread = 0;
       api.clear().finally(render);
     });
     copyButton.addEventListener('click', () => {
+      flushPendingEntriesNow();
       const text = entries.filter(passesFilters).map(formatEntryLine).join('\\n');
       navigator.clipboard.writeText(text).then(() => setTemporaryButtonText(copyButton, '已复制')).catch(() => setTemporaryButtonText(copyButton, '复制失败'));
     });
     saveButton.addEventListener('click', () => {
+      flushPendingEntriesNow();
       const text = entries.filter(passesFilters).map(formatEntryLine).join('\\n');
       const blob = new Blob([text + '\\n'], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
@@ -813,6 +864,7 @@ const createDevConsoleHtml = (): string => {
         filterEl.select();
       } else if (mod && key === 'l') {
         event.preventDefault();
+        discardPendingEntries();
         entries = [];
         unread = 0;
         api.clear().finally(render);

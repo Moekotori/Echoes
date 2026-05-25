@@ -62,7 +62,6 @@ rl.on('line', (line) => {
       stopReceiver();
       receiverHandle = raop.startReceiver(message.options, (event) => {
         if (event && event.type === 'stream' && event.port) {
-          forwardPcmEvents = false;
           send({ type: 'event', event });
           return;
         }

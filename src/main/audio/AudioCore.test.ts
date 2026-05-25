@@ -23,6 +23,7 @@ import type {
   NativeOutputStartOptions,
   PcmAutomixDecodeRequest,
   PcmDecodeRequest,
+  PcmGaplessDecodeRequest,
 } from './audioTypes';
 
 const noopLogger = (): void => undefined;
@@ -135,6 +136,30 @@ class AutomixPairDecoder extends FakeDecoder {
   decodeAutomixPair(request: PcmAutomixDecodeRequest): DecoderRun {
     this.automixRequests.push(request);
     return this.decodeLocalFile(request.current);
+  }
+}
+
+class GaplessSequenceDecoder extends FakeDecoder {
+  readonly gaplessRequests: PcmGaplessDecodeRequest[] = [];
+
+  decodeGaplessSequence(request: PcmGaplessDecodeRequest): DecoderRun {
+    this.gaplessRequests.push(request);
+    const stream = new PassThrough();
+    const stop = vi.fn(() => {
+      stream.destroy();
+    });
+
+    queueMicrotask(() => {
+      if (!stream.destroyed) {
+        stream.end();
+      }
+    });
+
+    return {
+      stream,
+      stop,
+      done: Promise.resolve(),
+    };
   }
 }
 
@@ -860,6 +885,109 @@ describe('AudioSession stability cleanup', () => {
     }
   });
 
+  it('keeps gapless playback on the ffmpeg sequence path when it is available', async () => {
+    const decoder = new GaplessSequenceDecoder(new Map([
+      ['current.flac', { ...probe('current.flac', 44100), durationSeconds: 120 }],
+      ['next.flac', { ...probe('next.flac', 44100), durationSeconds: 150 }],
+    ]));
+    const bridge = new NativeAutomixBridge();
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    try {
+      await session.playLocalFile({
+        filePath: 'current.flac',
+        trackId: 'current-track',
+        probe: {
+          durationSeconds: 120,
+          fileSampleRate: 44100,
+          channels: 2,
+        },
+        gapless: {
+          enabled: true,
+          next: {
+            filePath: 'next.flac',
+            trackId: 'next-track',
+            probe: {
+              durationSeconds: 150,
+              fileSampleRate: 44100,
+              channels: 2,
+            },
+          },
+        },
+      });
+
+      expect(decoder.gaplessRequests).toHaveLength(1);
+      expect(bridge.prepareAutomixPlan).not.toHaveBeenCalled();
+      expect(session.getStatus().automix).toMatchObject({
+        active: true,
+        gapless: true,
+        engine: 'ffmpegGapless',
+      });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('does not label a gapless chain ending early as a corrupt local file', async () => {
+    const decoder = new GaplessSequenceDecoder(new Map([
+      ['current.flac', { ...probe('current.flac', 44100), durationSeconds: 120 }],
+      ['next.flac', { ...probe('next.flac', 44100), durationSeconds: 150 }],
+    ]));
+    const bridge = new FakeBridge();
+    const ended = vi.fn();
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+    session.on('ended', ended);
+
+    try {
+      await session.playLocalFile({
+        filePath: 'current.flac',
+        trackId: 'current-track',
+        probe: {
+          durationSeconds: 120,
+          fileSampleRate: 44100,
+          channels: 2,
+        },
+        gapless: {
+          enabled: true,
+          next: {
+            filePath: 'next.flac',
+            trackId: 'next-track',
+            probe: {
+              durationSeconds: 150,
+              fileSampleRate: 44100,
+              channels: 2,
+            },
+          },
+        },
+      });
+      bridge.positionSeconds = 72;
+      bridge.emit('ended');
+
+      expect(ended).toHaveBeenCalledTimes(1);
+      expect(session.getStatus().state).toBe('ended');
+      expect(session.getStatus().error).toBeNull();
+      expect(session.getDiagnostics().recentPlaybackEvents?.at(-1)).toMatchObject({
+        kind: 'ended',
+        severity: 'suspect',
+        reason: 'ended_before_chained_duration',
+      });
+    } finally {
+      session.dispose();
+    }
+  });
+
   it('waits for the PCM stream tail before closing native input when the decoder exits first', async () => {
     const decoder = new EarlyDoneDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
     const bridge = new FakeBridge();
@@ -1307,6 +1435,36 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.requestedOutputSampleRate).toBe(48000);
     expect(status.decoderOutputSampleRate).toBe(48000);
     expect(decoder.decodeRequests.map((request) => request.decoderOutputSampleRate)).toEqual([48000, 48000, 48000]);
+  });
+
+  it('caps excessive WASAPI shared mix rates before decoding to avoid startup pressure', async () => {
+    const sharedDevice: AudioDeviceInfo = {
+      id: 'shared:384k',
+      index: 0,
+      name: 'High rate speakers',
+      outputMode: 'shared',
+      sampleRate: 384000,
+      sharedDeviceSampleRate: 384000,
+      isDefault: true,
+    };
+    const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)], [], [sharedDevice]);
+
+    const status = await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].startOptions).toMatchObject({
+      requestedOutputSampleRate: 96000,
+      sharedMixSampleRate: 96000,
+    });
+    expect(status.requestedOutputSampleRate).toBe(96000);
+    expect(status.decoderOutputSampleRate).toBe(96000);
+    expect(status.sharedDeviceSampleRate).toBe(384000);
+    expect(status.warnings).toContain('shared_output_sample_rate_capped:384000->96000');
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'song.flac',
+      decoderOutputSampleRate: 96000,
+      resamplerEngine: 'soxr',
+    });
   });
 
   it('keeps WASAPI shared playback stable across the full sample-rate switch matrix', async () => {
@@ -3618,7 +3776,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(bridges[0].startOptions).toMatchObject({
       exclusive: true,
-      bufferSizeFrames: 384,
+      bufferSizeFrames: 1024,
       latencyProfile: 'lowLatency',
     });
     expect(bridges[0].startOptions?.startupPrebufferMs).toBeUndefined();
@@ -3751,7 +3909,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(bridges[0].startOptions).toMatchObject({
       asio: true,
-      bufferSizeFrames: 256,
+      bufferSizeFrames: 1024,
       startupPrebufferMs: 0,
       startupPrebufferTimeoutMs: 0,
       latencyProfile: 'lowLatency',
@@ -4159,6 +4317,24 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(bridges).toHaveLength(2);
     expect(bridges[1].startOptions).toMatchObject({ startSeconds: 12.5 });
+  });
+
+  it('ignores native ended events while playback is paused', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+    bridges[0].positionSeconds = 12.5;
+    await session.pause();
+    bridges[1].positionSeconds = 12.5;
+    bridges[1].emit('ended');
+
+    expect(session.getStatus().state).toBe('paused');
+    expect(session.getStatus().error).toBeNull();
+    expect(session.getDiagnostics().recentPlaybackEvents?.at(-1)).toMatchObject({
+      kind: 'ended',
+      severity: 'info',
+      reason: 'ended_ignored_while_not_playing',
+    });
   });
 
   it('play resumes a paused file from the prewarmed output host', async () => {

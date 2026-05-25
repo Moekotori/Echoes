@@ -559,6 +559,55 @@ describe('preload SMTC API', () => {
     );
   });
 
+  it('ignores local system audio ended events while playback is paused', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/paused-token');
+      }
+      if (channel === IpcChannels.AudioReportSystemPlaybackError) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\paused.flac',
+      trackId: 'track-paused',
+      probe: { durationSeconds: 120 },
+    });
+    fakeAudioInstances[0].duration = 120;
+    fakeAudioInstances[0].currentTime = 72;
+    await exposedApi!.playback.pause();
+    fakeAudioInstances[0].emit('ended');
+
+    expect(statuses.at(-1)).toMatchObject({
+      outputMode: 'system',
+      state: 'paused',
+      currentTrackId: 'track-paused',
+      error: null,
+    });
+    await expect(exposedApi!.audio.getStatus()).resolves.toMatchObject({
+      outputMode: 'system',
+      state: 'paused',
+      currentTrackId: 'track-paused',
+      positionSeconds: 72,
+      error: null,
+    });
+    expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+      IpcChannels.AudioReportSystemPlaybackError,
+      expect.objectContaining({
+        phase: 'system-audio-ended-before-duration',
+      }),
+    );
+  });
+
   it('allows local system audio to end when only the reported duration looks loose', async () => {
     vi.resetModules();
     exposedApi = null;
@@ -1010,6 +1059,7 @@ describe('preload SMTC API', () => {
     await exposedApi!.plugins.exportPackage('echo.playback-panel');
     await exposedApi!.plugins.importPackage();
     await exposedApi!.plugins.runCommand({ pluginId: 'echo.playback-panel', commandId: 'show-status' });
+    await exposedApi!.plugins.queryMetadata({ track: { title: 'Song' } });
     await exposedApi!.plugins.getLogs('echo.playback-panel');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsList);
@@ -1027,6 +1077,7 @@ describe('preload SMTC API', () => {
       pluginId: 'echo.playback-panel',
       commandId: 'show-status',
     });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsQueryMetadata, { track: { title: 'Song' } });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsGetLogs, 'echo.playback-panel');
   });
 

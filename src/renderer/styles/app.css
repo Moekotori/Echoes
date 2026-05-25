@@ -4518,11 +4518,46 @@
   box-shadow: none;
 }
 
+.progress-track[data-waveform="true"] {
+  height: 24px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
 .progress-fill {
   width: 10%;
   height: 100%;
   border-radius: inherit;
   background: var(--theme-heading-text);
+}
+
+.progress-track[data-waveform="true"] .progress-fill {
+  display: none;
+}
+
+.progress-waveform {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(96, minmax(1px, 1fr));
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.progress-waveform i {
+  display: block;
+  height: max(4px, var(--waveform-bar-height));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-muted-text) 30%, transparent);
+  opacity: 0.92;
+}
+
+.progress-waveform i[data-played="true"] {
+  background: var(--theme-accent-solid-bg);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent-solid-bg) 24%, transparent);
 }
 
 .progress-thumb {
@@ -4543,10 +4578,28 @@
   pointer-events: none;
 }
 
+.progress-track[data-waveform="true"] .progress-thumb {
+  width: 2px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--theme-accent-solid-bg);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 12px color-mix(in srgb, var(--theme-accent-solid-bg) 34%, transparent);
+  opacity: 1;
+  transform: translate(-50%, -50%);
+}
+
 .progress-track:hover .progress-thumb,
 .progress-track:focus-within .progress-thumb {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1.05);
+}
+
+.progress-track[data-waveform="true"]:hover .progress-thumb,
+.progress-track[data-waveform="true"]:focus-within .progress-thumb {
+  transform: translate(-50%, -50%);
 }
 
 .progress-slider {
@@ -4561,6 +4614,11 @@
 
 .progress-slider:disabled {
   cursor: default;
+}
+
+.progress-track[data-waveform="true"] .progress-slider {
+  inset: -6px 0;
+  height: 36px;
 }
 
 .segment-loop-panel {
@@ -9786,9 +9844,25 @@ html[data-theme="dark"] .progress-track {
     0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+html[data-theme="dark"] .progress-track[data-waveform="true"] {
+  height: 24px;
+  background: transparent;
+  box-shadow: none;
+}
+
 html[data-theme="dark"] .progress-fill {
   background: linear-gradient(90deg, var(--theme-legacy-accent-strong), #d8e6f8);
   box-shadow: 0 0 14px rgba(127, 216, 230, 0.22);
+}
+
+html[data-theme="dark"] .progress-waveform i {
+  background: color-mix(in srgb, var(--theme-muted-text) 26%, transparent);
+  opacity: 0.94;
+}
+
+html[data-theme="dark"] .progress-waveform i[data-played="true"] {
+  background: var(--theme-accent-solid-bg);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--theme-accent-solid-bg) 28%, transparent);
 }
 
 html[data-theme="dark"] .progress-thumb {
@@ -9797,6 +9871,14 @@ html[data-theme="dark"] .progress-thumb {
   box-shadow:
     0 5px 14px rgba(0, 0, 0, 0.34),
     0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+html[data-theme="dark"] .progress-track[data-waveform="true"] .progress-thumb {
+  border: 0;
+  background: var(--theme-accent-solid-bg);
+  box-shadow:
+    0 0 0 1px rgba(16, 20, 29, 0.9),
+    0 0 14px color-mix(in srgb, var(--theme-accent-solid-bg) 38%, transparent);
 }
 
 html[data-theme="dark"] .segment-loop-panel__range,

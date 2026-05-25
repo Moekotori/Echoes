@@ -439,6 +439,28 @@ const runPathsQueue = async (
   return store.getScanJob()!;
 };
 
+const runStoredQueue = async (
+  store: FakeStore,
+  scanner: FileScanner,
+  metadataReader: MetadataReader,
+  coverExtractor: CoverExtractor,
+  cacheRoot: string,
+  folder: LibraryFolder,
+  options: LibraryScanOptions = {},
+): Promise<LibraryScanStatus> => {
+  const queue = new ScanJobQueue(
+    store as unknown as LibraryStore,
+    scanner,
+    metadataReader,
+    coverExtractor,
+    {} as AlbumService,
+    { coverCacheDir: cacheRoot },
+  );
+  const job = queue.scanStoredTracks(folder, options);
+  await queue.waitForIdle(job.id);
+  return store.getScanJob()!;
+};
+
 const identityObservation = (overrides: Partial<FileIdentityObservation> = {}): FileIdentityObservation => ({
   fileIdentity: 'dev:1:ino:2',
   fileIdentitySource: 'posix-dev-ino',
@@ -822,6 +844,144 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(metadataReader.paths).toEqual([]);
     expect(store.getTrackCacheStatesByFolderCalls).toBe(1);
     expect(store.findTrackCoverStateCalls).toBe(0);
+  });
+
+  it('rescans stored missing-cover tracks without walking the library folder', async () => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'custom-cache');
+    const folder = baseFolder(root);
+    mkdirSync(folder.path, { recursive: true });
+    mkdirSync(cacheRoot, { recursive: true });
+    const cachedCover = join(cacheRoot, 'cached.webp');
+    writeFileSync(cachedCover, 'cached');
+    const files = makeFiles(root, 2);
+    for (const file of files) {
+      writeFileSync(file.path, 'audio');
+    }
+
+    const metadataReader = new FakeMetadataReader();
+    const coverExtractor = new CapturingCoverExtractor();
+    const store = new FakeStore(
+      coverStateMap(files, (file, index) => {
+        if (index === 0) {
+          return coverState(file, {
+            coverSource: 'embedded',
+            thumbPath: cachedCover,
+            albumPath: cachedCover,
+            largePath: cachedCover,
+            originalRef: cachedCover,
+          });
+        }
+
+        return coverState(file, {
+          coverSource: 'default',
+          thumbPath: null,
+          albumPath: null,
+          largePath: null,
+          originalRef: null,
+        });
+      }),
+    );
+
+    const status = await runStoredQueue(
+      store,
+      new ThrowingScanner(),
+      metadataReader,
+      coverExtractor,
+      cacheRoot,
+      folder,
+      { mode: 'embedded-tags-missing-cover' },
+    );
+
+    expect(status.status).toBe('completed');
+    expect(status.totalFiles).toBe(1);
+    expect(metadataReader.paths).toEqual([resolve(files[1].path)]);
+    expect(coverExtractor.cacheRoots).toEqual([cacheRoot]);
+    expect(store.markMissingCalls).toBe(0);
+    expect(store.finishFolderScanCalls).toBe(0);
+  });
+
+  it('treats an incomplete stored cover cache as a missing-cover rescan target', async () => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'custom-cache');
+    const folder = baseFolder(root);
+    mkdirSync(folder.path, { recursive: true });
+    mkdirSync(cacheRoot, { recursive: true });
+    const cachedCover = join(cacheRoot, 'cached.webp');
+    const missingCover = join(cacheRoot, 'missing.webp');
+    writeFileSync(cachedCover, 'cached');
+    const [file] = makeFiles(root, 1);
+    writeFileSync(file.path, 'audio');
+
+    const metadataReader = new FakeMetadataReader();
+    const store = new FakeStore(
+      coverStateMap([file], (track) =>
+        coverState(track, {
+          coverSource: 'embedded',
+          thumbPath: cachedCover,
+          albumPath: missingCover,
+          largePath: cachedCover,
+          originalRef: cachedCover,
+        }),
+      ),
+    );
+
+    const status = await runStoredQueue(
+      store,
+      new ThrowingScanner(),
+      metadataReader,
+      new CapturingCoverExtractor(),
+      cacheRoot,
+      folder,
+      { mode: 'embedded-tags-missing-cover' },
+    );
+
+    expect(status.status).toBe('completed');
+    expect(status.totalFiles).toBe(1);
+    expect(metadataReader.paths).toEqual([resolve(file.path)]);
+    expect(store.upsertedTracks).toHaveLength(1);
+  });
+
+  it('finishes stored missing-cover rescans without regrouping when there are no targets', async () => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'custom-cache');
+    const folder = baseFolder(root);
+    mkdirSync(folder.path, { recursive: true });
+    mkdirSync(cacheRoot, { recursive: true });
+    const cachedCover = join(cacheRoot, 'cached.webp');
+    writeFileSync(cachedCover, 'cached');
+    const [file] = makeFiles(root, 1);
+    writeFileSync(file.path, 'audio');
+
+    const metadataReader = new FakeMetadataReader();
+    const store = new FakeStore(
+      coverStateMap([file], (track) =>
+        coverState(track, {
+          coverSource: 'embedded',
+          thumbPath: cachedCover,
+          albumPath: cachedCover,
+          largePath: cachedCover,
+          originalRef: cachedCover,
+        }),
+      ),
+    );
+
+    const status = await runStoredQueue(
+      store,
+      new ThrowingScanner(),
+      metadataReader,
+      new CapturingCoverExtractor(),
+      cacheRoot,
+      folder,
+      { mode: 'embedded-tags-missing-cover' },
+    );
+
+    expect(status.status).toBe('completed');
+    expect(status.totalFiles).toBe(0);
+    expect(metadataReader.paths).toEqual([]);
+    expect(store.upsertedTracks).toEqual([]);
+    expect(store.refreshAlbumsCalls).toBe(0);
+    expect(store.refreshArtistsCalls).toBe(0);
   });
 
   it('keeps scanning when one directory is inaccessible and does not mark tracks under it missing', async () => {
