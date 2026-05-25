@@ -112,6 +112,30 @@ const ExternalPlaySeed = ({ track }: { track: LibraryTrack }): JSX.Element => {
   return <PlayerBar />;
 };
 
+const ManualVisibleTrackSeed = ({
+  initialTrackId,
+  tracks,
+}: {
+  initialTrackId: string;
+  tracks: LibraryTrack[];
+}): JSX.Element => {
+  const { replaceQueue, setCurrentTrackId } = usePlaybackQueue();
+
+  useEffect(() => {
+    replaceQueue(tracks);
+    setCurrentTrackId(initialTrackId);
+  }, [initialTrackId, replaceQueue, setCurrentTrackId, tracks]);
+
+  return (
+    <>
+      <button type="button" onClick={() => setCurrentTrackId(tracks[0]?.id ?? null)}>
+        Show current track
+      </button>
+      <PlayerBar />
+    </>
+  );
+};
+
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
@@ -613,6 +637,57 @@ describe('PlayerBar', () => {
     const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
     await waitFor(() => expect(Number(slider.value)).toBeGreaterThanOrEqual(7));
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('does not reuse stale previous-track progress for the visible current track', async () => {
+    const staleTrack = makeTrack(1);
+    const currentTrack = makeTrack(2);
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: staleTrack.id,
+          positionMs: 135000,
+          durationMs: staleTrack.duration * 1000,
+          filePath: staleTrack.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(staleTrack),
+          positionSeconds: 135,
+        }),
+        onStatus: vi.fn(),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [staleTrack.id]: false, [currentTrack.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <ManualVisibleTrackSeed initialTrackId={staleTrack.id} tracks={[currentTrack, staleTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Show current track' }));
+    await screen.findByText('Song 2');
+    expect(screen.queryByText('Song 1')).toBeNull();
+    const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
+    await waitFor(() => expect(Number(slider.value)).toBe(0));
   });
 
   it('keeps volume and playback speed popovers mutually exclusive', async () => {

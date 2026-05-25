@@ -353,6 +353,24 @@ describe('ConnectPage HQPlayer controls', () => {
     );
   });
 
+  it('keeps the HQPlayer details collapsed while disabled and expands after enabling', async () => {
+    const bridge = installEchoBridge(hqStatus('disabled'), {
+      ...hqSettings,
+      enabled: false,
+    });
+    const { container } = render(<ConnectPage />);
+
+    await screen.findByText('HQPlayer Desktop');
+    await waitFor(() => expect(container.querySelector('.connect-hqplayer-collapsed')).toBeTruthy());
+    expect(container.querySelector('.connect-hqplayer-layout')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '启用 HQPlayer' }));
+
+    await waitFor(() => expect(bridge.hqPlayer.setSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    await waitFor(() => expect(container.querySelector('.connect-hqplayer-layout')).toBeTruthy());
+    expect(container.querySelector('.connect-hqplayer-collapsed')).toBeNull();
+  });
+
   it('shows read-only HQPlayer probe details in the diagnostics area', async () => {
     installEchoBridge({
       ...hqStatus('available'),

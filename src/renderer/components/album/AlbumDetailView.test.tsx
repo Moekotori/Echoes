@@ -10,6 +10,8 @@ const queueMock = {
   replaceQueue: vi.fn(),
 };
 
+let mockAlbumTracks: LibraryTrack[] = [];
+
 vi.mock('../../stores/PlaybackQueueProvider', () => ({
   usePlaybackQueue: () => queueMock,
 }));
@@ -23,7 +25,9 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.information.externalLinks': 'External links',
     'albumDetail.related.heading': 'My Library',
     'albumDetail.related.thisAlbum': 'This album',
+    'albumDetail.tab.credits': 'Credits',
     'albumDetail.tab.information': 'Information',
+    'albumDetail.tab.tracks': 'Tracks',
   };
 
   return {
@@ -43,9 +47,9 @@ vi.mock('./AlbumTrackList', async () => {
       onLoadedTracksChange?: (tracks: LibraryTrack[], total: number, isLoading: boolean) => void;
     }) => {
       React.useEffect(() => {
-        const loadedTrack = track();
-        onFirstTrackChange?.(loadedTrack, false);
-        onLoadedTracksChange?.([loadedTrack], 1, false);
+        const loadedTracks = mockAlbumTracks.length > 0 ? mockAlbumTracks : [track()];
+        onFirstTrackChange?.(loadedTracks[0] ?? null, false);
+        onLoadedTracksChange?.(loadedTracks, loadedTracks.length, false);
       }, [onFirstTrackChange, onLoadedTracksChange]);
 
       return <section>Mock album tracks</section>;
@@ -53,7 +57,7 @@ vi.mock('./AlbumTrackList', async () => {
   };
 });
 
-const album = (): LibraryAlbum => ({
+const album = (overrides: Partial<LibraryAlbum> = {}): LibraryAlbum => ({
   id: 'album-1',
   albumKey: 'echo/unit',
   title: 'Mock Album',
@@ -63,9 +67,10 @@ const album = (): LibraryAlbum => ({
   duration: 180,
   coverId: null,
   coverThumb: null,
+  ...overrides,
 });
 
-const track = (): LibraryTrack => ({
+const track = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   id: 'track-1',
   path: 'D:\\Music\\track-1.flac',
   title: 'Mock Track',
@@ -87,6 +92,7 @@ const track = (): LibraryTrack => ({
   embeddedCoverStatus: 'missing',
   networkMetadataStatus: 'none',
   fieldSources: {},
+  ...overrides,
 });
 
 const artist = (): LibraryArtist => ({
@@ -192,6 +198,7 @@ afterEach(() => {
   queueMock.playTrack.mockReset();
   queueMock.playTrack.mockResolvedValue({});
   queueMock.replaceQueue.mockReset();
+  mockAlbumTracks = [];
 });
 
 describe('AlbumDetailView', () => {
@@ -214,17 +221,40 @@ describe('AlbumDetailView', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('starts reading online album info when the detail opens and shows artist information', async () => {
+  it('starts reading online album info when the detail opens and shows tracks by default', async () => {
     const { getAlbumOnlineInfo } = installLibrary();
 
     render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
 
     await waitFor(() => expect(getAlbumOnlineInfo).toHaveBeenCalledWith('album-1', { force: false }));
 
+    expect(screen.getByText('Mock album tracks')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Tracks' }).getAttribute('aria-current')).toBe('page');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Credits' }));
+    expect(await screen.findByText('Mock Composer')).toBeTruthy();
+  });
+
+  it('shows artist information after opening the information tab', async () => {
+    installLibrary();
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
     fireEvent.click(screen.getByRole('button', { name: 'Information' }));
 
     expect(await screen.findByText('Artist profile - en.wikipedia.org')).toBeTruthy();
     expect(screen.getByText('Echo Unit artist overview.')).toBeTruthy();
+  });
+
+  it('uses original album artwork in the detail hero', async () => {
+    installLibrary();
+
+    const { container } = render(<AlbumDetailView album={album({
+      coverId: 'cover 1',
+      coverThumb: 'echo-cover://album/cover%201',
+    })} onBack={vi.fn()} />);
+
+    expect((container.querySelector('.album-detail-cover img') as HTMLImageElement | null)?.getAttribute('src')).toBe('echo-cover://original/cover%201');
   });
 
   it('opens information links through the system browser bridge', async () => {
@@ -254,10 +284,39 @@ describe('AlbumDetailView', () => {
     window.removeEventListener('app:navigate:artist-detail', navigate);
   });
 
+  it('derives the album artist display from track artists when the album artist is Various Artists', async () => {
+    mockAlbumTracks = [
+      track({
+        id: 'track-1',
+        artist: 'Mock Producer / Echo Unit / Hatsune Miku',
+        albumArtist: 'Various Artists',
+      }),
+      track({
+        id: 'track-2',
+        artist: 'Echo Unit / Hatsune Miku',
+        albumArtist: 'Various Artists',
+      }),
+    ];
+    const { getArtists } = installLibrary();
+
+    render(<AlbumDetailView album={album({ albumArtist: 'Various Artists' })} onBack={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Open artist Various Artists' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
+
+    expect(await screen.findByRole('button', { name: 'Open artist Echo Unit / Hatsune Miku' })).toBeTruthy();
+    await waitFor(() =>
+      expect(getArtists).toHaveBeenCalledWith({ page: 1, pageSize: 50, search: 'Echo Unit', sort: 'default', sourceProvider: 'local' }),
+    );
+    expect(screen.queryByText('Various Artists')).toBeNull();
+  });
+
   it('shows the album artist library shelf under the track list', async () => {
     const { getArtists, getArtistAlbums } = installLibrary();
 
     render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
 
     expect(await screen.findByText('My Library')).toBeTruthy();
     expect(screen.getByText('Sister Album')).toBeTruthy();

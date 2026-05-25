@@ -10616,6 +10616,14 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
   padding: 2px 2px 0;
 }
 
+.history-activity-body {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(220px, 1fr);
+  align-items: end;
+  gap: 22px;
+  min-width: 0;
+}
+
 .history-activity-summary,
 .history-activity-legend {
   display: flex;
@@ -10630,6 +10638,7 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
 }
 
 .history-activity-summary span,
+.history-activity-insight span,
 .history-activity-months span,
 .history-activity-weekdays span,
 .history-activity-legend span {
@@ -10643,6 +10652,31 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 0 4px;
+}
+
+.history-activity-insights {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+  padding: 0 2px 8px;
+}
+
+.history-activity-insight {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--theme-panel-border);
+}
+
+.history-activity-insight strong {
+  overflow: hidden;
+  color: var(--echo-heading-text);
+  font-size: 13px;
+  font-weight: 840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-activity-months {
@@ -10956,6 +10990,7 @@ html[data-theme="dark"] .history-stats-track em,
 html[data-theme="dark"] .history-stats-bar-row span,
 html[data-theme="dark"] .history-stats-bar-row em,
 html[data-theme="dark"] .history-activity-summary span,
+html[data-theme="dark"] .history-activity-insight span,
 html[data-theme="dark"] .history-activity-months span,
 html[data-theme="dark"] .history-activity-weekdays span,
 html[data-theme="dark"] .history-activity-legend span,
@@ -10975,6 +11010,7 @@ html[data-theme="dark"] .history-stats-header h2,
 html[data-theme="dark"] .history-stats-panel h3,
 html[data-theme="dark"] .history-stats-track strong,
 html[data-theme="dark"] .history-activity-summary strong,
+html[data-theme="dark"] .history-activity-insight strong,
 html[data-theme="dark"] .history-copy strong,
 html[data-theme="dark"] .history-empty strong {
   color: var(--echo-heading-text);
@@ -11702,6 +11738,12 @@ html[data-theme="dark"] .history-play-count {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .history-activity-body {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .history-row {
     grid-template-columns: 44px minmax(0, 1fr) 82px 104px;
   }
@@ -11727,6 +11769,10 @@ html[data-theme="dark"] .history-play-count {
 
   .history-activity-wall {
     --history-activity-cell: 11px;
+  }
+
+  .history-activity-insights {
+    grid-template-columns: 1fr;
   }
 }
 .remote-sources-panel {
@@ -12516,6 +12562,41 @@ html[data-theme="dark"] .history-play-count {
   grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.8fr) minmax(260px, 0.95fr);
   gap: 14px;
   align-items: start;
+  max-height: 1100px;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height 260ms ease,
+    opacity 180ms ease,
+    transform 220ms ease;
+}
+
+.connect-hqplayer-layout[data-expanded="false"] {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.connect-hqplayer-panel[data-collapsed="true"] .connect-hqplayer-layout {
+  margin-bottom: -16px;
+}
+
+.connect-hqplayer-collapsed {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) max-content;
+  gap: 12px;
+  align-items: center;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease;
+}
+
+.connect-hqplayer-collapsed .settings-inline-toggle {
+  justify-self: end;
 }
 
 .connect-hqplayer-config,
@@ -13082,8 +13163,13 @@ html[data-theme="dark"] .history-play-count {
     justify-content: center;
   }
 
-  .connect-hqplayer-layout {
+  .connect-hqplayer-layout,
+  .connect-hqplayer-collapsed {
     grid-template-columns: 1fr;
+  }
+
+  .connect-hqplayer-collapsed .settings-inline-toggle {
+    justify-self: stretch;
   }
 
   .connect-header .settings-action-button,

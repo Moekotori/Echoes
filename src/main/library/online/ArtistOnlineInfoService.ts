@@ -6,7 +6,8 @@ import type {
   ArtistOnlineRelation,
   LibraryArtist,
 } from '../../../shared/types/library';
-import type { AppLocale } from '../../../shared/types/appSettings';
+import { artistOnlineInfoSources, defaultArtistOnlineInfoSources } from '../../../shared/types/appSettings';
+import type { AppLocale, ArtistOnlineInfoSource } from '../../../shared/types/appSettings';
 import { fetchWithNetworkProxy } from '../../network/networkFetch';
 
 type DbRow = Record<string, unknown>;
@@ -15,7 +16,16 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<{
   ok: boolean;
   status: number;
   json: () => Promise<unknown>;
+  text?: () => Promise<string>;
+  url?: string;
 }>;
+
+type OnlineBioCandidate = {
+  bio: ArtistOnlineInfoBio;
+  source: Extract<ArtistOnlineInfoExternalLink['source'], 'wikipedia' | 'baidu-baike' | 'moegirl'>;
+  sourceLabel: string;
+  imageCreditLabel: string;
+};
 
 type OnlinePayload = {
   bio: ArtistOnlineInfoBio | null;
@@ -66,12 +76,20 @@ class AsyncLimiter {
 }
 
 const wikipediaLimiter = new AsyncLimiter(2);
+const baiduBaikeLimiter = new AsyncLimiter(2);
+const moegirlLimiter = new AsyncLimiter(2);
 const musicBrainzLimiter = new AsyncLimiter(1, 1050);
 const successTtlMs = 30 * 24 * 60 * 60 * 1000;
 const shortTtlMs = 60 * 60 * 1000;
 const maxRelatedArtists = 8;
 const maxExternalLinks = 8;
 const wikipediaFallbackLanguages = ['zh', 'ja', 'en'] as const;
+const chineseArtistBioTimeoutMs = 3000;
+const artistOnlineInfoSourceLabels: Record<ArtistOnlineInfoSource, string> = {
+  'baidu-baike': '百度百科',
+  moegirl: '萌娘百科',
+  wikipedia: 'Wikipedia',
+};
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -111,8 +129,19 @@ const wikipediaLanguagePriority = (language: 'zh' | 'ja' | 'en'): Array<'zh' | '
   ...wikipediaFallbackLanguages.filter((fallback) => fallback !== language),
 ];
 
-const cacheKeyFor = (artistId: string, artistName: string, language: string, region: string | null): string =>
-  `${artistId}:${language}:${normalizeText(region)}:${normalizeText(artistName)}`;
+const normalizeArtistOnlineInfoSources = (sources: ArtistOnlineInfoSource[] | undefined): ArtistOnlineInfoSource[] => {
+  if (!Array.isArray(sources)) {
+    return [...defaultArtistOnlineInfoSources];
+  }
+
+  const source = sources.find((item): item is ArtistOnlineInfoSource =>
+    artistOnlineInfoSources.includes(item as ArtistOnlineInfoSource),
+  );
+  return source ? [source] : [...defaultArtistOnlineInfoSources];
+};
+
+const cacheKeyFor = (artistId: string, artistName: string, language: string, region: string | null, sources: ArtistOnlineInfoSource[]): string =>
+  `${artistId}:${language}:${sources.join(',')}:${normalizeText(region)}:${normalizeText(artistName)}`;
 
 const levenshtein = (left: string, right: string): number => {
   if (left === right) {
@@ -162,12 +191,19 @@ const uniqueByUrl = (links: ArtistOnlineInfoExternalLink[]): ArtistOnlineInfoExt
   return result.slice(0, maxExternalLinks);
 };
 
-const fetchJson = async (url: string, fetcher: FetchLike, headers: Record<string, string>, timeoutMs = 7000): Promise<unknown> => {
+const fetchJson = async (
+  url: string,
+  fetcher: FetchLike,
+  headers: Record<string, string>,
+  timeoutMs = 7000,
+  redirect?: RequestRedirect,
+): Promise<unknown> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetcher(url, {
       signal: controller.signal,
+      redirect,
       headers: {
         Accept: 'application/json',
         ...headers,
@@ -182,12 +218,87 @@ const fetchJson = async (url: string, fetcher: FetchLike, headers: Record<string
   }
 };
 
-const pageExtractFromQuery = (value: unknown): string | null => {
-  const pages = asRecord(asRecord(asRecord(value).query).pages);
-  for (const page of Object.values(pages).map(asRecord)) {
-    if (page.missing) {
-      continue;
+const fetchText = async (
+  url: string,
+  fetcher: FetchLike,
+  headers: Record<string, string>,
+  timeoutMs = 5000,
+  redirect?: RequestRedirect,
+): Promise<{ body: string; url: string }> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetcher(url, {
+      signal: controller.signal,
+      redirect,
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        ...headers,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`request_failed:${response.status}`);
     }
+    if (typeof response.text === 'function') {
+      return { body: await response.text(), url: response.url ?? url };
+    }
+    const fallback = await response.json();
+    return { body: typeof fallback === 'string' ? fallback : JSON.stringify(fallback), url: response.url ?? url };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const decodeHtmlEntities = (value: string): string =>
+  value
+    .replace(/&nbsp;/giu, ' ')
+    .replace(/&amp;/giu, '&')
+    .replace(/&lt;/giu, '<')
+    .replace(/&gt;/giu, '>')
+    .replace(/&quot;/giu, '"')
+    .replace(/&#39;|&apos;/giu, "'")
+    .replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/giu, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)));
+
+const htmlText = (value: string): string =>
+  decodeHtmlEntities(value)
+    .replace(/<script[\s\S]*?<\/script>/giu, ' ')
+    .replace(/<style[\s\S]*?<\/style>/giu, ' ')
+    .replace(/<br\s*\/?>/giu, '\n')
+    .replace(/<\/(p|div|section|li|dd|dt)>/giu, '\n')
+    .replace(/<[^>]+>/gu, ' ')
+    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/[ \t]{2,}/gu, ' ')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim();
+
+const htmlMetaContent = (html: string, key: string): string | null => {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:name|property)=["']${escapedKey}["'][^>]+content=["']([^"']+)["'][^>]*>`, 'iu'),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escapedKey}["'][^>]*>`, 'iu'),
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return decodeHtmlEntities(match[1]).trim();
+    }
+  }
+  return null;
+};
+
+const htmlTitle = (html: string): string | null => {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/iu);
+  return match?.[1] ? htmlText(match[1]) : null;
+};
+
+const mediaWikiPages = (value: unknown): Record<string, unknown>[] => {
+  const pages = asRecord(asRecord(asRecord(value).query).pages);
+  return Object.values(pages).map(asRecord).filter((page) => !page.missing);
+};
+
+const pageExtractFromQuery = (value: unknown): string | null => {
+  for (const page of mediaWikiPages(value)) {
     const extract = text(page.extract);
     if (extract) {
       return extract;
@@ -259,7 +370,7 @@ export class ArtistOnlineInfoService {
 
   async getArtistOnlineInfo(
     artist: LibraryArtist,
-    options: { force?: boolean; locale?: AppLocale; region?: string | null; now?: Date } = {},
+    options: { force?: boolean; locale?: AppLocale; region?: string | null; sources?: ArtistOnlineInfoSource[]; now?: Date } = {},
   ): Promise<ArtistOnlineInfo> {
     const artistName = artist.name.trim();
     if (!artistName) {
@@ -268,8 +379,9 @@ export class ArtistOnlineInfoService {
 
     const language = wikipediaLanguageForLocale(options.locale);
     const region = options.region?.trim() || null;
+    const sources = normalizeArtistOnlineInfoSources(options.sources);
     const normalizedName = normalizeText(artistName);
-    const cacheKey = cacheKeyFor(artist.id, artistName, language, region);
+    const cacheKey = cacheKeyFor(artist.id, artistName, language, region, sources);
     const now = options.now ?? new Date();
 
     if (options.force !== true) {
@@ -279,7 +391,7 @@ export class ArtistOnlineInfoService {
       }
     }
 
-    const payload = await this.fetchOnlineInfo(artistName, language);
+    const payload = await this.fetchOnlineInfo(artistName, language, sources);
     const hasData = Boolean(payload.bio) || payload.externalLinks.length > 0 || payload.relatedArtists.length > 0;
     const status: ArtistOnlineInfo['status'] = hasData
       ? payload.errors.length > 0
@@ -313,29 +425,32 @@ export class ArtistOnlineInfoService {
     return { removedRows };
   }
 
-  private async fetchOnlineInfo(artistName: string, language: 'zh' | 'ja' | 'en'): Promise<OnlinePayload> {
+  private async fetchOnlineInfo(artistName: string, language: 'zh' | 'ja' | 'en', sources: ArtistOnlineInfoSource[]): Promise<OnlinePayload> {
     const errors: string[] = [];
-    const [bio, musicBrainz] = await Promise.all([
-      this.fetchWikipediaBio(artistName, language).catch((error: unknown) => {
-        errors.push(`Wikipedia: ${error instanceof Error ? error.message : String(error)}`);
+    const musicBrainzPromise = sources.includes('wikipedia')
+      ? this.fetchMusicBrainzArtist(artistName).catch((error: unknown) => {
+          errors.push(`MusicBrainz: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        })
+      : Promise.resolve(null);
+    const [bioResult, musicBrainz] = await Promise.all([
+      this.fetchArtistBio(artistName, language, sources).catch((error: unknown) => {
+        errors.push(error instanceof Error ? error.message : String(error));
         return null;
       }),
-      this.fetchMusicBrainzArtist(artistName).catch((error: unknown) => {
-        errors.push(`MusicBrainz: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      }),
+      musicBrainzPromise,
     ]);
 
     const externalLinks: ArtistOnlineInfoExternalLink[] = [];
     const sourceLabels: string[] = [];
     const imageCredits: string[] = [];
-    if (bio) {
-      sourceLabels.push(`${bio.language}.wikipedia.org`);
-      if (bio.url) {
-        externalLinks.push({ label: bio.title, url: bio.url, source: 'wikipedia' });
+    if (bioResult) {
+      sourceLabels.push(bioResult.sourceLabel);
+      if (bioResult.bio.url) {
+        externalLinks.push({ label: bioResult.bio.title, url: bioResult.bio.url, source: bioResult.source });
       }
-      if (bio.thumbnailUrl) {
-        imageCredits.push(`${bio.title} image via ${bio.language}.wikipedia.org`);
+      if (bioResult.bio.thumbnailUrl) {
+        imageCredits.push(`${bioResult.bio.title} image via ${bioResult.imageCreditLabel}`);
       }
     }
     if (musicBrainz) {
@@ -344,7 +459,7 @@ export class ArtistOnlineInfoService {
     }
 
     return {
-      bio,
+      bio: bioResult?.bio ?? null,
       imageCredits,
       externalLinks,
       relatedArtists: musicBrainz?.relatedArtists ?? [],
@@ -353,11 +468,211 @@ export class ArtistOnlineInfoService {
     };
   }
 
+  private async fetchArtistBio(artistName: string, language: 'zh' | 'ja' | 'en', sources: ArtistOnlineInfoSource[]): Promise<OnlineBioCandidate | null> {
+    const errors: string[] = [];
+
+    for (const source of sources) {
+      try {
+        const bio = await this.fetchArtistBioFromSource(artistName, language, source);
+        if (bio) {
+          return bio;
+        }
+      } catch (error) {
+        errors.push(`${artistOnlineInfoSourceLabels[source]}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '));
+    }
+    return null;
+  }
+
+  private fetchArtistBioFromSource(artistName: string, language: 'zh' | 'ja' | 'en', source: ArtistOnlineInfoSource): Promise<OnlineBioCandidate | null> {
+    if (source === 'baidu-baike') {
+      return this.fetchBaiduBaikeBio(artistName);
+    }
+    if (source === 'moegirl') {
+      return this.fetchMoegirlBio(artistName);
+    }
+    return this.fetchWikipediaBio(artistName, language).then((bio) =>
+      bio
+        ? {
+            bio,
+            source: 'wikipedia',
+            sourceLabel: `${bio.language}.wikipedia.org`,
+            imageCreditLabel: `${bio.language}.wikipedia.org`,
+          }
+        : null,
+    );
+  }
+
+  private async fetchBaiduBaikeBio(artistName: string): Promise<OnlineBioCandidate | null> {
+    const card = await this.fetchBaiduBaikeCard(artistName);
+    if (card) {
+      return card;
+    }
+
+    const { body, url } = await baiduBaikeLimiter.run(() =>
+      fetchText(`http://baike.baidu.com/item/${encodeURIComponent(artistName)}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs, 'manual'),
+    );
+    if (/百度百科是一部内容开放|您所访问的页面不存在|创建词条/iu.test(body)) {
+      return null;
+    }
+
+    const rawTitle = htmlMetaContent(body, 'og:title') ?? htmlTitle(body);
+    const title = rawTitle
+      ?.replace(/[_-]\s*百度百科\s*$/u, '')
+      .replace(/\s*百度百科\s*$/u, '')
+      .trim();
+    const summaryMatch = body.match(/<div[^>]+class=["'][^"']*lemmaSummary[^"']*["'][^>]*>([\s\S]{40,5000}?)<\/div>/iu);
+    const summary = summaryMatch?.[1] ? htmlText(summaryMatch[1]) : null;
+    const description = htmlMetaContent(body, 'description') ?? htmlMetaContent(body, 'og:description');
+    const extract = normalizeExtract(summary ?? description ?? '', 2400);
+
+    if (!title || !extract || similarity(artistName, title) < 0.34) {
+      return null;
+    }
+
+    return this.baiduBaikeCandidate({
+      title,
+      extract,
+      url,
+      thumbnailUrl: htmlMetaContent(body, 'og:image'),
+    });
+  }
+
+  private async fetchBaiduBaikeCard(artistName: string): Promise<OnlineBioCandidate | null> {
+    const params = new URLSearchParams({
+      scope: '103',
+      format: 'json',
+      appid: '379020',
+      bk_key: artistName,
+      bk_length: '1200',
+    });
+    const payload = asRecord(await baiduBaikeLimiter.run(() =>
+      fetchJson(`http://baike.baidu.com/api/openapi/BaikeLemmaCardApi?${params.toString()}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs, 'manual'),
+    ));
+    const title = text(payload.lemmaTitle) ?? text(payload.title) ?? artistName;
+    const abstract = text(payload.abstract);
+    const extract = abstract ? normalizeExtract(htmlText(abstract), 2400) : null;
+    if (!title || !extract || similarity(artistName, title) < 0.34) {
+      return null;
+    }
+
+    return this.baiduBaikeCandidate({
+      title,
+      extract,
+      url: text(payload.url) ?? `http://baike.baidu.com/item/${encodeURIComponent(title)}`,
+      thumbnailUrl: text(payload.image),
+    });
+  }
+
+  private baiduBaikeCandidate(input: { title: string; extract: string; url: string | null; thumbnailUrl: string | null }): OnlineBioCandidate {
+    return {
+      bio: {
+        title: input.title,
+        description: '百度百科',
+        extract: input.extract,
+        url: input.url,
+        language: 'zh',
+        thumbnailUrl: input.thumbnailUrl,
+      },
+      source: 'baidu-baike',
+      sourceLabel: '百度百科',
+      imageCreditLabel: '百度百科',
+    };
+  }
+
+  private async fetchMoegirlBio(artistName: string): Promise<OnlineBioCandidate | null> {
+    const searchParams = new URLSearchParams({
+      action: 'query',
+      list: 'search',
+      srsearch: artistName,
+      srlimit: '5',
+      format: 'json',
+      origin: '*',
+    });
+    const searchData = asRecord(await moegirlLimiter.run(() =>
+      fetchJson(`https://zh.moegirl.org.cn/api.php?${searchParams.toString()}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs),
+    ));
+    const searchResults = asRecord(searchData.query).search;
+    const results = Array.isArray(searchResults) ? searchResults.map(asRecord) : [];
+    const best = results
+      .map((page) => {
+        const title = text(page.title);
+        return title ? { title, score: Math.max(similarity(artistName, title), title.includes(artistName) ? 0.86 : 0) } : null;
+      })
+      .filter((page): page is { title: string; score: number } => Boolean(page))
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (!best || best.score < 0.34) {
+      return null;
+    }
+
+    const extractParams = new URLSearchParams({
+      action: 'query',
+      prop: 'extracts|pageimages',
+      redirects: '1',
+      explaintext: '1',
+      exchars: '2400',
+      pithumbsize: '600',
+      titles: best.title,
+      format: 'json',
+      origin: '*',
+    });
+    const extractData = await moegirlLimiter.run(() =>
+      fetchJson(`https://zh.moegirl.org.cn/api.php?${extractParams.toString()}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs),
+    );
+    const page = mediaWikiPages(extractData)[0];
+    if (!page) {
+      return null;
+    }
+    const extract = text(page.extract);
+    const title = text(page.title) ?? best.title;
+
+    if (!extract || !title) {
+      return null;
+    }
+
+    return {
+      bio: {
+        title,
+        description: '萌娘百科',
+        extract: normalizeExtract(extract, 2400),
+        url: `https://zh.moegirl.org.cn/${encodeURIComponent(title.replace(/\s+/gu, '_'))}`,
+        language: 'zh',
+        thumbnailUrl: text(asRecord(page.thumbnail).source),
+      },
+      source: 'moegirl',
+      sourceLabel: '萌娘百科',
+      imageCreditLabel: '萌娘百科',
+    };
+  }
+
   private async fetchWikipediaBio(artistName: string, preferredLanguage: 'zh' | 'ja' | 'en'): Promise<ArtistOnlineInfoBio | null> {
     let lastError: unknown = null;
-    for (const language of wikipediaLanguagePriority(preferredLanguage)) {
+    const languages = wikipediaLanguagePriority(preferredLanguage);
+
+    for (const language of languages) {
       try {
-        const bio = await this.fetchWikipediaBioInLanguage(artistName, language);
+        const bio = await this.fetchWikipediaBioInLanguage(artistName, language, [artistName]);
+        if (bio) {
+          return bio;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    const fallbackQueries = [
+      `${artistName} singer`,
+      `${artistName} musician`,
+      `${artistName} band`,
+    ];
+    for (const language of [...new Set([preferredLanguage, 'en' as const])]) {
+      try {
+        const bio = await this.fetchWikipediaBioInLanguage(artistName, language, fallbackQueries);
         if (bio) {
           return bio;
         }
@@ -372,16 +687,11 @@ export class ArtistOnlineInfoService {
     return null;
   }
 
-  private async fetchWikipediaBioInLanguage(artistName: string, language: 'zh' | 'ja' | 'en'): Promise<ArtistOnlineInfoBio | null> {
-    const queries = [
-      artistName,
-      `${artistName} musician`,
-      `${artistName} band`,
-      `${artistName} singer`,
-    ].filter((value, index, values) => value.trim() && values.indexOf(value) === index);
+  private async fetchWikipediaBioInLanguage(artistName: string, language: 'zh' | 'ja' | 'en', queries: string[]): Promise<ArtistOnlineInfoBio | null> {
+    const uniqueQueries = queries.filter((value, index, values) => value.trim() && values.indexOf(value) === index);
     let lastError: unknown = null;
 
-    for (const query of queries) {
+    for (const query of uniqueQueries) {
       try {
         const searchData = asRecord(await wikipediaLimiter.run(() =>
           fetchJson(

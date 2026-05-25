@@ -223,6 +223,7 @@ export type AudioSessionDependencies = {
   reportAudioError?: (payload: AudioCrashReportPayload) => void;
   persistJuceDecodePreference?: (enabled: boolean) => void;
   logger?: (message: string) => void;
+  diagnosticLogger?: (message: string) => void;
   watchdogIntervalMs?: number;
   watchdogStallChecks?: number;
   watchdogMaxRecoveriesPerTrack?: number;
@@ -247,12 +248,17 @@ const unexpectedPositionJumpEarlyToleranceSeconds = 1;
 const unexpectedPositionJumpGuardMs = 2500;
 const unexpectedPositionJumpNoticeTtlMs = 15_000;
 const unexpectedPositionJumpCooldownMs = 30_000;
+const nativeStartupPositionGuardWindowMs = 4_500;
+const nativeStartupPositionDriftToleranceSeconds = 0.75;
+const nativeStartupPositionDriftMaxRebaseSeconds = 6;
 const playbackDiagnosticEventLimit = 180;
 const nativeUnderrunWindowMs = 15_000;
 const nativeUnderrunCallbackThreshold = 3;
 const nativeUnderrunFramesThresholdMs = 100;
 const exclusiveNativeUnderrunStartupGraceMs = 8_000;
 const nativeTelemetryStatusIntervalMs = 1000;
+const nativeStartupTelemetryLogWindowMs = 3_500;
+const nativeStartupTelemetryLogIntervalMs = 500;
 const levelMeterStatusIntervalMs = 1000;
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;
@@ -393,9 +399,19 @@ const defaultLatencyProfileForMode = (outputMode: AudioOutputMode): AudioLatency
 const defaultLogger = (message: string): void => {
   console.warn(message);
 };
+const defaultDiagnosticLogger = (message: string): void => {
+  console.info(message);
+};
 const noopLogger = (): void => undefined;
 
 const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
+
+const shouldLogPlaybackDiagnosticEvent = (event: AudioPlaybackDiagnosticEvent): boolean =>
+  event.severity !== 'info' ||
+  event.kind === 'play_request' ||
+  event.kind === 'output_ready' ||
+  event.kind === 'startup_telemetry' ||
+  (event.warnings?.length ?? 0) > 0;
 
 const defaultAudioErrorReporter = (payload: AudioCrashReportPayload): void => {
   void import('../diagnostics/CrashReportService')
@@ -1106,6 +1122,7 @@ export class AudioSession extends EventEmitter {
   private readonly persistJuceDecodePreference: (enabled: boolean) => void;
   private readonly logger: (message: string) => void;
   private readonly verboseLogger: (message: string) => void;
+  private readonly diagnosticLogger: (message: string) => void;
   private readonly clock = new PlaybackClock();
   private outputSettings: Required<Pick<AudioOutputSettings, 'outputMode' | 'latencyProfile' | 'volume' | 'playbackRate' | 'playbackSpeedMode'>> &
     Omit<AudioOutputSettings, 'outputMode' | 'latencyProfile' | 'volume' | 'playbackRate' | 'playbackSpeedMode'> = {
@@ -1221,6 +1238,9 @@ export class AudioSession extends EventEmitter {
   private nativePositionReportedBeforePlaying = false;
   private nativePositionBeforePlayingBaselineSeconds: number | null = null;
   private nativePlaybackStartedAtMs = 0;
+  private nativePlaybackStartPositionSeconds = 0;
+  private lastNativeStartupTelemetryLoggedAt = 0;
+  private nativeStartupUnderrunBaseline: Pick<NativeOutputTelemetry, 'underrunCallbacks' | 'underrunFrames'> | null = null;
   private nativeUnderrunWindow:
     | {
         startedAt: number;
@@ -1258,6 +1278,7 @@ export class AudioSession extends EventEmitter {
       dependencies.watchdogMaxRecoveriesPerTrack ?? defaultWatchdogMaxRecoveriesPerTrack,
     );
     this.watchdogRecoveryWindowMs = Math.max(1000, dependencies.watchdogRecoveryWindowMs ?? defaultWatchdogRecoveryWindowMs);
+    this.diagnosticLogger = dependencies.diagnosticLogger ?? defaultDiagnosticLogger;
     this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
     this.on('error', () => undefined);
     getEqBridge().on('state', this.eqStateListener);
@@ -2949,6 +2970,42 @@ export class AudioSession extends EventEmitter {
     if (this.playbackDiagnosticEvents.length > playbackDiagnosticEventLimit) {
       this.playbackDiagnosticEvents.splice(0, this.playbackDiagnosticEvents.length - playbackDiagnosticEventLimit);
     }
+
+    this.logPlaybackDiagnosticEvent(event);
+  }
+
+  private logPlaybackDiagnosticEvent(event: AudioPlaybackDiagnosticEvent): void {
+    if (!shouldLogPlaybackDiagnosticEvent(event)) {
+      return;
+    }
+
+    const nativeSampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
+    const nativeBufferedMs =
+      nativeSampleRate && event.nativeBufferedFrames !== null && event.nativeBufferedFrames !== undefined
+        ? Math.round((event.nativeBufferedFrames / nativeSampleRate) * 1000)
+        : null;
+    const payload = {
+      at: event.at,
+      event: event.kind,
+      severity: event.severity,
+      reason: event.reason,
+      state: event.state,
+      trackId: event.trackId,
+      filePath: event.filePath ? redactUrlSecrets(event.filePath) : null,
+      outputMode: event.outputMode,
+      outputBackend: event.outputBackend,
+      outputBackendImpl: event.outputBackendImpl,
+      positionSeconds: event.positionSeconds,
+      durationSeconds: event.durationSeconds,
+      nativeBufferedFrames: event.nativeBufferedFrames ?? null,
+      nativeBufferedMs,
+      nativeUnderrunCallbacks: event.nativeUnderrunCallbacks ?? 0,
+      nativeUnderrunFrames: event.nativeUnderrunFrames ?? 0,
+      warnings: event.warnings ?? [],
+      details: event.details ?? null,
+    };
+
+    this.diagnosticLogger(`[AudioSession] playback diagnostic ${JSON.stringify(payload)}`);
   }
 
   private getPlaybackIssueSummary(): AudioPlaybackIssueSummary {
@@ -4258,6 +4315,26 @@ export class AudioSession extends EventEmitter {
       );
     }
     this.clock.setSampleRate(ready.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
+    this.recordPlaybackDiagnosticEvent('output_ready', 'info', 'native_output_ready', {
+      trackId: this.currentTrackId,
+      filePath: this.currentFilePath,
+      outputMode: this.currentPlan.outputMode,
+      outputBackend: this.currentOutputBackend,
+      outputBackendImpl: this.currentOutputBackendImpl,
+      details: {
+        outputDeviceName: this.currentOutputDeviceName,
+        nativeOutputFormat: getReadyOutputFormat(this.currentReadyResult),
+        fileSampleRate: this.currentPlan.fileSampleRate,
+        decoderOutputSampleRate: this.currentPlan.decoderOutputSampleRate,
+        requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+        actualDeviceSampleRate: this.currentPlan.actualDeviceSampleRate,
+        nativeDeviceBufferFrames: this.nativeDeviceBufferFrames,
+        nativeRequestedBufferFrames: this.nativeRequestedBufferFrames,
+        nativeActualBufferFrames: this.nativeActualBufferFrames,
+        nativeFifoCapacityFrames: this.nativeFifoCapacityFrames,
+        nativeStartupPrebufferFrames: this.nativeStartupPrebufferFrames,
+      },
+    });
   }
 
   private assertAsioSampleRateUsable(): void {
@@ -5128,7 +5205,7 @@ export class AudioSession extends EventEmitter {
           this.handlePositionSample(token, guardedRebasePositionSeconds, nativeTelemetry, now);
           this.watchdogStalledChecks = 0;
           if (nativeTelemetry) {
-            this.handleNativeTelemetry(nativeTelemetry);
+            this.handleNativeTelemetry(nativeTelemetry, { suppressStartupTelemetryLog: true });
           }
           return;
         }
@@ -5677,7 +5754,11 @@ export class AudioSession extends EventEmitter {
     await this.recoverOutputStability(recoveryReason, positionSeconds, recoveryOptions);
   }
 
-  private handleNativeTelemetry(telemetry: NativeOutputTelemetry): void {
+  private handleNativeTelemetry(
+    telemetry: NativeOutputTelemetry,
+    options: { suppressStartupTelemetryLog?: boolean } = {},
+  ): void {
+    const now = Date.now();
     this.nativeTelemetry = {
       positionFrames: Math.max(0, Math.round(Number(telemetry.positionFrames) || 0)),
       bufferedFrames:
@@ -5697,9 +5778,62 @@ export class AudioSession extends EventEmitter {
     };
 
     if (this.state === 'playing') {
+      if (options.suppressStartupTelemetryLog !== true) {
+        this.logNativeStartupTelemetry(now);
+      }
       void this.checkNativeUnderrunRecovery();
       this.emitNativeTelemetryStatus();
     }
+  }
+
+  private logNativeStartupTelemetry(now: number): void {
+    if (!this.nativePlaybackStartedAtMs || !this.currentPlan) {
+      return;
+    }
+
+    const elapsedMs = now - this.nativePlaybackStartedAtMs;
+    if (
+      elapsedMs < 0 ||
+      elapsedMs > nativeStartupTelemetryLogWindowMs ||
+      now - this.lastNativeStartupTelemetryLoggedAt < nativeStartupTelemetryLogIntervalMs
+    ) {
+      return;
+    }
+
+    this.lastNativeStartupTelemetryLoggedAt = now;
+    const sampleRate = this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate;
+    const nativeBufferedMs =
+      sampleRate && this.nativeTelemetry.bufferedFrames !== null
+        ? Math.round((this.nativeTelemetry.bufferedFrames / sampleRate) * 1000)
+        : null;
+    const playbackRate = Math.max(
+      0.25,
+      Math.min(4, Number(this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate) || 1),
+    );
+    const startupElapsedSeconds = elapsedMs / 1000;
+    const startupExpectedPositionSeconds = this.nativePlaybackStartPositionSeconds + startupElapsedSeconds * playbackRate;
+    const startupPositionDriftSeconds = this.clock.getPositionSeconds() - startupExpectedPositionSeconds;
+    const baseline = this.nativeStartupUnderrunBaseline;
+
+    this.recordPlaybackDiagnosticEvent('startup_telemetry', 'info', 'native_startup_telemetry', {
+      positionSeconds: this.clock.getPositionSeconds(),
+      outputMode: this.currentPlan.outputMode,
+      outputBackend: this.currentOutputBackend,
+      outputBackendImpl: this.currentOutputBackendImpl,
+      details: {
+        startupElapsedMs: Math.round(elapsedMs),
+        startupExpectedPositionSeconds,
+        startupPositionDriftSeconds,
+        nativeBufferedMs,
+        nativeBufferedFrames: this.nativeTelemetry.bufferedFrames,
+        nativeUnderrunCallbackDelta: baseline ? this.nativeTelemetry.underrunCallbacks - baseline.underrunCallbacks : 0,
+        nativeUnderrunFrameDelta: baseline ? this.nativeTelemetry.underrunFrames - baseline.underrunFrames : 0,
+        nativeActualBufferFrames: this.nativeActualBufferFrames,
+        nativeFifoCapacityFrames: this.nativeFifoCapacityFrames,
+        nativeStartupPrebufferFrames: this.nativeStartupPrebufferFrames,
+        nativePositionStalenessMs: this.nativeTelemetry.nativePositionStalenessMs ?? null,
+      },
+    });
   }
 
   private async checkNativeUnderrunRecovery(): Promise<void> {
@@ -5911,6 +6045,9 @@ export class AudioSession extends EventEmitter {
     this.lastNativeTelemetryStatusEmittedAt = 0;
     this.lastLevelMeterStatusEmittedAt = 0;
     this.nativePlaybackStartedAtMs = 0;
+    this.nativePlaybackStartPositionSeconds = 0;
+    this.lastNativeStartupTelemetryLoggedAt = 0;
+    this.nativeStartupUnderrunBaseline = null;
     this.nativeUnderrunWindow = null;
   }
 
@@ -6265,6 +6402,15 @@ export class AudioSession extends EventEmitter {
   private markNativeStartupStatusGuard(): void {
     this.nativeStartupStatusGuardActive = true;
     this.nativePlaybackStartedAtMs = Date.now();
+    this.nativePlaybackStartPositionSeconds =
+      this.nativePositionReportedBeforePlaying && this.nativePositionBeforePlayingBaselineSeconds !== null
+        ? this.nativePositionBeforePlayingBaselineSeconds
+        : this.clock.getPositionSeconds();
+    this.lastNativeStartupTelemetryLoggedAt = 0;
+    this.nativeStartupUnderrunBaseline = {
+      underrunCallbacks: this.nativeTelemetry.underrunCallbacks,
+      underrunFrames: this.nativeTelemetry.underrunFrames,
+    };
     this.nativeUnderrunWindow = null;
   }
 
@@ -6322,6 +6468,13 @@ export class AudioSession extends EventEmitter {
     this.emitStatus();
   }
 
+  private isNativeStartupPositionGuardActive(now: number): boolean {
+    return (
+      this.nativePlaybackStartedAtMs > 0 &&
+      now - this.nativePlaybackStartedAtMs <= nativeStartupPositionGuardWindowMs
+    );
+  }
+
   private handlePositionSample(token: number, positionSeconds: number, telemetry: NativeOutputTelemetry | null, sampledAtMs = Date.now()): void {
     if (!Number.isFinite(positionSeconds)) {
       this.lastPositionSample = null;
@@ -6353,6 +6506,8 @@ export class AudioSession extends EventEmitter {
     options: { ignorePreviousSample?: boolean } = {},
   ): number | null {
     const previousSample = options.ignorePreviousSample ? null : this.lastPositionSample;
+    const startupGuardActive = this.isNativeStartupPositionGuardActive(now);
+    const positionDiscontinuityGuardActive = now < this.positionJumpGuardUntilMs;
     if (
       !Number.isFinite(reportedPositionSeconds) ||
       !Number.isFinite(previousPositionHintSeconds) ||
@@ -6361,7 +6516,7 @@ export class AudioSession extends EventEmitter {
       this.isCurrentLivePcmStream() ||
       this.currentActiveDsdOutputMode === 'dop' ||
       this.currentActiveDsdOutputMode === 'native' ||
-      now >= this.positionJumpGuardUntilMs ||
+      (!startupGuardActive && !positionDiscontinuityGuardActive) ||
       (previousSample !== null &&
         (previousSample.token !== this.runToken ||
           previousSample.trackId !== this.currentTrackId ||
@@ -6377,14 +6532,31 @@ export class AudioSession extends EventEmitter {
     const baselinePositionSeconds = previousSample?.positionSeconds ?? Math.max(0, previousPositionHintSeconds);
     const elapsedSeconds = previousSample ? Math.max(0, (now - previousSample.sampledAtMs) / 1000) : 0;
     const expectedPositionSeconds = Math.max(0, baselinePositionSeconds + elapsedSeconds * playbackRate);
+    const startupElapsedSeconds =
+      startupGuardActive && this.nativePlaybackStartedAtMs > 0
+        ? Math.max(0, (now - this.nativePlaybackStartedAtMs) / 1000)
+        : null;
+    const startupExpectedPositionSeconds =
+      startupElapsedSeconds !== null
+        ? Math.max(0, this.nativePlaybackStartPositionSeconds + startupElapsedSeconds * playbackRate)
+        : null;
+    const startupUnexpectedAdvanceSeconds =
+      startupExpectedPositionSeconds !== null
+        ? reportedPositionSeconds - startupExpectedPositionSeconds
+        : null;
     const reportedAdvanceSeconds = reportedPositionSeconds - baselinePositionSeconds;
     const allowedAdvanceSeconds = elapsedSeconds * playbackRate + unexpectedPositionJumpEarlyToleranceSeconds;
     const unexpectedAdvanceSeconds = reportedAdvanceSeconds - allowedAdvanceSeconds;
+    const shouldRebaseStartupDrift =
+      startupUnexpectedAdvanceSeconds !== null &&
+      startupUnexpectedAdvanceSeconds >= nativeStartupPositionDriftToleranceSeconds &&
+      startupUnexpectedAdvanceSeconds <= nativeStartupPositionDriftMaxRebaseSeconds;
+    const shouldRebaseDiscontinuity =
+      positionDiscontinuityGuardActive &&
+      reportedAdvanceSeconds > unexpectedPositionJumpEarlyMinimumSeconds &&
+      unexpectedAdvanceSeconds >= unexpectedPositionJumpEarlyMinimumSeconds;
 
-    if (
-      reportedAdvanceSeconds <= unexpectedPositionJumpEarlyMinimumSeconds ||
-      unexpectedAdvanceSeconds < unexpectedPositionJumpEarlyMinimumSeconds
-    ) {
+    if (!shouldRebaseStartupDrift && !shouldRebaseDiscontinuity) {
       return null;
     }
 
@@ -6394,7 +6566,10 @@ export class AudioSession extends EventEmitter {
     }
 
     const maxPositionSeconds = durationSeconds > 1 ? durationSeconds - 1 : Number.POSITIVE_INFINITY;
-    const rebasePositionSeconds = Math.max(0, Math.min(expectedPositionSeconds, maxPositionSeconds));
+    const rebasePositionSeconds = Math.max(
+      0,
+      Math.min(shouldRebaseStartupDrift ? startupExpectedPositionSeconds ?? expectedPositionSeconds : expectedPositionSeconds, maxPositionSeconds),
+    );
     this.recordPlaybackDiagnosticEvent('position_jump_suspected', 'suspect', 'guarded_position_jump_ignored', {
       positionSeconds: rebasePositionSeconds,
       durationSeconds,
@@ -6403,10 +6578,15 @@ export class AudioSession extends EventEmitter {
         previousPositionHintSeconds,
         reportedPositionSeconds,
         expectedPositionSeconds,
+        startupExpectedPositionSeconds,
+        startupUnexpectedAdvanceSeconds,
         unexpectedAdvanceSeconds,
         elapsedSeconds,
+        startupElapsedSeconds,
         firstPositionSample: previousSample === null,
-        action: 'rebase_without_restart',
+        action: shouldRebaseStartupDrift
+          ? 'rebase_startup_clock_drift'
+          : 'rebase_without_restart',
       },
     });
     this.verboseLogger(

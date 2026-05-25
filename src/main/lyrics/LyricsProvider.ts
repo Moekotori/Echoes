@@ -56,6 +56,7 @@ const normalizeSecondaryText = (value: string): string | null => {
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized.length > 0 ? normalized : null;
 };
+const normalizeCompactLyricsIdentity = (value: string): string => value.replace(/\s+/g, '').trim();
 
 const secondaryTimestampToleranceMs = 350;
 
@@ -143,15 +144,52 @@ const mergeSecondaryLines = (
   return changed ? nextLines : lines;
 };
 
+const mergeKaraokeWordTimings = (primaryLines: LyricLine[], karaokeLines: LyricLine[]): LyricLine[] => {
+  const karaokeByTime = new Map<number, LyricLine[]>();
+  for (const line of karaokeLines) {
+    if (!line.words?.length) {
+      continue;
+    }
+
+    const bucket = karaokeByTime.get(line.timeMs) ?? [];
+    bucket.push(line);
+    karaokeByTime.set(line.timeMs, bucket);
+  }
+
+  if (karaokeByTime.size === 0) {
+    return primaryLines;
+  }
+
+  let changed = false;
+  const mergedLines = primaryLines.map((line) => {
+    if (line.words?.length) {
+      return line;
+    }
+
+    const match = (karaokeByTime.get(line.timeMs) ?? []).find(
+      (candidate) => normalizeCompactLyricsIdentity(candidate.text) === normalizeCompactLyricsIdentity(line.text),
+    );
+    if (!match?.words?.length) {
+      return line;
+    }
+
+    changed = true;
+    return { ...line, words: match.words };
+  });
+
+  return changed ? mergedLines : primaryLines;
+};
+
 export const providerResultToTrackLyrics = (
   query: LyricsQuery,
   result: LyricsProviderResult,
   score: number | null,
 ): TrackLyrics | null => {
-  const syncedLyrics =
-    result.karaokeLyrics && parseSyncedLyrics(result.karaokeLyrics).length > 0
-      ? result.karaokeLyrics
-      : result.syncedLyrics;
+  const karaokeLines = result.karaokeLyrics ? parseSyncedLyrics(result.karaokeLyrics) : [];
+  const syncedLines = result.syncedLyrics ? parseSyncedLyrics(result.syncedLyrics) : [];
+  const syncedLyrics = karaokeLines.length > 0 && syncedLines.length === 0
+    ? result.karaokeLyrics
+    : result.syncedLyrics;
   const kind = detectLyricsKind({
     syncedLyrics,
     plainLyrics: result.plainLyrics,
@@ -159,7 +197,10 @@ export const providerResultToTrackLyrics = (
   });
   const lines =
     kind === 'synced'
-      ? normalizeSyncedLyricAlternates(parseSyncedLyrics(syncedLyrics ?? ''))
+      ? mergeKaraokeWordTimings(
+        normalizeSyncedLyricAlternates(parseSyncedLyrics(syncedLyrics ?? '')),
+        normalizeSyncedLyricAlternates(karaokeLines),
+      )
       : kind === 'plain'
         ? parsePlainLyrics(result.plainLyrics ?? '')
         : [];

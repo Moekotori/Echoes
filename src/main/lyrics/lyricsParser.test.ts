@@ -237,7 +237,7 @@ describe('lyricsParser', () => {
     ]);
   });
 
-  it('uses provider karaoke lyrics before ordinary synced lyrics', () => {
+  it('keeps ordinary synced lyric spacing while borrowing karaoke word timings', () => {
     const lyrics = providerResultToTrackLyrics(
       { title: 'Song', artist: 'Artist' },
       {
@@ -249,13 +249,13 @@ describe('lyricsParser', () => {
         durationSeconds: null,
         instrumental: false,
         plainLyrics: null,
-        syncedLyrics: '[00:01.00]Plain synced',
+        syncedLyrics: '[00:01.00]Hello world',
         karaokeLyrics: '[00:01.00]<00:01.00>Hello <00:01.50>world',
       },
       1,
     );
 
-    expect(lyrics?.syncedText).toBe('[00:01.00]<00:01.00>Hello <00:01.50>world');
+    expect(lyrics?.syncedText).toBe('[00:01.00]Hello world');
     expect(lyrics?.lines).toEqual([
       {
         timeMs: 1000,
@@ -268,7 +268,7 @@ describe('lyricsParser', () => {
     ]);
   });
 
-  it('uses provider NetEase YRC lyrics as word-highlight synced text', () => {
+  it('keeps ordinary synced lyric spacing while borrowing NetEase YRC word timings', () => {
     const lyrics = providerResultToTrackLyrics(
       { title: 'Song', artist: 'Artist' },
       {
@@ -280,19 +280,19 @@ describe('lyricsParser', () => {
         durationSeconds: null,
         instrumental: false,
         plainLyrics: null,
-        syncedLyrics: '[00:01.00]Plain synced',
-        karaokeLyrics: '[1000,1200](1000,300,0)Hello (1300,400,0)world',
+        syncedLyrics: '[00:01.00]Hello world',
+        karaokeLyrics: '[1000,1200](1000,300,0)Hello(1300,400,0)world',
       },
       1,
     );
 
-    expect(lyrics?.syncedText).toBe('[1000,1200](1000,300,0)Hello (1300,400,0)world');
+    expect(lyrics?.syncedText).toBe('[00:01.00]Hello world');
     expect(lyrics?.lines).toEqual([
       {
         timeMs: 1000,
         text: 'Hello world',
         words: [
-          { text: 'Hello ', startMs: 1000, endMs: 1300 },
+          { text: 'Hello', startMs: 1000, endMs: 1300 },
           { text: 'world', startMs: 1300, endMs: 1700 },
         ],
       },

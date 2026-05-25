@@ -14,6 +14,7 @@ import type {
   LibraryDatabaseMaintenanceEventInfo,
   LibraryDatabasePoisonReport,
   LibraryDatabaseProtectionStatus,
+  LibraryDatabaseProtectionStatusOptions,
   LibraryDatabaseRepairResult,
   LibraryDatabaseRestoreResult,
   LibraryDatabaseScrubResult,
@@ -1359,17 +1360,19 @@ const maintenanceScanInfo = (scanStatus: LibraryScanStatus): NonNullable<Library
 export const getLibraryDatabaseProtectionStatus = (
   userDataPath = app.getPath('userData'),
   hasRunningScan = false,
+  options: LibraryDatabaseProtectionStatusOptions = {},
 ): LibraryDatabaseProtectionStatus => {
   const databasePath = libraryPathFor(userDataPath);
+  const deepCheck = options.deepCheck !== false;
   const snapshots = listSnapshotPaths(userDataPath).map(getSnapshotInfo);
   const latestHealthySnapshot = getRestorableHealthySnapshot(snapshots);
-  const health = checkDatabaseHealth(databasePath);
+  const health = deepCheck ? checkDatabaseHealth(databasePath) : checkLibraryFastStartupHealth(userDataPath);
   const maintenanceEvents = readLibraryDatabaseMaintenanceEvents(userDataPath).slice(-maxLibraryMaintenanceEvents).reverse().map(toMaintenanceEventInfo);
   const latestRestoreEvent = maintenanceEvents.find((event) => event.action === 'manual-restore');
   const latestMaintenanceEvent = maintenanceEvents[0] ?? null;
   const latestArchive = listArchivePaths(userDataPath).map(getArchiveInfo)[0] ?? null;
   const latestPoisonEvent = maintenanceEvents.find((event) => event.action === 'startup-poisoned' || event.action === 'manual-scrub-quarantined') ?? null;
-  const currentPoisonReport = health.status === 'ok' ? inspectLibraryDatabaseForPoison(databasePath) : null;
+  const currentPoisonReport = deepCheck && health.status === 'ok' ? inspectLibraryDatabaseForPoison(databasePath) : null;
   const poisonReport =
     currentPoisonReport?.status === 'poisoned'
       ? currentPoisonReport

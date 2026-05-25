@@ -16,6 +16,9 @@ export type AppThemeMode = 'light' | 'dark' | 'system';
 export type ReplayGainMode = 'off' | 'track' | 'album';
 export type NetworkProxyMode = 'off' | 'system' | 'manual' | 'pac';
 export type DataBackupIntervalDays = 3 | 7 | 30;
+export const artistOnlineInfoSources = ['baidu-baike', 'moegirl', 'wikipedia'] as const;
+export type ArtistOnlineInfoSource = typeof artistOnlineInfoSources[number];
+export const defaultArtistOnlineInfoSources: ArtistOnlineInfoSource[] = ['wikipedia'];
 
 export type DesktopLyricsBounds = {
   x: number;
@@ -171,6 +174,7 @@ export type AppSettings = {
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
   artistWallAlbumFallbackForMissingAvatars?: boolean;
+  artistStreamingAlbumsEnabled?: boolean;
   autoFetchArtistImages?: boolean;
   artistImageFetchPaused?: boolean;
   liveLibraryUpdatesEnabled?: boolean;
@@ -215,6 +219,7 @@ export type AppSettings = {
   onlineArtistInfoTicketmasterApiKey?: string | null;
   onlineArtistInfoSeatGeekClientId?: string | null;
   onlineArtistInfoRegion?: string | null;
+  onlineArtistInfoSources?: ArtistOnlineInfoSource[];
   audioAnalysisEnabled?: boolean;
   lyricsNetworkEnabled: boolean;
   lyricsPreferredProvider: 'lrclib';

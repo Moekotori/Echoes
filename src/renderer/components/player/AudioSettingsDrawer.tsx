@@ -1704,41 +1704,6 @@ export const AudioSettingsDrawer = ({
           <span className="audio-engine-meter__hint">{t('audioDrawer.note.engine')}</span>
         </button>
 
-        {hqPlayerTakeoverEnabled ? (
-          <section className="audio-professional-status audio-professional-status--drawer" aria-label={t('audioProfessional.title')}>
-            <header className="audio-professional-status__header">
-              <span className="audio-professional-status__icon">
-                <Cable size={18} />
-              </span>
-              <div>
-                <h3>{t('audioProfessional.title')}</h3>
-                <p>HQPlayer Connect / 外部渲染器 / ECHO 本机输出已释放</p>
-              </div>
-            </header>
-            <div className="audio-professional-status__badges">
-              <em data-tone="good">接管中</em>
-              <em data-tone="neutral">外部输出</em>
-            </div>
-            <p className="audio-professional-status__issue" data-tone="warning">
-              <strong>当前曲目</strong>
-              <span>{formatHqPlayerTrackTitle(hqPlayerTrack)}</span>
-            </p>
-          </section>
-        ) : (
-          <AudioProfessionalStatusPanel status={status} />
-        )}
-
-        <div className="audio-professional-status-actions">
-          <button className="audio-diagnostics-copy-button" type="button" onClick={() => void refresh()} disabled={isBusy}>
-            <RefreshCw size={16} />
-            <span>{t('audioProfessional.action.refresh')}</span>
-          </button>
-          <button className="audio-diagnostics-copy-button" type="button" onClick={() => void copyDiagnostics()}>
-            <Clipboard size={16} />
-            <span>{diagnosticsCopied ? copy.copiedDiagnostics : copy.copyDiagnostics}</span>
-          </button>
-        </div>
-
         <section className="audio-drawer-section audio-current-output-section">
           <div className="audio-drawer-section-title">
             <Headphones size={17} />
@@ -2292,6 +2257,41 @@ export const AudioSettingsDrawer = ({
             </div>
             {troubleshootingMessage ? <p className="audio-drawer-troubleshooting__message">{troubleshootingMessage}</p> : null}
           </section>
+
+          {hqPlayerTakeoverEnabled ? (
+            <section className="audio-professional-status audio-professional-status--drawer" aria-label={t('audioProfessional.title')}>
+              <header className="audio-professional-status__header">
+                <span className="audio-professional-status__icon">
+                  <Cable size={18} />
+                </span>
+                <div>
+                  <h3>{t('audioProfessional.title')}</h3>
+                  <p>HQPlayer Connect / 外部渲染器 / ECHO 本机输出已释放</p>
+                </div>
+              </header>
+              <div className="audio-professional-status__badges">
+                <em data-tone="good">接管中</em>
+                <em data-tone="neutral">外部输出</em>
+              </div>
+              <p className="audio-professional-status__issue" data-tone="warning">
+                <strong>当前曲目</strong>
+                <span>{formatHqPlayerTrackTitle(hqPlayerTrack)}</span>
+              </p>
+            </section>
+          ) : (
+            <AudioProfessionalStatusPanel status={status} />
+          )}
+
+          <div className="audio-professional-status-actions">
+            <button className="audio-diagnostics-copy-button" type="button" onClick={() => void refresh()} disabled={isBusy}>
+              <RefreshCw size={16} />
+              <span>{t('audioProfessional.action.refresh')}</span>
+            </button>
+            <button className="audio-diagnostics-copy-button" type="button" onClick={() => void copyDiagnostics()}>
+              <Clipboard size={16} />
+              <span>{diagnosticsCopied ? copy.copiedDiagnostics : copy.copyDiagnostics}</span>
+            </button>
+          </div>
         </div>
       </aside>
       {hiddenDeviceMenu ? (

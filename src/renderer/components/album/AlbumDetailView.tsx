@@ -22,6 +22,11 @@ type AlbumDetailViewProps = {
   onBack: () => void;
 };
 
+const albumOriginalCoverUrl = (album: Pick<LibraryAlbum, 'coverId'>): string | null =>
+  album.coverId ? `echo-cover://original/${encodeURIComponent(album.coverId)}` : null;
+
+const coverFailureKey = (albumId: string, coverUrl: string): string => `${albumId}\n${coverUrl}`;
+
 const formatDuration = (duration: number, t: (key: TranslationKey, options?: Record<string, string | number>) => string): string | null => {
   if (!Number.isFinite(duration) || duration <= 0) {
     return null;
@@ -114,6 +119,68 @@ const emptyRelatedAlbumsState = (): RelatedAlbumsState => ({
 
 const normalizeArtistName = (value: string): string => value.normalize('NFKC').trim().toLocaleLowerCase();
 
+const isGenericAlbumArtistName = (value: string): boolean => {
+  const normalized = normalizeArtistName(value).replace(/\s+/gu, ' ');
+  return /^(?:various artists?|various|v\.?\s*a\.?|v\/a|unknown artists?|unknown)$/iu.test(normalized);
+};
+
+const splitTrackArtistNames = (value: string): string[] =>
+  value
+    .split(/\s*(?:\/|／|;|；|\||&|\s+feat\.?\s+|\s+featuring\s+|\s+with\s+|\s+x\s+|×|\+|＋)\s*/iu)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && !isGenericAlbumArtistName(item));
+
+type AlbumArtistDisplay = {
+  label: string | null;
+  lookupName: string | null;
+};
+
+const deriveAlbumArtistDisplay = (albumArtist: string, tracks: LibraryTrack[]): AlbumArtistDisplay => {
+  const trimmedAlbumArtist = albumArtist.trim();
+  if (trimmedAlbumArtist && !isGenericAlbumArtistName(trimmedAlbumArtist)) {
+    return { label: trimmedAlbumArtist, lookupName: trimmedAlbumArtist };
+  }
+
+  const trackArtists = uniqueValues(tracks.map((track) => track.artist))
+    .filter((artist) => !isGenericAlbumArtistName(artist));
+  if (trackArtists.length === 0) {
+    return { label: null, lookupName: null };
+  }
+  if (trackArtists.length === 1) {
+    return { label: trackArtists[0], lookupName: splitTrackArtistNames(trackArtists[0])[0] ?? trackArtists[0] };
+  }
+
+  const tokenCounts = new Map<string, { label: string; count: number; order: number }>();
+  trackArtists.forEach((artist, artistIndex) => {
+    const seenForArtist = new Set<string>();
+    splitTrackArtistNames(artist).forEach((token, tokenIndex) => {
+      const normalized = normalizeArtistName(token);
+      if (!normalized || seenForArtist.has(normalized)) {
+        return;
+      }
+      seenForArtist.add(normalized);
+      const current = tokenCounts.get(normalized);
+      if (current) {
+        tokenCounts.set(normalized, { ...current, count: current.count + 1 });
+      } else {
+        tokenCounts.set(normalized, { label: token, count: 1, order: artistIndex * 100 + tokenIndex });
+      }
+    });
+  });
+  const sharedTokens = Array.from(tokenCounts.values())
+    .filter((token) => token.count === trackArtists.length)
+    .sort((left, right) => left.order - right.order)
+    .map((token) => token.label);
+
+  if (sharedTokens.length > 0) {
+    return { label: sharedTokens.join(' / '), lookupName: sharedTokens[0] };
+  }
+
+  const fallbackTokens = splitTrackArtistNames(trackArtists[0]);
+  const fallbackLabel = fallbackTokens.length > 0 ? fallbackTokens.slice(0, 2).join(' / ') : trackArtists[0];
+  return { label: fallbackLabel, lookupName: fallbackTokens[0] ?? trackArtists[0] };
+};
+
 const findMatchingArtist = (artists: LibraryArtist[], name: string): LibraryArtist | null => {
   const normalizedName = normalizeArtistName(name);
   return artists.find((artist) => normalizeArtistName(artist.name) === normalizedName) ?? (artists.length === 1 ? artists[0] : null);
@@ -190,6 +257,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [isLoadingFirstTrack, setIsLoadingFirstTrack] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [coverLarge, setCoverLarge] = useState<string | null>(null);
+  const [failedOriginalCover, setFailedOriginalCover] = useState(false);
   const [failedLargeCover, setFailedLargeCover] = useState(false);
   const [failedThumbCover, setFailedThumbCover] = useState(false);
   const [isAlbumLiked, setIsAlbumLiked] = useState(false);
@@ -203,7 +271,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [activeTab, setActiveTab] = useState<AlbumDetailTab>('tracks');
   const [onlineInfoState, setOnlineInfoState] = useState<OnlineInfoState>(() => emptyOnlineInfoState());
   const [relatedAlbumsState, setRelatedAlbumsState] = useState<RelatedAlbumsState>(() => emptyRelatedAlbumsState());
-  const [failedRelatedCoverUrls, setFailedRelatedCoverUrls] = useState<Record<string, string>>({});
+  const [failedRelatedCoverUrls, setFailedRelatedCoverUrls] = useState<Record<string, true>>({});
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const onlineInfoRequestRef = useRef(0);
   const relatedAlbumsRequestRef = useRef(0);
@@ -260,7 +328,20 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     () => ({ type: 'album' as const, label: album.title, albumId: album.id }),
     [album.id, album.title],
   );
-  const detailCoverSrc = coverLarge && !failedLargeCover ? coverLarge : failedThumbCover ? null : album.coverThumb;
+  const originalCover = albumOriginalCoverUrl(album);
+  const detailCoverSrc = originalCover && !failedOriginalCover
+    ? originalCover
+    : coverLarge && !failedLargeCover
+      ? coverLarge
+      : failedThumbCover
+        ? null
+        : album.coverThumb;
+  const albumArtistDisplay = useMemo(
+    () => deriveAlbumArtistDisplay(album.albumArtist, loadedTracks.length > 0 ? loadedTracks : firstTrack ? [firstTrack] : []),
+    [album.albumArtist, firstTrack, loadedTracks],
+  );
+  const displayAlbumArtist = albumArtistDisplay.label;
+  const albumArtistLookupName = albumArtistDisplay.lookupName;
 
   const loadOnlineInfo = useCallback(
     async (force = false): Promise<void> => {
@@ -310,7 +391,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
 
   const loadRelatedAlbums = useCallback(async (): Promise<void> => {
     const library = window.echo?.library;
-    const artistName = album.albumArtist.trim();
+    const artistName = albumArtistLookupName?.trim() ?? '';
 
     if (!artistName || !library?.getArtists || !library.getArtistAlbums) {
       setRelatedAlbumsState({
@@ -374,16 +455,19 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
         });
       }
     }
-  }, [album.albumArtist, album.id, album.mediaType]);
+  }, [album.id, album.mediaType, albumArtistLookupName]);
 
   useEffect(() => {
     setActiveTab('tracks');
     setOnlineInfoState(emptyOnlineInfoState());
+    void loadOnlineInfo(false);
+  }, [album.id, loadOnlineInfo]);
+
+  useEffect(() => {
     setRelatedAlbumsState(emptyRelatedAlbumsState());
     setFailedRelatedCoverUrls({});
-    void loadOnlineInfo(false);
     void loadRelatedAlbums();
-  }, [album.id, loadOnlineInfo, loadRelatedAlbums]);
+  }, [album.id, loadRelatedAlbums]);
 
   const refreshAlbumLiked = useCallback(async (): Promise<void> => {
     try {
@@ -398,6 +482,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     let isMounted = true;
 
     setCoverLarge(null);
+    setFailedOriginalCover(false);
     setFailedLargeCover(false);
     setFailedThumbCover(false);
 
@@ -690,17 +775,22 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     ],
   );
 
-  const handleDetailCoverError = useCallback((): void => {
-    if (coverLarge && !failedLargeCover) {
+  const handleDetailCoverError = useCallback((coverUrl: string): void => {
+    if (originalCover && coverUrl === originalCover && !failedOriginalCover) {
+      setFailedOriginalCover(true);
+      return;
+    }
+
+    if (coverLarge && coverUrl === coverLarge && !failedLargeCover) {
       setFailedLargeCover(true);
       return;
     }
 
     setFailedThumbCover(true);
-  }, [coverLarge, failedLargeCover]);
+  }, [coverLarge, failedLargeCover, failedOriginalCover, originalCover]);
 
   const handleOpenAlbumArtist = useCallback((): void => {
-    const artistName = album.albumArtist.trim();
+    const artistName = albumArtistLookupName?.trim() ?? '';
     if (!artistName) {
       return;
     }
@@ -714,21 +804,10 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       .catch((error) => {
         setTrackActionMessage(error instanceof Error ? error.message : String(error));
       });
-  }, [album.albumArtist, t]);
+  }, [albumArtistLookupName, t]);
 
-  const handleRelatedCoverError = useCallback((relatedAlbum: LibraryAlbum): void => {
-    if (!relatedAlbum.coverThumb) {
-      return;
-    }
-
-    setFailedRelatedCoverUrls((current) =>
-      current[relatedAlbum.id] === relatedAlbum.coverThumb
-        ? current
-        : {
-            ...current,
-            [relatedAlbum.id]: relatedAlbum.coverThumb!,
-          },
-    );
+  const handleRelatedCoverError = useCallback((relatedAlbum: LibraryAlbum, coverUrl: string): void => {
+    setFailedRelatedCoverUrls((current) => ({ ...current, [coverFailureKey(relatedAlbum.id, coverUrl)]: true }));
   }, []);
 
   const handleOpenRelatedAlbum = useCallback((relatedAlbum: LibraryAlbum): void => {
@@ -740,21 +819,26 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   }, [album.id]);
 
   const handleExternalLinkClick = useCallback((event: MouseEvent<HTMLAnchorElement>, url: string): void => {
+    event.preventDefault();
+    event.stopPropagation();
     const openExternalUrl = window.echo?.app?.openExternalUrl;
     if (!openExternalUrl) {
       return;
     }
-    event.preventDefault();
     void openExternalUrl(url);
   }, []);
 
   const renderRelatedAlbums = (): JSX.Element | null => {
+    if (!displayAlbumArtist) {
+      return null;
+    }
+
     if (relatedAlbumsState.loadedForAlbumId !== album.id || relatedAlbumsState.loading) {
       return (
-        <section className="album-related-library" aria-label={t('albumDetail.related.aria', { artist: album.albumArtist })}>
+        <section className="album-related-library" aria-label={t('albumDetail.related.aria', { artist: displayAlbumArtist })}>
           <header>
             <div>
-              <span>{album.albumArtist}</span>
+              <span>{displayAlbumArtist}</span>
               <h2>{t('albumDetail.related.heading')}</h2>
             </div>
             <small>{t('albumDetail.related.loading')}</small>
@@ -771,10 +855,10 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
 
     return (
-      <section className="album-related-library" aria-label={t('albumDetail.related.aria', { artist: album.albumArtist })}>
+      <section className="album-related-library" aria-label={t('albumDetail.related.aria', { artist: displayAlbumArtist })}>
         <header>
           <div>
-            <span>{album.albumArtist}</span>
+            <span>{displayAlbumArtist}</span>
             <h2>{t('albumDetail.related.heading')}</h2>
           </div>
           <small>
@@ -785,8 +869,15 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
         </header>
         <div className="album-related-album-strip">
           {relatedAlbumsState.albums.map((relatedAlbum) => {
-            const shouldShowCover = Boolean(relatedAlbum.coverThumb && failedRelatedCoverUrls[relatedAlbum.id] !== relatedAlbum.coverThumb);
+            const relatedOriginalCover = albumOriginalCoverUrl(relatedAlbum);
+            const relatedCoverUrl = relatedOriginalCover && !failedRelatedCoverUrls[coverFailureKey(relatedAlbum.id, relatedOriginalCover)]
+              ? relatedOriginalCover
+              : relatedAlbum.coverThumb && !failedRelatedCoverUrls[coverFailureKey(relatedAlbum.id, relatedAlbum.coverThumb)]
+                ? relatedAlbum.coverThumb
+                : null;
+            const shouldShowCover = Boolean(relatedCoverUrl);
             const isCurrentAlbum = relatedAlbum.id === album.id;
+            const relatedAlbumArtistLabel = isGenericAlbumArtistName(relatedAlbum.albumArtist) ? null : relatedAlbum.albumArtist;
 
             return (
               <article
@@ -813,9 +904,9 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
                       draggable={false}
                       height={260}
                       loading="lazy"
-                      src={relatedAlbum.coverThumb!}
+                      src={relatedCoverUrl!}
                       width={260}
-                      onError={() => handleRelatedCoverError(relatedAlbum)}
+                      onError={() => handleRelatedCoverError(relatedAlbum, relatedCoverUrl!)}
                     />
                   ) : (
                     <Disc3 size={24} />
@@ -825,7 +916,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
                 <div className="album-related-album-copy">
                   {relatedAlbum.year ? <small>{relatedAlbum.year}</small> : null}
                   <strong>{relatedAlbum.title}</strong>
-                  <span>{relatedAlbum.albumArtist}</span>
+                  {relatedAlbumArtistLabel ? <span>{relatedAlbumArtistLabel}</span> : null}
                 </div>
               </article>
             );
@@ -997,7 +1088,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
           <Info size={18} />
           <div>
             <span>{t('albumDetail.information.atGlance')}</span>
-            <strong>{album.albumArtist}</strong>
+            {displayAlbumArtist ? <strong>{displayAlbumArtist}</strong> : null}
             <small>{[album.title, album.year ? String(album.year) : null, formatTrackCount(album.trackCount, t)].filter(Boolean).join(' - ')}</small>
           </div>
         </section>
@@ -1019,7 +1110,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       <section className="album-detail-hero album-detail-switch-surface" key={`album-hero-${album.id}`} aria-label={t('albumDetail.aria.details', { album: album.title })}>
         <div className="album-detail-cover" data-empty={!detailCoverSrc}>
           {detailCoverSrc ? (
-            <img alt="" decoding="async" draggable={false} height={320} src={detailCoverSrc} width={320} onError={handleDetailCoverError} />
+            <img alt="" decoding="async" draggable={false} height={320} src={detailCoverSrc} width={320} onError={() => handleDetailCoverError(detailCoverSrc)} />
           ) : (
             <Disc3 size={58} />
           )}
@@ -1029,9 +1120,11 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
           <div className="album-detail-copy">
             <span className="album-detail-kicker">{t('albumDetail.label.album')}</span>
             <h1>{album.title}</h1>
-            <button className="album-detail-artist-link" type="button" aria-label={t('albumDetail.aria.openArtist', { artist: album.albumArtist })} onClick={handleOpenAlbumArtist}>
-              {album.albumArtist}
-            </button>
+            {displayAlbumArtist ? (
+              <button className="album-detail-artist-link" type="button" aria-label={t('albumDetail.aria.openArtist', { artist: displayAlbumArtist })} onClick={handleOpenAlbumArtist}>
+                {displayAlbumArtist}
+              </button>
+            ) : null}
 
             <div className="album-detail-meta" aria-label={t('albumDetail.aria.metadata')}>
               {albumMetadata.map((item) => (

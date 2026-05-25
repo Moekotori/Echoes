@@ -82,6 +82,7 @@ describe('app settings normalization', () => {
     expect(settings.onlineArtistInfoTicketmasterApiKey).toBeNull();
     expect(settings.onlineArtistInfoSeatGeekClientId).toBeNull();
     expect(settings.onlineArtistInfoRegion).toBeNull();
+    expect(settings.onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.backgroundSpacePauseEnabled).toBe(false);
     expect(settings.localShortcuts).toEqual(createDefaultLocalShortcuts());
@@ -231,6 +232,8 @@ describe('app settings normalization', () => {
     expect(settings.onlineArtistInfoTicketmasterApiKey).toBe('ticketmaster-key');
     expect(settings.onlineArtistInfoSeatGeekClientId).toBe('seatgeek-id');
     expect(settings.onlineArtistInfoRegion).toBe('HK');
+    expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl', 'bad', 'baidu-baike'] }).onlineArtistInfoSources).toEqual(['moegirl']);
+    expect(normalizeSettings({ onlineArtistInfoSources: [] }).onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(normalizeSettings({ onlineArtistInfoBandsintownAppId: '   ' }).onlineArtistInfoBandsintownAppId).toBeNull();
   });
 
@@ -1056,6 +1059,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ duplicateTracksEnabled: true }).duplicateTracksEnabled).toBe(true);
     expect(normalizeSettings({ duplicateTracksMode: 'aggressive' }).duplicateTracksMode).toBe('strict');
     expect(normalizeSettings({ duplicateTracksAutoRebuildAfterScan: true }).duplicateTracksAutoRebuildAfterScan).toBe(true);
+  });
+
+  it('keeps artist streaming albums opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).artistStreamingAlbumsEnabled).toBe(false);
+    expect(normalizeSettings({ artistStreamingAlbumsEnabled: true }).artistStreamingAlbumsEnabled).toBe(true);
+    expect(normalizeSettings({ artistStreamingAlbumsEnabled: 'yes' as never }).artistStreamingAlbumsEnabled).toBe(false);
   });
 
   it('normalizes lyrics settings', async () => {

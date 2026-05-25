@@ -78,9 +78,51 @@ const hasWhitespace = (value: string): boolean => /\s/u.test(value);
 const isPhraseBoundary = (value: string): boolean => /[,.!?;:，。！？、；：…)]\s*$/u.test(value);
 
 const normalizeTimingText = (value: string): string => value.replace(/\s+/gu, ' ').trim();
+const normalizeCompactTimingText = (value: string): string => value.replace(/\s+/gu, '').trim();
 
 const wordsMatchLineText = (line: LyricLineType, words: readonly LyricWordTiming[]): boolean =>
-  normalizeTimingText(words.map((word) => word.text).join('')) === normalizeTimingText(line.text);
+  normalizeTimingText(words.map((word) => word.text).join('')) === normalizeTimingText(line.text) ||
+  normalizeCompactTimingText(words.map((word) => word.text).join('')) === normalizeCompactTimingText(line.text);
+
+const preserveLineSpacingInWordTimings = (
+  lineText: string,
+  words: readonly LyricWordTiming[],
+): readonly LyricWordTiming[] => {
+  const joinedWordText = words.map((word) => word.text).join('');
+  if (normalizeTimingText(joinedWordText) === normalizeTimingText(lineText)) {
+    return words;
+  }
+
+  if (normalizeCompactTimingText(joinedWordText) !== normalizeCompactTimingText(lineText)) {
+    return words;
+  }
+
+  const chars = Array.from(lineText.trim());
+  let cursor = 0;
+  const spacedWords = words.map((word) => {
+    const targetLength = lyricTextLength(word.text);
+    let text = '';
+    let consumedChars = 0;
+
+    while (cursor < chars.length && consumedChars < targetLength) {
+      const char = chars[cursor];
+      text += char;
+      cursor += 1;
+      if (!hasWhitespace(char)) {
+        consumedChars += 1;
+      }
+    }
+
+    while (cursor < chars.length && hasWhitespace(chars[cursor])) {
+      text += chars[cursor];
+      cursor += 1;
+    }
+
+    return { ...word, text };
+  });
+
+  return wordsMatchLineText({ text: lineText, timeMs: 0 }, spacedWords) ? spacedWords : words;
+};
 
 const getSegmentEndMs = (words: readonly LyricWordTiming[], index: number): number | null => {
   const word = words[index];
@@ -195,9 +237,10 @@ export const getRenderableLyricWords = (line: LyricLineType): readonly LyricWord
     return null;
   }
 
-  const renderableWords = shouldCoalesceWordTimings(sourceWords, line.text)
-    ? coalesceWordTimings(sourceWords)
-    : [...sourceWords];
+  const spacedSourceWords = preserveLineSpacingInWordTimings(line.text, sourceWords);
+  const renderableWords = shouldCoalesceWordTimings(spacedSourceWords, line.text)
+    ? coalesceWordTimings(spacedSourceWords)
+    : [...spacedSourceWords];
 
   const result =
     renderableWords.length >= minRenderableWordHighlightSegments &&

@@ -209,6 +209,8 @@ export type AudioPlaybackDiagnosticEvent = {
     | 'seek_request'
     | 'pause_request'
     | 'stop_request'
+    | 'output_ready'
+    | 'startup_telemetry'
     | 'ended'
     | 'position_jump_suspected'
     | 'position_jump_recovered'

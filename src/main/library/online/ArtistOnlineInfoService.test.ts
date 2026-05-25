@@ -101,6 +101,136 @@ describe('ArtistOnlineInfoService', () => {
     database.close();
   });
 
+  it('uses Baidu Baike as a selectable artist bio source without touching Wikipedia', async () => {
+    const database = createDatabase(':memory:');
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('baike.baidu.com/api/openapi/BaikeLemmaCardApi')) {
+        return {
+          ok: true,
+          status: 200,
+          url: 'http://baike.baidu.com/api/openapi/BaikeLemmaCardApi',
+          json: async () => ({
+            lemmaTitle: 'Echo Unit',
+            abstract: 'Echo Unit 是来自测试世界的音乐组合，常用于艺人资料测试。',
+            image: 'http://img.example/baidu.jpg',
+            url: 'http://baike.baidu.com/item/Echo%20Unit',
+          }),
+        };
+      }
+      if (url.includes('/ws/2/artist/?query=')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ artists: [] }),
+        };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new ArtistOnlineInfoService(database, fetcher);
+
+    const result = await service.getArtistOnlineInfo(artist(), {
+      locale: 'zh-CN',
+      sources: ['baidu-baike'],
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.bio?.title).toBe('Echo Unit');
+    expect(result.bio?.extract).toContain('音乐组合');
+    expect(result.sourceLabels).toEqual(['百度百科']);
+    expect(result.externalLinks).toEqual([
+      { label: 'Echo Unit', url: 'http://baike.baidu.com/item/Echo%20Unit', source: 'baidu-baike' },
+    ]);
+    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^http:\/\/baike\.baidu\.com\//u);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('wikipedia.org'))).toBe(false);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('musicbrainz.org'))).toBe(false);
+    database.close();
+  });
+
+  it('fails fast when Baidu Baike is unreachable instead of retrying slow modifier queries', async () => {
+    const database = createDatabase(':memory:');
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('baike.baidu.com/api/openapi/BaikeLemmaCardApi')) {
+        throw new Error('request_failed:-100');
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new ArtistOnlineInfoService(database, fetcher);
+
+    const result = await service.getArtistOnlineInfo(artist(), {
+      locale: 'zh-CN',
+      sources: ['baidu-baike'],
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    expect(result.status).toBe('unavailable');
+    expect(result.errors?.join('\n')).toContain('百度百科');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^http:\/\/baike\.baidu\.com\//u);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('musicbrainz.org'))).toBe(false);
+    database.close();
+  });
+
+  it('uses Moegirl as a selectable artist bio source without touching Wikipedia', async () => {
+    const database = createDatabase(':memory:');
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('zh.moegirl.org.cn/api.php') && url.includes('list=search')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            query: {
+              search: [{ title: 'Echo Unit' }],
+            },
+          }),
+        };
+      }
+      if (url.includes('zh.moegirl.org.cn/api.php') && url.includes('prop=extracts%7Cpageimages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            query: {
+              pages: {
+                1: {
+                  title: 'Echo Unit',
+                  extract: 'Echo Unit 是萌娘百科中的测试音乐组合条目。',
+                  thumbnail: { source: 'https://img.example/moegirl.jpg' },
+                },
+              },
+            },
+          }),
+        };
+      }
+      if (url.includes('/ws/2/artist/?query=')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ artists: [] }),
+        };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new ArtistOnlineInfoService(database, fetcher);
+
+    const result = await service.getArtistOnlineInfo(artist(), {
+      locale: 'zh-CN',
+      sources: ['moegirl'],
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.bio?.description).toBe('萌娘百科');
+    expect(result.bio?.extract).toContain('测试音乐组合');
+    expect(result.sourceLabels).toEqual(['萌娘百科']);
+    expect(result.externalLinks).toEqual([
+      { label: 'Echo Unit', url: 'https://zh.moegirl.org.cn/Echo_Unit', source: 'moegirl' },
+    ]);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('wikipedia.org'))).toBe(false);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('musicbrainz.org'))).toBe(false);
+    database.close();
+  });
+
   it('falls back to Japanese Wikipedia when the current locale has no artist page', async () => {
     const database = createDatabase(':memory:');
     const fetcher = vi.fn(async (url: string) => {
@@ -166,6 +296,85 @@ describe('ArtistOnlineInfoService', () => {
     expect(result.bio?.extract).toContain('電子音楽家');
     expect(result.sourceLabels).toEqual(['ja.wikipedia.org']);
     expect(result.externalLinks.map((link) => link.url)).toEqual(['https://ja.wikipedia.org/wiki/Aiobahn']);
+    database.close();
+  });
+
+  it('tries exact artist names across Wikipedia languages before modifier searches', async () => {
+    const database = createDatabase(':memory:');
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('zh.wikipedia.org/w/rest.php/v1/search/page')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ pages: [] }),
+        };
+      }
+      if (url.includes('ja.wikipedia.org/w/rest.php/v1/search/page')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ pages: [] }),
+        };
+      }
+      if (url.includes('en.wikipedia.org/w/rest.php/v1/search/page')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ pages: [{ key: 'Charlie_Puth', title: 'Charlie Puth' }] }),
+        };
+      }
+      if (url.includes('en.wikipedia.org/api/rest_v1/page/summary/Charlie_Puth')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            title: 'Charlie Puth',
+            description: 'American singer',
+            extract: 'Charlie Puth is an American singer.',
+            content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Charlie_Puth' } },
+          }),
+        };
+      }
+      if (url.includes('en.wikipedia.org/w/api.php')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            query: {
+              pages: {
+                1: {
+                  extract: 'Charlie Puth is an American singer, songwriter, and record producer.',
+                },
+              },
+            },
+          }),
+        };
+      }
+      if (url.includes('/ws/2/artist/?query=')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ artists: [] }),
+        };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new ArtistOnlineInfoService(database, fetcher);
+
+    const result = await service.getArtistOnlineInfo(artist({ name: 'Charlie Puth' }), {
+      locale: 'zh-CN',
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    const wikipediaSearchUrls = fetcher.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/w/rest.php/v1/search/page'));
+
+    expect(result.bio?.language).toBe('en');
+    expect(wikipediaSearchUrls).toHaveLength(3);
+    expect(wikipediaSearchUrls.some((url) =>
+      url.includes('singer') || url.includes('musician') || url.includes('band'),
+    )).toBe(false);
     database.close();
   });
 

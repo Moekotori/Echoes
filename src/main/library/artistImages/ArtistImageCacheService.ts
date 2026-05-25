@@ -32,6 +32,7 @@ import { SpotifyArtistImageProvider } from './SpotifyArtistImageProvider';
 import { WikidataArtistImageProvider } from './WikidataArtistImageProvider';
 import { WikipediaArtistImageProvider } from './WikipediaArtistImageProvider';
 import { isLikelyDefaultArtistAvatarImage } from './ArtistImageDefaultAvatar';
+import { isLikelyDefaultRemoteImageUrl } from './ArtistImageProviderUtils';
 import {
   ARTIST_IMAGE_CACHE_SOURCE_VERSION,
   artistImageCacheSourceHash,
@@ -55,6 +56,10 @@ type QueueTask = {
   force: boolean;
   resolve?: (entry: ArtistImageCacheEntry | null) => void;
   reject?: (error: unknown) => void;
+};
+
+type TaskRunResult = {
+  requeued: boolean;
 };
 
 type DownloadedImage = {
@@ -87,6 +92,7 @@ const maxImageBytes = 5 * 1024 * 1024;
 const imageRequestTimeoutMs = 8000;
 const minAcceptedImageSide = 240;
 const defaultProvider = 'qqmusic';
+const defaultConcurrency = 2;
 const providerRotationConfidenceTolerance = 0.03;
 const firstPassPrimaryProviderCount = 3;
 const preferredPrimaryProviderNames = new Set([
@@ -231,6 +237,7 @@ export class ArtistImageCacheService {
   private readonly providerLocks = new Map<string, Promise<void>>();
   private readonly backfillAttemptedKeys = new Set<string>();
   private paused = false;
+  private playbackActive = false;
   private backfillActive = false;
   private backfillForce = true;
   private backfillLimit = 500;
@@ -242,7 +249,7 @@ export class ArtistImageCacheService {
     options: ArtistImageCacheServiceOptions,
   ) {
     this.providers = options.providers?.length ? options.providers : defaultArtistImageProviders();
-    this.concurrency = Math.max(1, Math.min(10, Math.floor(options.concurrency ?? 8)));
+    this.concurrency = Math.max(1, Math.min(10, Math.floor(options.concurrency ?? defaultConcurrency)));
     this.fetchImage = options.fetchImage ?? this.downloadImage;
     this.onUpdated = options.onUpdated ?? null;
     this.cacheRoot = resolve(options.cacheRoot);
@@ -308,7 +315,7 @@ export class ArtistImageCacheService {
   getJobStatus(): ArtistImageJobStatus {
     return {
       paused: this.paused,
-      running: this.backfillActive && !this.paused && (this.queue.length > 0 || this.activeCount > 0),
+      running: this.backfillActive && !this.paused && (this.activeCount > 0 || (!this.playbackActive && this.queue.length > 0)),
       queued: this.queue.length,
       active: this.activeCount,
       lastQueued: this.lastQueued,
@@ -319,7 +326,18 @@ export class ArtistImageCacheService {
   setPaused(paused: boolean): ArtistImageJobStatus {
     this.paused = paused;
 
-    if (!paused) {
+    if (!paused && !this.playbackActive) {
+      this.drainQueue();
+      this.maybeContinueBackfill();
+    }
+
+    return this.getJobStatus();
+  }
+
+  setPlaybackActive(active: boolean): ArtistImageJobStatus {
+    this.playbackActive = active;
+
+    if (!active && !this.paused) {
       this.drainQueue();
       this.maybeContinueBackfill();
     }
@@ -345,6 +363,10 @@ export class ArtistImageCacheService {
     }
 
     this.backfillActive = true;
+    if (this.playbackActive) {
+      return this.getJobStatus();
+    }
+
     this.enqueueBackfillBatch();
     this.drainQueue();
 
@@ -383,6 +405,10 @@ export class ArtistImageCacheService {
 
     if (!artist) {
       return Promise.resolve({ queued: false, entry: null });
+    }
+
+    if (this.playbackActive) {
+      return Promise.resolve({ queued: false, entry: this.getCacheEntry(artist.artistKey) });
     }
 
     return new Promise((resolveTask, rejectTask) => {
@@ -491,15 +517,21 @@ export class ArtistImageCacheService {
   }
 
   private drainQueue(): void {
-    while (!this.paused && this.activeCount < this.concurrency && this.queue.length > 0) {
+    while (!this.paused && !this.playbackActive && this.activeCount < this.concurrency && this.queue.length > 0) {
       const task = this.queue.shift()!;
       this.activeCount += 1;
+      let requeued = false;
       void this.runTask(task)
+        .then((result) => {
+          requeued = result.requeued;
+        })
         .catch((error) => {
           task.reject?.(error);
         })
         .finally(() => {
-          this.queuedKeys.delete(task.artist.artistKey);
+          if (!requeued) {
+            this.queuedKeys.delete(task.artist.artistKey);
+          }
           this.activeCount -= 1;
           this.drainQueue();
           this.maybeContinueBackfill();
@@ -508,7 +540,7 @@ export class ArtistImageCacheService {
   }
 
   private maybeContinueBackfill(): void {
-    if (!this.backfillActive || this.paused || this.queue.length > 0 || this.activeCount > 0) {
+    if (this.playbackActive || !this.backfillActive || this.paused || this.queue.length > 0 || this.activeCount > 0) {
       return;
     }
 
@@ -539,15 +571,23 @@ export class ArtistImageCacheService {
     return this.lastQueued;
   }
 
-  private async runTask(task: QueueTask): Promise<void> {
+  private async runTask(task: QueueTask): Promise<TaskRunResult> {
     let entry: ArtistImageCacheEntry | null = null;
 
     try {
+      this.throwIfPlaybackActive();
       this.markLoading(task.artist);
       entry = await this.fetchAndStore(task.artist);
       task.resolve?.(entry);
     } catch (error) {
-      entry = this.markStatus(task.artist, 'error', {
+      if (error instanceof ArtistImageDownloadError && error.status === 'pending') {
+        this.markStatus(task.artist, 'pending', { failureReason: null });
+        this.queue.unshift(task);
+        return { requeued: true };
+      }
+
+      const status = error instanceof ArtistImageDownloadError ? error.status : 'error';
+      entry = this.markStatus(task.artist, status, {
         failureReason: error instanceof Error ? error.message : String(error),
       });
       task.resolve?.(entry);
@@ -560,6 +600,8 @@ export class ArtistImageCacheService {
         status: entry.status,
       });
     }
+
+    return { requeued: false };
   }
 
   private async fetchAndStore(artist: ResolvedArtist): Promise<ArtistImageCacheEntry> {
@@ -597,11 +639,13 @@ export class ArtistImageCacheService {
     const downloadErrors: Array<{ candidate: ArtistImageCandidate; error: unknown }> = [];
 
     for (const providerGroup of providerGroups) {
+      this.throwIfPlaybackActive();
       if (providerGroup.length === 0) {
         continue;
       }
 
       results.push(...await Promise.all(providerGroup.map((provider) => this.searchProvider(provider, artist))));
+      this.throwIfPlaybackActive();
       candidates = this.sortCandidates(results.flatMap((result) => result.candidates), providerPriority);
       const storeResult = await this.tryStoreCandidates(artist, candidates, attemptedImageUrls);
 
@@ -698,6 +742,7 @@ export class ArtistImageCacheService {
     let attemptedCount = 0;
 
     for (const candidate of autoMatchCandidates) {
+      this.throwIfPlaybackActive();
       if (attemptedImageUrls.has(candidate.imageUrl)) {
         continue;
       }
@@ -706,7 +751,12 @@ export class ArtistImageCacheService {
       attemptedCount += 1;
 
       try {
+        if (isLikelyDefaultRemoteImageUrl(candidate.imageUrl)) {
+          throw new ArtistImageDownloadError('artist_image_default_placeholder', 'not_found');
+        }
+
         const downloaded = await this.fetchImage(candidate.imageUrl);
+        this.throwIfPlaybackActive();
         const paths = await this.writeImageVariants(artist.artistKey, downloaded.data);
         const entry = this.markStatus(artist, 'matched', {
           provider: candidate.provider,
@@ -722,6 +772,9 @@ export class ArtistImageCacheService {
         });
         return { entry, attemptedCount, downloadErrors };
       } catch (error) {
+        if (error instanceof ArtistImageDownloadError && error.status === 'pending') {
+          throw error;
+        }
         downloadErrors.push({ candidate, error });
       }
     }
@@ -731,14 +784,25 @@ export class ArtistImageCacheService {
 
   private async searchProvider(provider: ArtistImageProvider, artist: ResolvedArtist): Promise<ProviderLookupResult> {
     try {
+      this.throwIfPlaybackActive();
       await this.reserveProviderRequest(provider);
+      this.throwIfPlaybackActive();
       const candidates = await provider.searchArtistImage({
         artistKey: artist.artistKey,
         artistName: artist.artistName,
       });
       return { provider, candidates, error: null };
     } catch (error) {
+      if (error instanceof ArtistImageDownloadError && error.status === 'pending') {
+        throw error;
+      }
       return { provider, candidates: [], error };
+    }
+  }
+
+  private throwIfPlaybackActive(): void {
+    if (this.playbackActive) {
+      throw new ArtistImageDownloadError('artist_image_deferred_for_playback', 'pending');
     }
   }
 
@@ -974,7 +1038,7 @@ export class ArtistImageCacheService {
 
   private statusForProviderError(error: unknown): ArtistImageCacheStatus {
     const message = error instanceof Error ? error.message : String(error);
-    return /(?:429|rate[_ -]?limit|too many requests)/iu.test(message) ? 'rate_limited' : 'error';
+    return /(?:405|429|操作频繁|rate[_ -]?limit|too many requests|frequent)/iu.test(message) ? 'rate_limited' : 'error';
   }
 
   private readonly downloadImage = async (url: string): Promise<DownloadedImage> => {

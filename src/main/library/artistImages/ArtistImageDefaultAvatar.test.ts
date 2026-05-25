@@ -41,6 +41,14 @@ describe('artist default avatar detection', () => {
     await expect(isLikelyDefaultArtistAvatarImage(image)).resolves.toBe(true);
   });
 
+  it('detects light generic person placeholder artwork', async () => {
+    const image = sharp(svgImage(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#eeedf3"/><circle cx="256" cy="176" r="54" fill="none" stroke="#bdbbc4" stroke-width="24"/><path d="M145 380c0-72 54-122 111-122s111 50 111 122v34H145z" fill="none" stroke="#bdbbc4" stroke-width="24" stroke-linejoin="round"/></svg>',
+    ));
+
+    await expect(isLikelyDefaultArtistAvatarImage(image)).resolves.toBe(true);
+  });
+
   it('does not reject ordinary artist artwork', async () => {
     const image = sharp(svgImage(
       '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#28364f"/><circle cx="170" cy="210" r="112" fill="#ddc7b7"/><circle cx="340" cy="210" r="112" fill="#947c70"/><rect x="72" y="312" width="368" height="148" rx="26" fill="#151a24"/></svg>',

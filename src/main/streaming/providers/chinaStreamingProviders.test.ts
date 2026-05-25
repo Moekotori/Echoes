@@ -191,6 +191,43 @@ describe('China streaming providers', () => {
     });
   });
 
+  it('cools down NetEase enhanced cloud search after frequent operation responses', async () => {
+    const cloudsearch = vi
+      .fn()
+      .mockRejectedValueOnce({
+        status: 405,
+        body: { code: 405, msg: '操作频繁，请稍候再试', message: '操作频繁，请稍候再试' },
+      })
+      .mockResolvedValue({
+        body: {
+          result: {
+            songCount: 1,
+            songs: [
+              {
+                id: 655,
+                name: 'Should Stay Cool',
+                dt: 181000,
+                ar: [{ id: 7, name: 'Cloud Artist' }],
+                al: { id: 8, name: 'Cloud Album' },
+              },
+            ],
+          },
+        },
+      });
+    setNeteaseApiForTests({ cloudsearch });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(jsonResponse({ result: { songCount: 0, songs: [] } }))),
+    );
+
+    const first = await new NeteaseStreamingProvider().search({ provider: 'netease', query: 'cloud', page: 1, pageSize: 10 });
+    const second = await new NeteaseStreamingProvider().search({ provider: 'netease', query: 'cloud', page: 1, pageSize: 10 });
+
+    expect(first.tracks).toHaveLength(0);
+    expect(second.tracks).toHaveLength(0);
+    expect(cloudsearch).toHaveBeenCalledTimes(1);
+  });
+
   it('maps NetEase album search results', async () => {
     vi.stubGlobal(
       'fetch',

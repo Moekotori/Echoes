@@ -804,7 +804,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('button', { name: 'resetEngineDone' })).toBeTruthy();
   });
 
-  it('shows troubleshooting controls at the bottom and force restarts the audio engine', async () => {
+  it('shows professional status at the bottom and force restarts the audio engine', async () => {
     const forceRestart = vi.fn().mockResolvedValue({ ...baseStatus, state: 'stopped' });
     const onStatusChange = vi.fn();
     window.echo = {
@@ -833,7 +833,10 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     );
 
     const troubleshooting = document.querySelector('.audio-drawer-scroll > .audio-drawer-troubleshooting');
-    expect(troubleshooting?.nextElementSibling).toBeNull();
+    const professionalStatus = document.querySelector('.audio-drawer-scroll > .audio-professional-status--drawer:last-of-type');
+    const professionalActions = document.querySelector('.audio-drawer-scroll > .audio-professional-status-actions:last-child');
+    expect(troubleshooting?.nextElementSibling).toBe(professionalStatus);
+    expect(professionalStatus?.nextElementSibling).toBe(professionalActions);
 
     fireEvent.click(screen.getByRole('button', { name: 'Restart Audio Engine' }));
 

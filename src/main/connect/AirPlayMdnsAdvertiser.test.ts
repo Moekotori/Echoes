@@ -12,7 +12,7 @@ type PacketFactory = {
 };
 
 describe('AirPlayMdnsAdvertiser', () => {
-  it('advertises both RAOP and AirPlay service records for iOS discovery', () => {
+  it('advertises a classic RAOP audio service without a misleading AirPlay control service', () => {
     const advertiser = new AirPlayMdnsAdvertiser() as unknown as PacketFactory;
     const packet = advertiser.createPacket({
       name: 'ECHO Next (AirPlay)',
@@ -23,13 +23,14 @@ describe('AirPlayMdnsAdvertiser', () => {
     }, 120);
     const payload = packet.toString('utf8');
 
-    expect(packet.readUInt16BE(6)).toBe(9);
+    expect(packet.readUInt16BE(6)).toBe(5);
     expect(payload).toContain('_raop');
-    expect(payload).toContain('_airplay');
-    expect(payload).toContain('deviceid=60:CF:84:CB:1E:D1');
-    expect(payload).toContain('features=0x40878A00');
-    expect(payload).toContain('srcvers=130.14');
     expect(payload).toContain('cn=0,1');
+    expect(payload).toContain('pw=false');
+    expect(payload).toContain('sf=0x4');
+    expect(payload).toContain('vs=130.14');
+    expect(payload).not.toContain('_airplay');
+    expect(payload).not.toContain('features=');
     expect(payload).not.toContain('0x527FFFF7');
     expect(payload).not.toContain('cn=0,1,2,3');
   });

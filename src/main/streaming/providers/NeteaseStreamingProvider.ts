@@ -27,6 +27,8 @@ const provider = 'netease' as const;
 const neteaseReferer = 'https://music.163.com/';
 const loadFromCjs = createRequire(import.meta.url);
 const neteaseSongDetailBatchSize = 100;
+const neteaseCloudSearchFrequentOperationCooldownMs = 30 * 1000;
+let neteaseCloudSearchCooldownUntil = 0;
 
 const neteaseHeaders = (cookie?: string): Record<string, string> => ({
   Referer: neteaseReferer,
@@ -117,6 +119,18 @@ const getNcmApi = (): NeteaseApi | null => {
 
 export const setNeteaseApiForTests = (api: NeteaseApi | null | undefined): void => {
   ncmApiForTests = api;
+  neteaseCloudSearchCooldownUntil = 0;
+};
+
+const isNeteaseFrequentOperationError = (value: unknown): boolean => {
+  const record = asRecord(value);
+  const body = asRecord(record.body);
+  const status = Number(record.status ?? body.code);
+  const messages = [record.message, body.msg, body.message]
+    .map((item) => text(item))
+    .filter((item): item is string => Boolean(item));
+
+  return status === 405 || messages.some((message) => /操作频繁|too many|frequent|rate[_ -]?limit/iu.test(message));
 };
 
 const cookieValue = (cookie: string | undefined, name: string): string | null => {
@@ -409,6 +423,9 @@ const resolveWithNcmCloudSearch = async (
   if (!ncm?.cloudsearch) {
     return null;
   }
+  if (Date.now() < neteaseCloudSearchCooldownUntil) {
+    return null;
+  }
 
   try {
     const response = await ncm.cloudsearch({
@@ -419,8 +436,15 @@ const resolveWithNcmCloudSearch = async (
       ...(cookie ? { cookie } : {}),
     });
     const data = asRecord(response.body);
+    if (isNeteaseFrequentOperationError(response) || isNeteaseFrequentOperationError(data)) {
+      neteaseCloudSearchCooldownUntil = Date.now() + neteaseCloudSearchFrequentOperationCooldownMs;
+      return null;
+    }
     return asRecord(data.result);
-  } catch {
+  } catch (error) {
+    if (isNeteaseFrequentOperationError(error)) {
+      neteaseCloudSearchCooldownUntil = Date.now() + neteaseCloudSearchFrequentOperationCooldownMs;
+    }
     return null;
   }
 };

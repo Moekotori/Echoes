@@ -173,6 +173,7 @@ describe('EqPanel', () => {
     expect(screen.queryByText('Signal Path')).toBeNull();
     expect(screen.queryByText('Selected band console')).toBeNull();
     expect(screen.queryByLabelText('Q')).toBeNull();
+    expect(await screen.findByLabelText('Balance')).toBeTruthy();
     expect(screen.getAllByText('Headroom').length).toBeGreaterThan(0);
     expect(screen.getByText('Bit-perfect')).toBeTruthy();
   });

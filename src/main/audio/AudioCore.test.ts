@@ -1337,6 +1337,119 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
+  it('logs playback diagnostics for play requests and native output readiness', async () => {
+    const logs: string[] = [];
+    const { bridges, session } = createSessionHarness(
+      [probe('song.flac', 44100)],
+      [48000],
+      [],
+      { diagnosticLogger: (message) => logs.push(message) },
+    );
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+    bridges[0].emit('position', 4800, {
+      positionFrames: 4800,
+      bufferedFrames: 960,
+      underrunCallbacks: 1,
+      underrunFrames: 240,
+      nativePositionStalenessMs: 3,
+    });
+
+    const prefix = '[AudioSession] playback diagnostic ';
+    const diagnostics = logs
+      .filter((line) => line.startsWith(prefix))
+      .map((line) => JSON.parse(line.slice(prefix.length)) as Record<string, unknown>);
+    const playRequest = diagnostics.find((entry) => entry.event === 'play_request');
+    const outputReady = diagnostics.find((entry) => entry.event === 'output_ready');
+    const startupTelemetry = diagnostics.find((entry) => entry.event === 'startup_telemetry');
+
+    expect(playRequest).toMatchObject({
+      reason: 'playLocalFile',
+      filePath: 'song.flac',
+      outputMode: 'shared',
+      nativeUnderrunCallbacks: 0,
+      nativeUnderrunFrames: 0,
+    });
+    expect(outputReady).toMatchObject({
+      reason: 'native_output_ready',
+      filePath: 'song.flac',
+      outputMode: 'shared',
+      outputBackend: 'wasapi-shared',
+      nativeUnderrunCallbacks: 0,
+      nativeUnderrunFrames: 0,
+      details: {
+        requestedOutputSampleRate: 48000,
+        actualDeviceSampleRate: 48000,
+        nativeActualBufferFrames: expect.any(Number),
+      },
+    });
+    expect(startupTelemetry).toMatchObject({
+      reason: 'native_startup_telemetry',
+      filePath: 'song.flac',
+      outputMode: 'shared',
+      nativeBufferedFrames: 960,
+      nativeBufferedMs: 20,
+      nativeUnderrunCallbacks: 1,
+      nativeUnderrunFrames: 240,
+      details: {
+        nativeBufferedMs: 20,
+        nativeUnderrunCallbackDelta: 1,
+        nativeUnderrunFrameDelta: 240,
+        nativePositionStalenessMs: 3,
+      },
+    });
+  });
+
+  it('rebases accumulated startup position drift without restarting exclusive output', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T05:25:00.000Z'));
+    const reportAudioError = vi.fn();
+    const { bridges, decoder, session } = createLongRunningSessionHarness(
+      [probe('song.flac', 48000)],
+      [48000],
+      [],
+      {
+        disableWatchdogTimer: true,
+        reportAudioError,
+      },
+    );
+
+    try {
+      await session.playLocalFile({ filePath: 'song.flac', trackId: 'track-startup', output: { outputMode: 'exclusive' } });
+
+      await vi.advanceTimersByTimeAsync(1582);
+      bridges[0].emit('position', Math.round(2.57 * 48000), {
+        positionFrames: Math.round(2.57 * 48000),
+        bufferedFrames: 9600,
+        underrunCallbacks: 0,
+        underrunFrames: 0,
+      });
+      await Promise.resolve();
+
+      expect(bridges).toHaveLength(1);
+      expect(bridges[0].stop).not.toHaveBeenCalled();
+      expect(decoder.decodeRequests).toHaveLength(1);
+      expect(reportAudioError).not.toHaveBeenCalled();
+      expect(bridges[0].positionSeconds).toBeGreaterThanOrEqual(1.5);
+      expect(bridges[0].positionSeconds).toBeLessThanOrEqual(1.7);
+      expect(session.getStatus().positionSeconds).toBeGreaterThanOrEqual(1.5);
+      expect(session.getStatus().positionSeconds).toBeLessThanOrEqual(1.7);
+      const startupDriftEvent = session.getDiagnostics().recentPlaybackEvents?.find(
+        (event) =>
+          event.kind === 'position_jump_suspected' &&
+          event.reason === 'guarded_position_jump_ignored' &&
+          event.details?.action === 'rebase_startup_clock_drift',
+      );
+      const details = startupDriftEvent?.details ?? {};
+      expect(Number(details.reportedPositionSeconds)).toBeCloseTo(2.57, 2);
+      expect(Number(details.startupExpectedPositionSeconds)).toBeCloseTo(1.58, 1);
+      expect(Number(details.startupUnexpectedAdvanceSeconds)).toBeCloseTo(0.99, 1);
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('prepareLocalFile caches a complete provided probe without probing the file', async () => {
     const completeProbe = {
       durationSeconds: 120,

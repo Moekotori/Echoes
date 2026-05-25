@@ -100,6 +100,28 @@ describe('LyricsLine', () => {
     expect(container.querySelector('.lyrics-line')?.getAttribute('data-word-highlight')).toBe('false');
   });
 
+  it('preserves display spaces when timed words omit English spacing', () => {
+    const timedLine = {
+      timeMs: 1000,
+      text: "You don't want my heart",
+      words: [
+        { text: 'You', startMs: 1000, endMs: 1200 },
+        { text: "don't", startMs: 1200, endMs: 1500 },
+        { text: 'want', startMs: 1500, endMs: 1800 },
+        { text: 'my', startMs: 1800, endMs: 2000 },
+        { text: 'heart', startMs: 2000, endMs: 2400 },
+      ],
+    };
+
+    const { container } = render(
+      <LyricsLine active line={timedLine} past={false} onSeek={vi.fn()} wordHighlightEnabled />,
+    );
+
+    const words = Array.from(container.querySelectorAll('.lyrics-word'));
+    expect(words.map((word) => word.textContent).join('')).toBe("You don't want my heart");
+    expect(container.querySelector('.lyrics-line')?.getAttribute('data-word-highlight')).toBe('true');
+  });
+
   it('coalesces noisy character-level timings into calmer phrase marks', () => {
     const text = '世界中のすべて';
     const timedLine = {

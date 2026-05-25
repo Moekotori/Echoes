@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
+import { artistOnlineInfoSources, defaultArtistOnlineInfoSources } from '../../shared/types/appSettings';
 import type {
+  ArtistOnlineInfoSource,
   AppThemeCustomTheme,
   AppLocale,
   AppThemeMode,
@@ -306,6 +308,7 @@ export const defaultSettings: AppSettings = {
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   artistWallAlbumFallbackForMissingAvatars: false,
+  artistStreamingAlbumsEnabled: false,
   autoFetchArtistImages: false,
   artistImageFetchPaused: false,
   liveLibraryUpdatesEnabled: false,
@@ -350,6 +353,7 @@ export const defaultSettings: AppSettings = {
   onlineArtistInfoTicketmasterApiKey: null,
   onlineArtistInfoSeatGeekClientId: null,
   onlineArtistInfoRegion: null,
+  onlineArtistInfoSources: [...defaultArtistOnlineInfoSources],
   audioAnalysisEnabled: true,
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: 'lrclib',
@@ -1000,6 +1004,17 @@ const normalizeLyricsProviderList = (value: unknown, fallback: LyricsProviderId[
   return [...new Set(providers)];
 };
 
+const normalizeArtistOnlineInfoSources = (value: unknown): ArtistOnlineInfoSource[] => {
+  if (!Array.isArray(value)) {
+    return [...defaultArtistOnlineInfoSources];
+  }
+
+  const source = value.find((item): item is ArtistOnlineInfoSource =>
+    artistOnlineInfoSources.includes(item as ArtistOnlineInfoSource),
+  );
+  return source ? [source] : [...defaultArtistOnlineInfoSources];
+};
+
 const normalizeMvMaxQuality = (value: unknown): MvSettings['maxQuality'] =>
   value === '720p' || value === '1080p' || value === '1440p' || value === '2160p' || value === 'max' ? value : defaultSettings.mvMaxQuality;
 
@@ -1261,6 +1276,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     artistWallAlbumFallbackForMissingAvatars: settings.artistWallAlbumFallbackForMissingAvatars === true,
+    artistStreamingAlbumsEnabled: settings.artistStreamingAlbumsEnabled === true,
     autoFetchArtistImages: settings.autoFetchArtistImages === true,
     artistImageFetchPaused: settings.artistImageFetchPaused === true,
     liveLibraryUpdatesEnabled: settings.liveLibraryUpdatesEnabled === true,
@@ -1313,6 +1329,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     onlineArtistInfoTicketmasterApiKey: normalizeOptionalText(settings.onlineArtistInfoTicketmasterApiKey),
     onlineArtistInfoSeatGeekClientId: normalizeOptionalText(settings.onlineArtistInfoSeatGeekClientId),
     onlineArtistInfoRegion: normalizeOptionalText(settings.onlineArtistInfoRegion),
+    onlineArtistInfoSources: normalizeArtistOnlineInfoSources(settings.onlineArtistInfoSources),
     audioAnalysisEnabled: settings.audioAnalysisEnabled !== false,
     lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
     lyricsPreferredProvider: 'lrclib',

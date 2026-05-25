@@ -49,8 +49,10 @@ import type {
 } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
 import { isDownloadFeatureUnlockCode } from '../../shared/constants/featureUnlocks';
+import { defaultArtistOnlineInfoSources } from '../../shared/types/appSettings';
 import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../shared/types/accounts';
 import type {
+  ArtistOnlineInfoSource,
   AppSettings,
   AppThemeCustomTheme,
   AppThemeMode,
@@ -411,6 +413,11 @@ const networkProviderLabels: Record<AppSettings['networkMetadataProviders'][numb
 };
 const visibleNetworkMetadataProviders: AppSettings['networkMetadataProviders'] = ['netease-cloud-music', 'qq-music', 'musicbrainz'];
 const defaultNetworkMetadataProviders: AppSettings['networkMetadataProviders'] = ['netease-cloud-music', 'qq-music'];
+const artistOnlineInfoSourceOptions: Array<{ source: ArtistOnlineInfoSource; label: string; description: string }> = [
+  { source: 'baidu-baike', label: '百度百科', description: '中文艺人和大众歌手优先' },
+  { source: 'moegirl', label: '萌娘百科', description: 'ACG / 音游 / 虚拟歌手补充' },
+  { source: 'wikipedia', label: 'Wikipedia', description: '国际艺人兜底' },
+];
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const mvProviderLabels: Record<NetworkMvProviderId, string> = {
   bilibili: 'Bilibili',
@@ -2999,13 +3006,17 @@ const SettingRow = ({ className, highlighted, id, title, description, children }
 const ChipButton = ({
   active,
   children,
+  disabled,
   onClick,
+  title,
 }: {
   active?: boolean;
   children: string;
+  disabled?: boolean;
   onClick?: () => void;
+  title?: string;
 }): JSX.Element => (
-  <button className={`list-filter-chip ${active ? 'active' : ''}`} type="button" aria-pressed={active} onClick={onClick}>
+  <button className={`list-filter-chip ${active ? 'active' : ''}`} type="button" aria-pressed={active} disabled={disabled} title={title} onClick={onClick}>
     {children}
     {active ? <Check size={13} /> : null}
   </button>
@@ -3403,6 +3414,7 @@ export const SettingsPage = (): JSX.Element => {
   const [duplicateCleanupPreview, setDuplicateCleanupPreview] = useState<DuplicateTrackCleanupPreview | null>(null);
   const [duplicateCleanupBusyAction, setDuplicateCleanupBusyAction] = useState<'scan' | 'clean' | null>(null);
   const [duplicateCleanupMessage, setDuplicateCleanupMessage] = useState<string | null>(null);
+  const [duplicateCleanupResultsExpanded, setDuplicateCleanupResultsExpanded] = useState(false);
   const [bpmAnalysisJob, setBpmAnalysisJob] = useState<BpmAnalysisJobStatus | null>(null);
   const [bpmAnalysisBusy, setBpmAnalysisBusy] = useState(false);
   const [bpmAnalysisMessage, setBpmAnalysisMessage] = useState<string | null>(null);
@@ -3493,6 +3505,22 @@ export const SettingsPage = (): JSX.Element => {
         title: '快速启动',
         description: '启动时先做轻量只读曲库验证，窗口打开后再后台完成数据保护快照。',
         terms: ['快速启动', '启动加速', '慢启动', 'data protection', 'startup', 'fast startup', 'quick startup', 'database snapshot', '曲库检查'],
+      },
+      {
+        id: 'row-artist-streaming-albums',
+        sectionKey: 'general',
+        targetId: 'settings-row-artist-streaming-albums',
+        title: '流媒体专辑',
+        description: '在艺人专辑页下方按需搜索并展示流媒体专辑，默认关闭。',
+        terms: ['流媒体专辑', '艺人流媒体专辑', '在线专辑', '专辑页', 'streaming albums', 'artist streaming albums'],
+      },
+      {
+        id: 'row-artist-online-info-sources',
+        sectionKey: 'general',
+        targetId: 'settings-row-artist-online-info-sources',
+        title: '艺人信息源',
+        description: '选择艺人简介优先使用的在线百科来源，可关闭 Wikipedia 并改用中文站点。',
+        terms: ['艺人信息源', '歌手信息源', '百度百科', '萌娘百科', '维基百科', 'Wikipedia', 'Baike', 'Moegirl', 'artist info source'],
       },
       {
         id: 'row-data-backup',
@@ -4181,7 +4209,7 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, []);
 
-  const refreshDatabaseProtectionStatus = useCallback(async () => {
+  const refreshDatabaseProtectionStatus = useCallback(async (options: { deepCheck?: boolean } = {}) => {
     const library = getLibraryBridge();
     if (!library?.getDatabaseProtectionStatus) {
       setDatabaseProtectionStatus(null);
@@ -4189,7 +4217,7 @@ export const SettingsPage = (): JSX.Element => {
     }
 
     try {
-      setDatabaseProtectionStatus(await library.getDatabaseProtectionStatus());
+      setDatabaseProtectionStatus(await library.getDatabaseProtectionStatus({ deepCheck: options.deepCheck !== false }));
     } catch (statusError) {
       setDatabaseProtectionStatus(null);
       setError(statusError instanceof Error ? statusError.message : String(statusError));
@@ -4596,7 +4624,7 @@ export const SettingsPage = (): JSX.Element => {
     }
 
     return scheduleSettingsIdleTask(() => {
-      void refreshDatabaseProtectionStatus();
+      void refreshDatabaseProtectionStatus({ deepCheck: false });
     });
   }, [activeSection, refreshDatabaseProtectionStatus]);
 
@@ -5563,6 +5591,10 @@ export const SettingsPage = (): JSX.Element => {
       })
       .finally(() => setOnlineArtistInfoBusyAction(null));
   }, [dispatchSettingsChanged, onlineArtistInfoDraft]);
+
+  const handleArtistOnlineInfoSourceSelect = useCallback((source: ArtistOnlineInfoSource): void => {
+    patchAppSettings({ onlineArtistInfoSources: [source] });
+  }, [patchAppSettings]);
 
   const handleClearArtistOnlineInfoCache = useCallback((): void => {
     const library = getLibraryBridge();
@@ -6879,6 +6911,7 @@ export const SettingsPage = (): JSX.Element => {
       setDuplicateCleanupBusyAction('scan');
       setDuplicateCleanupMessage(null);
       setDuplicateCleanupPreview(null);
+      setDuplicateCleanupResultsExpanded(false);
       setDangerMessage(null);
       setError(null);
       setDuplicateCleanupMessage('正在分批扫描重复歌曲，播放会继续保持响应；完成后会列出可清理清单。');
@@ -6888,6 +6921,7 @@ export const SettingsPage = (): JSX.Element => {
       const preview = await library.previewDuplicateTrackCleanup('strict');
       setDuplicateCleanupPreview(preview);
       setDuplicateSummary(preview.summary);
+      setDuplicateCleanupResultsExpanded(false);
       setDuplicateCleanupMessage(
         preview.totalTracksToRemove > 0
           ? `发现 ${preview.groups.length} 组重复歌曲，建议移入回收站 ${preview.totalTracksToRemove} 首低评分版本。`
@@ -6920,7 +6954,7 @@ export const SettingsPage = (): JSX.Element => {
         `将把扫描结果中的 ${duplicateCleanupPreview.totalTracksToRemove} 首低评分重复版本移入系统回收站，并从曲库索引移除；每组会保留评分最高的一首。`,
       )
     ) {
-      setDuplicateCleanupMessage('已取消清理。需要输入确认词“清理重复歌曲”后才会执行。');
+      setDuplicateCleanupMessage('需要先在上方确认词输入框输入“清理重复歌曲”，再点击清理扫描结果。');
       return;
     }
 
@@ -6928,12 +6962,14 @@ export const SettingsPage = (): JSX.Element => {
       setDuplicateCleanupBusyAction('clean');
       setDuplicateCleanupMessage(null);
       setError(null);
+      setDangerMessage(null);
       const result = await library.applyDuplicateTrackCleanup({
         mode: 'strict',
         trackIds: duplicateCleanupPreview.removeTrackIds,
       });
       setDuplicateSummary(result.updatedSummary);
       setDuplicateCleanupPreview(null);
+      setDuplicateCleanupResultsExpanded(false);
       setDuplicateCleanupMessage(
         `已移入回收站 ${result.trashedTracks} 首，从曲库移除 ${result.removedFromLibrary} 首；找不到源文件 ${result.missingFiles} 首，失败 ${result.failedTracks.length} 首。`,
       );
@@ -7111,7 +7147,7 @@ export const SettingsPage = (): JSX.Element => {
       clearDatabaseProtectionFeedback();
       setDangerMessage(null);
       setError(null);
-      await refreshDatabaseProtectionStatus();
+      await refreshDatabaseProtectionStatus({ deepCheck: true });
       setDatabaseProtectionMessage('数据库健康状态已刷新。');
     } catch (refreshError) {
       setDatabaseProtectionFailure(refreshError);
@@ -8029,6 +8065,42 @@ export const SettingsPage = (): JSX.Element => {
                     })
                   }
                 />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-artist-streaming-albums"
+                highlighted={highlightedSettingId === 'settings-row-artist-streaming-albums'}
+                title="流媒体专辑"
+                description="开启后，艺人详情的专辑页会在本地专辑下方按需搜索并显示流媒体专辑；默认关闭，避免增加页面和网络压力。"
+              >
+                <ToggleButton
+                  active={appSettings?.artistStreamingAlbumsEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      artistStreamingAlbumsEnabled: !(appSettings?.artistStreamingAlbumsEnabled ?? false),
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-artist-online-info-sources"
+                highlighted={highlightedSettingId === 'settings-row-artist-online-info-sources'}
+                title="艺人信息源"
+                description="选择刷新艺人简介时使用的百科来源；百度百科和萌娘百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。"
+              >
+                <div className="settings-chip-row">
+                  {artistOnlineInfoSourceOptions.map((option) => (
+                    <ChipButton
+                      active={(appSettings?.onlineArtistInfoSources?.[0] ?? defaultArtistOnlineInfoSources[0]) === option.source}
+                      disabled={!appSettings}
+                      key={option.source}
+                      title={option.description}
+                      onClick={() => handleArtistOnlineInfoSourceSelect(option.source)}
+                    >
+                      {option.label}
+                    </ChipButton>
+                  ))}
+                </div>
               </SettingRow>
               {mysteriousKeyVisible ? (
                 <SettingRow
@@ -10994,38 +11066,59 @@ export const SettingsPage = (): JSX.Element => {
                       {duplicateCleanupBusyAction === 'clean' ? '清理中...' : '清理扫描结果'}
                     </button>
                   </div>
-                  {duplicateCleanupBusyAction === 'scan' ? (
+                  {duplicateCleanupBusyAction ? (
                     <div className="settings-update-progress settings-duplicate-cleanup-progress" role="status" aria-live="polite">
                       <div className="settings-update-progress-label">
-                        <strong>正在扫描重复歌曲</strong>
-                        <span>分批处理，避免挤占播放</span>
+                        <strong>{duplicateCleanupBusyAction === 'scan' ? '正在扫描重复歌曲' : '正在清理扫描结果'}</strong>
+                        <span>{duplicateCleanupBusyAction === 'scan' ? '分批处理，避免挤占播放' : '移入回收站并更新曲库索引'}</span>
                       </div>
-                      <div className="settings-update-progress-track" data-indeterminate="true" role="progressbar" aria-label="重复歌曲扫描中">
+                      <div
+                        className="settings-update-progress-track"
+                        data-indeterminate="true"
+                        role="progressbar"
+                        aria-label={duplicateCleanupBusyAction === 'scan' ? '重复歌曲扫描中' : '重复歌曲清理中'}
+                      >
                         <span />
                       </div>
                     </div>
                   ) : null}
-                  {duplicateCleanupPreview?.groups.length ? (
-                    <div className="settings-library-quality-list">
-                      {duplicateCleanupPreview.groups.map((group) => (
-                        <div className="settings-library-quality-row" key={group.id}>
-                          <div>
-                            <strong>{group.keep.track.title} - {group.keep.track.artist}</strong>
-                            <small title={group.keep.track.path}>保留：{formatDuplicateCleanupTrackQuality(group.keep)} · {group.keep.track.path}</small>
-                            {group.remove.map((member) => (
-                              <small title={member.track.path} key={member.track.id}>
-                                清理：{member.track.title} - {member.track.artist} · {formatDuplicateCleanupTrackQuality(member)} · {member.track.path}
-                              </small>
-                            ))}
-                          </div>
-                          <div className="settings-library-quality-actions">
-                            <em>清理 {group.remove.length} 首</em>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
                   {duplicateCleanupMessage ? <p className="settings-inline-note">{duplicateCleanupMessage}</p> : null}
+                  {duplicateCleanupPreview?.groups.length ? (
+                    <>
+                      <button
+                        aria-expanded={duplicateCleanupResultsExpanded}
+                        className="settings-library-quality-summary settings-duplicate-cleanup-summary"
+                        type="button"
+                        onClick={() => setDuplicateCleanupResultsExpanded((expanded) => !expanded)}
+                      >
+                        <span>
+                          <strong>扫描结果明细</strong>
+                          <em>{duplicateCleanupPreview.groups.length} 组重复，待清理 {duplicateCleanupPreview.totalTracksToRemove} 首</em>
+                        </span>
+                        <ChevronDown size={16} />
+                      </button>
+                      {duplicateCleanupResultsExpanded ? (
+                        <div className="settings-library-quality-list">
+                          {duplicateCleanupPreview.groups.map((group) => (
+                            <div className="settings-library-quality-row" key={group.id}>
+                              <div>
+                                <strong>{group.keep.track.title} - {group.keep.track.artist}</strong>
+                                <small title={group.keep.track.path}>保留：{formatDuplicateCleanupTrackQuality(group.keep)} · {group.keep.track.path}</small>
+                                {group.remove.map((member) => (
+                                  <small title={member.track.path} key={member.track.id}>
+                                    清理：{member.track.title} - {member.track.artist} · {formatDuplicateCleanupTrackQuality(member)} · {member.track.path}
+                                  </small>
+                                ))}
+                              </div>
+                              <div className="settings-library-quality-actions">
+                                <em>清理 {group.remove.length} 首</em>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.danger.clearCache.title')} description={t('settings.danger.clearCache.description')}>

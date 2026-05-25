@@ -429,6 +429,7 @@ export const ConnectPage = (): JSX.Element => {
   const [hqPlayerLastHandoff, setHqPlayerLastHandoff] = useState<HqPlayerPlaybackHandoffPlan | null>(null);
   const [hqPlayerLastControl, setHqPlayerLastControl] = useState<HqPlayerPlaybackControlPlan | null>(null);
   const [hqPlayerBusy, setHqPlayerBusy] = useState<'settings' | 'test' | null>(null);
+  const [shouldRenderHqPlayerDetails, setShouldRenderHqPlayerDetails] = useState(defaultHqPlayerSettings.enabled);
 
   const activeDevice = useMemo(
     () => devices.find((device) => device.id === status.deviceId) ?? null,
@@ -474,6 +475,8 @@ export const ConnectPage = (): JSX.Element => {
   );
   const hqPlayerState: HqPlayerStatus['state'] =
     hqPlayerStatus?.state ?? (hqPlayerDraft.enabled ? (hqPlayerEffectiveDraft.port ? 'unavailable' : 'not-configured') : 'disabled');
+  const isHqPlayerExpanded = hqPlayerDraft.enabled;
+  const shouldShowHqPlayerDetails = isHqPlayerExpanded || shouldRenderHqPlayerDetails;
   const hqPlayerEndpointLabel = formatHqEndpoint({
     host: hqPlayerStatus?.endpoint.host ?? hqPlayerEffectiveDraft.host,
     port: hqPlayerStatus?.endpoint.port ?? hqPlayerEffectiveDraft.port,
@@ -608,6 +611,18 @@ export const ConnectPage = (): JSX.Element => {
       unsubscribeAirPlayReceiver();
     };
   }, [refreshDevices, refreshHqPlayer]);
+
+  useEffect(() => {
+    if (isHqPlayerExpanded) {
+      setShouldRenderHqPlayerDetails(true);
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShouldRenderHqPlayerDetails(false);
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [isHqPlayerExpanded]);
 
   const toggleAutoStartReceivers = useCallback(async (): Promise<void> => {
     const app = window.echo?.app;
@@ -873,7 +888,7 @@ export const ConnectPage = (): JSX.Element => {
         </div>
       ) : null}
 
-      <section className="connect-hqplayer-panel" aria-label="HQPlayer Connect">
+      <section className="connect-hqplayer-panel" aria-label="HQPlayer Connect" data-collapsed={isHqPlayerExpanded ? undefined : 'true'}>
         <div className="connect-hqplayer-header">
           <div className="connect-hqplayer-title">
             <div className="connect-hqplayer-icon">
@@ -898,7 +913,8 @@ export const ConnectPage = (): JSX.Element => {
           </div>
         </div>
 
-        <div className="connect-hqplayer-layout">
+        {shouldShowHqPlayerDetails ? (
+          <div className="connect-hqplayer-layout" data-expanded={isHqPlayerExpanded ? 'true' : 'false'}>
           <div className="connect-hqplayer-config">
             <div className="connect-hqplayer-local-card">
               <strong>本机 HQPlayer Desktop</strong>
@@ -1092,7 +1108,29 @@ export const ConnectPage = (): JSX.Element => {
               <span>{hqPlayerEffectiveDraft.connectionMode === 'remote' ? '远程模式会优先使用 ECHO 媒体服务' : '本机模式可直接交接本地文件或本机流地址'}</span>
             </div>
           </div>
-        </div>
+          </div>
+        ) : null}
+        {!isHqPlayerExpanded ? (
+          <div className="connect-hqplayer-collapsed">
+            <div className="connect-hqplayer-local-card">
+              <strong>本机 HQPlayer Desktop</strong>
+              <span>{formatHqEndpoint({ host: hqPlayerLocalHost, port: hqPlayerDefaultPort })}</span>
+            </div>
+            <div className="settings-inline-toggle">
+              <span>启用 HQPlayer</span>
+              <button
+                aria-label="启用 HQPlayer"
+                aria-pressed={hqPlayerDraft.enabled}
+                className={`toggle-btn ${hqPlayerDraft.enabled ? 'active' : ''}`}
+                disabled={hqPlayerBusy === 'settings'}
+                type="button"
+                onClick={() => void toggleHqPlayerEnabled()}
+              >
+                <span />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="connect-receiver-panel" aria-label="接收来自手机">

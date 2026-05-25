@@ -189,6 +189,10 @@ export type LibraryDatabaseProtectionStatus = {
   managerState?: LibraryDatabaseManagerStateInfo;
 };
 
+export type LibraryDatabaseProtectionStatusOptions = {
+  deepCheck?: boolean;
+};
+
 export type LibraryDatabaseRestoreResult = {
   databasePath: string;
   archivePath: string | null;
@@ -556,7 +560,7 @@ export type ArtistConcertInfo = {
 export type ArtistOnlineInfoExternalLink = {
   label: string;
   url: string;
-  source: 'wikipedia' | 'musicbrainz' | 'wikidata' | 'spotify' | 'bandsintown' | 'other';
+  source: 'wikipedia' | 'baidu-baike' | 'moegirl' | 'musicbrainz' | 'wikidata' | 'spotify' | 'bandsintown' | 'other';
 };
 
 export type ArtistOnlineInfoBio = {

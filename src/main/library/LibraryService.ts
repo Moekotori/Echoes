@@ -201,6 +201,7 @@ export class LibraryService {
   private searchIndexBackfillTimer: NodeJS.Timeout | null = null;
   private searchIndexBackfillRunning = false;
   private searchIndexBackfillAllowDuringPlayback = false;
+  private artistImagePlaybackStatusUnsubscribe: (() => void) | null = null;
   private closed = false;
 
   constructor(
@@ -225,6 +226,7 @@ export class LibraryService {
   ) {
     this.moveCandidateService = new LibraryMoveCandidateService(this.database);
     this.moveRepairService = new LibraryMoveRepairService(this.database, this.moveCandidateService);
+    this.bindArtistImagePlaybackDeferral();
     this.artistImageStartupTimer = setTimeout(() => {
       this.artistImageStartupTimer = null;
       this.syncArtistImageBackfillState();
@@ -580,10 +582,11 @@ export class LibraryService {
     const [onlineInfo, concerts] = await Promise.all([
       this.artistOnlineInfoService
         ? this.artistOnlineInfoService.getArtistOnlineInfo(localInsights.artist, {
-            force: options.forceOnline,
-            locale: settings.locale,
-            region,
-          })
+          force: options.forceOnline,
+          locale: settings.locale,
+          region,
+          sources: settings.onlineArtistInfoSources,
+        })
         : Promise.resolve(emptyArtistOnlineInfo('Artist online info service is unavailable.')),
       this.artistEventsService
         ? this.artistEventsService.getArtistEvents({
@@ -1860,6 +1863,8 @@ export class LibraryService {
   close(): void {
     this.closed = true;
     this.watcherService?.stop();
+    this.artistImagePlaybackStatusUnsubscribe?.();
+    this.artistImagePlaybackStatusUnsubscribe = null;
     if (this.artistImageStartupTimer) {
       clearTimeout(this.artistImageStartupTimer);
       this.artistImageStartupTimer = null;
@@ -1879,6 +1884,32 @@ export class LibraryService {
     (this.scanJobQueue as { dispose?: () => void }).dispose?.();
 
     this.closeDatabase();
+  }
+
+  private bindArtistImagePlaybackDeferral(): void {
+    if (!this.artistImageCacheService) {
+      return;
+    }
+
+    void import('../audio/AudioSession')
+      .then(({ getAudioSession }) => {
+        if (this.closed || !this.artistImageCacheService) {
+          return;
+        }
+
+        const audioSession = getAudioSession();
+        const applyStatus = (status: { state?: string }): void => {
+          const playbackActive = status.state === 'loading' || status.state === 'playing';
+          this.artistImageCacheService?.setPlaybackActive(playbackActive);
+        };
+
+        applyStatus(audioSession.getStatus());
+        audioSession.on('status', applyStatus);
+        this.artistImagePlaybackStatusUnsubscribe = () => {
+          audioSession.off?.('status', applyStatus);
+        };
+      })
+      .catch(() => undefined);
   }
 
   private albumRefreshOptions(): { albumMergeStrategy: AlbumMergeStrategy } {

@@ -1,10 +1,11 @@
-import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CalendarDays, ChevronDown, Disc3, ExternalLink, ListPlus, MapPin, Play, RefreshCw, Shuffle, Ticket } from 'lucide-react';
+import { startTransition, type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ChevronDown, Disc3, ExternalLink, ListPlus, Play, RefreshCw, Shuffle } from 'lucide-react';
 import type { AppSettings } from '../../../shared/types/appSettings';
 import type { ArtistInsights, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
+import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor, StreamingProviderName, StreamingTrack } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { useI18n } from '../../i18n/I18nProvider';
-import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { AlbumDetailView } from '../album/AlbumDetailView';
 import { readPageScrollTop, writePageScrollTop } from '../ui/InfiniteScrollSentinel';
 import { ArtistAlbumGrid } from './ArtistAlbumGrid';
@@ -17,6 +18,16 @@ type ArtistDetailViewProps = {
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type ArtistDetailTab = 'overview' | 'albums';
+
+const streamingAlbumProviderPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'tidal', 'spotify', 'mock'];
+const maxStreamingAlbumProviders = 3;
+const streamingAlbumPageSize = 20;
+const streamingAlbumDetailFetchDelayMs = 220;
+
+type StreamingAlbumProviderPageState = {
+  nextPage: number;
+  hasMore: boolean;
+};
 
 const formatDuration = (tracks: LibraryTrack[], t: Translate): string => {
   const totalSeconds = tracks.reduce((total, track) => total + (Number.isFinite(track.duration) ? track.duration : 0), 0);
@@ -78,6 +89,10 @@ const overviewBioParagraphs = (value: string): string[] => {
 };
 
 const richOverviewBioParagraphs = (value: string): string[] => {
+  if (!value.trim()) {
+    return overviewBioParagraphs(value);
+  }
+
   const normalized = value
     .replace(/\r\n?/gu, '\n')
     .replace(/[ \t]+\n/gu, '\n')
@@ -169,6 +184,85 @@ const isAroundWebLink = (label: string, url: string): boolean => {
   return /official|homepage|site|youtube|instagram|twitter|x\.com|spotify|facebook|tiktok|soundcloud|linkfire|bandcamp/u.test(value);
 };
 
+const normalizeStreamingAlbumText = (value: string): string =>
+  value.normalize('NFKC').toLocaleLowerCase().replace(/\s*\([^)]*\)|\s*（[^）]*）/gu, '').replace(/[\s._'’"-]+/gu, '');
+
+const streamingAlbumArtistTokens = (value: string): string[] =>
+  value
+    .split(/\s*(?:,|、|\/|&|;|；|\|| feat\.? | featuring | with | x |×|\+|＋)\s*/iu)
+    .map(normalizeStreamingAlbumText)
+    .filter(Boolean);
+
+const streamingAlbumMatchesArtist = (album: StreamingAlbum, artistName: string): boolean => {
+  const expected = normalizeStreamingAlbumText(artistName);
+  if (!expected) {
+    return false;
+  }
+
+  const candidates = new Set([
+    album.artist,
+    ...album.artists.map((artist) => artist.name),
+  ].flatMap(streamingAlbumArtistTokens));
+  return candidates.has(expected);
+};
+
+const streamingAlbumProvidersFrom = (providers: StreamingProviderDescriptor[]): StreamingProviderName[] =>
+  streamingAlbumProviderPriority.filter((providerName) => {
+    const descriptor = providers.find((provider) => provider.name === providerName);
+    if (!descriptor) {
+      return providerName === 'netease' || providerName === 'qqmusic';
+    }
+    return (
+      descriptor.enabled &&
+      descriptor.supportsSearch &&
+      descriptor.status !== 'disabled' &&
+      (descriptor.requiresAccount !== true || descriptor.accountConnected === true)
+    );
+  }).slice(0, maxStreamingAlbumProviders);
+
+const streamingAlbumMeta = (album: StreamingAlbum): string =>
+  [
+    album.provider,
+    album.trackCount ? `${album.trackCount} 首歌` : null,
+    album.releaseDate,
+  ].filter(Boolean).join(' / ');
+
+const streamingAlbumCoverFailureKey = (album: StreamingAlbum, coverUrl: string): string => `${album.id}\n${coverUrl}`;
+
+const mergeUniqueStreamingAlbums = (current: StreamingAlbum[], incoming: StreamingAlbum[]): StreamingAlbum[] =>
+  Array.from(new Map([...current, ...incoming].map((album) => [`${album.provider}:${album.providerAlbumId || album.id}`, album])).values());
+
+const streamingTrackToLibraryTrack = (track: StreamingTrack): LibraryTrack => ({
+  id: track.stableKey || `${track.provider}:${track.providerTrackId}`,
+  mediaType: 'streaming',
+  path: track.stableKey,
+  provider: track.provider,
+  providerTrackId: track.providerTrackId,
+  streamingQuality: 'hires',
+  stableKey: track.stableKey,
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  albumArtist: track.albumArtist ?? track.artist,
+  trackNo: null,
+  discNo: null,
+  year: null,
+  genre: null,
+  duration: track.duration ?? 0,
+  codec: null,
+  sampleRate: null,
+  bitDepth: null,
+  bitrate: null,
+  coverId: null,
+  coverThumb: track.coverThumb ?? track.coverUrl,
+  fieldSources: {
+    title: track.provider,
+    artist: track.provider,
+    album: track.provider,
+  },
+  unavailable: !track.playable,
+});
+
 const concertSourceName = (source: string): string => {
   const labels: Record<string, string> = {
     bandsintown: 'Bandsintown',
@@ -189,13 +283,46 @@ const formatEventDate = (value: string): string => {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-const eventLocation = (event: ArtistInsights['concerts']['events'][number], t: Translate): string =>
-  [event.venueName, event.city, event.region, event.country].filter(Boolean).join(' / ') || t('artistDetail.events.venuePending');
+const formatEventDateParts = (value: string): { month: string; day: string; label: string } => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { month: '', day: value, label: value };
+  }
+
+  return {
+    month: date.toLocaleDateString(undefined, { month: 'short' }),
+    day: date.toLocaleDateString(undefined, { day: 'numeric' }),
+    label: formatEventDate(value),
+  };
+};
+
+const formatEventTime = (value: string, timeTbd?: boolean): string | null => {
+  if (timeTbd) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+const eventPrimaryLocation = (event: ArtistInsights['concerts']['events'][number], t: Translate): string =>
+  event.city || event.venueName || event.region || event.country || t('artistDetail.events.venuePending');
+
+const eventSecondaryInfo = (event: ArtistInsights['concerts']['events'][number]): string =>
+  [
+    event.title,
+    event.venueName && event.venueName !== event.city ? event.venueName : null,
+    event.region && event.region !== event.city ? event.region : null,
+    event.country && event.country !== event.city && event.country !== event.region ? event.country : null,
+  ].filter(Boolean).join(' / ');
 
 export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX.Element => {
   const { t } = useI18n();
   const { appendToQueue, playTrack, replaceQueue } = usePlaybackQueue();
-  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack);
   const [verifiedArtist, setVerifiedArtist] = useState<LibraryArtist | null>(artist);
   const [isVerifyingArtist, setIsVerifyingArtist] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
@@ -208,18 +335,51 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [onlineRefreshRequest, setOnlineRefreshRequest] = useState(0);
   const [configuredConcertSources, setConfiguredConcertSources] = useState<string[]>([]);
   const [configuredConcertRegion, setConfiguredConcertRegion] = useState<string | null>(null);
+  const [onlineArtistInfoSourcesKey, setOnlineArtistInfoSourcesKey] = useState('');
+  const [streamingAlbumsEnabled, setStreamingAlbumsEnabled] = useState(false);
+  const [streamingAlbums, setStreamingAlbums] = useState<StreamingAlbum[]>([]);
+  const [streamingAlbumVisibleCount, setStreamingAlbumVisibleCount] = useState(streamingAlbumPageSize);
+  const [streamingAlbumProviderPages, setStreamingAlbumProviderPages] = useState<Record<string, StreamingAlbumProviderPageState>>({});
+  const [areStreamingAlbumsLoading, setAreStreamingAlbumsLoading] = useState(false);
+  const [areMoreStreamingAlbumsLoading, setAreMoreStreamingAlbumsLoading] = useState(false);
+  const [streamingAlbumsError, setStreamingAlbumsError] = useState<string | null>(null);
+  const [failedStreamingAlbumCoverUrls, setFailedStreamingAlbumCoverUrls] = useState<Record<string, true>>({});
   const [areConcertsExpanded, setAreConcertsExpanded] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
+  const [selectedStreamingAlbum, setSelectedStreamingAlbum] = useState<StreamingAlbum | null>(null);
+  const [selectedStreamingAlbumDetail, setSelectedStreamingAlbumDetail] = useState<StreamingAlbumDetail | null>(null);
+  const [isStreamingAlbumDetailLoading, setIsStreamingAlbumDetailLoading] = useState(false);
+  const [streamingAlbumDetailError, setStreamingAlbumDetailError] = useState<string | null>(null);
+  const [resolvingStreamingTrackKey, setResolvingStreamingTrackKey] = useState<string | null>(null);
+  const [queuedStreamingTrackKey, setQueuedStreamingTrackKey] = useState<string | null>(null);
   const [failedHeroImageUrl, setFailedHeroImageUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ArtistDetailTab>('overview');
   const detailRootRef = useRef<HTMLDivElement | null>(null);
   const detailScrollTopRef = useRef(0);
   const shouldRestoreDetailScrollRef = useRef(false);
+  const handleBackFromStreamingAlbum = useCallback((): void => {
+    setSelectedStreamingAlbum(null);
+    setSelectedStreamingAlbumDetail(null);
+    setStreamingAlbumDetailError(null);
+    setResolvingStreamingTrackKey(null);
+  }, []);
+  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, !selectedAlbum && !selectedStreamingAlbum);
+  const { isReturning: isStreamingAlbumReturning, returnBack: returnBackFromStreamingAlbum } = useAnimatedBackNavigation(
+    handleBackFromStreamingAlbum,
+    Boolean(selectedStreamingAlbum),
+  );
   const source = useMemo(() => ({ type: 'artist' as const, label: artist.name, artistId: artist.id }), [artist.id, artist.name]);
   const displayArtist = verifiedArtist?.id === artist.id ? verifiedArtist : artist;
   const displayedTrackCount = Math.max(displayArtist.trackCount, loadedTrackTotal);
   const heroImageUrl = displayArtist.avatarUrl ?? (displayArtist.coverId ? `echo-cover://original/${encodeURIComponent(displayArtist.coverId)}` : null);
   const shouldShowHeroImage = Boolean(heroImageUrl && failedHeroImageUrl !== heroImageUrl);
+  const handleSelectTab = useCallback((nextTab: ArtistDetailTab): void => {
+    if (nextTab === activeTab) {
+      return;
+    }
+
+    startTransition(() => setActiveTab(nextTab));
+  }, [activeTab]);
 
   useEffect(() => {
     setVerifiedArtist(artist);
@@ -267,6 +427,16 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   useEffect(() => {
     setSelectedAlbum(null);
     setFailedHeroImageUrl(null);
+    setFailedStreamingAlbumCoverUrls({});
+    setStreamingAlbums([]);
+    setStreamingAlbumVisibleCount(streamingAlbumPageSize);
+    setStreamingAlbumProviderPages({});
+    setStreamingAlbumsError(null);
+    setSelectedStreamingAlbum(null);
+    setSelectedStreamingAlbumDetail(null);
+    setStreamingAlbumDetailError(null);
+    setResolvingStreamingTrackKey(null);
+    setQueuedStreamingTrackKey(null);
     setAreConcertsExpanded(false);
     setActiveTab('overview');
   }, [artist.id]);
@@ -327,8 +497,22 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         return;
       }
 
-      setConfiguredConcertSources(getConfiguredConcertSources(settings));
-      setConfiguredConcertRegion(settings?.onlineArtistInfoRegion?.trim() || null);
+      const hasConcertSettings = !settings || (
+        Object.prototype.hasOwnProperty.call(settings, 'onlineArtistInfoBandsintownAppId') ||
+        Object.prototype.hasOwnProperty.call(settings, 'onlineArtistInfoTicketmasterApiKey') ||
+        Object.prototype.hasOwnProperty.call(settings, 'onlineArtistInfoSeatGeekClientId') ||
+        Object.prototype.hasOwnProperty.call(settings, 'onlineArtistInfoRegion')
+      );
+      if (hasConcertSettings) {
+        setConfiguredConcertSources(getConfiguredConcertSources(settings));
+        setConfiguredConcertRegion(settings?.onlineArtistInfoRegion?.trim() || null);
+      }
+      if (!settings || Object.prototype.hasOwnProperty.call(settings, 'onlineArtistInfoSources')) {
+        setOnlineArtistInfoSourcesKey(Array.isArray(settings?.onlineArtistInfoSources) ? settings.onlineArtistInfoSources.join('|') : '');
+      }
+      if (!settings || Object.prototype.hasOwnProperty.call(settings, 'artistStreamingAlbumsEnabled')) {
+        setStreamingAlbumsEnabled(settings?.artistStreamingAlbumsEnabled === true);
+      }
     };
 
     void window.echo?.app?.getSettings?.().then(applySettings).catch(() => applySettings(null));
@@ -341,7 +525,9 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoBandsintownAppId') ||
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoTicketmasterApiKey') ||
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoSeatGeekClientId') ||
-          Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoRegion')
+          Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoRegion') ||
+          Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoSources') ||
+          Object.prototype.hasOwnProperty.call(detail, 'artistStreamingAlbumsEnabled')
         )
       ) {
         applySettings(detail);
@@ -399,16 +585,171 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     return () => {
       isCancelled = true;
     };
-  }, [artist.id, configuredConcertRegion, configuredConcertSources.length, onlineRefreshRequest]);
+  }, [artist.id, configuredConcertRegion, configuredConcertSources.length, onlineArtistInfoSourcesKey, onlineRefreshRequest]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadStreamingAlbums = async (): Promise<void> => {
+      const streaming = window.echo?.streaming;
+      if (!streamingAlbumsEnabled || activeTab !== 'albums') {
+        setStreamingAlbums([]);
+        setStreamingAlbumVisibleCount(streamingAlbumPageSize);
+        setStreamingAlbumProviderPages({});
+        setStreamingAlbumsError(null);
+        setAreStreamingAlbumsLoading(false);
+        setAreMoreStreamingAlbumsLoading(false);
+        return;
+      }
+
+      if (!streaming?.search) {
+        setStreamingAlbums([]);
+        setStreamingAlbumVisibleCount(streamingAlbumPageSize);
+        setStreamingAlbumProviderPages({});
+        setStreamingAlbumsError('桌面桥接不可用。请在 ECHO Next 桌面版中搜索流媒体专辑。');
+        setAreStreamingAlbumsLoading(false);
+        setAreMoreStreamingAlbumsLoading(false);
+        return;
+      }
+
+      setAreStreamingAlbumsLoading(true);
+      setAreMoreStreamingAlbumsLoading(false);
+      setStreamingAlbumVisibleCount(streamingAlbumPageSize);
+      setStreamingAlbumProviderPages({});
+      setStreamingAlbumsError(null);
+
+      try {
+        const providers = streaming.getProviders
+          ? streamingAlbumProvidersFrom(await streaming.getProviders())
+          : streamingAlbumProvidersFrom([]);
+        if (providers.length === 0) {
+          if (!isCancelled) {
+            setStreamingAlbums([]);
+            setStreamingAlbumProviderPages({});
+            setStreamingAlbumsError(null);
+          }
+          return;
+        }
+        const results = await Promise.allSettled(providers.map((provider) =>
+          streaming.search({
+            provider,
+            query: displayArtist.name,
+            mediaTypes: ['album'],
+            page: 1,
+            pageSize: streamingAlbumPageSize,
+          }),
+        ));
+        const albums = results
+          .flatMap((result) => result.status === 'fulfilled' ? result.value.albums : [])
+          .filter((album) => streamingAlbumMatchesArtist(album, displayArtist.name));
+        const nextProviderPages = Object.fromEntries(providers.map((provider, index) => {
+          const result = results[index];
+          return [
+            provider,
+            {
+              nextPage: result?.status === 'fulfilled' ? result.value.page + 1 : 2,
+              hasMore: result?.status === 'fulfilled' ? result.value.hasMore : false,
+            },
+          ];
+        }));
+        const uniqueAlbums = mergeUniqueStreamingAlbums([], albums);
+
+        if (!isCancelled) {
+          setStreamingAlbums(uniqueAlbums);
+          setStreamingAlbumProviderPages(nextProviderPages);
+          setStreamingAlbumsError(results.some((result) => result.status === 'fulfilled') ? null : '暂时无法读取流媒体专辑。');
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setStreamingAlbums([]);
+          setStreamingAlbumProviderPages({});
+          setStreamingAlbumsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!isCancelled) {
+          setAreStreamingAlbumsLoading(false);
+        }
+      }
+    };
+
+    void loadStreamingAlbums();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, displayArtist.name, streamingAlbumsEnabled]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    let timer: number | null = null;
+    const album = selectedStreamingAlbum;
+    const streaming = window.echo?.streaming;
+
+    const loadStreamingAlbumDetail = async (): Promise<void> => {
+      if (!album || !streaming?.getAlbum) {
+        return;
+      }
+
+      try {
+        const detail = await streaming.getAlbum({
+          provider: album.provider,
+          providerAlbumId: album.providerAlbumId,
+        });
+        if (!isCancelled) {
+          setSelectedStreamingAlbumDetail(detail);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setSelectedStreamingAlbumDetail(null);
+          setStreamingAlbumDetailError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsStreamingAlbumDetailLoading(false);
+        }
+      }
+    };
+
+    if (!album) {
+      setSelectedStreamingAlbumDetail(null);
+      setStreamingAlbumDetailError(null);
+      setIsStreamingAlbumDetailLoading(false);
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    if (!streaming?.getAlbum) {
+      setSelectedStreamingAlbumDetail(null);
+      setStreamingAlbumDetailError('桌面桥接不可用。请在 ECHO Next 桌面版中读取流媒体专辑。');
+      setIsStreamingAlbumDetailLoading(false);
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    setIsStreamingAlbumDetailLoading(true);
+    setStreamingAlbumDetailError(null);
+    timer = window.setTimeout(() => {
+      void loadStreamingAlbumDetail();
+    }, streamingAlbumDetailFetchDelayMs);
+
+    return () => {
+      isCancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [selectedStreamingAlbum]);
 
   useLayoutEffect(() => {
-    if (selectedAlbum || !shouldRestoreDetailScrollRef.current) {
+    if (selectedAlbum || selectedStreamingAlbum || !shouldRestoreDetailScrollRef.current) {
       return;
     }
 
     writePageScrollTop(detailRootRef.current, detailScrollTopRef.current);
     shouldRestoreDetailScrollRef.current = false;
-  }, [selectedAlbum]);
+  }, [selectedAlbum, selectedStreamingAlbum]);
 
   const handlePlayArtist = useCallback(async (): Promise<void> => {
     const firstTrack = loadedTracks[0];
@@ -464,6 +805,70 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     shouldRestoreDetailScrollRef.current = true;
     setSelectedAlbum(album);
   }, []);
+  const handleSelectStreamingAlbum = useCallback((album: StreamingAlbum): void => {
+    detailScrollTopRef.current = readPageScrollTop(detailRootRef.current);
+    shouldRestoreDetailScrollRef.current = true;
+    setSelectedStreamingAlbum(album);
+    setSelectedStreamingAlbumDetail(null);
+    setStreamingAlbumDetailError(null);
+  }, []);
+  const handleStreamingAlbumKeyDown = useCallback((event: KeyboardEvent<HTMLElement>, album: StreamingAlbum): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleSelectStreamingAlbum(album);
+    }
+  }, [handleSelectStreamingAlbum]);
+  const handlePlayStreamingTrack = useCallback(async (track: StreamingTrack): Promise<void> => {
+    if (!track.playable || resolvingStreamingTrackKey === track.stableKey) {
+      return;
+    }
+
+    setResolvingStreamingTrackKey(track.stableKey);
+    setStreamingAlbumDetailError(null);
+    try {
+      await playTrack(streamingTrackToLibraryTrack(track), {
+        source: { type: 'streaming', label: `${track.album} / ${track.provider}`, provider: track.provider },
+        forceNewQueueItem: true,
+      });
+    } catch (error) {
+      if (!isPlaybackCancellationError(error)) {
+        setStreamingAlbumDetailError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      setResolvingStreamingTrackKey((current) => (current === track.stableKey ? null : current));
+    }
+  }, [playTrack, resolvingStreamingTrackKey]);
+  const handleQueueStreamingTrack = useCallback((track: StreamingTrack): void => {
+    if (!track.playable) {
+      setStreamingAlbumDetailError(track.unavailableReason ?? '这首流媒体歌曲暂时不可播放。');
+      return;
+    }
+
+    appendToQueue(streamingTrackToLibraryTrack(track), { type: 'streaming', label: `${track.album} / ${track.provider}`, provider: track.provider });
+    setQueuedStreamingTrackKey(track.stableKey);
+    window.setTimeout(() => setQueuedStreamingTrackKey((current) => (current === track.stableKey ? null : current)), 1400);
+  }, [appendToQueue]);
+  const handlePlayStreamingAlbum = useCallback(async (): Promise<void> => {
+    const detail = selectedStreamingAlbumDetail;
+    const playableTracks = detail?.tracks.filter((track) => track.playable).map(streamingTrackToLibraryTrack) ?? [];
+    const firstTrack = playableTracks[0];
+    if (!detail || !firstTrack) {
+      setStreamingAlbumDetailError('这张流媒体专辑暂时没有可播放的歌曲。');
+      return;
+    }
+
+    try {
+      setStreamingAlbumDetailError(null);
+      await playTrack(firstTrack, {
+        replaceQueueWith: playableTracks,
+        source: { type: 'streaming', label: `${detail.title} / ${detail.provider}`, provider: detail.provider },
+      });
+    } catch (error) {
+      if (!isPlaybackCancellationError(error)) {
+        setStreamingAlbumDetailError(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }, [playTrack, selectedStreamingAlbumDetail]);
   const handleExternalLinkClick = useCallback((event: MouseEvent<HTMLAnchorElement>, url: string): void => {
     const openExternalUrl = window.echo?.app?.openExternalUrl;
     if (!openExternalUrl) {
@@ -476,7 +881,78 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const handleRefreshOnlineInfo = useCallback((): void => {
     setOnlineRefreshRequest((current) => current + 1);
   }, []);
+  const handleStreamingAlbumCoverError = useCallback((album: StreamingAlbum, coverUrl: string): void => {
+    setFailedStreamingAlbumCoverUrls((current) => ({ ...current, [streamingAlbumCoverFailureKey(album, coverUrl)]: true }));
+  }, []);
+  const handleLoadMoreStreamingAlbums = useCallback(async (): Promise<void> => {
+    if (areStreamingAlbumsLoading || areMoreStreamingAlbumsLoading) {
+      return;
+    }
+
+    const nextVisibleCount = streamingAlbumVisibleCount + streamingAlbumPageSize;
+    const providerEntries = Object.entries(streamingAlbumProviderPages).filter(([, state]) => state.hasMore);
+    if (streamingAlbums.length >= nextVisibleCount || providerEntries.length === 0) {
+      setStreamingAlbumVisibleCount((current) => Math.min(current + streamingAlbumPageSize, streamingAlbums.length));
+      return;
+    }
+
+    const streaming = window.echo?.streaming;
+    if (!streaming?.search) {
+      setStreamingAlbumsError('桌面桥接不可用。请在 ECHO Next 桌面版中搜索流媒体专辑。');
+      return;
+    }
+
+    setAreMoreStreamingAlbumsLoading(true);
+    setStreamingAlbumsError(null);
+
+    try {
+      const results = await Promise.allSettled(providerEntries.map(([provider, state]) =>
+        streaming.search({
+          provider: provider as StreamingProviderName,
+          query: displayArtist.name,
+          mediaTypes: ['album'],
+          page: state.nextPage,
+          pageSize: streamingAlbumPageSize,
+        }),
+      ));
+      const albums = results
+        .flatMap((result) => result.status === 'fulfilled' ? result.value.albums : [])
+        .filter((album) => streamingAlbumMatchesArtist(album, displayArtist.name));
+
+      setStreamingAlbums((current) => mergeUniqueStreamingAlbums(current, albums));
+      setStreamingAlbumProviderPages((current) => {
+        const next = { ...current };
+        providerEntries.forEach(([provider, previous], index) => {
+          const result = results[index];
+          next[provider] = {
+            nextPage: result?.status === 'fulfilled' ? result.value.page + 1 : previous.nextPage,
+            hasMore: result?.status === 'fulfilled' ? result.value.hasMore : false,
+          };
+        });
+        return next;
+      });
+      setStreamingAlbumVisibleCount((current) => current + streamingAlbumPageSize);
+      if (results.every((result) => result.status === 'rejected')) {
+        setStreamingAlbumsError('暂时无法读取更多流媒体专辑。');
+      }
+    } catch (error) {
+      setStreamingAlbumsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAreMoreStreamingAlbumsLoading(false);
+    }
+  }, [
+    areMoreStreamingAlbumsLoading,
+    areStreamingAlbumsLoading,
+    displayArtist.name,
+    streamingAlbumProviderPages,
+    streamingAlbumVisibleCount,
+    streamingAlbums.length,
+  ]);
   const canPlay = loadedTracks.length > 0;
+  const visibleStreamingAlbums = streamingAlbums.slice(0, streamingAlbumVisibleCount);
+  const hasMoreStreamingAlbums =
+    streamingAlbums.length > streamingAlbumVisibleCount ||
+    Object.values(streamingAlbumProviderPages).some((state) => state.hasMore);
   const onlineInfo = artistInsights?.onlineInfo ?? null;
   const onlineBio = onlineInfo?.bio ?? null;
   const onlineSources = onlineInfo?.sourceLabels ?? [];
@@ -508,6 +984,95 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     .map((link) => ({ ...link, label: aroundWebLabel(link.label, link.url), host: aroundWebHost(link.url) }))
     .slice(0, 8);
   const overviewPreviewTracks = loadedTracks.slice(0, 6);
+
+  if (selectedStreamingAlbum) {
+    const album = selectedStreamingAlbumDetail ?? selectedStreamingAlbum;
+    const detailTracks = selectedStreamingAlbumDetail?.tracks ?? [];
+    const coverSrc = selectedStreamingAlbumDetail
+      ? selectedStreamingAlbumDetail.coverUrl ?? selectedStreamingAlbumDetail.coverThumb ?? selectedStreamingAlbum.coverThumb ?? selectedStreamingAlbum.coverUrl ?? null
+      : selectedStreamingAlbum.coverThumb ?? null;
+
+    return (
+      <div className={`album-detail-page artist-streaming-album-detail ${isStreamingAlbumReturning ? 'is-returning' : ''}`}>
+        <button className="album-back-button" type="button" onClick={returnBackFromStreamingAlbum}>
+          <ArrowLeft size={17} />
+          流媒体专辑
+        </button>
+
+        <section className="album-detail-hero" aria-label={`${album.title} 流媒体专辑详情`}>
+          <div className="album-detail-cover" data-empty={!coverSrc}>
+            {coverSrc ? <img alt="" decoding="async" draggable={false} height={320} src={coverSrc} width={320} /> : <Disc3 size={58} />}
+          </div>
+
+          <div className="album-detail-console">
+            <div className="album-detail-copy">
+              <span className="album-detail-kicker">流媒体专辑</span>
+              <h1>{album.title}</h1>
+              <p>{album.artist}</p>
+              <div className="album-detail-meta" aria-label="流媒体专辑信息">
+                {[album.provider, album.releaseDate, album.trackCount ? `${album.trackCount} 首歌` : null].filter(Boolean).map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="album-detail-actions">
+              <button className="album-primary-action" type="button" disabled={isStreamingAlbumDetailLoading || detailTracks.length === 0} onClick={() => void handlePlayStreamingAlbum()}>
+                <Play size={16} fill="currentColor" />
+                {isStreamingAlbumDetailLoading ? '读取中' : '播放整张'}
+              </button>
+            </div>
+
+            {streamingAlbumDetailError ? <p className="album-detail-error">{streamingAlbumDetailError}</p> : null}
+          </div>
+        </section>
+
+        <section className="album-detail-track-console" aria-label={`${album.title} 流媒体歌曲`}>
+          <header className="album-detail-tabs" aria-label="流媒体专辑分区">
+            <button className="album-detail-tab" type="button" aria-current="page">
+              歌曲
+            </button>
+          </header>
+
+          {isStreamingAlbumDetailLoading && detailTracks.length === 0 ? <div className="streaming-state">正在读取专辑...</div> : null}
+          {!isStreamingAlbumDetailLoading && detailTracks.length === 0 && !streamingAlbumDetailError ? <div className="streaming-state">这张专辑没有可显示的歌曲。</div> : null}
+          {detailTracks.length > 0 ? (
+            <div className="streaming-album-track-list">
+              {detailTracks.map((track) => {
+                const isResolving = resolvingStreamingTrackKey === track.stableKey;
+                const isQueued = queuedStreamingTrackKey === track.stableKey;
+                const trackCover = track.coverThumb ?? track.coverUrl ?? coverSrc;
+
+                return (
+                  <article className="streaming-row" data-unavailable={!track.playable} key={track.stableKey} onDoubleClick={() => void handlePlayStreamingTrack(track)}>
+                    <div className="streaming-cover" data-empty={!trackCover}>
+                      {trackCover ? <img alt="" decoding="async" draggable={false} height={56} loading="lazy" src={trackCover} width={56} /> : <Disc3 size={18} />}
+                    </div>
+                    <div className="streaming-main">
+                      <div className="streaming-title-line">
+                        <strong>{track.title}</strong>
+                      </div>
+                      <span>{track.artist} / {track.album}</span>
+                      <small>{track.playable ? `${track.provider} / ${track.qualities.join(' / ') || 'standard'}` : (track.unavailableReason ?? '暂时不可播放')}</small>
+                    </div>
+                    <span className="streaming-duration">{formatTrackDuration(track.duration ?? 0)}</span>
+                    <div className="streaming-actions" onDoubleClick={(event) => event.stopPropagation()}>
+                      <button type="button" title="播放" disabled={!track.playable || Boolean(resolvingStreamingTrackKey)} onClick={() => void handlePlayStreamingTrack(track)}>
+                        {isResolving ? <RefreshCw className="spinning-icon" size={16} /> : <Play size={16} />}
+                      </button>
+                      <button type="button" title="加入队列" disabled={!track.playable} onClick={() => handleQueueStreamingTrack(track)}>
+                        {isQueued ? <ListPlus size={16} /> : <ListPlus size={16} />}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    );
+  }
 
   if (selectedAlbum) {
     return <AlbumDetailView album={selectedAlbum} onBack={() => setSelectedAlbum(null)} />;
@@ -598,16 +1163,16 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
       </section>
 
       <nav className="artist-detail-tabs" aria-label={t('artistDetail.aria.sections', { artist: displayArtist.name })}>
-        <button aria-current={activeTab === 'overview' ? 'page' : undefined} type="button" onClick={() => setActiveTab('overview')}>
+        <button aria-current={activeTab === 'overview' ? 'page' : undefined} type="button" onClick={() => handleSelectTab('overview')}>
           {t('artistDetail.tab.overview')}
         </button>
-        <button aria-current={activeTab === 'albums' ? 'page' : undefined} type="button" onClick={() => setActiveTab('albums')}>
+        <button aria-current={activeTab === 'albums' ? 'page' : undefined} type="button" onClick={() => handleSelectTab('albums')}>
           {t('artistDetail.tab.albums')}
         </button>
       </nav>
 
       {activeTab === 'overview' ? (
-        <>
+        <div className="artist-tab-panel artist-overview-panel">
           <section className="artist-overview-grid" id="artist-overview" aria-label={t('artistDetail.aria.overview')}>
             <article className="artist-overview-copy">
               <span>{t('artistDetail.label.overview')}</span>
@@ -708,26 +1273,36 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
             ) : null}
             {concertEvents.length > 0 && areConcertsExpanded ? (
               <div className="artist-event-list">
-                {concertEvents.map((event) => (
-                  <a className="artist-event-row" href={event.ticketUrl ?? event.url ?? undefined} key={event.id} rel="noreferrer" target="_blank">
-                    <span className="artist-event-cover" data-empty={!event.imageUrl}>
-                      {event.imageUrl ? <img alt="" loading="lazy" decoding="async" draggable={false} src={event.imageUrl} /> : <Ticket size={22} />}
-                    </span>
-                    <span className="artist-event-date">
-                      <CalendarDays size={14} />
-                      <time dateTime={event.startsAt}>{formatEventDate(event.startsAt)}</time>
-                    </span>
-                    <strong>{event.title}</strong>
-                    <span className="artist-event-location">
-                      <MapPin size={14} />
-                      {eventLocation(event, t)}
-                    </span>
-                    <span className="artist-event-source">
-                      <Ticket size={14} />
-                      {event.sourceLabel ?? event.source}
-                    </span>
-                  </a>
-                ))}
+                {concertEvents.map((event) => {
+                  const dateParts = formatEventDateParts(event.startsAt);
+                  const timeLabel = formatEventTime(event.startsAt, event.timeTbd);
+                  const sourceLabel = event.sourceLabel ?? event.source;
+
+                  return (
+                    <a
+                      className="artist-event-row"
+                      href={event.ticketUrl ?? event.url ?? undefined}
+                      key={event.id}
+                      rel="noreferrer"
+                      target="_blank"
+                      title={`${dateParts.label} / ${eventSecondaryInfo(event)} / ${sourceLabel}`}
+                    >
+                      <span className="artist-event-date">
+                        <time dateTime={event.startsAt} aria-label={dateParts.label}>
+                          {dateParts.month ? <span className="artist-event-month">{dateParts.month}</span> : null}
+                          <strong className="artist-event-day">{dateParts.day}</strong>
+                        </time>
+                      </span>
+                      <span className="artist-event-info">
+                        <strong className="artist-event-primary">{eventPrimaryLocation(event, t)}</strong>
+                        <span className="artist-event-secondary">{eventSecondaryInfo(event) || sourceLabel}</span>
+                      </span>
+                      <span className="artist-event-time" aria-label={sourceLabel}>
+                        {timeLabel ?? sourceLabel}
+                      </span>
+                    </a>
+                  );
+                })}
               </div>
             ) : null}
             {concertEvents.length === 0 ? (
@@ -736,11 +1311,11 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
               </p>
             ) : null}
           </section>
-        </>
+        </div>
       ) : null}
 
       {activeTab === 'albums' ? (
-        <section className="artist-albums-view" id="artist-albums" aria-label={t('artistDetail.albums.aria', { artist: displayArtist.name })}>
+        <section className="artist-tab-panel artist-albums-view" id="artist-albums" aria-label={t('artistDetail.albums.aria', { artist: displayArtist.name })}>
           <header className="artist-albums-view-header">
             <div>
               <span>{t('artistDetail.tab.albums')}</span>
@@ -748,7 +1323,76 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
             </div>
             <strong>{t('artistDetail.meta.albums', { count: displayArtist.albumCount })}</strong>
           </header>
-          <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} onAlbumSelect={handleSelectAlbum} />
+          <ArtistAlbumGrid artistId={displayArtist.id} artistName={displayArtist.name} albumCount={displayArtist.albumCount} onAlbumSelect={handleSelectAlbum} />
+          {streamingAlbumsEnabled ? (
+            <section className="artist-streaming-albums" aria-label={`${displayArtist.name} 流媒体专辑`}>
+              <header>
+                <div>
+                  <span>流媒体</span>
+                  <h2>流媒体专辑</h2>
+                </div>
+                <small>{areStreamingAlbumsLoading ? '搜索中...' : `${streamingAlbums.length} 张专辑`}</small>
+              </header>
+              {streamingAlbums.length > 0 ? (
+                <div className="artist-album-strip artist-streaming-album-strip">
+                  {visibleStreamingAlbums.map((album) => {
+                    const coverUrl = album.coverUrl && !failedStreamingAlbumCoverUrls[streamingAlbumCoverFailureKey(album, album.coverUrl)]
+                      ? album.coverUrl
+                      : album.coverThumb && !failedStreamingAlbumCoverUrls[streamingAlbumCoverFailureKey(album, album.coverThumb)]
+                        ? album.coverThumb
+                        : null;
+                    const shouldShowCover = Boolean(coverUrl);
+
+                    return (
+                      <article
+                        className="artist-album-card artist-streaming-album-card"
+                        key={album.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleSelectStreamingAlbum(album)}
+                        onKeyDown={(event) => handleStreamingAlbumKeyDown(event, album)}
+                      >
+                        <div className="artist-album-cover" data-empty={!shouldShowCover} aria-hidden="true">
+                          {shouldShowCover ? (
+                            <img
+                              alt=""
+                              decoding="async"
+                              draggable={false}
+                              height={320}
+                              loading="lazy"
+                              src={coverUrl!}
+                              width={320}
+                              onError={() => handleStreamingAlbumCoverError(album, coverUrl!)}
+                            />
+                          ) : (
+                            <Disc3 size={24} />
+                          )}
+                        </div>
+                        <div className="artist-album-copy">
+                          <strong>{album.title}</strong>
+                          <span>{streamingAlbumMeta(album)}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {hasMoreStreamingAlbums ? (
+                <button
+                  className="artist-load-more"
+                  type="button"
+                  disabled={areMoreStreamingAlbumsLoading}
+                  onClick={() => void handleLoadMoreStreamingAlbums()}
+                >
+                  {areMoreStreamingAlbumsLoading ? '加载中...' : '加载更多'}
+                </button>
+              ) : null}
+              {!areStreamingAlbumsLoading && streamingAlbums.length === 0 && !streamingAlbumsError ? (
+                <p className="artist-detail-empty">暂未找到匹配的流媒体专辑。</p>
+              ) : null}
+              {streamingAlbumsError ? <p className="artist-detail-error">{streamingAlbumsError}</p> : null}
+            </section>
+          ) : null}
         </section>
       ) : null}
     </div>

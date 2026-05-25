@@ -50,8 +50,8 @@ const defaultCover = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`;
 
 const hiddenProviderTabs = new Set<StreamingProviderName>(['mock', 'm3u8']);
-const providerPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'soundcloud', 'spotify', 'bilibili'];
-const unsupportedDownloadProviders = new Set<StreamingProviderName>(['spotify', 'bilibili']);
+const providerPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'soundcloud', 'tidal', 'spotify', 'bilibili'];
+const unsupportedDownloadProviders = new Set<StreamingProviderName>(['spotify', 'tidal', 'bilibili']);
 const qualitySwitchPlaybackStates = new Set(['loading', 'playing']);
 const emptyTracks: StreamingTrack[] = [];
 const emptyAlbums: StreamingAlbum[] = [];
@@ -102,6 +102,8 @@ const streamingTrackWebUrl = (track: StreamingTrack): string | null => {
       return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(track.providerTrackId)}`;
     case 'spotify':
       return `https://open.spotify.com/track/${encodeURIComponent(track.providerTrackId)}`;
+    case 'tidal':
+      return `https://tidal.com/track/${encodeURIComponent(track.providerTrackId)}`;
     case 'soundcloud':
       return track.providerTrackId.startsWith('http')
         ? track.providerTrackId
@@ -121,6 +123,8 @@ const streamingPlaylistWebUrl = (playlist: StreamingPlaylist): string | null => 
       return `https://y.qq.com/n/ryqq/playlist/${encodeURIComponent(playlist.providerPlaylistId)}`;
     case 'spotify':
       return `https://open.spotify.com/playlist/${encodeURIComponent(playlist.providerPlaylistId)}`;
+    case 'tidal':
+      return `https://tidal.com/playlist/${encodeURIComponent(playlist.providerPlaylistId)}`;
     case 'soundcloud':
       return playlist.providerPlaylistId.startsWith('http')
         ? playlist.providerPlaylistId

@@ -1512,6 +1512,107 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('album grouping infers the shared main artist from fallback collaboration credits', async () => {
+    const harness = createHarness();
+    const first = writeAudioFile(harness.folder, 'A.flac');
+    const second = writeAudioFile(harness.folder, 'B.flac');
+    harness.metadataService.overrides.set(
+      first,
+      metadataWithSources(
+        { title: 'Starboy', artist: 'The Weeknd/Daft Punk', album: 'Starboy', albumArtist: 'The Weeknd/Daft Punk' },
+        { albumArtist: 'artist_fallback' },
+      ),
+    );
+    harness.metadataService.overrides.set(
+      second,
+      metadataWithSources(
+        { title: 'A Lonely Night', artist: 'The Weeknd', album: 'Starboy', albumArtist: 'The Weeknd' },
+        { albumArtist: 'artist_fallback' },
+      ),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const albums = harness.service.getAlbums({ pageSize: 10 });
+    const [artist] = harness.service.getArtists({ search: 'The Weeknd', pageSize: 1 }).items;
+    const artistAlbums = harness.service.getArtistAlbums(artist.id, { pageSize: 10 });
+
+    expect(albums.total).toBe(1);
+    expect(albums.items[0]).toMatchObject({ title: 'Starboy', albumArtist: 'The Weeknd', trackCount: 2 });
+    expect(artistAlbums.items.map((album) => album.title)).toContain('Starboy');
+    harness.cleanup();
+  });
+
+  it('album grouping corrects generic embedded albumArtist when track credits share one artist', async () => {
+    const harness = createHarness();
+    const first = writeAudioFile(harness.folder, 'A.flac');
+    const second = writeAudioFile(harness.folder, 'B.flac');
+    harness.metadataService.overrides.set(
+      first,
+      baseMetadata({ title: 'Starboy', artist: 'The Weeknd/Daft Punk', album: 'Starboy', albumArtist: 'Various Artists' }),
+    );
+    harness.metadataService.overrides.set(
+      second,
+      baseMetadata({ title: 'A Lonely Night', artist: 'The Weeknd', album: 'Starboy', albumArtist: 'Various Artists' }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const albums = harness.service.getAlbums({ pageSize: 10 });
+
+    expect(albums.total).toBe(1);
+    expect(albums.items[0]).toMatchObject({ title: 'Starboy', albumArtist: 'The Weeknd', trackCount: 2 });
+    harness.cleanup();
+  });
+
+  it('album grouping corrects generic embedded albumArtist from a dominant remix credit', async () => {
+    const harness = createHarness();
+    const first = writeAudioFile(harness.folder, 'A.flac');
+    const second = writeAudioFile(harness.folder, 'B.flac');
+    const third = writeAudioFile(harness.folder, 'C.flac');
+    const remix = writeAudioFile(harness.folder, 'D.flac');
+    harness.metadataService.overrides.set(first, baseMetadata({ title: 'One', artist: 'Airi Suzuki', album: '28/29', albumArtist: 'Various Artists' }));
+    harness.metadataService.overrides.set(second, baseMetadata({ title: 'Two', artist: 'Airi Suzuki', album: '28/29', albumArtist: 'Various Artists' }));
+    harness.metadataService.overrides.set(third, baseMetadata({ title: 'Three', artist: 'Tsunku/Airi Suzuki', album: '28/29', albumArtist: 'Various Artists' }));
+    harness.metadataService.overrides.set(remix, baseMetadata({ title: 'Remix', artist: 'Tsunku', album: '28/29', albumArtist: 'Various Artists' }));
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const albums = harness.service.getAlbums({ pageSize: 10 });
+
+    expect(albums.total).toBe(1);
+    expect(albums.items[0]).toMatchObject({ title: '28/29', albumArtist: 'Airi Suzuki', trackCount: 4 });
+    harness.cleanup();
+  });
+
+  it('album grouping still labels unrelated fallback artists as Various Artists', async () => {
+    const harness = createHarness();
+    const first = writeAudioFile(harness.folder, 'A.flac');
+    const second = writeAudioFile(harness.folder, 'B.flac');
+    harness.metadataService.overrides.set(
+      first,
+      metadataWithSources(
+        { title: 'First Song', artist: 'Artist One', album: 'Shared Folder Album', albumArtist: 'Artist One' },
+        { albumArtist: 'artist_fallback' },
+      ),
+    );
+    harness.metadataService.overrides.set(
+      second,
+      metadataWithSources(
+        { title: 'Second Song', artist: 'Artist Two', album: 'Shared Folder Album', albumArtist: 'Artist Two' },
+        { albumArtist: 'artist_fallback' },
+      ),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const albums = harness.service.getAlbums({ pageSize: 10 });
+
+    expect(albums.total).toBe(1);
+    expect(albums.items[0]).toMatchObject({ title: 'Shared Folder Album', albumArtist: 'Various Artists', trackCount: 2 });
+    harness.cleanup();
+  });
+
   it('album grouping same album with artist fallback stays split across folders', async () => {
     const harness = createHarness();
     const firstFolder = join(harness.folder, 'disc-a');

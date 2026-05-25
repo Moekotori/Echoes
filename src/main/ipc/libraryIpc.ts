@@ -29,6 +29,7 @@ import type {
   LibraryInboxStatusFilter,
   LibraryInboxTrackQuery,
   LibraryInboxUpdateStateRequest,
+  LibraryDatabaseProtectionStatusOptions,
   LibraryHealthReport,
   LibraryPlaylist,
   LibraryPlaylistItem,
@@ -137,8 +138,12 @@ const scheduleLibraryRecoveryRelaunch = () => {
   };
 };
 
-const getDatabaseProtectionStatusForRenderer = () => ({
-  ...getLibraryDatabaseProtectionStatus(app.getPath('userData'), isLibraryScanRunning()),
+const normalizeDatabaseProtectionStatusOptions = (value: unknown): LibraryDatabaseProtectionStatusOptions => ({
+  deepCheck: typeof value === 'object' && value !== null && (value as { deepCheck?: unknown }).deepCheck === false ? false : true,
+});
+
+const getDatabaseProtectionStatusForRenderer = (options: LibraryDatabaseProtectionStatusOptions = {}) => ({
+  ...getLibraryDatabaseProtectionStatus(app.getPath('userData'), isLibraryScanRunning(), options),
   managerState: getLibraryDatabaseManager().getState(),
 });
 
@@ -2021,7 +2026,9 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryPruneInvalidTracks, () => getLibraryService().pruneInvalidTracks());
   ipcMain.handle(IpcChannels.LibraryClearTracks, () => getLibraryService().clearTracks());
   ipcMain.handle(IpcChannels.LibraryClearCache, () => getLibraryService().clearCache());
-  ipcMain.handle(IpcChannels.LibraryGetDatabaseProtectionStatus, () => getDatabaseProtectionStatusForRenderer());
+  ipcMain.handle(IpcChannels.LibraryGetDatabaseProtectionStatus, (_event, options: unknown) =>
+    getDatabaseProtectionStatusForRenderer(normalizeDatabaseProtectionStatusOptions(options)),
+  );
   ipcMain.handle(IpcChannels.LibraryCreateDatabaseSnapshot, async () => {
     assertNoRunningLibraryScan();
     const manager = getLibraryDatabaseManager();

@@ -9,6 +9,7 @@ const providerDisplayNames: Record<StreamingProviderName, string> = {
   bilibili: 'Bilibili',
   soundcloud: 'SoundCloud',
   spotify: 'Spotify',
+  tidal: 'TIDAL',
   m3u8: 'M3U8',
 };
 

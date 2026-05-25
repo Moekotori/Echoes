@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { ArtistDetailView } from './ArtistDetailView';
 import type { AppSettings } from '../../../shared/types/appSettings';
 import type { ArtistInsights, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
+import type { StreamingAlbum } from '../../../shared/types/streaming';
 import { I18nProvider } from '../../i18n/I18nProvider';
 
 const queueMock = {
@@ -126,10 +127,24 @@ const artistInsights = (overrides: Partial<ArtistInsights> = {}): ArtistInsights
   ...overrides,
 });
 
+const streamingAlbum = (index: number, provider: 'netease' | 'qqmusic' = 'netease'): StreamingAlbum => ({
+  id: `streaming:${provider}:album:online-${index}`,
+  provider,
+  providerAlbumId: `online-${index}`,
+  title: `Online Echo ${index}`,
+  artist: 'Echo Unit',
+  artists: [{ id: `${provider}-artist-online`, provider, providerArtistId: `${provider}-artist-online`, name: 'Echo Unit' }],
+  coverUrl: `https://img.example/online-${index}.jpg`,
+  coverThumb: `https://img.example/online-${index}-thumb.jpg`,
+  releaseDate: '2026',
+  trackCount: index,
+});
+
 const installLibrary = (
   getArtist = vi.fn().mockResolvedValue(artist()),
   appSettings?: Partial<AppSettings>,
   getArtistInsights = vi.fn().mockResolvedValue(artistInsights()),
+  streaming?: Partial<NonNullable<NonNullable<Window['echo']>['streaming']>>,
 ): void => {
   window.echo = {
     app: appSettings
@@ -150,6 +165,7 @@ const installLibrary = (
             hasMore: false,
           }))),
     },
+    streaming,
   } as unknown as Window['echo'];
 };
 
@@ -357,6 +373,216 @@ describe('ArtistDetailView', () => {
     expect(screen.getByRole('button', { name: 'Open mock album' })).toBeTruthy();
   });
 
+  it('loads streaming albums under local artist albums only when the general setting is enabled', async () => {
+    const getAlbum = vi.fn().mockResolvedValue({
+      id: 'streaming:netease:album:online-1',
+      provider: 'netease',
+      providerAlbumId: 'online-1',
+      title: 'Online Echo',
+      artist: 'Echo Unit',
+      artists: [{ id: 'artist-online', provider: 'netease', providerArtistId: 'artist-online', name: 'Echo Unit' }],
+      coverUrl: 'https://img.example/online.jpg',
+      coverThumb: 'https://img.example/online-thumb.jpg',
+      releaseDate: '2026',
+      trackCount: 1,
+      tracks: [
+        {
+          id: 'streaming:netease:track:track-1',
+          provider: 'netease',
+          providerTrackId: 'track-1',
+          stableKey: 'streaming:netease:track:track-1',
+          title: 'Online Track',
+          artist: 'Echo Unit',
+          artists: [{ id: 'artist-online', provider: 'netease', providerArtistId: 'artist-online', name: 'Echo Unit' }],
+          album: 'Online Echo',
+          albumId: 'online-1',
+          albumArtist: 'Echo Unit',
+          duration: 180,
+          coverUrl: 'https://img.example/online-track.jpg',
+          coverThumb: 'https://img.example/online-track-thumb.jpg',
+          qualities: ['high'],
+          explicit: false,
+          playable: true,
+          unavailableReason: null,
+          lyricsStatus: 'unknown',
+          mvStatus: 'unknown',
+        },
+      ],
+    });
+    const search = vi.fn().mockResolvedValue({
+      provider: 'netease',
+      query: 'Echo Unit',
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      hasMore: false,
+      tracks: [],
+      albums: [
+        {
+          id: 'streaming:netease:album:online-1',
+          provider: 'netease',
+          providerAlbumId: 'online-1',
+          title: 'Online Echo',
+          artist: 'Echo Unit',
+          artists: [{ id: 'artist-online', provider: 'netease', providerArtistId: 'artist-online', name: 'Echo Unit' }],
+          coverUrl: 'https://img.example/online.jpg',
+          coverThumb: 'https://img.example/online-thumb.jpg',
+          releaseDate: '2026',
+          trackCount: 10,
+        },
+        {
+          id: 'streaming:netease:album:wrong-1',
+          provider: 'netease',
+          providerAlbumId: 'wrong-1',
+          title: 'Afterglow Loop Jazz Hiphop',
+          artist: 'Afterglow Loop',
+          artists: [{ id: 'artist-wrong', provider: 'netease', providerArtistId: 'artist-wrong', name: 'Afterglow Loop' }],
+          coverUrl: 'https://img.example/wrong.jpg',
+          coverThumb: 'https://img.example/wrong-thumb.jpg',
+          releaseDate: '2026',
+          trackCount: 21,
+        },
+      ],
+      artists: [],
+      playlists: [],
+      mvs: [],
+    });
+    installLibrary(vi.fn().mockResolvedValue(artist()), { artistStreamingAlbumsEnabled: true }, undefined, {
+      getProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'netease',
+          displayName: 'NetEase',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+      ]),
+      search,
+      getAlbum,
+    });
+
+    renderDetail(artist());
+    fireEvent.click(await screen.findByRole('button', { name: 'Albums' }));
+
+    expect(await screen.findByText('Online Echo')).toBeTruthy();
+    expect(screen.queryByText('Afterglow Loop Jazz Hiphop')).toBeNull();
+    expect((document.querySelector('.artist-streaming-album-card img') as HTMLImageElement | null)?.getAttribute('src')).toBe('https://img.example/online.jpg');
+    fireEvent.click(screen.getByRole('button', { name: /Online Echo/ }));
+    expect(await screen.findByText('Online Track')).toBeTruthy();
+    expect(getAlbum).toHaveBeenCalledWith({ provider: 'netease', providerAlbumId: 'online-1' });
+    expect(search).toHaveBeenCalledWith({
+      provider: 'netease',
+      query: 'Echo Unit',
+      mediaTypes: ['album'],
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('shows 20 streaming albums first and reveals the rest from Load More', async () => {
+    const neteaseAlbums = Array.from({ length: 15 }, (_, index) => streamingAlbum(index + 1, 'netease'));
+    const qqAlbums = Array.from({ length: 15 }, (_, index) => streamingAlbum(index + 16, 'qqmusic'));
+    const search = vi.fn().mockImplementation(({ provider }: { provider: 'netease' | 'qqmusic' }) => Promise.resolve({
+      provider,
+      query: 'Echo Unit',
+      page: 1,
+      pageSize: 20,
+      total: 15,
+      hasMore: false,
+      tracks: [],
+      albums: provider === 'netease' ? neteaseAlbums : qqAlbums,
+      artists: [],
+      playlists: [],
+      mvs: [],
+    }));
+
+    installLibrary(vi.fn().mockResolvedValue(artist()), { artistStreamingAlbumsEnabled: true }, undefined, {
+      getProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'netease',
+          displayName: 'NetEase',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+        {
+          name: 'qqmusic',
+          displayName: 'QQ Music',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+      ]),
+      search,
+    });
+
+    renderDetail(artist());
+    fireEvent.click(await screen.findByRole('button', { name: 'Albums' }));
+
+    expect(await screen.findByText('Online Echo 20')).toBeTruthy();
+    expect(screen.queryByText('Online Echo 21')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
+
+    expect(await screen.findByText('Online Echo 30')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
+  });
+
+  it('returns from a streaming album detail back to the artist detail', async () => {
+    const onBack = vi.fn();
+    installLibrary(vi.fn().mockResolvedValue(artist()), { artistStreamingAlbumsEnabled: true }, undefined, {
+      getProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'netease',
+          displayName: 'NetEase',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+      ]),
+      search: vi.fn().mockResolvedValue({
+        provider: 'netease',
+        query: 'Echo Unit',
+        page: 1,
+        pageSize: 20,
+        total: 1,
+        hasMore: false,
+        tracks: [],
+        albums: [streamingAlbum(1, 'netease')],
+        artists: [],
+        playlists: [],
+        mvs: [],
+      }),
+      getAlbum: vi.fn().mockResolvedValue({ ...streamingAlbum(1, 'netease'), tracks: [] }),
+    });
+
+    renderDetail(artist(), onBack);
+    fireEvent.click(await screen.findByRole('button', { name: 'Albums' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Online Echo 1/ }));
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: '流媒体专辑' }));
+    await act(async () => {
+      vi.advanceTimersByTime(180);
+    });
+
+    expect(onBack).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Open mock album' })).toBeTruthy();
+    expect(screen.getByText('Online Echo 1')).toBeTruthy();
+  });
+
   it('shows configured concert provider status while online events are empty', async () => {
     installLibrary(vi.fn().mockResolvedValue(artist()), {
       onlineArtistInfoBandsintownAppId: 'echo-next',
@@ -468,8 +694,10 @@ describe('ArtistDetailView', () => {
     expect(screen.getByText('1 concerts found. Expand to view dates, venues, and ticket links.')).toBeTruthy();
     expect(screen.queryByText('Echo Unit Live')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Expand/ }));
-    expect(screen.getByText('Echo Unit Live')).toBeTruthy();
-    expect(document.querySelector('.artist-event-cover img')?.getAttribute('src')).toBe('https://img.example/event.jpg');
+    expect(screen.getByText(/Echo Unit Live/)).toBeTruthy();
+    expect(screen.getByText('Hong Kong')).toBeTruthy();
+    expect(screen.getByText('20:00')).toBeTruthy();
+    expect(document.querySelector('.artist-event-cover')).toBeNull();
     await waitFor(() =>
       expect(getArtistInsights).toHaveBeenCalledWith('artist-1', {
         limit: 12,

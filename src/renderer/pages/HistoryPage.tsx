@@ -655,6 +655,40 @@ const DailyActivityWall = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element 
   }));
   const maxCount = Math.max(...cells.map((day) => day.playCount), 1);
   const totalCount = cells.reduce((sum, day) => (day.isOutside ? sum : sum + day.playCount), 0);
+  const visibleCells = cells.filter((day) => !day.isOutside);
+  const activeCells = visibleCells.filter((day) => day.playCount > 0);
+  const peakDay = activeCells.reduce<(typeof activeCells)[number] | null>(
+    (best, day) => (!best || day.playCount > best.playCount ? day : best),
+    null,
+  );
+  const longestStreak = visibleCells.reduce(
+    (streak, day) => {
+      const current = day.playCount > 0 ? streak.current + 1 : 0;
+      return {
+        current,
+        longest: Math.max(streak.longest, current),
+      };
+    },
+    { current: 0, longest: 0 },
+  ).longest;
+  const insightItems = [
+    {
+      label: '最热一天',
+      value: peakDay ? `${formatDayLabel(peakDay.dateKey)} · ${formatCompactCount(peakDay.playCount)} 次` : '暂无',
+    },
+    {
+      label: '最长连续',
+      value: `${longestStreak} 天`,
+    },
+    {
+      label: '活跃天数',
+      value: `${activeCells.length} / ${visibleCells.length}`,
+    },
+    {
+      label: '活跃日均',
+      value: `${activeCells.length > 0 ? Math.round(totalCount / activeCells.length) : 0} 次`,
+    },
+  ];
   const getLevel = (count: number): number => {
     if (count <= 0) {
       return 0;
@@ -679,36 +713,46 @@ const DailyActivityWall = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element 
         <strong>{`${formatCompactCount(totalCount)} 次播放`}</strong>
         <span>近一年</span>
       </div>
-      <div className="history-activity-scroll">
-        <div className="history-activity-months" style={{ gridTemplateColumns: `repeat(${weeks.length}, var(--history-activity-cell))` }}>
-          {monthLabels.map((month) => (
-            <span key={`${month.label}-${month.week}`} style={{ gridColumn: `${month.week + 1} / span ${month.span}` }}>
-              {month.label}
-            </span>
-          ))}
-        </div>
-        <div className="history-activity-grid-shell">
-          <div className="history-activity-weekdays" aria-hidden="true">
-            <span>一</span>
-            <span />
-            <span>三</span>
-            <span />
-            <span>五</span>
-            <span />
-            <span />
-          </div>
-          <div className="history-activity-grid" style={{ gridTemplateColumns: `repeat(${weeks.length}, var(--history-activity-cell))` }}>
-            {cells.map((day) => (
-              <span
-                aria-label={`${formatDayLabel(day.dateKey)}，${day.playCount} 次播放`}
-                className="history-activity-cell"
-                data-level={day.isOutside ? 0 : getLevel(day.playCount)}
-                data-outside={day.isOutside ? 'true' : undefined}
-                key={day.dateKey}
-                title={`${day.dateKey} · ${day.playCount} 次 · ${formatLongDuration(day.playedSeconds)}`}
-              />
+      <div className="history-activity-body">
+        <div className="history-activity-scroll">
+          <div className="history-activity-months" style={{ gridTemplateColumns: `repeat(${weeks.length}, var(--history-activity-cell))` }}>
+            {monthLabels.map((month) => (
+              <span key={`${month.label}-${month.week}`} style={{ gridColumn: `${month.week + 1} / span ${month.span}` }}>
+                {month.label}
+              </span>
             ))}
           </div>
+          <div className="history-activity-grid-shell">
+            <div className="history-activity-weekdays" aria-hidden="true">
+              <span>一</span>
+              <span />
+              <span>三</span>
+              <span />
+              <span>五</span>
+              <span />
+              <span />
+            </div>
+            <div className="history-activity-grid" style={{ gridTemplateColumns: `repeat(${weeks.length}, var(--history-activity-cell))` }}>
+              {cells.map((day) => (
+                <span
+                  aria-label={`${formatDayLabel(day.dateKey)}，${day.playCount} 次播放`}
+                  className="history-activity-cell"
+                  data-level={day.isOutside ? 0 : getLevel(day.playCount)}
+                  data-outside={day.isOutside ? 'true' : undefined}
+                  key={day.dateKey}
+                  title={`${day.dateKey} · ${day.playCount} 次 · ${formatLongDuration(day.playedSeconds)}`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="history-activity-insights" aria-label="年度播放摘要">
+          {insightItems.map((item) => (
+            <div className="history-activity-insight" key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
         </div>
       </div>
       <div className="history-activity-legend" aria-hidden="true">

@@ -762,6 +762,26 @@ describe('SettingsPage', () => {
     expect(row.getAttribute('data-search-highlight')).toBe('true');
   });
 
+  it('saves artist online info source choices from general settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, onlineArtistInfoSources: ['wikipedia'] });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    await screen.findByText('艺人信息源');
+    fireEvent.click(screen.getByRole('button', { name: /百度百科/ }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        onlineArtistInfoSources: ['baidu-baike'],
+      }),
+    );
+  });
+
   it('saves online artist info provider settings from integrations', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -870,7 +890,7 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.danger\\.label');
 
-    await waitFor(() => expect(getDatabaseProtectionStatusMock).toHaveBeenCalled());
+    await waitFor(() => expect(getDatabaseProtectionStatusMock).toHaveBeenCalledWith({ deepCheck: false }));
     expect(screen.getByText('曲库数据库安全')).toBeTruthy();
     expect(screen.getAllByText('健康').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /恢复最近健康快照/ })).toBeTruthy();
@@ -989,8 +1009,14 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /扫描重复歌曲/ }));
 
     await screen.findByText(/发现 1 组重复歌曲/);
+    expect(screen.queryByText(/保留：FLAC/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /扫描结果明细/ }));
     expect(screen.getByText(/保留：FLAC/)).toBeTruthy();
     expect(screen.getByText(/清理：Song - Artist/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /清理扫描结果/ }));
+    expect(applyDuplicateTrackCleanupMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/需要先在上方确认词输入框输入“清理重复歌曲”/)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('危险操作确认词'), { target: { value: '清理重复歌曲' } });
     fireEvent.click(screen.getByRole('button', { name: /清理扫描结果/ }));
@@ -1152,6 +1178,8 @@ describe('SettingsPage', () => {
 
     await waitFor(() => expect(repairDatabaseMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getDatabaseProtectionStatusMock).toHaveBeenCalledTimes(2));
+    expect(getDatabaseProtectionStatusMock).toHaveBeenNthCalledWith(1, { deepCheck: false });
+    expect(getDatabaseProtectionStatusMock).toHaveBeenNthCalledWith(2, { deepCheck: true });
     expect(screen.getByText(/已归档坏库并重建为空库/)).toBeTruthy();
   });
 

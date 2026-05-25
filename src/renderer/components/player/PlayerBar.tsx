@@ -57,8 +57,8 @@ const activeDownloadStatuses = new Set<DownloadJobStatus>([
   'binding_mv',
 ]);
 const terminalDownloadStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
-const unsupportedPlayerDownloadProviders = new Set<StreamingProviderName>(['mock', 'spotify', 'bilibili']);
-const unsupportedStreamingBpmAnalysisProviders = new Set<StreamingProviderName>(['spotify', 'soundcloud']);
+const unsupportedPlayerDownloadProviders = new Set<StreamingProviderName>(['mock', 'spotify', 'tidal', 'bilibili']);
+const unsupportedStreamingBpmAnalysisProviders = new Set<StreamingProviderName>(['spotify', 'tidal', 'soundcloud']);
 const downloadStatusLabels: Record<DownloadJobStatus, string> = {
   queued: '排队中',
   probing: '解析链接',
@@ -189,6 +189,8 @@ const streamingTrackWebUrl = (provider: StreamingProviderName, providerTrackId: 
       return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(providerTrackId)}`;
     case 'spotify':
       return `https://open.spotify.com/track/${encodeURIComponent(providerTrackId)}`;
+    case 'tidal':
+      return `https://tidal.com/track/${encodeURIComponent(providerTrackId)}`;
     case 'soundcloud':
       return providerTrackId.startsWith('http')
         ? providerTrackId
@@ -593,10 +595,10 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
   const audioStatusMatchesCurrentTrack =
     audioStatus != null &&
     audioStatusMatchesVisualIntent(audioStatus, sharedPlaybackStatus.playbackVisualIntent) &&
-    (!currentTrack ||
-      Boolean(currentTrack.id && audioStatus?.currentTrackId === currentTrack.id) ||
-      Boolean(currentTrack.path && audioStatus?.currentFilePath === currentTrack.path) ||
-      audioStatusMatchesPlaybackStatus);
+    (currentTrack
+      ? Boolean(currentTrack.id && audioStatus?.currentTrackId === currentTrack.id) ||
+        Boolean(currentTrack.path && audioStatus?.currentFilePath === currentTrack.path)
+      : audioStatusMatchesPlaybackStatus);
   const playbackAudioStatus = audioStatusMatchesCurrentTrack ? audioStatus : null;
   const baseState = playbackAudioStatus?.state ?? currentPlaybackStatus?.state ?? 'idle';
   const baseVisualState = getVisualPlaybackState({

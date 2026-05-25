@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import type sharp from 'sharp';
 
 const colorDistance = (left: readonly number[], right: readonly number[]): number =>
   Math.sqrt(
@@ -17,6 +17,58 @@ const matchesPixelSamples = (
   samples: Array<{ x: number; y: number; color: readonly [number, number, number]; tolerance: number }>,
 ): boolean =>
   samples.every((sample) => colorDistance(pixelAt(data, 16, sample.x, sample.y), sample.color) <= sample.tolerance);
+
+const isNeutralLightColor = (color: readonly number[]): boolean => {
+  const min = Math.min(color[0] ?? 0, color[1] ?? 0, color[2] ?? 0);
+  const max = Math.max(color[0] ?? 0, color[1] ?? 0, color[2] ?? 0);
+  return min >= 210 && max - min <= 34;
+};
+
+const isNeutralIconColor = (color: readonly number[]): boolean => {
+  const min = Math.min(color[0] ?? 0, color[1] ?? 0, color[2] ?? 0);
+  const max = Math.max(color[0] ?? 0, color[1] ?? 0, color[2] ?? 0);
+  return min >= 120 && max <= 220 && max - min <= 38;
+};
+
+const isGenericLightPersonPlaceholder = (data: Uint8Array): boolean => {
+  const backgroundSamples = [
+    pixelAt(data, 16, 0, 0),
+    pixelAt(data, 16, 15, 0),
+    pixelAt(data, 16, 0, 15),
+    pixelAt(data, 16, 15, 15),
+    pixelAt(data, 16, 1, 8),
+    pixelAt(data, 16, 14, 8),
+  ];
+
+  if (!backgroundSamples.every(isNeutralLightColor)) {
+    return false;
+  }
+
+  const iconSamples = [
+    pixelAt(data, 16, 6, 5),
+    pixelAt(data, 16, 9, 5),
+    pixelAt(data, 16, 5, 10),
+    pixelAt(data, 16, 10, 10),
+    pixelAt(data, 16, 4, 12),
+    pixelAt(data, 16, 11, 12),
+  ];
+  const iconHits = iconSamples.filter(isNeutralIconColor).length;
+  if (iconHits < 4) {
+    return false;
+  }
+
+  let neutralIconPixelCount = 0;
+  for (let y = 0; y < 16; y += 1) {
+    for (let x = 0; x < 16; x += 1) {
+      const color = pixelAt(data, 16, x, y);
+      if (isNeutralIconColor(color) && !isNeutralLightColor(color)) {
+        neutralIconPixelCount += 1;
+      }
+    }
+  }
+
+  return neutralIconPixelCount >= 8 && neutralIconPixelCount <= 80;
+};
 
 export const isLikelyDefaultArtistAvatarImage = async (source: sharp.Sharp): Promise<boolean> => {
   const { data, info } = await source
@@ -55,5 +107,6 @@ export const isLikelyDefaultArtistAvatarImage = async (source: sharp.Sharp): Pro
   ];
 
   return matchesPixelSamples(data, qqMusicDefaultAvatarSamples)
-    || matchesPixelSamples(data, neteaseSingerSilhouetteDefaultSamples);
+    || matchesPixelSamples(data, neteaseSingerSilhouetteDefaultSamples)
+    || isGenericLightPersonPlaceholder(data);
 };

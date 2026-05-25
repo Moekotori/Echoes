@@ -11,11 +11,9 @@ export type AirPlayMdnsAdvertisement = {
 const mdnsAddress = '224.0.0.251';
 const mdnsPort = 5353;
 const raopServiceName = '_raop._tcp.local';
-const airPlayServiceName = '_airplay._tcp.local';
 const serviceEnumerator = '_services._dns-sd._udp.local';
 const recordClassInternet = 1;
 const recordClassCacheFlush = 0x8001;
-const classicAirPlayFeatures = '0x40878A00';
 const classicAirPlayVersion = '130.14';
 
 const cleanMac = (mac: string): string => {
@@ -181,14 +179,11 @@ export class AirPlayMdnsAdvertiser {
 
     const names = parseQuestionNames(message);
     const raopInstance = this.raopInstanceName(advertisement).toLowerCase();
-    const airPlayInstance = this.airPlayInstanceName(advertisement).toLowerCase();
     const hostName = this.hostName(advertisement).toLowerCase();
     if (
       names.has(raopServiceName) ||
-      names.has(airPlayServiceName) ||
       names.has(serviceEnumerator) ||
       names.has(raopInstance) ||
-      names.has(airPlayInstance) ||
       names.has(hostName)
     ) {
       this.announce(false);
@@ -210,13 +205,12 @@ export class AirPlayMdnsAdvertiser {
   private createPacket(advertisement: AirPlayMdnsAdvertisement, ttl: number): Buffer {
     const mac = cleanMac(advertisement.mac);
     const raopInstance = this.raopInstanceName(advertisement);
-    const airPlayInstance = this.airPlayInstanceName(advertisement);
     const hostName = this.hostName(advertisement);
     const header = Buffer.alloc(12);
     header.writeUInt16BE(0, 0);
     header.writeUInt16BE(0x8400, 2);
     header.writeUInt16BE(0, 4);
-    header.writeUInt16BE(9, 6);
+    header.writeUInt16BE(5, 6);
     header.writeUInt16BE(0, 8);
     header.writeUInt16BE(0, 10);
 
@@ -235,43 +229,27 @@ export class AirPlayMdnsAdvertiser {
       'md=0,1,2',
       'cn=0,1',
       'ch=2',
+      'pw=false',
+      'sf=0x4',
       'ss=16',
       'sr=44100',
       'vn=3',
       `vs=${classicAirPlayVersion}`,
       'txtvers=1',
     ]);
-    const airPlayTxtData = encodeTxt([
-      `deviceid=${mac.match(/.{1,2}/gu)?.join(':') ?? advertisement.mac}`,
-      `model=${advertisement.model}`,
-      `features=${classicAirPlayFeatures}`,
-      'flags=0x4',
-      'pw=false',
-      `srcvers=${classicAirPlayVersion}`,
-      'vv=1',
-      'txtvers=1',
-    ]);
 
     return Buffer.concat([
       header,
       encodeRecord(serviceEnumerator, 12, recordClassInternet, ttl, encodeName(raopServiceName)),
-      encodeRecord(serviceEnumerator, 12, recordClassInternet, ttl, encodeName(airPlayServiceName)),
       encodeRecord(raopServiceName, 12, recordClassInternet, ttl, encodeName(raopInstance)),
-      encodeRecord(airPlayServiceName, 12, recordClassInternet, ttl, encodeName(airPlayInstance)),
       encodeRecord(raopInstance, 33, recordClassCacheFlush, ttl, srvData),
       encodeRecord(raopInstance, 16, recordClassCacheFlush, ttl, raopTxtData),
-      encodeRecord(airPlayInstance, 33, recordClassCacheFlush, ttl, srvData),
-      encodeRecord(airPlayInstance, 16, recordClassCacheFlush, ttl, airPlayTxtData),
       encodeRecord(hostName, 1, recordClassCacheFlush, ttl, addressData),
     ]);
   }
 
   private raopInstanceName(advertisement: AirPlayMdnsAdvertisement): string {
     return `${cleanMac(advertisement.mac)}@${advertisement.name}.${raopServiceName}`;
-  }
-
-  private airPlayInstanceName(advertisement: AirPlayMdnsAdvertisement): string {
-    return `${advertisement.name}.${airPlayServiceName}`;
   }
 
   private hostName(advertisement: AirPlayMdnsAdvertisement): string {

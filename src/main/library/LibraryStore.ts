@@ -114,12 +114,26 @@ type ArtistIndexStats = {
   coverId: string | null;
   coverScore: number;
 };
+type AlbumArtistCreditCount = {
+  name: string;
+  count: number;
+  reliableCount: number;
+};
+type AlbumArtistComponentCount = {
+  name: string;
+  count: number;
+};
+type AlbumArtistCreditStats = {
+  exactCredits: Map<string, AlbumArtistCreditCount>;
+  componentCredits: Map<string, AlbumArtistComponentCount>;
+  trackCount: number;
+};
 type AlbumIndexStats = {
   id: string;
   albumKey: string;
   title: string;
   albumArtist: string;
-  albumArtistKeys: Set<string>;
+  albumArtistCredits: AlbumArtistCreditStats;
   year: number | null;
   trackCount: number;
   duration: number;
@@ -192,6 +206,8 @@ const libraryInboxAlbumWallLimit = 24;
 const libraryInboxPlaylistTrackLimit = 1000;
 const variousArtistsDisplayName = 'Various Artists';
 const variousArtistsKey = 'various artists';
+const genericAlbumArtistKeys = new Set([variousArtistsKey, 'unknown artist', 'unknown album', 'unknown']);
+const reliableAlbumArtistDisplaySources = new Set(['embedded', 'manual', 'network', 'sidecar']);
 const likedSongsSourcePlaylistId = 'liked-tracks';
 const likedAlbumsSourcePlaylistId = 'liked-albums';
 const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
@@ -770,11 +786,10 @@ const normalizeArtistDisplayName = (value: unknown): string =>
 
 const artistKeyForName = (name: string): string => name.normalize('NFKC').toLocaleLowerCase();
 
-const displayAlbumArtistForKeys = (preferredName: string, artistKeys: Set<string>): string =>
-  artistKeys.size > 1 ? variousArtistsDisplayName : preferredName;
-
 const albumArtistCreditForTrack = (albumArtist: string, fallbackArtist: string): string =>
   normalizeArtistDisplayName(albumArtist || fallbackArtist) || 'Unknown Artist';
+
+const isGenericAlbumArtistKey = (key: string): boolean => genericAlbumArtistKeys.has(key);
 
 const splitArtistNames = (value: unknown): string[] => {
   const normalized = normalizeArtistDisplayName(value);
@@ -794,6 +809,116 @@ const splitArtistNames = (value: unknown): string[] => {
   }
 
   return Array.from(uniqueNames.values());
+};
+
+const createAlbumArtistCreditStats = (): AlbumArtistCreditStats => ({
+  exactCredits: new Map(),
+  componentCredits: new Map(),
+  trackCount: 0,
+});
+
+const addAlbumArtistComponentCount = (counts: Map<string, AlbumArtistComponentCount>, key: string, name: string): AlbumArtistComponentCount => {
+  const current = counts.get(key);
+
+  if (current) {
+    current.count += 1;
+    return current;
+  }
+
+  const next = { name, count: 1 };
+  counts.set(key, next);
+  return next;
+};
+
+const addAlbumArtistCredit = (
+  stats: AlbumArtistCreditStats,
+  albumArtist: string,
+  fallbackArtist: string,
+  source: unknown,
+): void => {
+  const credit = albumArtistCreditForTrack(albumArtist, fallbackArtist);
+  const creditKey = artistKeyForName(credit);
+  const isReliable = typeof source === 'string' && reliableAlbumArtistDisplaySources.has(source);
+  const exactCredit = stats.exactCredits.get(creditKey) ?? { name: credit, count: 0, reliableCount: 0 };
+  const componentSource = isGenericAlbumArtistKey(creditKey) ? fallbackArtist : credit;
+
+  exactCredit.count += 1;
+  if (isReliable) {
+    exactCredit.reliableCount += 1;
+  }
+  stats.exactCredits.set(creditKey, exactCredit);
+
+  for (const component of splitArtistNames(componentSource)) {
+    addAlbumArtistComponentCount(stats.componentCredits, artistKeyForName(component), component);
+  }
+
+  stats.trackCount += 1;
+};
+
+const mergeAlbumArtistCreditStats = (target: AlbumArtistCreditStats, source: AlbumArtistCreditStats): void => {
+  for (const [key, credit] of source.exactCredits) {
+    const current = target.exactCredits.get(key);
+    if (current) {
+      current.count += credit.count;
+      current.reliableCount += credit.reliableCount;
+    } else {
+      target.exactCredits.set(key, { ...credit });
+    }
+  }
+
+  for (const [key, component] of source.componentCredits) {
+    const current = target.componentCredits.get(key);
+    if (current) {
+      current.count += component.count;
+    } else {
+      target.componentCredits.set(key, { ...component });
+    }
+  }
+
+  target.trackCount += source.trackCount;
+};
+
+const dominantAlbumArtistComponent = (stats: AlbumArtistCreditStats): string | null => {
+  if (stats.trackCount <= 1) {
+    return null;
+  }
+
+  const components = Array.from(stats.componentCredits.values()).sort((left, right) => right.count - left.count);
+  const top = components[0];
+
+  if (!top) {
+    return null;
+  }
+
+  if (top.count === stats.trackCount) {
+    return top.name;
+  }
+
+  const nextCount = components[1]?.count ?? 0;
+  const minimumCount = stats.trackCount <= 3 ? stats.trackCount : Math.ceil(stats.trackCount * 0.65);
+  return top.count >= minimumCount && top.count > nextCount ? top.name : null;
+};
+
+const displayAlbumArtistForCredits = (preferredName: string, stats: AlbumArtistCreditStats): string => {
+  const reliableCredits = Array.from(stats.exactCredits.values()).filter((credit) => credit.reliableCount > 0);
+
+  if (reliableCredits.length === 1) {
+    const reliableCredit = reliableCredits[0];
+    if (isGenericAlbumArtistKey(artistKeyForName(reliableCredit.name))) {
+      return dominantAlbumArtistComponent(stats) ?? reliableCredit.name;
+    }
+    return reliableCredit.name;
+  }
+
+  if (reliableCredits.length > 1) {
+    return dominantAlbumArtistComponent(stats) ?? variousArtistsDisplayName;
+  }
+
+  if (stats.exactCredits.size <= 1) {
+    return preferredName;
+  }
+
+  return dominantAlbumArtistComponent(stats) ?? variousArtistsDisplayName;
 };
 
 const preferredCoverSource = (current: unknown, next: CoverSource): CoverSource => {
@@ -3847,7 +3972,6 @@ export class LibraryStore {
       const title = String(track.album || '');
       const albumArtist = String(track.album_artist || '');
       const trackAlbumArtist = albumArtistCreditForTrack(albumArtist, String(track.artist || ''));
-      const trackAlbumArtistKey = artistKeyForName(trackAlbumArtist);
       const year = numberOrNull(track.year);
       const fieldSources = parseJsonObject(track.field_sources_json);
       const keyInput: AlbumKeyInput = {
@@ -3870,7 +3994,7 @@ export class LibraryStore {
           albumKey: standardAlbumKey,
           title: title || 'Unknown Album',
           albumArtist: trackAlbumArtist,
-          albumArtistKeys: new Set<string>(),
+          albumArtistCredits: createAlbumArtistCreditStats(),
           year,
           trackCount: 0,
           duration: 0,
@@ -3887,8 +4011,8 @@ export class LibraryStore {
         textOrNull(track.cover_album_path),
       );
 
-      standardGroup.albumArtistKeys.add(trackAlbumArtistKey);
-      standardGroup.albumArtist = displayAlbumArtistForKeys(standardGroup.albumArtist, standardGroup.albumArtistKeys);
+      addAlbumArtistCredit(standardGroup.albumArtistCredits, albumArtist, String(track.artist || ''), fieldSources.albumArtist);
+      standardGroup.albumArtist = displayAlbumArtistForCredits(standardGroup.albumArtist, standardGroup.albumArtistCredits);
       standardGroup.trackCount += 1;
       standardGroup.duration += Number(track.duration ?? 0);
       standardGroup.coverId = standardGroup.coverId ?? textOrNull(track.cover_id);
@@ -3931,17 +4055,15 @@ export class LibraryStore {
           albumKey,
           title: standardGroup.title,
           albumArtist: standardGroup.albumArtist,
-          albumArtistKeys: new Set(standardGroup.albumArtistKeys),
+          albumArtistCredits: createAlbumArtistCreditStats(),
           year: standardGroup.year,
           trackCount: 0,
           duration: 0,
           coverId: standardGroup.coverId,
         };
 
-      for (const artistKey of standardGroup.albumArtistKeys) {
-        stats.albumArtistKeys.add(artistKey);
-      }
-      stats.albumArtist = displayAlbumArtistForKeys(stats.albumArtist, stats.albumArtistKeys);
+      mergeAlbumArtistCreditStats(stats.albumArtistCredits, standardGroup.albumArtistCredits);
+      stats.albumArtist = displayAlbumArtistForCredits(stats.albumArtist, stats.albumArtistCredits);
       stats.trackCount += standardGroup.trackCount;
       stats.duration += standardGroup.duration;
       stats.coverId = stats.coverId ?? standardGroup.coverId;

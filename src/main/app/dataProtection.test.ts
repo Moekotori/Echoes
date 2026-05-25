@@ -547,6 +547,18 @@ describe('dataProtection', () => {
     expect(isProtectedLibraryAvailable()).toBe(true);
   });
 
+  it('skips deep poison inspection for lightweight protection status reads', () => {
+    const databasePath = join(tempDir, 'echo-library.sqlite');
+    createPoisonedLibrary(databasePath);
+
+    const status = getLibraryDatabaseProtectionStatus(tempDir, false, { deepCheck: false });
+
+    expect(status.health.status).toBe('ok');
+    expect(status.poisonReport).toBeNull();
+    expect(status.reason).toBe('none');
+    expect(status.recommendedAction).toBe('none');
+  });
+
   it('compacts oversized scan diagnostics without protecting the library', async () => {
     const databasePath = join(tempDir, 'echo-library.sqlite');
     createHealthyLibrary(databasePath);

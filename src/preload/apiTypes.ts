@@ -57,6 +57,7 @@ import type {
   LibraryDatabaseRepairResult,
   LibraryDatabaseRecoveryRelaunchResult,
   LibraryDatabaseProtectionStatus,
+  LibraryDatabaseProtectionStatusOptions,
   LibraryDatabaseRestoreResult,
   LibraryDatabaseScrubResult,
   LibraryMaintenanceCleanupResult,
@@ -412,7 +413,7 @@ export type EchoApi = {
     clearCache: () => Promise<LibraryCacheClearResult>;
     repairDatabase: () => Promise<LibraryDatabaseRepairResult>;
     deleteDatabase: () => Promise<LibraryDatabaseDeleteResult>;
-    getDatabaseProtectionStatus: () => Promise<LibraryDatabaseProtectionStatus>;
+    getDatabaseProtectionStatus: (options?: LibraryDatabaseProtectionStatusOptions) => Promise<LibraryDatabaseProtectionStatus>;
     createDatabaseSnapshot: () => Promise<LibraryDatabaseProtectionStatus>;
     restoreDatabaseSnapshot: (snapshotId: string) => Promise<LibraryDatabaseRestoreResult>;
     scrubQuarantinedDatabase: () => Promise<LibraryDatabaseScrubResult>;

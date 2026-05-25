@@ -9,22 +9,29 @@ import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../ui/MediaWall
 type ArtistAlbumGridProps = {
   artistId: string;
   artistName: string;
+  albumCount?: number;
   onAlbumSelect: (album: LibraryAlbum) => void;
 };
 
 const pageSize = 12;
+const initialSkeletonCount = 6;
 
-export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistAlbumGridProps): JSX.Element => {
+const albumOriginalCoverUrl = (album: LibraryAlbum): string | null =>
+  album.coverId ? `echo-cover://original/${encodeURIComponent(album.coverId)}` : null;
+
+const coverFailureKey = (album: LibraryAlbum, coverUrl: string): string => `${album.id}\n${coverUrl}`;
+
+export const ArtistAlbumGrid = ({ artistId, artistName, albumCount, onAlbumSelect }: ArtistAlbumGridProps): JSX.Element => {
   const { t } = useI18n();
   const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
+  const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, true>>({});
   const requestIdRef = useRef(0);
-  const isLoadingRef = useRef(false);
+  const isLoadingRef = useRef(true);
   const { wallRef: albumWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLDivElement>({
     itemCount: albums.length,
     totalCount: total,
@@ -90,26 +97,17 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
   );
 
   useEffect(() => {
+    isLoadingRef.current = true;
     setAlbums([]);
     setPage(1);
     setTotal(0);
     setHasMore(false);
+    setIsLoading(true);
     void loadAlbums(1, 'replace');
   }, [loadAlbums]);
 
-  const handleCoverError = useCallback((album: LibraryAlbum): void => {
-    if (!album.coverThumb) {
-      return;
-    }
-
-    setFailedCoverUrls((current) =>
-      current[album.id] === album.coverThumb
-        ? current
-        : {
-            ...current,
-            [album.id]: album.coverThumb!,
-          },
-    );
+  const handleCoverError = useCallback((album: LibraryAlbum, coverUrl: string): void => {
+    setFailedCoverUrls((current) => ({ ...current, [coverFailureKey(album, coverUrl)]: true }));
   }, []);
 
   const handleLoadMore = useCallback((): void => {
@@ -127,6 +125,10 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
     },
     [onAlbumSelect],
   );
+
+  const showInitialLoading = isLoading && albums.length === 0 && !error;
+  const expectedSkeletonCount = typeof albumCount === 'number' && Number.isFinite(albumCount) ? Math.ceil(albumCount) : initialSkeletonCount;
+  const skeletonCount = Math.min(pageSize, Math.max(1, expectedSkeletonCount));
 
   if (!isLoading && albums.length === 0 && !error) {
     return (
@@ -152,9 +154,23 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
         <small>{albums.length === total ? t('artistDetail.albums.count', { count: total }) : t('artistDetail.albums.loadedCount', { loaded: albums.length, total })}</small>
       </header>
 
-      <div className="artist-album-strip" ref={albumWallRef}>
-        {albums.map((album) => {
-          const shouldShowCover = Boolean(album.coverThumb && failedCoverUrls[album.id] !== album.coverThumb);
+      <div className="artist-album-strip" ref={albumWallRef} data-loading={showInitialLoading ? 'true' : undefined}>
+        {showInitialLoading ? Array.from({ length: skeletonCount }, (_, index) => (
+          <article className="artist-album-card artist-album-card-skeleton" key={`artist-album-skeleton-${index}`} aria-hidden="true">
+            <div className="artist-album-cover" />
+            <div className="artist-album-copy">
+              <strong />
+              <span />
+            </div>
+          </article>
+        )) : albums.map((album) => {
+          const originalCover = albumOriginalCoverUrl(album);
+          const coverUrl = originalCover && !failedCoverUrls[coverFailureKey(album, originalCover)]
+            ? originalCover
+            : album.coverThumb && !failedCoverUrls[coverFailureKey(album, album.coverThumb)]
+              ? album.coverThumb
+              : null;
+          const shouldShowCover = Boolean(coverUrl);
 
           return (
             <article
@@ -173,9 +189,9 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
                     draggable={false}
                     height={320}
                     loading="lazy"
-                    src={album.coverThumb!}
+                    src={coverUrl!}
                     width={320}
-                    onError={() => handleCoverError(album)}
+                    onError={() => handleCoverError(album, coverUrl!)}
                   />
                 ) : (
                   <Disc3 size={24} />
@@ -190,6 +206,7 @@ export const ArtistAlbumGrid = ({ artistId, artistName, onAlbumSelect }: ArtistA
         })}
       </div>
 
+      {showInitialLoading ? <p className="artist-detail-status">{t('library.albums.loading')}</p> : null}
       <InfiniteScrollSentinel canLoadMore={hasMore} isLoading={isLoading} onLoadMore={handleLoadMore} />
       <MediaWallScrollSpacer height={spacerHeight} />
       {error ? <p className="artist-detail-error">{error}</p> : null}

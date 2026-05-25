@@ -38,6 +38,7 @@ import { QQMusicStreamingProvider } from './providers/QQMusicStreamingProvider';
 import { BilibiliStreamingProvider } from './providers/BilibiliStreamingProvider';
 import { SoundCloudStreamingProvider } from './providers/SoundCloudStreamingProvider';
 import { SpotifyStreamingProvider } from './providers/SpotifyStreamingProvider';
+import { TidalStreamingProvider } from './providers/TidalStreamingProvider';
 import { M3u8StreamingProvider } from './providers/M3u8StreamingProvider';
 import { buildM3u8StreamingPlaylistDetail } from './M3u8Playlist';
 
@@ -809,6 +810,7 @@ export const createStreamingService = (database: EchoDatabase): StreamingService
   registry.register(new BilibiliStreamingProvider());
   registry.register(new SoundCloudStreamingProvider());
   registry.register(new SpotifyStreamingProvider());
+  registry.register(new TidalStreamingProvider());
   registry.register(new M3u8StreamingProvider());
   return new StreamingService(
     registry,

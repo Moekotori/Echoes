@@ -1529,7 +1529,6 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         </details>
       ) : null}
 
-      {showAdvancedTools ? (
       <details className="eq-pro-section" open>
         <summary>{t('settings.eq.section.channel')}</summary>
       <section className="channel-balance-panel" aria-label="Channel balance panel" data-enabled={channelBalance.enabled}>
@@ -1743,7 +1742,6 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         </div>
       </section>
       </details>
-      ) : null}
 
       <footer className="eq-preset-tools eq-preset-console">
         <div className="eq-preset-console-main">

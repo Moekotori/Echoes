@@ -106,17 +106,21 @@ const createService = (
   database: EchoDatabase,
   providers: ArtistImageProvider | ArtistImageProvider[],
   root = makeTempRoot(),
-  options: { concurrency?: number; fetchImageData?: Uint8Array } = {},
+  options: {
+    concurrency?: number;
+    fetchImageData?: Uint8Array;
+    fetchImage?: (url: string) => Promise<{ data: Uint8Array; mimeType: string; sourceHash: string }>;
+  } = {},
 ): ArtistImageCacheService =>
   new ArtistImageCacheService(database, {
     cacheRoot: join(root, 'artist-images'),
     providers: Array.isArray(providers) ? providers : [providers],
     concurrency: options.concurrency,
-    fetchImage: async (url) => ({
+    fetchImage: options.fetchImage ?? (async (url) => ({
       data: options.fetchImageData ?? validPng(),
       mimeType: 'image/png',
       sourceHash: `hash:${url}`,
-    }),
+    })),
   });
 
 afterEach(() => {
@@ -221,6 +225,21 @@ describe('ArtistImageCacheService', () => {
     database.close();
   });
 
+  it('stores NetEase frequent-operation failures as rate limited', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Rate Limited Artist');
+    const providerSearch = vi.fn().mockRejectedValue(new Error('request_failed:405 操作频繁，请稍候再试'));
+    const service = createService(database, createProvider(providerSearch, 'netease'));
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(result.entry).toMatchObject({
+      status: 'rate_limited',
+      provider: 'netease',
+    });
+    database.close();
+  });
+
   it('does not enqueue an extra batch when default background backfill is already running', async () => {
     const database = createDatabase(':memory:');
     insertArtist(database, 'artist-1', 'First Artist');
@@ -315,6 +334,86 @@ describe('ArtistImageCacheService', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(providerSearch).toHaveBeenCalledTimes(1);
+    database.close();
+  });
+
+  it('defers queued artist image jobs while playback is active', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Playing Artist');
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    service.setPlaybackActive(true);
+    const result = service.enqueueMissingArtistImages([{ id: 'artist-1', name: 'Playing Artist' }], { force: true });
+    await delay(20);
+
+    expect(result).toEqual({ queued: 1, skipped: 0 });
+    expect(service.getJobStatus()).toMatchObject({ paused: false, running: false, queued: 1, active: 0 });
+    expect(providerSearch).not.toHaveBeenCalled();
+
+    service.setPlaybackActive(false);
+    await waitFor(() => providerSearch.mock.calls.length === 1);
+
+    database.close();
+  });
+
+  it('remembers background backfill requested during playback and starts it afterward', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Deferred Backfill Artist');
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    service.setPlaybackActive(true);
+    const status = service.kickoffBackfill({ force: true, limit: 10 });
+    await delay(20);
+
+    expect(status).toMatchObject({ running: false, queued: 0, active: 0 });
+    expect(providerSearch).not.toHaveBeenCalled();
+
+    service.setPlaybackActive(false);
+    await waitFor(() => providerSearch.mock.calls.length === 1);
+
+    database.close();
+  });
+
+  it('requeues an active artist image job if playback starts before image processing', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Interrupted Playback Artist');
+    const serviceRef: { current: ArtistImageCacheService | null } = { current: null };
+    const fetchImage = vi.fn(async () => {
+      serviceRef.current?.setPlaybackActive(true);
+      return {
+        data: validPng(),
+        mimeType: 'image/png',
+        sourceHash: 'hash:interrupted',
+      };
+    });
+    const providerSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'mock',
+        providerArtistId: 'remote-1',
+        artistName: 'Interrupted Playback Artist',
+        imageUrl: 'https://example.test/avatar.jpg',
+        confidence: 0.98,
+      },
+    ]);
+    const service = createService(database, createProvider(providerSearch), makeTempRoot(), { fetchImage });
+    serviceRef.current = service;
+
+    service.enqueueMissingArtistImages([{ id: 'artist-1', name: 'Interrupted Playback Artist' }], { force: true });
+    await waitFor(() => service.getJobStatus().queued === 1 && service.getJobStatus().active === 0);
+
+    expect(fetchImage).toHaveBeenCalledTimes(1);
+    expect(service.getArtistImage('artist-1')?.status).toBe('pending');
+
+    fetchImage.mockImplementationOnce(async () => ({
+      data: validPng(),
+      mimeType: 'image/png',
+      sourceHash: 'hash:resumed',
+    }));
+    service.setPlaybackActive(false);
+    await waitFor(() => service.getArtistImage('artist-1')?.status === 'matched');
+
     database.close();
   });
 
@@ -460,7 +559,7 @@ describe('ArtistImageCacheService', () => {
         provider: 'qqmusic',
         providerArtistId: 'default-avatar',
         artistName: 'Default Avatar Artist',
-        imageUrl: 'https://y.gtimg.cn/music/photo_new/T001R500x500M000default-avatar.jpg',
+        imageUrl: 'https://y.gtimg.cn/music/photo_new/T001R500x500M000artist-photo.jpg',
         confidence: 0.96,
       },
     ]);
@@ -470,6 +569,35 @@ describe('ArtistImageCacheService', () => {
 
     const result = await service.refreshArtistImage('artist-1', true);
 
+    expect(result.entry).toMatchObject({
+      status: 'not_found',
+      failureReason: 'artist_image_default_placeholder',
+    });
+    database.close();
+  });
+
+  it('skips obvious platform default avatar URLs before downloading', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Default Url Artist');
+    const providerSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'netease',
+        providerArtistId: 'default-url',
+        artistName: 'Default Url Artist',
+        imageUrl: 'https://p2.music.126.net/artist_default.png?param=600y600',
+        confidence: 0.96,
+      },
+    ]);
+    const fetchImage = vi.fn(async (url: string) => ({
+      data: validPng(),
+      mimeType: 'image/png',
+      sourceHash: `hash:${url}`,
+    }));
+    const service = createService(database, createProvider(providerSearch), makeTempRoot(), { fetchImage });
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(fetchImage).not.toHaveBeenCalled();
     expect(result.entry).toMatchObject({
       status: 'not_found',
       failureReason: 'artist_image_default_placeholder',
