@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type {
   AudioDeviceInfo,
   AudioDiagnostics,
+  AsioCompatibilityProfile,
   ActiveDsdOutputMode,
   AudioLatencyProfile,
   AudioOutputMode,
@@ -18,6 +19,7 @@ import type { AutomixTransitionPlan, AutomixTransitionMode, TrackTransitionAnaly
 export type {
   AudioDeviceInfo,
   AudioDiagnostics,
+  AsioCompatibilityProfile,
   AudioLatencyProfile,
   AudioOutputMode,
   AudioOutputSettings,
@@ -57,6 +59,7 @@ export type SampleRatePlan = {
   resampling: boolean;
   bitPerfectCandidate: boolean;
   sampleRateMismatch: boolean;
+  asioCompatibilityProfile: AsioCompatibilityProfile | null;
   warnings: string[];
 };
 
@@ -145,6 +148,7 @@ export type NativeOutputStartOptions = {
   inputFormat?: 'pcm-f32le' | 'dop24le' | 'dsd-native-raw';
   asioNativeDsdOutput?: boolean;
   nativeDsdSampleRate?: number | null;
+  asioCompatibilityProfile?: AsioCompatibilityProfile | null;
 };
 
 export type NativeOutputTelemetry = {

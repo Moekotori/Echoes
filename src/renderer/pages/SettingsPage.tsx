@@ -417,7 +417,6 @@ const visibleNetworkMetadataProviders: AppSettings['networkMetadataProviders'] =
 const defaultNetworkMetadataProviders: AppSettings['networkMetadataProviders'] = ['netease-cloud-music', 'qq-music'];
 const artistOnlineInfoSourceOptions: Array<{ source: ArtistOnlineInfoSource; label: string; description: string }> = [
   { source: 'baidu-baike', label: '百度百科', description: '中文艺人和大众歌手优先' },
-  { source: 'moegirl', label: '萌娘百科', description: 'ACG / 音游 / 虚拟歌手补充' },
   { source: 'wikipedia', label: 'Wikipedia', description: '国际艺人兜底' },
 ];
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
@@ -548,6 +547,7 @@ type SettingsSearchResult = {
 
 type FontPickerTarget = 'main' | 'chinese' | 'fallback';
 type AlbumMergeStrategy = AppSettings['albumMergeStrategy'];
+type ArtistMergeStrategy = NonNullable<AppSettings['artistMergeStrategy']>;
 type AccountBusyAction = 'save' | 'check' | 'clear' | 'browser' | 'login';
 
 type LocalFontData = {
@@ -3203,6 +3203,22 @@ const getAccountBadgeClass = (status: AccountStatus | undefined): string => {
   return status.error ? 'list-filter-chip settings-account-badge-error active' : 'list-filter-chip active';
 };
 
+const renderAccountStatusBadge = (
+  t: ReturnType<typeof useI18n>['t'],
+  status: AccountStatus | undefined,
+  onOpenLogin: () => void,
+): JSX.Element => {
+  if (status && !status.connected) {
+    return (
+      <button className={`${getAccountBadgeClass(status)} settings-account-status-link`} type="button" onClick={onOpenLogin}>
+        {t('settings.integrations.accounts.clickToLogin')}
+      </button>
+    );
+  }
+
+  return <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>;
+};
+
 const AccountCookieCard = ({
   busyAction,
   cookieValue,
@@ -3232,7 +3248,7 @@ const AccountCookieCard = ({
   return (
     <article className="settings-account-row" aria-label={accountProviderLabels[provider]}>
       <div className="settings-account-summary">
-        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        {renderAccountStatusBadge(t, status, onOpenLogin)}
         <div>
           <h3>{accountProviderLabels[provider]}</h3>
           <p>{provider === 'bilibili' ? t('settings.integrations.accounts.description.bilibili') : t('settings.integrations.accounts.description.default')}</p>
@@ -3301,7 +3317,7 @@ const YouTubeAccountCard = ({
   return (
     <article className="settings-account-row" aria-label="YouTube">
       <div className="settings-account-summary">
-        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        {renderAccountStatusBadge(t, status, onOpenLogin)}
         <div>
           <h3>YouTube</h3>
           <p>{t('settings.integrations.accounts.youtube.description')}</p>
@@ -3360,7 +3376,7 @@ const SpotifyAccountCard = ({
   return (
     <article className="settings-account-row" aria-label="Spotify">
       <div className="settings-account-summary">
-        <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+        {renderAccountStatusBadge(t, status, onOpenLogin)}
         <div>
           <h3>Spotify</h3>
           <p>{t('settings.integrations.accounts.spotify.description')}</p>
@@ -3548,6 +3564,7 @@ export const SettingsPage = (): JSX.Element => {
   const [downloadUnlockInput, setDownloadUnlockInput] = useState('');
   const [downloadUnlockMessage, setDownloadUnlockMessage] = useState<string | null>(null);
   const [pendingAlbumMergeStrategy, setPendingAlbumMergeStrategy] = useState<AlbumMergeStrategy | null>(null);
+  const [pendingArtistMergeStrategy, setPendingArtistMergeStrategy] = useState<ArtistMergeStrategy | null>(null);
   const [albumGroupingBusy, setAlbumGroupingBusy] = useState(false);
   const [albumGroupingMessage, setAlbumGroupingMessage] = useState<string | null>(null);
   const [libraryScanBusy, setLibraryScanBusy] = useState(false);
@@ -3571,6 +3588,7 @@ export const SettingsPage = (): JSX.Element => {
   const [replayGainAnalysisBusy, setReplayGainAnalysisBusy] = useState(false);
   const [replayGainAnalysisMessage, setReplayGainAnalysisMessage] = useState<string | null>(null);
   const [replayGainAdvancedOpen, setReplayGainAdvancedOpen] = useState(false);
+  const [audioStatusPanelOpen, setAudioStatusPanelOpen] = useState(false);
   const [channelBalanceState, setChannelBalanceState] = useState<ChannelBalanceState>(defaultSettingsChannelBalance);
   const [audioResetBusy, setAudioResetBusy] = useState(false);
   const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
@@ -3677,7 +3695,7 @@ export const SettingsPage = (): JSX.Element => {
         targetId: 'settings-row-artist-online-info-sources',
         title: t('settings.general.artistInfoSources.title'),
         description: t('settings.general.artistInfoSources.description'),
-        terms: [t('settings.general.artistInfoSources.title'), t('settings.general.artistInfoSources.description'), '艺人信息源', '藝人資訊來源', 'アーティスト情報ソース', '歌手信息源', '百度百科', '萌娘百科', '维基百科', 'Wikipedia', 'Baike', 'Moegirl', 'artist info source'],
+        terms: [t('settings.general.artistInfoSources.title'), t('settings.general.artistInfoSources.description'), '艺人信息源', '藝人資訊來源', 'アーティスト情報ソース', '歌手信息源', '百度百科', '维基百科', 'Wikipedia', 'Baike', 'artist info source'],
       },
       {
         id: 'row-data-backup',
@@ -4011,6 +4029,14 @@ export const SettingsPage = (): JSX.Element => {
           '艺术家头像',
           '头像缓存',
         ],
+      },
+      {
+        id: 'row-library-merge-strategy',
+        sectionKey: 'library',
+        targetId: 'settings-row-library-merge-strategy',
+        title: '专辑/艺人合并策略',
+        description: '调整专辑和艺人别名聚合，不改写歌曲元数据。',
+        terms: ['专辑合并', '艺人合并', '艺术家合并', 'artist merge', 'album merge', 'metadata cleanup', 'Aiobahn', '25時'],
       },
       {
         id: 'row-mysterious-key',
@@ -4728,6 +4754,10 @@ export const SettingsPage = (): JSX.Element => {
       setPendingAlbumMergeStrategy(appSettings.albumMergeStrategy);
     }
   }, [appSettings?.albumMergeStrategy]);
+
+  useEffect(() => {
+    setPendingArtistMergeStrategy(appSettings?.artistMergeStrategy ?? 'standard');
+  }, [appSettings?.artistMergeStrategy]);
 
   useEffect(() => {
     if (!appSettings) {
@@ -6931,6 +6961,7 @@ export const SettingsPage = (): JSX.Element => {
 
   const handleAlbumMergeStrategyApply = async (): Promise<void> => {
     const nextStrategy = pendingAlbumMergeStrategy ?? appSettings?.albumMergeStrategy ?? 'standard';
+    const nextArtistStrategy = pendingArtistMergeStrategy ?? appSettings?.artistMergeStrategy ?? 'standard';
     const app = getAppBridge();
     const library = getLibraryBridge();
 
@@ -6944,17 +6975,26 @@ export const SettingsPage = (): JSX.Element => {
       setAlbumGroupingMessage(null);
       setError(null);
       const beforeSummary = await library.getSummary();
-      const settings = await app.setSettings({ albumMergeStrategy: nextStrategy });
+      const settings = await app.setSettings({ albumMergeStrategy: nextStrategy, artistMergeStrategy: nextArtistStrategy });
       setAppSettings(settings);
       const afterSummary = await library.refreshAlbumGrouping();
       const albumDelta = beforeSummary.albumCount - afterSummary.albumCount;
+      const artistDelta = beforeSummary.artistCount - afterSummary.artistCount;
       const changeText =
         albumDelta > 0
           ? `减少 ${albumDelta} 张`
           : albumDelta < 0
             ? `增加 ${Math.abs(albumDelta)} 张`
             : '数量未变化';
-      setAlbumGroupingMessage(`专辑分组已更新：${beforeSummary.albumCount} 张 -> ${afterSummary.albumCount} 张，${changeText}。`);
+      const artistChangeText =
+        artistDelta > 0
+          ? `减少 ${artistDelta} 位`
+          : artistDelta < 0
+            ? `增加 ${Math.abs(artistDelta)} 位`
+            : '数量未变化';
+      setAlbumGroupingMessage(
+        `分组已更新：专辑 ${beforeSummary.albumCount} -> ${afterSummary.albumCount}，${changeText}；艺人 ${beforeSummary.artistCount} -> ${afterSummary.artistCount}，${artistChangeText}。`,
+      );
       window.dispatchEvent(new Event('library:changed'));
     } catch (albumGroupingError) {
       setAlbumGroupingMessage(null);
@@ -7721,6 +7761,7 @@ export const SettingsPage = (): JSX.Element => {
       setCacheDirectoryResult(null);
       setCacheDirectoryMessage(null);
       setPendingAlbumMergeStrategy(settings.albumMergeStrategy);
+      setPendingArtistMergeStrategy(settings.artistMergeStrategy ?? 'standard');
       setDefaultCacheDirectory(await app.getDefaultCacheDirectory());
       setDangerMessage('默认设置已恢复。');
       window.dispatchEvent(new Event('settings:changed'));
@@ -7783,6 +7824,7 @@ export const SettingsPage = (): JSX.Element => {
       setAppSettings(result.settings);
       handleAppearanceChange(result.settings.appearancePreferences ?? defaultAppearancePreferences);
       setPendingAlbumMergeStrategy(result.settings.albumMergeStrategy);
+      setPendingArtistMergeStrategy(result.settings.artistMergeStrategy ?? 'standard');
       setPendingCacheDirectory(undefined);
       setCacheDirectoryResult(null);
       setCacheDirectoryMessage(null);
@@ -7905,6 +7947,7 @@ export const SettingsPage = (): JSX.Element => {
       setAppSettings(result.settings);
       handleAppearanceChange(result.settings.appearancePreferences ?? defaultAppearancePreferences);
       setPendingAlbumMergeStrategy(result.settings.albumMergeStrategy);
+      setPendingArtistMergeStrategy(result.settings.artistMergeStrategy ?? 'standard');
       setPendingCacheDirectory(undefined);
       setCacheDirectoryResult(null);
       setCacheDirectoryMessage(null);
@@ -8719,9 +8762,6 @@ export const SettingsPage = (): JSX.Element => {
                 description={t('settings.playback.fixedVolume.description')}
               >
                 <div className="settings-chip-row">
-                  <StatusText tone={appSettings?.fixedVolumeEnabled ? 'good' : 'muted'}>
-                    {appSettings?.fixedVolumeEnabled ? t('settings.playback.fixedVolume.status.fixed') : t('settings.playback.fixedVolume.status.adjustable')}
-                  </StatusText>
                   <ToggleButton
                     active={appSettings?.fixedVolumeEnabled ?? false}
                     disabled={!appSettings}
@@ -8838,65 +8878,67 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('settings.playback.replayGain.title')}
                 description={t('settings.playback.replayGain.description')}
               >
-                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>{appSettings?.replayGainEnabled ? t('settings.playback.replayGain.status.enabled') : t('settings.playback.replayGain.status.disabled')}</span>
-                      <ToggleButton
-                        active={appSettings?.replayGainEnabled ?? false}
-                        disabled={!appSettings}
-                        onClick={() => patchAppSettings({ replayGainEnabled: !(appSettings?.replayGainEnabled ?? false) })}
-                      />
+                <div className="settings-cache-panel settings-cache-panel--replay-gain">
+                  <div className="settings-replay-gain-toolbar">
+                    <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions settings-replay-gain-primary">
+                      <div className="settings-inline-toggle">
+                        <span>{appSettings?.replayGainEnabled ? t('settings.playback.replayGain.status.enabled') : t('settings.playback.replayGain.status.disabled')}</span>
+                        <ToggleButton
+                          active={appSettings?.replayGainEnabled ?? false}
+                          disabled={!appSettings}
+                          onClick={() => patchAppSettings({ replayGainEnabled: !(appSettings?.replayGainEnabled ?? false) })}
+                        />
+                      </div>
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        disabled={replayGainAnalysisBusy}
+                        onClick={() => void handleStartReplayGainAnalysis()}
+                      >
+                        <RotateCw className={replayGainAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
+                        {replayGainAnalysisBusy ? t('settings.playback.replayGain.action.analyzing') : t('settings.playback.replayGain.action.analyzeMissing')}
+                      </button>
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        onClick={() => setReplayGainAdvancedOpen((open) => !open)}
+                      >
+                        <SlidersHorizontal size={15} />
+                        {t('settings.playback.replayGain.action.advanced')}
+                      </button>
                     </div>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={replayGainAnalysisBusy}
-                      onClick={() => void handleStartReplayGainAnalysis()}
-                    >
-                      <RotateCw className={replayGainAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
-                      {replayGainAnalysisBusy ? t('settings.playback.replayGain.action.analyzing') : t('settings.playback.replayGain.action.analyzeMissing')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => setReplayGainAdvancedOpen((open) => !open)}
-                    >
-                      <SlidersHorizontal size={15} />
-                      {t('settings.playback.replayGain.action.advanced')}
-                    </button>
+                    <div className="settings-chip-row settings-chip-row--left settings-replay-gain-presets">
+                      <ChipButton
+                        active={(appSettings?.replayGainTargetLufs ?? SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS) === SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS}
+                        onClick={() =>
+                          patchAppSettings({
+                            replayGainEnabled: true,
+                            replayGainMode: 'track',
+                            replayGainTargetLufs: SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS,
+                            replayGainPreventClipping: true,
+                            replayGainAnalyzeOnPlay: true,
+                          })
+                        }
+                      >
+                        Spotify Normal (-14 LUFS)
+                      </ChipButton>
+                      <ChipButton
+                        active={(appSettings?.replayGainTargetLufs ?? SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS) === QUIET_REPLAY_GAIN_TARGET_LUFS}
+                        onClick={() =>
+                          patchAppSettings({
+                            replayGainEnabled: true,
+                            replayGainMode: 'track',
+                            replayGainTargetLufs: QUIET_REPLAY_GAIN_TARGET_LUFS,
+                            replayGainPreventClipping: true,
+                            replayGainAnalyzeOnPlay: true,
+                          })
+                        }
+                      >
+                        Quiet (-18 LUFS)
+                      </ChipButton>
+                    </div>
                   </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    <ChipButton
-                      active={(appSettings?.replayGainTargetLufs ?? SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS) === SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS}
-                      onClick={() =>
-                        patchAppSettings({
-                          replayGainEnabled: true,
-                          replayGainMode: 'track',
-                          replayGainTargetLufs: SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS,
-                          replayGainPreventClipping: true,
-                          replayGainAnalyzeOnPlay: true,
-                        })
-                      }
-                    >
-                      Spotify Normal (-14 LUFS)
-                    </ChipButton>
-                    <ChipButton
-                      active={(appSettings?.replayGainTargetLufs ?? SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS) === QUIET_REPLAY_GAIN_TARGET_LUFS}
-                      onClick={() =>
-                        patchAppSettings({
-                          replayGainEnabled: true,
-                          replayGainMode: 'track',
-                          replayGainTargetLufs: QUIET_REPLAY_GAIN_TARGET_LUFS,
-                          replayGainPreventClipping: true,
-                          replayGainAnalyzeOnPlay: true,
-                        })
-                      }
-                    >
-                      Quiet (-18 LUFS)
-                    </ChipButton>
-                  </div>
-                  <div className="settings-status-grid">
+                  <div className="settings-status-grid settings-status-grid--replay-gain">
                     <span>
                       <em>{t('settings.playback.replayGain.field.mode')}</em>
                       <strong>{(appSettings?.replayGainMode ?? 'track') === 'album' ? t('settings.playback.replayGain.mode.album') : (appSettings?.replayGainMode ?? 'track') === 'off' ? t('settings.playback.replayGain.mode.off') : t('settings.playback.replayGain.mode.track')}</strong>
@@ -8919,8 +8961,8 @@ export const SettingsPage = (): JSX.Element => {
                     </span>
                   </div>
                   {replayGainAdvancedOpen ? (
-                    <>
-                      <div className="settings-chip-row settings-chip-row--left">
+                    <div className="settings-replay-gain-advanced">
+                      <div className="settings-chip-row settings-chip-row--left settings-replay-gain-mode">
                         {(['track', 'album', 'off'] as const).map((mode) => (
                           <ChipButton
                             active={(appSettings?.replayGainMode ?? 'track') === mode}
@@ -8931,7 +8973,7 @@ export const SettingsPage = (): JSX.Element => {
                           </ChipButton>
                         ))}
                       </div>
-                      <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                      <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions settings-replay-gain-toggles">
                         <div className="settings-inline-toggle">
                           <span>{t('settings.playback.replayGain.toggle.preventClipping')}</span>
                           <ToggleButton
@@ -8985,7 +9027,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </label>
                       </div>
-                    </>
+                    </div>
                   ) : null}
                   {replayGainAnalysisMessage ? <p className="settings-inline-note">{replayGainAnalysisMessage}</p> : null}
                   {replayGainAnalysisJob?.errorCount ? <p className="settings-inline-error">{t('settings.playback.replayGain.error', { count: replayGainAnalysisJob.errorCount })}</p> : null}
@@ -9010,24 +9052,35 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('settings.playback.audioStatus.title')}
                 description={t('settings.playback.audioStatus.description')}
               >
-                <div className="settings-audio-professional-panel">
-                  <AudioProfessionalStatusPanel status={status} variant="settings" />
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <button className="settings-action-button" type="button" onClick={() => void refreshStatus()}>
-                      <RotateCw size={15} />
-                      {t('audioProfessional.action.refresh')}
-                    </button>
-                    <button className="settings-action-button" type="button" onClick={() => void copyAudioDiagnostics()}>
-                      <Clipboard size={15} />
-                      {audioDiagnosticsCopied ? t('audioDrawer.action.copiedDiagnostics') : t('audioDrawer.action.copyDiagnostics')}
+                {audioStatusPanelOpen ? (
+                  <div className="settings-audio-professional-panel">
+                    <AudioProfessionalStatusPanel status={status} variant="settings" />
+                    <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                      <button className="settings-action-button" type="button" onClick={() => setAudioStatusPanelOpen(false)}>
+                        {t('audioProfessional.action.hideDetails')}
+                      </button>
+                      <button className="settings-action-button" type="button" onClick={() => void refreshStatus()}>
+                        <RotateCw size={15} />
+                        {t('audioProfessional.action.refresh')}
+                      </button>
+                      <button className="settings-action-button" type="button" onClick={() => void copyAudioDiagnostics()}>
+                        <Clipboard size={15} />
+                        {audioDiagnosticsCopied ? t('audioDrawer.action.copiedDiagnostics') : t('audioDrawer.action.copyDiagnostics')}
+                      </button>
+                    </div>
+                    {error ? <p className="settings-inline-error">{error}</p> : null}
+                    {status?.warnings.length ? (
+                      <p className="settings-inline-error">warnings: {status.warnings.join(', ')}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="settings-audio-professional-collapsed">
+                    <button className="settings-action-button" type="button" onClick={() => setAudioStatusPanelOpen(true)}>
+                      {t('audioProfessional.action.showDetails')}
                     </button>
                   </div>
-                </div>
+                )}
               </SettingRow>
-              {error ? <p className="settings-inline-error">{error}</p> : null}
-              {status?.warnings.length ? (
-                <p className="settings-inline-error">warnings: {status.warnings.join(', ')}</p>
-              ) : null}
               <PlaybackStabilityDiagnosticsPanel />
             </SettingSection>
 
@@ -10615,8 +10668,10 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
-                title="专辑合并策略"
-                description="选择专辑列表如何把歌曲整理成专辑，不会改变歌曲 artist 显示或元数据。"
+                id="settings-row-library-merge-strategy"
+                highlighted={highlightedSettingId === 'settings-row-library-merge-strategy'}
+                title="专辑/艺人合并策略"
+                description="选择资料库如何整理专辑和艺人别名，不会改写歌曲 artist 显示或元数据。"
               >
                 <div className="settings-cache-panel settings-cache-panel--album">
                   <div className="settings-chip-row settings-chip-row--left">
@@ -10643,6 +10698,30 @@ export const SettingsPage = (): JSX.Element => {
                       <strong>专辑名匹配度 95% 以上直接合并；否则封面一致且专辑名匹配度 90% 以上时合并。</strong>
                     </span>
                   </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <ChipButton
+                      active={(pendingArtistMergeStrategy ?? appSettings?.artistMergeStrategy ?? 'standard') === 'conservative'}
+                      onClick={() => setPendingArtistMergeStrategy('conservative')}
+                    >
+                      保守艺人合并
+                    </ChipButton>
+                    <ChipButton
+                      active={(pendingArtistMergeStrategy ?? appSettings?.artistMergeStrategy ?? 'standard') === 'standard'}
+                      onClick={() => setPendingArtistMergeStrategy('standard')}
+                    >
+                      普通艺人合并（推荐）
+                    </ChipButton>
+                  </div>
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>保守艺人合并</em>
+                      <strong>只合并大小写、全半角、空格、点号、尾部符号等明显同名变体。</strong>
+                    </span>
+                    <span>
+                      <em>普通艺人合并（推荐）</em>
+                      <strong>在保守规则上处理 +81 / Topic / Official 等尾缀，并用高阈值模糊匹配合并长名称近似别名。</strong>
+                    </span>
+                  </div>
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <button
                       className="settings-action-button"
@@ -10650,7 +10729,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleAlbumMergeStrategyApply()}
                       disabled={!appSettings || albumGroupingBusy}
                     >
-                      {albumGroupingBusy ? '重新整理中...' : '应用并重新整理专辑'}
+                      {albumGroupingBusy ? '重新整理中...' : '应用并重新整理分组'}
                     </button>
                     <button
                       className="settings-action-button"

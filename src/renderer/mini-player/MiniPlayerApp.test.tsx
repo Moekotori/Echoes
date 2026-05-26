@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AudioStatus } from '../../shared/types/audio';
@@ -105,6 +105,7 @@ const installEchoMock = (track: LibraryTrack): void => {
         saveQueueSession: vi.fn().mockResolvedValue(undefined),
         pause: vi.fn().mockResolvedValue({ ...playbackStatus, state: 'paused' }),
         play: vi.fn().mockResolvedValue(playbackStatus),
+        playLocalFile: vi.fn().mockResolvedValue(playbackStatus),
         seek: vi.fn().mockResolvedValue(playbackStatus),
       },
       connect: {
@@ -131,19 +132,21 @@ const installEchoMock = (track: LibraryTrack): void => {
         hide: vi.fn(),
         show: vi.fn(),
         setLocked: vi.fn(),
+        setQueueOpen: vi.fn().mockResolvedValue(null),
         resetBounds: vi.fn(),
       },
     } as unknown as Window['echo'],
   });
 };
 
-const QueueSeed = ({ track }: { track: LibraryTrack }): JSX.Element => {
+const QueueSeed = ({ track, tracks }: { track: LibraryTrack; tracks?: LibraryTrack[] }): JSX.Element => {
   const { replaceQueue, setCurrentTrackId } = usePlaybackQueue();
+  const seedTracks = useMemo(() => tracks ?? [track], [track, tracks]);
 
   useEffect(() => {
-    replaceQueue([track]);
+    replaceQueue(seedTracks, { startTrackId: track.id });
     setCurrentTrackId(track.id);
-  }, [replaceQueue, setCurrentTrackId, track]);
+  }, [replaceQueue, seedTracks, setCurrentTrackId, track.id]);
 
   return <MiniPlayerApp />;
 };
@@ -185,6 +188,36 @@ describe('MiniPlayerApp', () => {
     fireEvent.pointerUp(slider);
 
     await waitFor(() => expect(window.echo?.playback?.seek).toHaveBeenCalledWith(90));
+  });
+
+  it('opens the mini queue and plays a selected queue item', async () => {
+    const firstTrack = makeTrack();
+    const secondTrack = makeTrack({
+      id: 'track-2',
+      path: 'D:\\Music\\Queue Pick.flac',
+      title: 'Queue Pick',
+      artist: 'Queue Artist',
+    });
+    installEchoMock(firstTrack);
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={firstTrack} tracks={[firstTrack, secondTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开播放队列' }));
+
+    expect(window.echo?.miniPlayer?.setQueueOpen).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole('listbox', { name: '播放队列' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Queue Pick/ }));
+
+    await waitFor(() =>
+      expect(window.echo?.playback?.playLocalFile).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: secondTrack.path,
+        trackId: secondTrack.id,
+      })),
+    );
   });
 
   it('prefers live playback status over stale mini player queue metadata', async () => {

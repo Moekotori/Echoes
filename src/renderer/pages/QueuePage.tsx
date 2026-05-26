@@ -33,6 +33,7 @@ import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
 
 const automixTemporarilyDisabled = true;
+const randomQueuePageSize = 96;
 
 const formatDuration = (duration: number): string => {
   if (!Number.isFinite(duration) || duration <= 0) {
@@ -587,8 +588,9 @@ export const QueuePage = (): JSX.Element => {
     try {
       const result = await library.getTracks({
         page: 1,
-        pageSize: 500,
+        pageSize: randomQueuePageSize,
         sort: 'random',
+        randomWindow: true,
       });
 
       if (result.items.length === 0) {
@@ -597,7 +599,7 @@ export const QueuePage = (): JSX.Element => {
       }
 
       queue.replaceQueue(result.items, {
-        source: { type: 'manual', label: t('queue.randomSource') },
+        source: { type: 'songs', label: t('queue.randomSource'), sort: 'random' },
       });
       queue.setRepeatMode('off');
       if (queue.isShuffleEnabled) {

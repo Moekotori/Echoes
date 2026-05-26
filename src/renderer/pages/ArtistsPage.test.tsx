@@ -166,6 +166,22 @@ describe('ArtistsPage', () => {
     window.removeEventListener('app:navigate:songs', navigateSongs);
   });
 
+  it('returns to home when an artist detail was opened from home', async () => {
+    const targetArtist = artist('target', { name: 'BURTON' });
+    const navigateRoute = vi.fn<(event: Event) => void>();
+    const getArtists = vi.fn().mockResolvedValue(page([targetArtist]));
+    installLibrary(getArtists);
+    window.addEventListener('app:navigate:route', navigateRoute);
+
+    renderArtistsPage();
+    await waitFor(() => expect(getArtists).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new CustomEvent('app:navigate:artist-detail', { detail: { artist: targetArtist, returnTo: 'home' } }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to artists' }));
+
+    expect(navigateRoute).toHaveBeenCalledWith(expect.objectContaining({ detail: 'home' }));
+    window.removeEventListener('app:navigate:route', navigateRoute);
+  });
+
   it('loads the next artist page when the artist wall scrolls to the spacer bottom', async () => {
     const getArtists = vi
       .fn()

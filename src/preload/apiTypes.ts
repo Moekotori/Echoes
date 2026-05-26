@@ -287,6 +287,7 @@ export type EchoApi = {
     hide: () => Promise<MiniPlayerState>;
     getState: () => Promise<MiniPlayerState>;
     setLocked: (locked: boolean) => Promise<MiniPlayerState>;
+    setQueueOpen: (open: boolean) => Promise<MiniPlayerState>;
     resetBounds: () => Promise<MiniPlayerState>;
     onStateChanged: (handler: (state: MiniPlayerState) => void) => () => void;
   };

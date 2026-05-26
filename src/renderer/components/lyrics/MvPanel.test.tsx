@@ -1123,7 +1123,7 @@ describe('MvPanel', () => {
     const performanceNow = vi.spyOn(performance, 'now').mockReturnValue(0);
     const { container } = renderPanel(makeVideo(), true, { ...defaultMvSettings, restartAudioOnLoad: true }, 10);
     const video = await waitFor(() => {
-      const element = container.querySelector('video') as HTMLVideoElement | null;
+      const element = container.querySelector('.lyrics-mv-video') as HTMLVideoElement | null;
       expect(element).toBeTruthy();
       return element!;
     });
@@ -1301,6 +1301,24 @@ describe('MvPanel', () => {
 
     expect(await screen.findByText('External player required')).toBeTruthy();
     expect(screen.getByText('本地视频格式不支持')).toBeTruthy();
+  });
+
+  it('shows the Bilibili block reason instead of the generic video failure notice', async () => {
+    renderPanel(
+      makeVideo({
+        provider: 'bilibili',
+        sourceType: 'search_candidate',
+        sourceId: 'BV1blocked',
+        mediaUrl: null,
+        playableInApp: false,
+        rawProviderJson: {
+          unavailableReason: 'bilibili-playurl-blocked',
+          status: 412,
+        },
+      }),
+    );
+
+    expect(await screen.findByText(/Bilibili/)).toBeTruthy();
   });
 
   it('uses temporary MV playback when selected MV lookup hits a database error', async () => {

@@ -232,7 +232,8 @@ describe('app settings normalization', () => {
     expect(settings.onlineArtistInfoTicketmasterApiKey).toBe('ticketmaster-key');
     expect(settings.onlineArtistInfoSeatGeekClientId).toBe('seatgeek-id');
     expect(settings.onlineArtistInfoRegion).toBe('HK');
-    expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl', 'bad', 'baidu-baike'] }).onlineArtistInfoSources).toEqual(['moegirl']);
+    expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl', 'bad', 'baidu-baike'] }).onlineArtistInfoSources).toEqual(['baidu-baike']);
+    expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl'] }).onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(normalizeSettings({ onlineArtistInfoSources: [] }).onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(normalizeSettings({ onlineArtistInfoBandsintownAppId: '   ' }).onlineArtistInfoBandsintownAppId).toBeNull();
   });
@@ -482,6 +483,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).albumMergeStrategy).toBe('standard');
     expect(normalizeSettings({ albumMergeStrategy: 'sameTitleAndCover' }).albumMergeStrategy).toBe('sameTitleAndCover');
     expect(normalizeSettings({ albumMergeStrategy: 'loose' as never }).albumMergeStrategy).toBe('standard');
+  });
+
+  it('normalizes artistMergeStrategy values', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).artistMergeStrategy).toBe('standard');
+    expect(normalizeSettings({ artistMergeStrategy: 'conservative' }).artistMergeStrategy).toBe('conservative');
+    expect(normalizeSettings({ artistMergeStrategy: 'loose' as never }).artistMergeStrategy).toBe('standard');
   });
 
   it('keeps gapless playback opt-in', async () => {
@@ -979,7 +988,8 @@ describe('app settings normalization', () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({}).audioUseJuceDecode).toBe(false);
-    expect(normalizeSettings({ appMemoryVersion: 5, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 5, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 6, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
     expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
     expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(false);
     expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(false);

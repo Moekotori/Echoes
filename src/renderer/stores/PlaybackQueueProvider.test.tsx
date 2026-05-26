@@ -2938,18 +2938,19 @@ describe('PlaybackQueueProvider playback modes', () => {
   it('does not repeat recently played queue items while shuffle still has unplayed tracks', async () => {
     const tracks = [makeTrack(1), makeTrack(2), makeTrack(3), makeTrack(4)];
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: 120000,
+        filePath: request.filePath,
+      }),
+    );
 
     window.echo = {
       playback: {
-        playLocalFile: vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
-          Promise.resolve({
-            state: 'playing',
-            currentTrackId: request.trackId,
-            positionMs: 0,
-            durationMs: 120000,
-            filePath: request.filePath,
-          }),
-        ),
+        playLocalFile,
       },
     } as unknown as Window['echo'];
 
@@ -2985,12 +2986,17 @@ describe('PlaybackQueueProvider playback modes', () => {
     );
 
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-1'));
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole('button', { name: 'next' }));
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(2));
+    await act(async () => undefined);
 
     fireEvent.click(screen.getByRole('button', { name: 'next' }));
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-3'));
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledTimes(3));
+    await act(async () => undefined);
 
     fireEvent.click(screen.getByRole('button', { name: 'next' }));
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-4'));
@@ -3067,16 +3073,94 @@ describe('PlaybackQueueProvider playback modes', () => {
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
     expect(getTracks).toHaveBeenCalledWith({
       page: 1,
-      pageSize: 500,
+      pageSize: 64,
       search: undefined,
       sort: 'random',
       hideDuplicates: undefined,
       showDuplicatesOnly: undefined,
       duplicateMode: 'strict',
+      excludeTrackIds: ['track-1'],
+      randomWindow: true,
     });
   });
 
-  it('uses queued songs before asking the library for more shuffle candidates', async () => {
+  it('loads shuffle candidates from the full song library when the current queue is manual', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+    const getTracks = vi.fn().mockResolvedValue({
+      items: [tracks[1]],
+      page: 1,
+      pageSize: 64,
+      total: 2,
+      hasMore: false,
+    });
+
+    window.echo = {
+      playback: {
+        playLocalFile: vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+          Promise.resolve({
+            state: 'playing',
+            currentTrackId: request.trackId,
+            positionMs: 0,
+            durationMs: 120000,
+            filePath: request.filePath,
+          }),
+        ),
+      },
+      library: {
+        getTracks,
+      },
+    } as unknown as Window['echo'];
+
+    const ManualShuffleProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.toggleShuffle();
+        void queue.playTrack(tracks[0], { replaceQueueWith: [tracks[0]] });
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <button type="button" disabled={!queue.canGoNext} onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <ManualShuffleProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-1'));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'next' }) as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
+    expect(getTracks).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 64,
+      search: undefined,
+      sort: 'random',
+      hideDuplicates: undefined,
+      showDuplicatesOnly: undefined,
+      duplicateMode: 'strict',
+      excludeTrackIds: ['track-1'],
+      randomWindow: true,
+    });
+  });
+
+  it('uses full-library candidates before queued songs while shuffle is enabled', async () => {
     const tracks = [makeTrack(1), makeTrack(2), makeTrack(3)];
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const getTracks = vi.fn().mockResolvedValue({
@@ -3141,8 +3225,18 @@ describe('PlaybackQueueProvider playback modes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'next' }));
 
-    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
-    expect(getTracks).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-3'));
+    expect(getTracks).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 64,
+      search: undefined,
+      sort: 'random',
+      hideDuplicates: undefined,
+      showDuplicatesOnly: undefined,
+      duplicateMode: 'strict',
+      excludeTrackIds: ['track-1'],
+      randomWindow: true,
+    });
   });
 
   it('refreshes a random Songs queue after the loaded random page is exhausted', async () => {
@@ -3223,6 +3317,8 @@ describe('PlaybackQueueProvider playback modes', () => {
       hideDuplicates: undefined,
       showDuplicatesOnly: undefined,
       duplicateMode: 'strict',
+      excludeTrackIds: ['track-2', 'track-1'],
+      randomWindow: true,
     });
   });
 

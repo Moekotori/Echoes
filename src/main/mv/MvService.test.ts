@@ -147,7 +147,10 @@ const makeResolvedVariant = (overrides: Partial<ResolvedMvStreamVariant> = {}): 
   ...overrides,
 });
 
-const makeExternalVariant = (url = 'https://www.bilibili.com/video/BV1external'): ResolvedMvStreamVariant => ({
+const makeExternalVariant = (
+  url = 'https://www.bilibili.com/video/BV1external',
+  rawProviderJson: unknown | null = null,
+): ResolvedMvStreamVariant => ({
   id: 'bilibili:external',
   label: 'Bilibili',
   qualityTier: 'auto',
@@ -163,7 +166,7 @@ const makeExternalVariant = (url = 'https://www.bilibili.com/video/BV1external')
   expiresAt: null,
   url,
   headers: {},
-  rawProviderJson: null,
+  rawProviderJson,
 });
 
 const makeSqliteCorruptError = (): Error & { code: string } => {
@@ -457,6 +460,98 @@ describe('MvService', () => {
 
     expect(service.getSelectedVideo(track.id)?.id).toBe(selectedManually.id);
     expect(service.getSelectedVideo(track.id)?.title).toBe('Echo Song Live MV');
+  });
+
+  it('deduplicates concurrent stream resolves for the same MV', async () => {
+    appSettingsMock.current = { ...appSettingsMock.current, mvAutoSearch: false };
+    const candidate: MvMatchCandidate = {
+      id: 'bilibili:BV1dedupe',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song Official MV',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1dedupe',
+      providerUrl: 'https://www.bilibili.com/video/BV1dedupe',
+      thumbnailUrl: null,
+      uploader: 'Echo Channel',
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.9,
+      playableInApp: true,
+      reasons: ['Bilibili search'],
+    };
+    let releaseResolve!: (value: ResolvedMvStreamVariant[]) => void;
+    const pendingResolve = new Promise<ResolvedMvStreamVariant[]>((resolve) => {
+      releaseResolve = resolve;
+    });
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [candidate]),
+      resolve: vi.fn(async () => pendingResolve),
+    };
+    const { service, track } = createHarness([provider]);
+    const [persisted] = await service.searchNetworkCandidates(track.id);
+
+    const first = service.resolveStreams(persisted.id);
+    const second = service.resolveStreams(persisted.id);
+    await Promise.resolve();
+    expect(provider.resolve).toHaveBeenCalledTimes(1);
+
+    releaseResolve([makeResolvedVariant()]);
+    const [firstResolved, secondResolved] = await Promise.all([first, second]);
+
+    expect(provider.resolve).toHaveBeenCalledTimes(1);
+    expect(firstResolved.video.mediaUrl).toBe(`echo-mv://stream/${encodeURIComponent(persisted.id)}/bilibili-qn-80`);
+    expect(secondResolved.video.mediaUrl).toBe(firstResolved.video.mediaUrl);
+  });
+
+  it('keeps playable cached streams but surfaces a later Bilibili playurl block reason', async () => {
+    appSettingsMock.current = { ...appSettingsMock.current, mvAutoSearch: false };
+    const candidate: MvMatchCandidate = {
+      id: 'bilibili:BV1blocked',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song Official MV',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1blocked',
+      providerUrl: 'https://www.bilibili.com/video/BV1blocked',
+      thumbnailUrl: null,
+      uploader: 'Echo Channel',
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.9,
+      playableInApp: true,
+      reasons: ['Bilibili search'],
+    };
+    const resolve = vi
+      .fn<MainMvOnlineProvider['resolve']>()
+      .mockResolvedValueOnce([makeResolvedVariant()])
+      .mockResolvedValueOnce([
+        makeExternalVariant(candidate.providerUrl ?? undefined, {
+          provider: 'bilibili',
+          unavailableReason: 'bilibili-playurl-blocked',
+          status: 412,
+        }),
+      ]);
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [candidate]),
+      resolve,
+    };
+    const { service, track } = createHarness([provider]);
+    const [persisted] = await service.searchNetworkCandidates(track.id);
+    const selected = await service.selectVideo(track.id, persisted.id);
+
+    const refreshed = await service.resolveStreams(selected.id);
+
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(refreshed.video.mediaUrl).toBe(`echo-mv://stream/${encodeURIComponent(persisted.id)}/bilibili-qn-80`);
+    expect(refreshed.video.rawProviderJson).toMatchObject({
+      unavailableReason: 'bilibili-playurl-blocked',
+      status: 412,
+    });
   });
 
   it('does not automatically apply external-only network MV candidates', async () => {

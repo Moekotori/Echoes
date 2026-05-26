@@ -7,7 +7,7 @@ import { DeviceService, type DeviceListOptions } from './DeviceService';
 import { DecoderPipeline } from './DecoderPipeline';
 import { JuceDecodePipeline } from './JuceDecodePipeline';
 import { getEqBridge } from './EqBridge';
-import { PcmLevelMeterTransform, createAudioLevelTelemetry, type PcmLevelSnapshot } from './AudioLevelMeter';
+import { PcmLevelMeterTransform, createAudioLevelTelemetry, visualSpectrumBucketCount, type PcmLevelSnapshot } from './AudioLevelMeter';
 import type { EqProfileBindingTarget } from '../../shared/types/eq';
 import { NativeOutputBridge, isNativeOutputBridgeAvailable } from './NativeOutputBridge';
 import { PlaybackClock } from './PlaybackClock';
@@ -18,6 +18,7 @@ import { AutomixAnalyzer } from './AutomixAnalyzer';
 import { getAppSettings, setAppSettings } from '../app/appSettings';
 import { calculateReplayGain, dbToLinearGain, type ReplayGainCalculation, type ReplayGainTrackData } from '../../shared/utils/replayGain';
 import { normalizeAudioSharedBackendForPlatform } from '../../shared/utils/audioPlatformCapabilities';
+import { detectAsioCompatibilityProfile } from '../../shared/utils/asioCompatibility';
 import { DEFAULT_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
 import type { ReplayGainMode } from '../../shared/types/appSettings';
 import {
@@ -59,6 +60,7 @@ import type {
   AudioPlaybackIssueSummary,
   PlaybackSpeedMode,
   SharedStabilityTier,
+  AsioCompatibilityProfile,
 } from '../../shared/types/audio';
 import type { PlaybackMemory } from './PlaybackMemoryStore';
 import type { AudioCrashReportPayload } from '../diagnostics/CrashReportService';
@@ -246,7 +248,8 @@ const nativeTelemetryStatusIntervalMs = 1000;
 const nativeStartupTelemetryLogWindowMs = 3_500;
 const nativeStartupTelemetryLogIntervalMs = 500;
 const guardedPositionJumpDiagnosticLogIntervalMs = 2_000;
-const levelMeterStatusIntervalMs = 1000;
+const levelMeterVisualIntervalMs = 33;
+const levelMeterStatusIntervalMs = 33;
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;
 const asioUnavailableCooldownMs = 30_000;
@@ -499,6 +502,18 @@ const normalizeSharedBackend = (value: unknown): AudioSharedBackend => {
 
 const normalizeDsdOutputMode = (value: unknown): AudioDsdOutputMode => (value === 'dop' ? 'dop' : 'pcm');
 
+const resolveAsioCompatibilityProfile = (
+  outputMode: AudioOutputMode,
+  outputSettings: AudioOutputSettings,
+  selectedDevice: AudioDeviceInfo | null,
+): AsioCompatibilityProfile | null => {
+  if (outputMode !== 'asio') {
+    return null;
+  }
+
+  return detectAsioCompatibilityProfile(selectedDevice?.name ?? outputSettings.deviceName);
+};
+
 const isResidentOutputMode = (value: unknown): boolean => {
   const mode = normalizeOutputMode(value);
   return mode === 'exclusive' || mode === 'asio';
@@ -685,6 +700,7 @@ const getAsioNativeDsdDisabledWarning = (
   probe: AudioProbeResult,
   outputSettings: AudioOutputSettings,
   outputMode: AudioOutputMode,
+  asioCompatibilityProfile: AsioCompatibilityProfile | null = null,
 ): string | null => {
   if (outputSettings.asioNativeDsdExperimentalEnabled !== true) {
     return null;
@@ -700,6 +716,10 @@ const getAsioNativeDsdDisabledWarning = (
 
   if (outputMode !== 'asio') {
     return 'asio_native_dsd_requires_asio';
+  }
+
+  if (asioCompatibilityProfile === 'asio4all') {
+    return 'asio4all_native_dsd_unsupported';
   }
 
   const dopDisabledWarning = getDsdDopDisabledWarning(filePath, inputHeaders, probe, outputSettings, outputMode);
@@ -720,10 +740,11 @@ const shouldAttemptAsioNativeDsd = (
   probe: AudioProbeResult,
   outputSettings: AudioOutputSettings,
   outputMode: AudioOutputMode,
+  asioCompatibilityProfile: AsioCompatibilityProfile | null = null,
 ): boolean =>
   outputSettings.asioNativeDsdExperimentalEnabled === true &&
   isDsfFilePath(filePath) &&
-  getAsioNativeDsdDisabledWarning(filePath, inputHeaders, probe, outputSettings, outputMode) === null;
+  getAsioNativeDsdDisabledWarning(filePath, inputHeaders, probe, outputSettings, outputMode, asioCompatibilityProfile) === null;
 
 const outputDeviceStartRefusedPatterns = [
   /Couldn't open the output device/iu,
@@ -1206,6 +1227,11 @@ export class AudioSession extends EventEmitter {
   private levelSnapshot: PcmLevelSnapshot = {
     inputPeakDb: null,
     inputRmsDb: null,
+    visualSpectrum: Array.from({ length: visualSpectrumBucketCount }, () => 0),
+    visualSpectrumVersion: 2,
+    visualEnergy: 0,
+    visualTransient: 0,
+    visualTelemetryState: 'fallback',
     clipCount: 0,
     lastClipAt: null,
   };
@@ -2862,6 +2888,7 @@ export class AudioSession extends EventEmitter {
       outputDeviceType: this.currentOutputDeviceType,
       outputBackend: this.currentOutputBackend,
       activeOutputBackendImpl: this.currentOutputBackendImpl,
+      asioCompatibilityProfile: plan?.asioCompatibilityProfile ?? null,
       nativeOutputFormat: getReadyOutputFormat(this.currentReadyResult),
       outputMode: plan?.outputMode ?? this.outputSettings.outputMode,
       sharedBackend: normalizeSharedBackend(this.currentOutputSettings?.sharedBackend ?? this.outputSettings.sharedBackend),
@@ -3100,6 +3127,7 @@ export class AudioSession extends EventEmitter {
       latencyProfile: status.latencyProfile,
       outputBackend: status.outputBackend,
       activeOutputBackendImpl: status.activeOutputBackendImpl,
+      asioCompatibilityProfile: status.asioCompatibilityProfile,
       nativeOutputFormat: status.nativeOutputFormat,
       useJuceOutputRequested: status.useJuceOutputRequested,
       useJuceDecodeRequested: status.useJuceDecodeRequested,
@@ -4032,7 +4060,7 @@ export class AudioSession extends EventEmitter {
     const explicitDevice = createDeviceFromOutputSettings(outputSettings);
 
     if (explicitDevice) {
-      return explicitDevice;
+      return this.resolveAsioCompatibilityDevice(outputSettings, explicitDevice);
     }
 
     return outputMode === 'shared' ? this.resolveDefaultSharedDevice() : null;
@@ -4145,6 +4173,7 @@ export class AudioSession extends EventEmitter {
     planOptions: { residentOutputSampleRate?: number | null } = {},
   ): SampleRatePlan {
     const outputMode = normalizeOutputMode(outputSettings.outputMode);
+    const asioCompatibilityProfile = resolveAsioCompatibilityProfile(outputMode, outputSettings, selectedDevice);
     const fileSampleRate = probe.fileSampleRate;
     const sourceSampleRate = fileSampleRate ?? fallbackSampleRate;
     const dsdPcmOutputSampleRate = resolveDsdPcmOutputSampleRate(probe);
@@ -4163,6 +4192,7 @@ export class AudioSession extends EventEmitter {
       probe,
       outputSettings,
       outputMode,
+      asioCompatibilityProfile,
     )
       ? fileSampleRate
       : null;
@@ -4173,6 +4203,13 @@ export class AudioSession extends EventEmitter {
         : 'pcm';
     const sourceOutputSampleRate = asioNativeDsdSampleRate ?? dsdDopTransportSampleRate ?? dsdPcmOutputSampleRate ?? sourceSampleRate;
     const explicitRequestedSampleRate = normalizePositiveInteger(outputSettings.requestedOutputSampleRate);
+    const asioCompatibilityRequestedSampleRate =
+      asioCompatibilityProfile === 'asio4all'
+        ? explicitRequestedSampleRate ??
+          normalizePositiveInteger(selectedDevice?.sharedDeviceSampleRate) ??
+          normalizePositiveInteger(selectedDevice?.sampleRate) ??
+          fallbackSharedMixSampleRate
+        : null;
     const residentOutputSampleRate =
       outputMode !== 'shared' ? normalizePositiveInteger(planOptions.residentOutputSampleRate) : null;
     const sharedDeviceSampleRate =
@@ -4187,7 +4224,12 @@ export class AudioSession extends EventEmitter {
       residentOutputSampleRate ??
       (outputMode === 'shared'
         ? cappedSharedRequestedSampleRate
-        : asioNativeDsdSampleRate ?? dsdDopTransportSampleRate ?? dsdPcmOutputSampleRate ?? explicitRequestedSampleRate ?? sourceOutputSampleRate);
+        : asioNativeDsdSampleRate ??
+          dsdDopTransportSampleRate ??
+          dsdPcmOutputSampleRate ??
+          asioCompatibilityRequestedSampleRate ??
+          explicitRequestedSampleRate ??
+          sourceOutputSampleRate);
     const decoderOutputSampleRate =
       outputMode === 'shared'
         ? requestedOutputSampleRate
@@ -4221,6 +4263,7 @@ export class AudioSession extends EventEmitter {
       probe,
       outputSettings,
       outputMode,
+      asioCompatibilityProfile,
     );
     if (asioNativeDsdDisabledWarning) {
       warnings.push(asioNativeDsdDisabledWarning);
@@ -4298,6 +4341,7 @@ export class AudioSession extends EventEmitter {
       resampling,
       bitPerfectCandidate,
       sampleRateMismatch,
+      asioCompatibilityProfile,
       warnings,
     };
   }
@@ -4507,12 +4551,25 @@ export class AudioSession extends EventEmitter {
     return sharedDevices.find((device) => device.isDefault) ?? sharedDevices[0] ?? null;
   }
 
+  private resolveAsioCompatibilityDevice(
+    outputSettings: AudioOutputSettings,
+    explicitDevice: AudioDeviceInfo,
+  ): AudioDeviceInfo {
+    const outputMode = normalizeOutputMode(outputSettings.outputMode);
+    if (resolveAsioCompatibilityProfile(outputMode, outputSettings, explicitDevice) !== 'asio4all') {
+      return explicitDevice;
+    }
+
+    return this.resolveSelectedDevice(outputSettings) ?? explicitDevice;
+  }
+
   private createBridgeStartCandidates(outputSettings: AudioOutputSettings): Array<AudioDeviceInfo | null> {
     const outputMode = normalizeOutputMode(outputSettings.outputMode);
     const explicitDevice = createDeviceFromOutputSettings(outputSettings);
 
     if (explicitDevice) {
-      return outputMode === 'shared' ? [explicitDevice, null] : [explicitDevice];
+      const device = this.resolveAsioCompatibilityDevice(outputSettings, explicitDevice);
+      return outputMode === 'shared' ? [device, null] : [device];
     }
 
     return [null];
@@ -4578,11 +4635,18 @@ export class AudioSession extends EventEmitter {
 
   private createNativeOutputStartOptions(options: NativeOutputStartOptions): NativeOutputStartOptions {
     const outputMode = options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
-    const latencyProfile = resolveSupportedLatencyProfile(outputMode, normalizeLatencyProfile(options.latencyProfile));
+    const requestedLatencyProfile = resolveSupportedLatencyProfile(outputMode, normalizeLatencyProfile(options.latencyProfile));
+    const rawBufferSizeFrames = normalizePositiveInteger(options.bufferSizeFrames) ?? undefined;
+    const latencyProfile =
+      options.asioCompatibilityProfile === 'asio4all' &&
+      rawBufferSizeFrames === undefined &&
+      requestedLatencyProfile === 'lowLatency'
+        ? 'balanced'
+        : requestedLatencyProfile;
     const explicitBufferSizeFrames = this.sanitizeLowLatencyBufferForOutputMode(
       outputMode,
       latencyProfile,
-      normalizePositiveInteger(options.bufferSizeFrames) ?? undefined,
+      rawBufferSizeFrames,
       'native_start_options',
     );
     const profileBufferSizeFrames =
@@ -4818,6 +4882,7 @@ export class AudioSession extends EventEmitter {
         inputFormat: isAsioNativeDsdOutput ? 'dsd-native-raw' : isDsdDopOutput ? 'dop24le' : 'pcm-f32le',
         asioNativeDsdOutput: isAsioNativeDsdOutput,
         nativeDsdSampleRate: isAsioNativeDsdOutput ? this.currentPlan.dsdNativeSampleRate : null,
+        asioCompatibilityProfile: this.currentPlan.asioCompatibilityProfile,
       });
       const reusableBridge = this.bridge;
       if (!useDirectSoundBackend && residentReuseAllowed && reusableBridge?.canReuseFor?.(startOptions) && this.currentReadyResult) {
@@ -5476,7 +5541,13 @@ export class AudioSession extends EventEmitter {
       this.currentProbe?.channels ?? 2,
       this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate,
     );
-    const levelMeterTransform = new PcmLevelMeterTransform((snapshot) => this.handleLevelSnapshot(snapshot));
+    const levelMeterTransform = new PcmLevelMeterTransform(
+      (snapshot) => this.handleLevelSnapshot(snapshot),
+      levelMeterVisualIntervalMs,
+      undefined,
+      this.currentProbe?.fileSampleRate ?? undefined,
+      this.currentProbe?.channels ?? undefined,
+    );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     let inputEnded = false;
     const signalNativeInputEnded = (): void => {
@@ -5591,7 +5662,13 @@ export class AudioSession extends EventEmitter {
     const nextGainTransform = new PcmVolumeTransform(nativeVolumeControl ? 1 : volume);
     const currentReplayGainTransform = new PcmVolumeTransform(this.replayGainLinearGain(currentReplayGainCalculation), 16);
     const nextReplayGainTransform = new PcmVolumeTransform(this.replayGainLinearGain(nextReplayGainCalculation), 16);
-    const levelMeterTransform = new PcmLevelMeterTransform((snapshot) => this.handleLevelSnapshot(snapshot));
+    const levelMeterTransform = new PcmLevelMeterTransform(
+      (snapshot) => this.handleLevelSnapshot(snapshot),
+      levelMeterVisualIntervalMs,
+      undefined,
+      this.currentProbe?.fileSampleRate ?? undefined,
+      this.currentProbe?.channels ?? undefined,
+    );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     const combinedRun: DecoderRun = {
       stream: currentRun.stream,
@@ -6157,6 +6234,11 @@ export class AudioSession extends EventEmitter {
     this.levelSnapshot = {
       inputPeakDb: null,
       inputRmsDb: null,
+      visualSpectrum: Array.from({ length: visualSpectrumBucketCount }, () => 0),
+      visualSpectrumVersion: 2,
+      visualEnergy: 0,
+      visualTransient: 0,
+      visualTelemetryState: 'fallback',
       clipCount: 0,
       lastClipAt: null,
     };

@@ -2,7 +2,7 @@ import type { LibraryAlbum, LibraryTrack } from '../../shared/types/library';
 
 export const albumDetailNavigationEvent = 'app:navigate:album-detail';
 
-export type DetailReturnTarget = 'songs';
+export type DetailReturnTarget = 'history' | 'home' | 'songs';
 
 export type AlbumDetailNavigationRequest = {
   album: LibraryAlbum;

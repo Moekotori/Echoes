@@ -984,6 +984,7 @@ describe('preload SMTC API', () => {
     await exposedApi!.miniPlayer.hide();
     await exposedApi!.miniPlayer.getState();
     await exposedApi!.miniPlayer.setLocked(true);
+    await exposedApi!.miniPlayer.setQueueOpen(true);
     await exposedApi!.miniPlayer.resetBounds();
     const unsubscribe = exposedApi!.miniPlayer.onStateChanged(handler);
     const listener = listeners.get(IpcChannels.MiniPlayerStateChanged);
@@ -1006,6 +1007,7 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MiniPlayerHide);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MiniPlayerGetState);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MiniPlayerSetLocked, true);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MiniPlayerSetQueueOpen, true);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MiniPlayerResetBounds);
     expect(handler).toHaveBeenCalledWith(state);
     expect(listeners.has(IpcChannels.MiniPlayerStateChanged)).toBe(false);

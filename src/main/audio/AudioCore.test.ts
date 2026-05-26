@@ -1159,7 +1159,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].inputEnded).toBe(true);
   });
 
-  it('exposes pre-native PCM level telemetry after volume is applied', async () => {
+  it.each(['shared', 'exclusive', 'asio'] as const)('exposes pre-native PCM level telemetry after volume is applied for %s output', async (outputMode) => {
     const decoder = new PcmChunkDecoder(new Map([['meter.flac', probe('meter.flac', 44100)]]), [pcmBuffer([1, -1])]);
     const session = createAudioSessionForTest({
       decoder,
@@ -1168,12 +1168,15 @@ describe('Audio Core sample-rate regression guard', () => {
       logger: noopLogger,
     });
 
-    await session.playLocalFile({ filePath: 'meter.flac', output: { outputMode: 'shared', volume: 0.5 } });
+    await session.playLocalFile({ filePath: 'meter.flac', output: { outputMode, volume: 0.5 } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const status = session.getStatus();
 
     expect(status.audioLevels?.inputPeakDb).toBe(-6);
     expect(status.audioLevels?.inputRmsDb).toBe(-6);
+    expect(status.audioLevels?.visualSpectrum).toHaveLength(24);
+    expect(status.audioLevels?.visualSpectrumVersion).toBe(2);
+    expect(status.audioLevels?.visualTelemetryState).toBe('pcm');
     expect(status.audioLevels?.meterSource).toBe('pre_native_estimated_post_dsp');
     session.stop();
   });
@@ -1215,6 +1218,10 @@ describe('Audio Core sample-rate regression guard', () => {
     const stopped = session.stop();
 
     expect(stopped.audioLevels?.inputPeakDb).toBeNull();
+    expect(stopped.audioLevels?.visualSpectrum?.every((value) => value === 0)).toBe(true);
+    expect(stopped.audioLevels?.visualEnergy).toBe(0);
+    expect(stopped.audioLevels?.visualTransient).toBe(0);
+    expect(stopped.audioLevels?.visualTelemetryState).toBe('fallback');
     expect(stopped.audioLevels?.clipCount).toBe(0);
   });
 
@@ -3097,6 +3104,92 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.nativeActualBufferFrames).toBe(128);
   });
 
+  it('applies the ASIO4ALL compatibility profile without source-rate chasing', async () => {
+    const asio4allDevice: AudioDeviceInfo = {
+      id: 'asio:0',
+      index: 0,
+      name: 'ASIO4ALL v2',
+      outputMode: 'asio',
+      sampleRate: null,
+      sharedDeviceSampleRate: 48000,
+      isDefault: true,
+      asioOutputChannels: 4,
+      asioOutputChannelStart: 0,
+      asioChannelNames: ['Realtek 1', 'Realtek 2', 'USB 1', 'USB 2'],
+    };
+    const { bridges, decoder, session } = createSessionHarness([
+      probe('asio4all-hires.flac', 96000),
+      probe('asio4all-cd.flac', 44100),
+    ], [], [asio4allDevice]);
+
+    const firstStatus = await session.playLocalFile({
+      filePath: 'asio4all-hires.flac',
+      output: { outputMode: 'asio', deviceName: 'ASIO4ALL v2' },
+    });
+    const secondStatus = await session.playLocalFile({
+      filePath: 'asio4all-cd.flac',
+      output: { outputMode: 'asio', deviceName: 'ASIO4ALL v2' },
+    });
+
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].startOptions).toMatchObject({
+      asio: true,
+      deviceName: 'ASIO4ALL v2',
+      requestedOutputSampleRate: 48000,
+      bufferSizeFrames: 2048,
+      asioCompatibilityProfile: 'asio4all',
+    });
+    expect(bridges[1].startOptions).toMatchObject({
+      asio: true,
+      requestedOutputSampleRate: 48000,
+      asioCompatibilityProfile: 'asio4all',
+    });
+    expect(decoder.decodeRequests.map((request) => request.decoderOutputSampleRate)).toEqual([48000, 48000]);
+    expect(firstStatus.asioCompatibilityProfile).toBe('asio4all');
+    expect(secondStatus.asioCompatibilityProfile).toBe('asio4all');
+    expect(firstStatus.resampling).toBe(true);
+    expect(secondStatus.resampling).toBe(true);
+  });
+
+  it('respects explicit ASIO4ALL buffer requests', async () => {
+    const { bridges, session } = createSessionHarness([probe('asio4all.flac', 48000)]);
+
+    const status = await session.playLocalFile({
+      filePath: 'asio4all.flac',
+      output: { outputMode: 'asio', deviceName: 'ASIO4ALL v2', bufferSizeFrames: 128 },
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      asio: true,
+      bufferSizeFrames: 128,
+      asioCompatibilityProfile: 'asio4all',
+    });
+    expect(status.nativeRequestedBufferFrames).toBe(128);
+    expect(status.asioCompatibilityProfile).toBe('asio4all');
+  });
+
+  it('keeps non-ASIO4ALL ASIO source-rate behavior unchanged', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('teac-hires.flac', 96000)]);
+
+    const status = await session.playLocalFile({
+      filePath: 'teac-hires.flac',
+      output: { outputMode: 'asio', deviceName: 'TEAC ASIO USB DRIVER' },
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      asio: true,
+      deviceName: 'TEAC ASIO USB DRIVER',
+      requestedOutputSampleRate: 96000,
+    });
+    expect(bridges[0].startOptions?.asioCompatibilityProfile).toBeNull();
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'teac-hires.flac',
+      decoderOutputSampleRate: 96000,
+    });
+    expect(status.asioCompatibilityProfile).toBeNull();
+    expect(status.resampling).toBe(false);
+  });
+
   it('reports ASIO buffer fallback metadata when the driver opens a larger buffer', async () => {
     const bridge = new FakeBridge(48000, {
       deviceBufferFrames: 512,
@@ -3302,6 +3395,41 @@ describe('Audio Core sample-rate regression guard', () => {
       expect(status.dsdNativeSampleRate).toBe(2822400);
       expect(status.dsdTransportSampleRate).toBeNull();
       expect(status.warnings).not.toContain('dsd_source_decoded_to_pcm:2822400->176400');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+      session.dispose();
+    }
+  });
+
+  it('disables ASIO native DSD for ASIO4ALL but keeps the DoP fallback path', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'echo-asio4all-native-dsd-'));
+    const filePath = join(tempDir, 'asio4all-native-dsd.dsf');
+    await writeFile(filePath, createDsfDopFixture());
+    const { bridges, session } = createSessionHarness([dsdProbe(filePath)]);
+
+    try {
+      const status = await session.playLocalFile({
+        filePath,
+        output: {
+          outputMode: 'asio',
+          deviceName: 'ASIO4ALL v2',
+          dsdOutputMode: 'dop',
+          asioNativeDsdExperimentalEnabled: true,
+        },
+      });
+      for (let attempt = 0; attempt < 10 && bridges[0].sessionChunks.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+
+      expect(bridges[0].startOptions).toMatchObject({
+        asio: true,
+        inputFormat: 'dop24le',
+        asioNativeDsdOutput: false,
+        asioCompatibilityProfile: 'asio4all',
+      });
+      expect(status.asioCompatibilityProfile).toBe('asio4all');
+      expect(status.activeDsdOutputMode).toBe('dop');
+      expect(status.warnings).toContain('asio4all_native_dsd_unsupported');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
       session.dispose();
@@ -6943,6 +7071,7 @@ describe('AudioSession host availability', () => {
       }
       if (first.audioLevels) {
         first.audioLevels.clipCount = 99;
+        first.audioLevels.visualSpectrum = [1];
       }
 
       const second = session.getStatus();
@@ -6958,6 +7087,7 @@ describe('AudioSession host availability', () => {
       expect(second.warnings).not.toContain('mutated-status');
       expect(second.automix?.enabled).toBe(false);
       expect(second.audioLevels?.clipCount).toBe(0);
+      expect(second.audioLevels?.visualSpectrum).toHaveLength(24);
     } finally {
       session.dispose();
     }

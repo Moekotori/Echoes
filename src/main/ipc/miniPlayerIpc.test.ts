@@ -16,6 +16,7 @@ const setMiniPlayerLockedMock = vi.fn((locked: boolean) => ({
     miniPlayerBounds: null,
   },
 }));
+const setMiniPlayerQueueOpenMock = vi.fn();
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -28,6 +29,7 @@ vi.mock('../app/miniPlayerWindow', () => ({
   hideMiniPlayerWindow: vi.fn(),
   resetMiniPlayerBounds: vi.fn(),
   setMiniPlayerLocked: setMiniPlayerLockedMock,
+  setMiniPlayerQueueOpen: setMiniPlayerQueueOpenMock,
   showMiniPlayerWindow: vi.fn(),
 }));
 
@@ -42,6 +44,7 @@ describe('mini player IPC', () => {
     resetHandlers();
     handleMock.mockClear();
     setMiniPlayerLockedMock.mockClear();
+    setMiniPlayerQueueOpenMock.mockClear();
     vi.resetModules();
     const module = await import('./miniPlayerIpc');
     module.registerMiniPlayerIpc();
@@ -52,6 +55,7 @@ describe('mini player IPC', () => {
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.MiniPlayerHide, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.MiniPlayerGetState, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.MiniPlayerSetLocked, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.MiniPlayerSetQueueOpen, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.MiniPlayerResetBounds, expect.any(Function));
   });
 
@@ -61,5 +65,13 @@ describe('mini player IPC', () => {
 
     expect(setMiniPlayerLockedMock).toHaveBeenNthCalledWith(1, false);
     expect(setMiniPlayerLockedMock).toHaveBeenNthCalledWith(2, true);
+  });
+
+  it('normalizes queue panel state to explicit true only', () => {
+    handlers[IpcChannels.MiniPlayerSetQueueOpen]!(null, 'true');
+    handlers[IpcChannels.MiniPlayerSetQueueOpen]!(null, true);
+
+    expect(setMiniPlayerQueueOpenMock).toHaveBeenNthCalledWith(1, false);
+    expect(setMiniPlayerQueueOpenMock).toHaveBeenNthCalledWith(2, true);
   });
 });

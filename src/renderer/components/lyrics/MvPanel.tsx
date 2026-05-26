@@ -82,6 +82,18 @@ const isUnplayableSearchCandidate = (video: TrackVideo | null): boolean =>
 
 type Translate = (key: TranslationKey, options?: Record<string, string | number>) => string;
 
+const rawProviderRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const isBilibiliPlayurlBlocked = (video: TrackVideo | null): boolean => {
+  if (video?.provider !== 'bilibili') {
+    return false;
+  }
+
+  const raw = rawProviderRecord(video.rawProviderJson);
+  return raw?.unavailableReason === 'bilibili-playurl-blocked';
+};
+
 const summarizeMvLoadError = (message: string, t: Translate): string => {
   if (/MV database is temporarily unavailable|database disk image is malformed|DatabaseHealthError|SQLITE_CORRUPT|file is not a database/i.test(message)) {
     return t('mvPanel.status.databaseUnread');
@@ -121,6 +133,9 @@ const getUnavailableReason = ({
   }
   if (!selectedVideo) {
     return t('mvPanel.status.notFound');
+  }
+  if (isBilibiliPlayurlBlocked(selectedVideo)) {
+    return t('mvPanel.status.bilibiliBlocked');
   }
   if (videoError) {
     return t('mvPanel.status.videoFailed');

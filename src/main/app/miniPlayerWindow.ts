@@ -13,6 +13,7 @@ const defaultMiniPlayerSize = {
   width: 388,
   height: 74,
 } as const;
+const expandedMiniPlayerHeight = 324;
 const miniPlayerMinimumSize = {
   width: 320,
   height: 68,
@@ -32,26 +33,31 @@ const rememberBoundsDebounceMs = 300;
 
 let miniPlayerWindow: BrowserWindow | null = null;
 let rememberBoundsTimer: ReturnType<typeof setTimeout> | null = null;
+let miniPlayerQueueOpen = false;
+let suppressBoundsRememberUntilMs = 0;
 
-const migratePreviousDefaultBounds = (bounds: MiniPlayerBounds): MiniPlayerBounds => {
+const migratePreviousDefaultBounds = (bounds: MiniPlayerBounds, allowExpandedHeight = false): MiniPlayerBounds => {
   const matchesPreviousDefault = bounds.width <= 312 && bounds.height <= 88 || previousDefaultMiniPlayerSizes.some(
     (size) => Math.abs(bounds.width - size.width) <= 1 && Math.abs(bounds.height - size.height) <= 1,
   );
+  const targetHeight = allowExpandedHeight && bounds.height === expandedMiniPlayerHeight
+    ? expandedMiniPlayerHeight
+    : defaultMiniPlayerSize.height;
 
   if (matchesPreviousDefault) {
     return {
       x: Math.round(bounds.x + bounds.width - defaultMiniPlayerSize.width),
       y: bounds.y,
       width: defaultMiniPlayerSize.width,
-      height: defaultMiniPlayerSize.height,
+      height: targetHeight,
     };
   }
 
-  if (bounds.width > defaultMiniPlayerSize.width || bounds.height !== defaultMiniPlayerSize.height) {
+  if (bounds.width > defaultMiniPlayerSize.width || bounds.height !== targetHeight) {
     return {
       ...bounds,
       width: Math.min(bounds.width, defaultMiniPlayerSize.width),
-      height: defaultMiniPlayerSize.height,
+      height: targetHeight,
     };
   }
 
@@ -124,10 +130,12 @@ const clampBoundsToVisibleArea = (bounds: MiniPlayerBounds): MiniPlayerBounds =>
 
 const normalizeMiniPlayerWindowBounds = (window: BrowserWindow): MiniPlayerBounds => {
   const bounds = window.getBounds();
-  const nextBounds = clampBoundsToVisibleArea(migratePreviousDefaultBounds(bounds));
+  const nextBounds = clampBoundsToVisibleArea(migratePreviousDefaultBounds(bounds, miniPlayerQueueOpen));
   if (!boundsEqual(bounds, nextBounds)) {
     window.setBounds(nextBounds);
-    setAppSettings({ miniPlayerBounds: nextBounds });
+    if (!miniPlayerQueueOpen) {
+      setAppSettings({ miniPlayerBounds: nextBounds });
+    }
   }
 
   return nextBounds;
@@ -179,12 +187,19 @@ const rememberMiniPlayerBounds = (window: BrowserWindow): void => {
     return;
   }
 
-  const bounds = clampBoundsToVisibleArea(window.getBounds());
+  const rawBounds = window.getBounds();
+  const bounds = clampBoundsToVisibleArea({
+    ...rawBounds,
+    height: defaultMiniPlayerSize.height,
+  });
   setAppSettings({ miniPlayerBounds: bounds });
   emitMiniPlayerStateChanged();
 };
 
 const scheduleRememberMiniPlayerBounds = (window: BrowserWindow): void => {
+  if (Date.now() < suppressBoundsRememberUntilMs) {
+    return;
+  }
   if (rememberBoundsTimer !== null) {
     clearTimeout(rememberBoundsTimer);
   }
@@ -284,6 +299,7 @@ export const createMiniPlayerWindow = (): BrowserWindow => {
 };
 
 export const showMiniPlayerWindow = (): MiniPlayerState => {
+  miniPlayerQueueOpen = false;
   setAppSettings({ miniPlayerEnabled: true });
   const window = createMiniPlayerWindow();
   normalizeMiniPlayerWindowBounds(window);
@@ -298,6 +314,7 @@ export const showMiniPlayerWindow = (): MiniPlayerState => {
 };
 
 export const hideMiniPlayerWindow = (): MiniPlayerState => {
+  miniPlayerQueueOpen = false;
   setAppSettings({ miniPlayerEnabled: false });
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
     miniPlayerWindow.hide();
@@ -331,7 +348,26 @@ export const setMiniPlayerLocked = (_locked: boolean): MiniPlayerState => {
   return getMiniPlayerState();
 };
 
+export const setMiniPlayerQueueOpen = (open: boolean): MiniPlayerState => {
+  miniPlayerQueueOpen = open;
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) {
+    return getMiniPlayerState();
+  }
+
+  const currentBounds = miniPlayerWindow.getBounds();
+  const nextBounds = clampBoundsToVisibleArea({
+    ...currentBounds,
+    height: open ? expandedMiniPlayerHeight : defaultMiniPlayerSize.height,
+  });
+  suppressBoundsRememberUntilMs = Date.now() + rememberBoundsDebounceMs + 100;
+  miniPlayerWindow.setBounds(nextBounds);
+  applyMiniPlayerAlwaysOnTop(miniPlayerWindow);
+  emitMiniPlayerStateChanged();
+  return getMiniPlayerState();
+};
+
 export const resetMiniPlayerBounds = (): MiniPlayerState => {
+  miniPlayerQueueOpen = false;
   const bounds = resolveInitialMiniPlayerBounds();
   setAppSettings({ miniPlayerBounds: bounds });
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {

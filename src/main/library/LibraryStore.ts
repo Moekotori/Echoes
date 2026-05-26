@@ -14,6 +14,13 @@ import {
   type SearchIndexTrackFields,
 } from './SearchIndexTokens';
 import { normalizeAlbumTitleForLooseMerge, type AlbumKeyInput, type AlbumMergeStrategy, type AlbumService } from './AlbumService';
+import {
+  artistMergeKeyForName,
+  artistNameMatchesMergeKey,
+  chooseArtistDisplayName,
+  findArtistMergeKey,
+  normalizeArtistMergeStrategy,
+} from './ArtistMerge';
 import { updateCoverPathsInDatabase } from './CoverCacheManager';
 import { DuplicateTrackService } from './duplicates/DuplicateTrackService';
 import {
@@ -197,6 +204,7 @@ type TrackTagUpdateInput = {
 
 const defaultPageSize = 100;
 const maxPageSize = 500;
+const randomWindowMaxRows = 150;
 const libraryQualityPageSize = 50;
 const libraryQualityMaxPageSize = 100;
 const libraryInboxBatchLimit = 30;
@@ -375,7 +383,55 @@ const sanitizeTrackWrite = (track: TrackWrite): TrackWrite => {
   };
 };
 
-const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: number; search: string; sort: string; sourceProvider: string | null; sourceId: string | null } => ({
+const uniqueTextIds = (ids: unknown[] | undefined, limit = 250): string[] => {
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of ids) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+
+    const id = value.trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    result.push(id);
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
+};
+
+const shuffleRows = <Row,>(rows: Row[]): Row[] => {
+  const next = [...rows];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+
+  return next;
+};
+
+const pageFromQuery = (
+  query?: LibraryPageQuery,
+): {
+  page: number;
+  pageSize: number;
+  search: string;
+  sort: string;
+  sourceProvider: string | null;
+  sourceId: string | null;
+  excludeTrackIds: string[];
+  randomWindow: boolean;
+} => ({
   page: Math.max(1, Math.floor(Number(query?.page ?? 1))),
   pageSize: Math.min(maxPageSize, Math.max(1, Math.floor(Number(query?.pageSize ?? defaultPageSize)))),
   search: typeof query?.search === 'string' ? query.search.trim() : '',
@@ -389,6 +445,8 @@ const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: numb
       ? query.sourceProvider
       : null,
   sourceId: typeof query?.sourceId === 'string' && query.sourceId.trim().length > 0 ? query.sourceId.trim() : null,
+  excludeTrackIds: uniqueTextIds(query?.excludeTrackIds),
+  randomWindow: query?.randomWindow === true,
 });
 
 const libraryMediaTypeFromSourceProvider = (sourceProvider: string | null): 'local' | 'remote' | null =>
@@ -447,13 +505,14 @@ const pageFromInboxQuery = (
 
 const pageFromHistoryQuery = (
   query?: PlaybackHistoryQuery,
-): { page: number; pageSize: number; search: string; from: string | null; to: string | null; completedOnly: boolean } => ({
+): { page: number; pageSize: number; search: string; from: string | null; to: string | null; completedOnly: boolean; sort: 'plays' | 'recent' } => ({
   page: Math.max(1, Math.floor(Number(query?.page ?? 1))),
   pageSize: Math.min(maxPageSize, Math.max(1, Math.floor(Number(query?.pageSize ?? 50)))),
   search: typeof query?.search === 'string' ? query.search.trim() : '',
   from: typeof query?.from === 'string' && query.from.trim() ? query.from.trim() : null,
   to: typeof query?.to === 'string' && query.to.trim() ? query.to.trim() : null,
   completedOnly: query?.completedOnly === true,
+  sort: query?.sort === 'recent' ? 'recent' : 'plays',
 });
 
 const likeSearch = (search: string): string => `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
@@ -504,6 +563,7 @@ const folderDepth = (rootPath: string, folderPath: string): number => {
 type SearchPredicate = (term: string) => { sql: string; params: string[] };
 type LibraryStoreSearchOptions = {
   chineseCrossScriptSearchEnabled?: boolean;
+  artistMergeStrategy?: 'conservative' | 'standard';
 };
 
 const likePredicate =
@@ -934,13 +994,18 @@ export class LibraryStore {
     private readonly database: EchoDatabase,
     private readonly readSearchOptions: () => LibraryStoreSearchOptions = () => ({ chineseCrossScriptSearchEnabled: true }),
   ) {
-    this.database.function('echo_artist_matches', { deterministic: true }, (value: unknown, key: unknown) => {
+    this.database.function('echo_artist_merge_key', (value: unknown) => {
+      const strategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
+      return artistMergeKeyForName(value, strategy);
+    });
+    this.database.function('echo_artist_matches', (value: unknown, key: unknown) => {
       const targetKey = typeof key === 'string' ? key : '';
       if (!targetKey) {
         return 0;
       }
 
-      return splitArtistNames(value).some((name) => artistKeyForName(name) === targetKey) ? 1 : 0;
+      const strategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
+      return splitArtistNames(value).some((name) => artistNameMatchesMergeKey(name, targetKey, strategy)) ? 1 : 0;
     });
     this.backfillSearchTerms();
   }
@@ -3043,7 +3108,7 @@ export class LibraryStore {
   }
 
   getPlaybackHistory(query?: PlaybackHistoryQuery): LibraryPage<PlaybackHistoryEntry> {
-    const { page, pageSize, search, from, to, completedOnly } = pageFromHistoryQuery(query);
+    const { page, pageSize, search, from, to, completedOnly, sort } = pageFromHistoryQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const hasTimeRange = Boolean(from || to);
@@ -3230,7 +3295,7 @@ export class LibraryStore {
          queue_id
        FROM playback_history_stats
        ${whereSql}
-       ORDER BY play_count DESC, last_started_at DESC
+       ORDER BY ${sort === 'recent' ? 'last_started_at DESC, play_count DESC' : 'play_count DESC, last_started_at DESC'}
        LIMIT ? OFFSET ?`,
       ...params,
       pageSize,
@@ -3781,14 +3846,48 @@ export class LibraryStore {
   refreshArtists(): void {
     this.transaction(() => {
       const timestamp = nowIso();
+      const artistMergeStrategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
       const stats = new Map<string, ArtistIndexStats>();
+      const fuzzyStatsByBucket = new Map<string, ArtistIndexStats[]>();
       const trackLinks = new Map<string, { artistId: string; trackId: string; sourceName: string; position: number }>();
       const albumLinks = new Map<string, { artistId: string; albumId: string; sourceName: string }>();
-      const ensureArtist = (name: string): ArtistIndexStats => {
-        const key = artistKeyForName(name);
+      const fuzzyBucketsForKey = (key: string): string[] =>
+        key.length >= 7 ? [`prefix:${key.slice(0, 3)}`, `suffix:${key.slice(-3)}`] : [];
+      const addFuzzyStats = (artist: ArtistIndexStats): void => {
+        for (const bucket of fuzzyBucketsForKey(artist.key)) {
+          const items = fuzzyStatsByBucket.get(bucket);
+          if (items) {
+            items.push(artist);
+          } else {
+            fuzzyStatsByBucket.set(bucket, [artist]);
+          }
+        }
+      };
+      const fuzzyCandidatesForKey = (key: string): ArtistIndexStats[] => {
+        const candidates = new Map<string, ArtistIndexStats>();
+        for (const bucket of fuzzyBucketsForKey(key)) {
+          for (const artist of fuzzyStatsByBucket.get(bucket) ?? []) {
+            candidates.set(artist.key, artist);
+          }
+        }
+        return Array.from(candidates.values());
+      };
+      const ensureArtist = (name: string, context?: { trackId?: string | null; albumId?: string | null }): ArtistIndexStats => {
+        const directKey = artistMergeKeyForName(name, artistMergeStrategy);
+        const direct = stats.get(directKey);
+        if (direct) {
+          direct.name = chooseArtistDisplayName(direct.name, name);
+          return direct;
+        }
+
+        const key =
+          artistMergeStrategy === 'standard'
+            ? findArtistMergeKey(name, fuzzyCandidatesForKey(directKey), artistMergeStrategy, context)
+            : directKey;
         const current = stats.get(key);
 
         if (current) {
+          current.name = chooseArtistDisplayName(current.name, name);
           return current;
         }
 
@@ -3802,6 +3901,7 @@ export class LibraryStore {
           coverScore: Number.MAX_SAFE_INTEGER,
         };
         stats.set(key, next);
+        addFuzzyStats(next);
 
         return next;
       };
@@ -3855,7 +3955,7 @@ export class LibraryStore {
         const coverId = textOrNull(row.album_cover_id);
 
         for (const name of splitArtistNames(sourceName)) {
-          const artist = ensureArtist(name);
+          const artist = ensureArtist(name, { trackId, albumId });
 
           artist.trackIds.add(trackId);
           trackLinks.set(`${artist.id}:${trackId}`, {
@@ -3889,7 +3989,7 @@ export class LibraryStore {
         const trackPosition = Number(row.track_position ?? trackLinks.size);
 
         for (const name of splitArtistNames(sourceName)) {
-          const artist = ensureArtist(name);
+          const artist = ensureArtist(name, { trackId, albumId });
           linkAlbum(artist, albumId, sourceName);
           considerCover(artist, albumId, coverId);
           if (trackId) {
@@ -4160,7 +4260,7 @@ export class LibraryStore {
 
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     const startedAt = performance.now();
-    const { page, pageSize, search, sort, sourceProvider, sourceId } = pageFromQuery(query);
+    const { page, pageSize, search, sort, sourceProvider, sourceId, excludeTrackIds, randomWindow } = pageFromQuery(query);
     const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
@@ -4196,12 +4296,14 @@ export class LibraryStore {
       ? "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled' AND remote_tracks_fts MATCH ?"
       : "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled'";
     const allParams = [...baseParams, ...(searchQuery && !showDuplicatesOnly ? [searchQuery] : [])];
+    const excludeTrackIdsSql = excludeTrackIds.length > 0 ? `id NOT IN (${excludeTrackIds.map(() => '?').join(', ')})` : '';
     const libraryWhereParts = [
       mediaTypeFilter ? 'media_type = ?' : '',
       sourceId ? 'source_id = ?' : '',
+      excludeTrackIdsSql,
     ].filter(Boolean);
     const mediaTypeWhereSql = libraryWhereParts.length > 0 ? `WHERE ${libraryWhereParts.join(' AND ')}` : '';
-    const pageParams = [...allParams, ...(mediaTypeFilter ? [mediaTypeFilter] : []), ...(sourceId ? [sourceId] : [])];
+    const pageParams = [...allParams, ...(mediaTypeFilter ? [mediaTypeFilter] : []), ...(sourceId ? [sourceId] : []), ...excludeTrackIds];
     const unifiedTracksSql = `WITH library_tracks AS (
       SELECT
         tracks.id,
@@ -4297,31 +4399,53 @@ export class LibraryStore {
     )`;
     const orderSql = this.unifiedTrackOrderSql(sort, Boolean(searchQuery));
     const totalRow = this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks ${mediaTypeWhereSql}`, ...pageParams);
-    const rows = isNaturalTitleSort(sort)
-      ? applyNaturalTitleSortPage(
-          this.allRows(
-            `${unifiedTracksSql}
+    const total = Number(totalRow?.total ?? 0);
+    const rows =
+      randomWindow && sort === 'random'
+        ? (() => {
+            if (total <= 0) {
+              return [];
+            }
+
+            const windowSize = Math.min(total, Math.max(pageSize, Math.min(randomWindowMaxRows, pageSize * 3)));
+            const randomOffset = total > windowSize ? Math.floor(Math.random() * (total - windowSize + 1)) : 0;
+            return shuffleRows(
+              this.allRows(
+                `${unifiedTracksSql}
+      SELECT *
+      FROM library_tracks
+      ${mediaTypeWhereSql}
+      LIMIT ? OFFSET ?`,
+                ...pageParams,
+                windowSize,
+                randomOffset,
+              ),
+            ).slice(0, pageSize);
+          })()
+        : isNaturalTitleSort(sort)
+          ? applyNaturalTitleSortPage(
+              this.allRows(
+                `${unifiedTracksSql}
       SELECT *
       FROM library_tracks
       ${mediaTypeWhereSql}`,
-            ...pageParams,
-          ),
-          sort,
-          offset,
-          pageSize,
-        )
-      : this.allRows(
-          `${unifiedTracksSql}
+                ...pageParams,
+              ),
+              sort,
+              offset,
+              pageSize,
+            )
+          : this.allRows(
+              `${unifiedTracksSql}
       SELECT *
       FROM library_tracks
       ${mediaTypeWhereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
-          ...pageParams,
-          pageSize,
-          offset,
-        );
-    const total = Number(totalRow?.total ?? 0);
+              ...pageParams,
+              pageSize,
+              offset,
+            );
 
     try {
       return {
@@ -4558,7 +4682,7 @@ export class LibraryStore {
   }
 
   private remoteArtistIdSql(tableName: string): string {
-    return `'remote-artist:' || lower(hex(${tableName}.source_id || char(31) || lower(trim(COALESCE(NULLIF(TRIM(${tableName}.artist), ''), 'Unknown Artist')))))`;
+    return `'remote-artist:' || lower(hex(${tableName}.source_id || char(31) || echo_artist_merge_key(COALESCE(NULLIF(TRIM(${tableName}.artist), ''), 'Unknown Artist'))))`;
   }
 
   private unifiedArtistsSql(): string {
@@ -4572,7 +4696,7 @@ export class LibraryStore {
         remote_tracks.*,
         remote_sources.display_name AS source_display_name,
         ${this.remoteArtistIdSql('remote_tracks')} AS artist_id,
-        lower(trim(COALESCE(NULLIF(TRIM(remote_tracks.artist), ''), 'Unknown Artist'))) AS artist_key,
+        echo_artist_merge_key(COALESCE(NULLIF(TRIM(remote_tracks.artist), ''), 'Unknown Artist')) AS artist_key,
         COALESCE(NULLIF(TRIM(remote_tracks.artist), ''), 'Unknown Artist') AS artist_name,
         'remote-album:' || lower(hex(${remoteAlbumIdentity})) AS album_id
       FROM remote_tracks
@@ -5011,13 +5135,15 @@ export class LibraryStore {
     }
 
     const orderSql = this.artistTrackOrderSql(sort);
-    const artistKey = artistKeyForName(artist.name);
+    const artistMergeStrategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
+    const artistKey = artist.artistKey ?? artistMergeKeyForName(artist.name, artistMergeStrategy);
+    const isVariousArtistKey = artistKey === variousArtistsKey || artistKey === artistMergeKeyForName(variousArtistsDisplayName, artistMergeStrategy);
     const trackCreditValueSql = "COALESCE(NULLIF(TRIM(tracks.album_artist), ''), tracks.artist)";
     const trackCreditFilterSql =
-      artistKey === variousArtistsKey
+      isVariousArtistKey
         ? ''
         : `AND (echo_artist_matches(tracks.artist, ?) OR echo_artist_matches(${trackCreditValueSql}, ?))`;
-    const trackCreditParams = artistKey === variousArtistsKey ? [] : [artistKey, artistKey];
+    const trackCreditParams = isVariousArtistKey ? [] : [artistKey, artistKey];
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
        FROM (
@@ -5148,10 +5274,12 @@ export class LibraryStore {
     }
 
     const orderSql = this.albumOrderSql(sort);
-    const artistKey = artistKeyForName(artist.name);
+    const artistMergeStrategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
+    const artistKey = artist.artistKey ?? artistMergeKeyForName(artist.name, artistMergeStrategy);
+    const isVariousArtistKey = artistKey === variousArtistsKey || artistKey === artistMergeKeyForName(variousArtistsDisplayName, artistMergeStrategy);
     const albumCreditValueSql = "COALESCE(NULLIF(TRIM(tracks.album_artist), ''), tracks.artist)";
     const albumCreditFilterSql =
-      artistKey === variousArtistsKey
+      isVariousArtistKey
         ? ''
         : `AND EXISTS (
             SELECT 1
@@ -5169,7 +5297,7 @@ export class LibraryStore {
               AND tracks.missing = 0
               AND NOT echo_artist_matches(${albumCreditValueSql}, ?)
           )`;
-    const albumCreditParams = artistKey === variousArtistsKey ? [] : [artistKey, artistKey];
+    const albumCreditParams = isVariousArtistKey ? [] : [artistKey, artistKey];
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
        FROM artist_albums
@@ -7539,6 +7667,7 @@ export class LibraryStore {
       sourceId: textOrNull(row.source_id),
       sourceDisplayName: textOrNull(row.source_display_name),
       provider: textOrNull(row.provider),
+      artistKey,
       name: sanitizeLibraryText(row.name, unknownArtist),
       sortName: sanitizeLibraryText(row.sort_name ?? row.name, sanitizeLibraryText(row.name, unknownArtist)),
       role: trackCount > 0 && albumCount > 0 ? 'both' : albumCount > 0 ? 'album' : 'track',

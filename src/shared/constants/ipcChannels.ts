@@ -46,6 +46,7 @@ export const IpcChannels = {
   MiniPlayerHide: 'mini-player:hide',
   MiniPlayerGetState: 'mini-player:get-state',
   MiniPlayerSetLocked: 'mini-player:set-locked',
+  MiniPlayerSetQueueOpen: 'mini-player:set-queue-open',
   MiniPlayerResetBounds: 'mini-player:reset-bounds',
   MiniPlayerStateChanged: 'mini-player:state-changed',
   DiagnosticsGetLastCrashSummary: 'diagnostics:get-last-crash-summary',

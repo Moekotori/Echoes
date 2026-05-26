@@ -358,6 +358,17 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
     query.prioritizeArtistAvatars = input.prioritizeArtistAvatars;
   }
 
+  if (Array.isArray(input.excludeTrackIds)) {
+    query.excludeTrackIds = input.excludeTrackIds
+      .filter((trackId): trackId is string => typeof trackId === 'string' && trackId.trim().length > 0)
+      .map((trackId) => trackId.trim())
+      .slice(0, 250);
+  }
+
+  if (typeof input.randomWindow === 'boolean') {
+    query.randomWindow = input.randomWindow;
+  }
+
   return query;
 };
 
@@ -813,6 +824,10 @@ const normalizePlaybackHistoryQuery = (value: unknown): PlaybackHistoryQuery => 
 
   if (typeof input.completedOnly === 'boolean') {
     query.completedOnly = input.completedOnly;
+  }
+
+  if (input.sort === 'plays' || input.sort === 'recent') {
+    query.sort = input.sort;
   }
 
   return query;

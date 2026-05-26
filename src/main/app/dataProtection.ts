@@ -1280,10 +1280,23 @@ const listArchivePaths = (userDataPath: string): string[] => {
 const isLibraryBackupMethod = (value: unknown): value is LibraryDatabaseSnapshotInfo['libraryBackupMethod'] =>
   value === 'none' || value === 'sqlite-backup' || value === 'file-copy';
 
-const getSnapshotInfo = (snapshotPath: string): LibraryDatabaseSnapshotInfo => {
+const getSnapshotInfo = (snapshotPath: string, options: { validateDatabase?: boolean } = {}): LibraryDatabaseSnapshotInfo => {
   const manifest = readSnapshotManifest(snapshotPath);
   const databasePath = libraryPathFor(snapshotPath);
-  const health = existsSync(databasePath) ? checkDatabaseHealth(databasePath) : manifest?.libraryHealth ?? checkDatabaseHealth(databasePath);
+  const databaseExists = existsSync(databasePath);
+  const health =
+    options.validateDatabase !== false
+      ? databaseExists
+        ? checkDatabaseHealth(databasePath)
+        : manifest?.libraryHealth ?? checkDatabaseHealth(databasePath)
+      : manifest?.libraryHealth ?? {
+          status: databaseExists ? 'unreadable' : 'ok',
+          databasePath,
+          checkedAt: new Date().toISOString(),
+          message: databaseExists
+            ? 'snapshot database health check deferred'
+            : 'snapshot database does not exist',
+        };
 
   return {
     id: basename(snapshotPath),
@@ -1294,7 +1307,7 @@ const getSnapshotInfo = (snapshotPath: string): LibraryDatabaseSnapshotInfo => {
     skipped: Array.isArray(manifest?.skipped) ? manifest.skipped : [],
     libraryHealth: health,
     libraryBackupMethod: isLibraryBackupMethod(manifest?.libraryBackupMethod) ? manifest.libraryBackupMethod : 'none',
-    databasePath: existsSync(databasePath) ? databasePath : null,
+    databasePath: databaseExists ? databasePath : null,
     databaseSizeBytes: manifest?.databaseSizeBytes ?? fileSizeOrNull(databasePath),
     databaseMtimeMs: manifest?.databaseMtimeMs ?? null,
     walSizeBytes: manifest?.walSizeBytes ?? null,
@@ -1328,7 +1341,7 @@ const getRestorableHealthySnapshot = (snapshots: LibraryDatabaseSnapshotInfo[]):
 
 const getSnapshotById = (userDataPath: string, snapshotId: string): LibraryDatabaseSnapshotInfo | null =>
   listSnapshotPaths(userDataPath)
-    .map(getSnapshotInfo)
+    .map((snapshotPath) => getSnapshotInfo(snapshotPath))
     .find((snapshot) => snapshot.id === snapshotId) ?? null;
 
 const toMaintenanceEventInfo = (event: LibraryDatabaseMaintenanceEvent): LibraryDatabaseMaintenanceEventInfo => ({
@@ -1364,7 +1377,9 @@ export const getLibraryDatabaseProtectionStatus = (
 ): LibraryDatabaseProtectionStatus => {
   const databasePath = libraryPathFor(userDataPath);
   const deepCheck = options.deepCheck !== false;
-  const snapshots = listSnapshotPaths(userDataPath).map(getSnapshotInfo);
+  const snapshots = listSnapshotPaths(userDataPath).map((snapshotPath) =>
+    getSnapshotInfo(snapshotPath, { validateDatabase: deepCheck }),
+  );
   const latestHealthySnapshot = getRestorableHealthySnapshot(snapshots);
   const health = deepCheck ? checkDatabaseHealth(databasePath) : checkLibraryFastStartupHealth(userDataPath);
   const maintenanceEvents = readLibraryDatabaseMaintenanceEvents(userDataPath).slice(-maxLibraryMaintenanceEvents).reverse().map(toMaintenanceEventInfo);
@@ -2098,7 +2113,7 @@ export const restoreMissingProtectedData = (userDataPath = app.getPath('userData
   const skipped: string[] = [];
   const snapshotPaths = listSnapshotPaths(userDataPath);
   const healthyLibrarySnapshotPath = snapshotPaths
-    .map(getSnapshotInfo)
+    .map((snapshotPath) => getSnapshotInfo(snapshotPath))
     .find((snapshot) => snapshot.libraryHealth.status === 'ok' && snapshot.databasePath && snapshot.copied.includes(libraryFileName))
     ?.path ?? null;
 

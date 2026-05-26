@@ -50,6 +50,7 @@ const userAgent =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ECHO-Next/1.0 Safari/537.36';
 const bilibiliAcceptLanguage = 'zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7';
 const defaultExpiresMs = 45 * 60 * 1000;
+const bilibiliPlayurlBanBackoffMs = 2 * 60 * 1000;
 
 const qualityHeight: Record<Exclude<MvQualityTier, 'auto'>, number> = {
   '720p': 720,
@@ -92,6 +93,12 @@ const bilibiliQualityRank = (qn: number): number => {
   const index = bilibiliQualityOrder.indexOf(qn);
   return index >= 0 ? bilibiliQualityOrder.length - index : 0;
 };
+const isBilibiliPlayurlBlockedAttempt = (attempt: BilibiliPlayAttempt): boolean =>
+  attempt.status === 412 ||
+  attempt.code === -412 ||
+  attempt.error === 'request_failed:412' ||
+  attempt.message?.toLowerCase().includes('request was banned') === true;
+
 const isBrowserPlayableBilibiliCodec = (codec: string | null): boolean => {
   if (!codec) {
     return true;
@@ -396,6 +403,17 @@ const bilibiliQualitiesForSettings = (settings: MvSettings): number[] =>
     return qn <= 64 && qualityHeight[quality.tier] <= maxQualityHeight(settings.maxQuality);
   });
 
+const bilibiliRequestedQualitiesForSettings = (settings: MvSettings): number[] => {
+  const qualities = bilibiliQualitiesForSettings(settings);
+  const primary = qualities[0];
+  if (!primary) {
+    return [];
+  }
+
+  const fallback = qualities.find((qn) => qn < primary && qn <= 80) ?? qualities.find((qn) => qn < primary);
+  return fallback ? [primary, fallback] : [primary];
+};
+
 const makeQualityVariant = (
   id: string,
   label: string,
@@ -421,6 +439,7 @@ const externalVariant = (
   provider: NetworkMvProviderId,
   providerUrl: string | null,
   label = 'External player',
+  rawProviderJson: unknown | null = null,
 ): ResolvedMvStreamVariant => ({
   ...makeQualityVariant(`${provider}:external`, label, 'auto', {
     protocol: 'external',
@@ -428,7 +447,7 @@ const externalVariant = (
   }),
   url: providerUrl,
   headers: {},
-  rawProviderJson: null,
+  rawProviderJson,
 });
 
 const fetchJsonWithTimeout = async (fetchImpl: FetchLike, url: string, headers: Record<string, string>): Promise<{ status: number; ok: boolean; payload: unknown }> => {
@@ -519,6 +538,21 @@ class ProviderBase {
 
 export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProvider {
   readonly id = 'bilibili' as const;
+  private readonly playurlBanUntilByBvid = new Map<string, number>();
+
+  private isPlayurlTemporarilyBlocked(bvid: string): boolean {
+    const blockedUntil = this.playurlBanUntilByBvid.get(bvid) ?? 0;
+    if (blockedUntil <= Date.now()) {
+      this.playurlBanUntilByBvid.delete(bvid);
+      return false;
+    }
+
+    return true;
+  }
+
+  private rememberPlayurlBlocked(bvid: string): void {
+    this.playurlBanUntilByBvid.set(bvid, Date.now() + bilibiliPlayurlBanBackoffMs);
+  }
 
   async search(track: LibraryTrack, settings: MvSettings, queryOverride?: string): Promise<MvMatchCandidate[]> {
     const query = queryOverride?.trim() || [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
@@ -630,6 +664,10 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
       return [externalVariant(this.id, video.providerUrl ?? video.url, 'Bilibili')];
     }
 
+    if (this.isPlayurlTemporarilyBlocked(bvid)) {
+      return [externalVariant(this.id, video.providerUrl ?? video.url, 'Bilibili')];
+    }
+
     const headers = bilibiliVideoHeaders(bvid, this.cookieHeaders(this.id));
     const viewPayload = await withTimeout(this.fetchImpl, `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`, headers);
     const viewData = isRecord(viewPayload) ? viewPayload.data : null;
@@ -642,7 +680,7 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
       return [externalVariant(this.id, video.providerUrl ?? video.url, 'Bilibili')];
     }
 
-    const qualities = bilibiliQualitiesForSettings(settings);
+    const requestedQualities = bilibiliRequestedQualitiesForSettings(settings);
     const variants: ResolvedMvStreamVariant[] = [];
     const playAttempts: BilibiliPlayAttempt[] = [];
     const expiresAt = new Date(Date.now() + defaultExpiresMs).toISOString();
@@ -662,7 +700,12 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
       return playUrl;
     };
     const playEndpoints: BilibiliPlayEndpoint[] = wbiMixinKey ? ['wbi-playurl', 'playurl'] : ['playurl'];
+    let playurlBlocked = false;
     const fetchPlayData = async (qn: number, fnval: string): Promise<{ data: Record<string, unknown>; endpoint: BilibiliPlayEndpoint } | null> => {
+      if (playurlBlocked) {
+        return null;
+      }
+
       for (const endpoint of playEndpoints) {
         try {
           const response = await fetchJsonWithTimeout(this.fetchImpl, makePlayUrl(qn, fnval, endpoint).toString(), headers);
@@ -673,7 +716,7 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
           const dash = isRecord(data) && isRecord(data.dash) ? data.dash : null;
           const hasDashVideo = asArray(dash?.video).some(isRecord);
           const hasDurl = isRecord(data) && asArray(data.durl).some(isRecord);
-          playAttempts.push({
+          const attempt: BilibiliPlayAttempt = {
             endpoint,
             fnval,
             qn,
@@ -684,7 +727,14 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
             hasDurl,
             hasDashVideo,
             error: response.ok ? null : `request_failed:${response.status}`,
-          });
+          };
+          playAttempts.push(attempt);
+
+          if (isBilibiliPlayurlBlockedAttempt(attempt)) {
+            playurlBlocked = true;
+            this.rememberPlayurlBlocked(bvid);
+            return null;
+          }
 
           if (!response.ok || !isRecord(data)) {
             continue;
@@ -694,7 +744,7 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
             return { data, endpoint };
           }
         } catch (error) {
-          playAttempts.push({
+          const attempt: BilibiliPlayAttempt = {
             endpoint,
             fnval,
             qn,
@@ -705,7 +755,13 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
             hasDurl: false,
             hasDashVideo: false,
             error: error instanceof Error ? error.message : String(error),
-          });
+          };
+          playAttempts.push(attempt);
+          if (isBilibiliPlayurlBlockedAttempt(attempt)) {
+            playurlBlocked = true;
+            this.rememberPlayurlBlocked(bvid);
+            return null;
+          }
           // Try the plain playurl endpoint if WBI playurl is rejected or returns an unusable payload.
         }
       }
@@ -787,7 +843,9 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
       });
     };
 
-    for (const qn of qualities) {
+    const hasPlayableDirectVariant = (): boolean =>
+      variants.some((variant) => variant.protocol === 'direct' && variant.playableInApp && variant.url);
+    for (const qn of requestedQualities) {
       const quality = bilibiliQualityMap[qn];
       if (!quality) {
         continue;
@@ -828,7 +886,11 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
           });
         }
       } catch {
-        // Lower qualities may still resolve even when a higher one is account gated.
+        // Progressive MP4 may still resolve when DASH is unavailable.
+      }
+
+      if (playurlBlocked || hasPlayableDirectVariant()) {
+        break;
       }
 
       try {
@@ -854,7 +916,25 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
       } catch {
         // DASH metadata is still useful for external/manual playback if progressive MP4 is unavailable.
       }
+
+      if (playurlBlocked || hasPlayableDirectVariant()) {
+        break;
+      }
     }
+
+    const blockedAttempt = playAttempts.find(isBilibiliPlayurlBlockedAttempt) ?? null;
+    const blockedRawProviderJson = blockedAttempt
+      ? {
+          provider: this.id,
+          resolver: 'bilibili-playurl',
+          unavailableReason: 'bilibili-playurl-blocked',
+          status: blockedAttempt.status,
+          code: blockedAttempt.code,
+          message: blockedAttempt.message,
+          error: blockedAttempt.error,
+          attemptedCount: playAttempts.length,
+        }
+      : null;
 
     if (!variants.some((variant) => variant.protocol === 'direct' && variant.playableInApp && variant.url)) {
       console.warn('[mv] Bilibili MV resolved without an in-app MP4 stream.', {
@@ -864,6 +944,10 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
         allow60fps: settings.allow60fps,
         attempts: playAttempts,
       });
+    }
+
+    if (blockedRawProviderJson && !hasPlayableDirectVariant()) {
+      return [...variants, externalVariant(this.id, video.providerUrl ?? video.url, 'Bilibili', blockedRawProviderJson)];
     }
 
     return variants.length > 0 ? variants : [externalVariant(this.id, video.providerUrl ?? video.url, 'Bilibili')];

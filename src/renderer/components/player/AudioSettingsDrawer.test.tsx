@@ -182,6 +182,7 @@ const renderDrawer = (
   forceRestart = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
   restartWindowsAudioService = vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
   extraProps: Partial<ComponentProps<typeof AudioSettingsDrawer>> = {},
+  devices: AudioDeviceInfo[] = [asioDevice],
 ): void => {
   window.echo = {
     app: {
@@ -195,7 +196,7 @@ const renderDrawer = (
       setSettings: vi.fn().mockResolvedValue({}),
     },
     audio: {
-      listDevices: vi.fn().mockResolvedValue([asioDevice]),
+      listDevices: vi.fn().mockResolvedValue(devices),
       getStatus: vi.fn().mockResolvedValue(status),
       getDiagnostics: vi.fn().mockResolvedValue(status),
       setOutput,
@@ -239,6 +240,18 @@ const renderDrawer = (
       onStatusChange={vi.fn()}
       {...extraProps}
     />,
+  );
+};
+
+const renderDrawerWithDevices = (status: AudioStatus, devices: AudioDeviceInfo[]): void => {
+  renderDrawer(
+    status,
+    vi.fn().mockResolvedValue(status),
+    vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+    vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+    vi.fn().mockResolvedValue({ ...status, state: 'stopped' }),
+    {},
+    devices,
   );
 };
 
@@ -315,6 +328,26 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('heading', { name: 'asioDevices' })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: /wasapiExclusive/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /TEAC ASIO/ })).toBeTruthy();
+  });
+
+  it('shows advanced channel routes for ASIO4ALL devices', async () => {
+    renderDrawerWithDevices(baseStatus, [{
+      id: 'asio:1',
+      index: 1,
+      name: 'ASIO4ALL v2',
+      outputMode: 'asio',
+      sampleRate: null,
+      sharedDeviceSampleRate: 48000,
+      isDefault: false,
+      asioOutputChannels: 4,
+      asioOutputChannelStart: 0,
+      asioChannelNames: ['Realtek 1', 'Realtek 2', 'USB 1', 'USB 2'],
+    }]);
+
+    await waitFor(() => expect(screen.getAllByText('ASIO4ALL v2').length).toBeGreaterThan(0));
+
+    expect(screen.getByRole('button', { name: /Realtek 1 \/ Realtek 2/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /USB 1 \/ USB 2/ })).toBeTruthy();
   });
 
   it('labels system audio as the recommended standard output', () => {

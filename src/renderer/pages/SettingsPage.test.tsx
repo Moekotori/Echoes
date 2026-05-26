@@ -1986,11 +1986,9 @@ describe('SettingsPage', () => {
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
 
-    expect(await screen.findByText('audioProfessional.title')).toBeTruthy();
-    expect(screen.queryByText('audioProfessional.group.playbackChain')).toBeNull();
-
     fireEvent.click(screen.getByRole('button', { name: 'audioProfessional.action.showDetails' }));
 
+    expect(await screen.findByText('audioProfessional.title')).toBeTruthy();
     expect(screen.getByText('audioProfessional.group.playbackChain')).toBeTruthy();
     expect(screen.getByText('audioProfessional.group.sampleRate')).toBeTruthy();
     expect(screen.queryByText(/^fileSampleRate$/u)).toBeNull();
@@ -2006,6 +2004,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'audioProfessional.action.showDetails' }));
     fireEvent.click(await screen.findByRole('button', { name: /audioDrawer\.action\.copyDiagnostics/ }));
 
     await waitFor(() => expect(audioGetDiagnosticsMock).toHaveBeenCalledTimes(1));

@@ -376,6 +376,20 @@ describe('dataProtection', () => {
     expect(status.canRestoreSnapshot).toBe(true);
   });
 
+  it('defers snapshot database health checks for lightweight danger status', async () => {
+    createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
+    const snapshot = await createDataProtectionSnapshot('startup', tempDir, new Date('2026-05-17T00:00:00.000Z'));
+    writeFileSync(join(snapshot.snapshotPath, 'echo-library.sqlite'), 'snapshot became unreadable', 'utf8');
+
+    const lightweightStatus = getLibraryDatabaseProtectionStatus(tempDir, false, { deepCheck: false });
+    const deepStatus = getLibraryDatabaseProtectionStatus(tempDir, false, { deepCheck: true });
+
+    expect(lightweightStatus.snapshots[0]?.libraryHealth.status).toBe('ok');
+    expect(lightweightStatus.latestHealthySnapshot?.id).toBe(snapshot.snapshotPath.split(/[\\/]/u).pop());
+    expect(deepStatus.snapshots[0]?.libraryHealth.status).toBe('corrupt');
+    expect(deepStatus.latestHealthySnapshot).toBeNull();
+  });
+
   it('recommends restoring a healthy snapshot when the current database is corrupt', async () => {
     createHealthyLibrary(join(tempDir, 'echo-library.sqlite'));
     await createManualLibraryDatabaseSnapshot(tempDir);

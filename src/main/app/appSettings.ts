@@ -306,6 +306,7 @@ export const defaultSettings: AppSettings = {
   audioReleaseExclusiveOnPauseExperimentalEnabled: false,
   audioIssueDiagnosticsWindowEnabled: false,
   albumMergeStrategy: 'standard',
+  artistMergeStrategy: 'standard',
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   artistWallAlbumFallbackForMissingAvatars: false,
@@ -1012,7 +1013,7 @@ const normalizeArtistOnlineInfoSources = (value: unknown): ArtistOnlineInfoSourc
   }
 
   const source = value.find((item): item is ArtistOnlineInfoSource =>
-    artistOnlineInfoSources.includes(item as ArtistOnlineInfoSource),
+    item !== 'moegirl' && artistOnlineInfoSources.includes(item as ArtistOnlineInfoSource),
   );
   return source ? [source] : [...defaultArtistOnlineInfoSources];
 };
@@ -1179,6 +1180,10 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     settings.albumMergeStrategy === 'sameTitleAndCover' || settings.albumMergeStrategy === 'standard'
       ? settings.albumMergeStrategy
       : defaultSettings.albumMergeStrategy;
+  const artistMergeStrategy =
+    settings.artistMergeStrategy === 'conservative' || settings.artistMergeStrategy === 'standard'
+      ? settings.artistMergeStrategy
+      : defaultSettings.artistMergeStrategy;
   const playbackSpeedMode =
     settings.playbackSpeedMode === 'daycore' || settings.playbackSpeedMode === 'speed'
       ? settings.playbackSpeedMode
@@ -1267,7 +1272,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     ),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: sourceAppMemoryVersion >= 6 && settings.audioUseJuceOutput === true,
-    audioUseJuceDecode: sourceAppMemoryVersion >= 4 && settings.audioUseJuceDecode === true,
+    audioUseJuceDecode: sourceAppMemoryVersion >= 6 && settings.audioUseJuceDecode === true,
     audioDsdOutputMode: settings.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
     audioAsioNativeDsdExperimentalEnabled: settings.audioAsioNativeDsdExperimentalEnabled === true,
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
@@ -1276,6 +1281,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     audioReleaseExclusiveOnPauseExperimentalEnabled: settings.audioReleaseExclusiveOnPauseExperimentalEnabled === true,
     audioIssueDiagnosticsWindowEnabled: settings.audioIssueDiagnosticsWindowEnabled === true,
     albumMergeStrategy,
+    artistMergeStrategy,
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     artistWallAlbumFallbackForMissingAvatars: settings.artistWallAlbumFallbackForMissingAvatars === true,

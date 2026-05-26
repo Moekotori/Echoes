@@ -19,6 +19,7 @@ export const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string =>
     ['outputMode', diagnostics.outputMode],
     ['sharedBackend', diagnostics.sharedBackend],
     ['latencyProfile', diagnostics.latencyProfile],
+    ['asioCompatibilityProfile', diagnostics.asioCompatibilityProfile],
     ['outputBackend', diagnostics.outputBackend],
     ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
     ['nativeOutputFormat', diagnostics.nativeOutputFormat],

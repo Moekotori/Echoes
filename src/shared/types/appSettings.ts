@@ -16,6 +16,7 @@ export type AppThemeMode = 'light' | 'dark' | 'system';
 export type ReplayGainMode = 'off' | 'track' | 'album';
 export type NetworkProxyMode = 'off' | 'system' | 'manual' | 'pac';
 export type DataBackupIntervalDays = 3 | 7 | 30;
+export type ArtistMergeStrategy = 'conservative' | 'standard';
 export const artistOnlineInfoSources = ['baidu-baike', 'moegirl', 'wikipedia'] as const;
 export type ArtistOnlineInfoSource = typeof artistOnlineInfoSources[number];
 export const defaultArtistOnlineInfoSources: ArtistOnlineInfoSource[] = ['wikipedia'];
@@ -172,6 +173,7 @@ export type AppSettings = {
   audioReleaseExclusiveOnPauseExperimentalEnabled?: boolean;
   audioIssueDiagnosticsWindowEnabled?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
+  artistMergeStrategy?: ArtistMergeStrategy;
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
   artistWallAlbumFallbackForMissingAvatars?: boolean;

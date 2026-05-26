@@ -1035,11 +1035,11 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 }
 
 .settings-page .settings-account-row {
-  border-color: color-mix(in srgb, var(--theme-panel-border) 72%, transparent);
+  border-color: transparent;
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-bg) 26%, transparent), transparent 46%),
     color-mix(in srgb, var(--theme-panel-bg) 78%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-panel-bg-muted) 72%, transparent);
+  box-shadow: none;
 }
 
 .settings-page .settings-account-summary h3,

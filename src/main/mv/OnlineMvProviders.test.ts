@@ -492,7 +492,7 @@ describe('BilibiliMvProvider', () => {
     expect(candidates.map((candidate) => candidate.viewCount)).toEqual([250000, 1200]);
   });
 
-  it('resolves direct MP4 stream variants within the quality cap', async () => {
+  it('resolves the first playable direct MP4 stream within the quality cap', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/x/web-interface/view')) {
         return jsonResponse({ data: { cid: 123 } });
@@ -515,7 +515,7 @@ describe('BilibiliMvProvider', () => {
 
     const variants = await provider.resolve(video, settings);
 
-    expect(variants.map((variant) => variant.id)).toEqual(['bilibili-qn-80', 'bilibili-qn-64']);
+    expect(variants.map((variant) => variant.id)).toEqual(['bilibili-qn-80']);
     expect(variants[0]).toMatchObject({
       label: '1080p',
       qualityTier: '1080p',
@@ -524,6 +524,7 @@ describe('BilibiliMvProvider', () => {
       url: 'https://cdn.example/1080.mp4',
       headers: { Referer: 'https://www.bilibili.com/video/BV1echo' },
     });
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining('qn=64'), expect.anything());
   });
 
   it('uses the WBI playurl endpoint when Bilibili exposes signing keys', async () => {
@@ -645,12 +646,7 @@ describe('BilibiliMvProvider', () => {
 
     const variants = await provider.resolve(video, settings);
 
-    expect(variants.map((variant) => variant.id)).toEqual([
-      'bilibili-dash-qn-80-avc',
-      'bilibili-qn-80',
-      'bilibili-dash-qn-64-avc',
-      'bilibili-qn-64',
-    ]);
+    expect(variants.map((variant) => variant.id)).toEqual(['bilibili-dash-qn-80-avc']);
     expect(variants.find((variant) => variant.id === 'bilibili-dash-qn-80-avc')).toMatchObject({
       label: '1080p',
       qualityTier: '1080p',
@@ -668,14 +664,8 @@ describe('BilibiliMvProvider', () => {
         mutedVideoOnly: true,
       }),
     });
-    expect(variants.find((variant) => variant.id === 'bilibili-qn-80')).toMatchObject({
-      label: '1080p',
-      protocol: 'direct',
-      playableInApp: true,
-      url: 'https://upos.example/1080-progressive.mp4',
-    });
     expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('fnval=4048'), expect.anything());
-    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('fnval=1'), expect.anything());
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining('qn=64'), expect.anything());
   });
 
   it('records the current Bilibili DASH response shape for BV1KjQDYdEx2 as muted video-only playback', async () => {
@@ -741,7 +731,7 @@ describe('BilibiliMvProvider', () => {
     });
   });
 
-  it('resolves unrestricted variants when max quality is selected and keeps 60fps variants', async () => {
+  it('uses a bounded fallback when max quality is selected', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/x/web-interface/view')) {
         return jsonResponse({ data: { cid: 123 } });
@@ -768,27 +758,67 @@ describe('BilibiliMvProvider', () => {
 
     const variants = await provider.resolve(video, { ...settings, maxQuality: 'max', allow60fps: true });
 
-    expect(variants.map((variant) => variant.id)).toEqual(['bilibili-qn-120', 'bilibili-qn-116', 'bilibili-qn-80']);
+    expect(variants.map((variant) => variant.id)).toEqual(['bilibili-qn-80']);
     expect(variants[0]).toMatchObject({
-      id: 'bilibili-qn-120',
-      label: '4K',
+      id: 'bilibili-qn-80',
+      label: '1080p',
       rawProviderJson: {
-        requestedQn: 120,
-        qn: 120,
-        qualityRank: 5,
+        requestedQn: 80,
+        qn: 80,
+        qualityRank: 2,
         qualityLimited: false,
       },
     });
-    expect(variants.find((variant) => variant.id === 'bilibili-qn-116')).toMatchObject({
-      label: '1080p 60fps',
-      fps: 60,
-      url: 'https://cdn.example/1080-60.mp4',
-      rawProviderJson: {
-        requestedQn: 116,
-        qn: 116,
-        qualityRank: 4,
-      },
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining('qn=120'), expect.anything());
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining('qn=116'), expect.anything());
+  });
+
+  it('stops playurl resolution immediately when Bilibili bans the request', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/x/web-interface/view')) {
+        return jsonResponse({ data: { cid: 123 } });
+      }
+
+      if (url.includes('/x/player/playurl')) {
+        return jsonResponse({ message: 'request was banned' }, 412);
+      }
+
+      return jsonResponse({ data: {} });
+    }) as typeof fetch;
+    const provider = new BilibiliMvProvider({
+      fetchImpl,
+      getCredentials: () => ({ provider: 'bilibili' }),
     });
+
+    const firstResult = await provider.resolve(video, { ...settings, maxQuality: 'max' });
+    await provider.resolve(video, { ...settings, maxQuality: 'max' });
+
+    const playurlCalls = vi.mocked(fetchImpl).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/x/player/playurl'));
+    expect(playurlCalls).toHaveLength(1);
+    expect(playurlCalls[0]).toContain('qn=127');
+    expect(playurlCalls[0]).toContain('fnval=4048');
+    expect(playurlCalls[0]).not.toContain('qn=126');
+    expect(firstResult[0]).toMatchObject({
+      rawProviderJson: expect.objectContaining({
+        unavailableReason: 'bilibili-playurl-blocked',
+        status: 412,
+      }),
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[mv] Bilibili MV resolved without an in-app MP4 stream.',
+      expect.objectContaining({
+        attempts: [
+          expect.objectContaining({
+            qn: 127,
+            status: 412,
+            error: 'request_failed:412',
+          }),
+        ],
+      }),
+    );
   });
 
   it('honors the 60fps setting when resolving Bilibili variants', async () => {

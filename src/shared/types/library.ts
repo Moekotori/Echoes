@@ -650,6 +650,8 @@ export type LibraryPageQuery = {
   showDuplicatesOnly?: boolean;
   duplicateMode?: DuplicateTrackMode;
   prioritizeArtistAvatars?: boolean;
+  excludeTrackIds?: string[];
+  randomWindow?: boolean;
 };
 
 export type PlaylistKind = 'manual' | 'smart' | 'synced' | 'system';
@@ -778,6 +780,7 @@ export type PlaybackHistoryQuery = {
   from?: string;
   to?: string;
   completedOnly?: boolean;
+  sort?: 'plays' | 'recent';
 };
 
 export type StartPlaybackHistoryRequest = {
@@ -1286,6 +1289,7 @@ export type LibraryArtist = {
   sourceId?: string | null;
   sourceDisplayName?: string | null;
   provider?: string | null;
+  artistKey?: string;
   name: string;
   sortName: string;
   role: 'track' | 'album' | 'both';

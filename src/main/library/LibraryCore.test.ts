@@ -10,6 +10,7 @@ import { MetadataService } from './MetadataService';
 import { createLibraryService } from './LibraryService';
 import { NetworkMetadataStore } from './network/NetworkMetadataStore';
 import type { AlbumMergeStrategy } from './AlbumService';
+import type { ArtistMergeStrategy } from '../../shared/types/appSettings';
 import type {
   CoverCacheRepairOptions,
   CoverExtractOptions,
@@ -249,6 +250,7 @@ const createHarness = (
   const databasePath = join(root, 'library.sqlite');
   const coverCacheDir = join(root, 'cover-cache');
   let albumMergeStrategy: AlbumMergeStrategy = 'standard';
+  let artistMergeStrategy: ArtistMergeStrategy = 'standard';
   let chineseCrossScriptSearchEnabled = true;
   const service = createLibraryService(databasePath, {
     metadataService,
@@ -256,6 +258,7 @@ const createHarness = (
     appSettings: () => ({
       appearanceTheme: 'light',
       albumMergeStrategy,
+      artistMergeStrategy,
       chineseCrossScriptSearchEnabled,
       artistWallAlbumArtwork: false,
       coverCacheDir,
@@ -366,6 +369,9 @@ const createHarness = (
     },
     setAlbumMergeStrategy(strategy: AlbumMergeStrategy) {
       albumMergeStrategy = strategy;
+    },
+    setArtistMergeStrategy(strategy: ArtistMergeStrategy) {
+      artistMergeStrategy = strategy;
     },
     setChineseCrossScriptSearchEnabled(enabled: boolean) {
       chineseCrossScriptSearchEnabled = enabled;
@@ -2092,6 +2098,35 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('getTracks random window excludes recent playback candidates', async () => {
+    const harness = createHarness();
+    writeAudioFile(harness.folder, 'A.flac');
+    writeAudioFile(harness.folder, 'B.flac');
+    writeAudioFile(harness.folder, 'C.flac');
+    writeAudioFile(harness.folder, 'D.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const allTracks = harness.service.getTracks({ pageSize: 10, sort: 'titleAsc' }).items;
+    const excludedTrack = allTracks[0];
+    expect(excludedTrack).toBeTruthy();
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const randomPage = harness.service.getTracks({
+      page: 1,
+      pageSize: 3,
+      sort: 'random',
+      randomWindow: true,
+      excludeTrackIds: [excludedTrack!.id],
+    });
+
+    expect(randomPage.items).toHaveLength(3);
+    expect(randomPage.total).toBe(3);
+    expect(randomPage.items.some((track) => track.id === excludedTrack!.id)).toBe(false);
+    randomSpy.mockRestore();
+    harness.cleanup();
+  });
+
   it('getTracks sorts mixed Chinese and Latin titles naturally before pagination', async () => {
     const harness = createHarness();
     const zFile = writeAudioFile(harness.folder, 'z.flac');
@@ -2372,6 +2407,49 @@ describe('Library Core', () => {
     harness.service.clearPlaybackHistory();
     expect(harness.service.getPlaybackHistory({ pageSize: 10 }).total).toBe(0);
     expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(2);
+    harness.cleanup();
+  });
+
+  it('playback history can sort by latest playback for recent surfaces', async () => {
+    const harness = createHarness();
+    const firstFile = writeAudioFile(harness.folder, 'Frequent Song.flac');
+    const secondFile = writeAudioFile(harness.folder, 'Fresh Song.flac');
+    harness.metadataService.overrides.set(firstFile, baseMetadata({ title: 'Frequent Title', artist: 'Blue Artist', album: 'Night Album', duration: 60 }));
+    harness.metadataService.overrides.set(secondFile, baseMetadata({ title: 'Fresh Title', artist: 'Red Artist', album: 'Day Album', duration: 60 }));
+    harness.addFolder();
+    await harness.scanFolder();
+    const tracks = harness.service.getTracks({ pageSize: 10 }).items;
+    const frequent = tracks.find((track) => track.title === 'Frequent Title')!;
+    const fresh = tracks.find((track) => track.title === 'Fresh Title')!;
+
+    const frequentFirst = harness.service.startPlaybackHistory({ trackId: frequent.id, sourceType: 'songs', sourceLabel: 'Songs' });
+    const frequentSecond = harness.service.startPlaybackHistory({ trackId: frequent.id, sourceType: 'songs', sourceLabel: 'Songs' });
+    const freshOnly = harness.service.startPlaybackHistory({ trackId: fresh.id, sourceType: 'songs', sourceLabel: 'Songs' });
+
+    harness.service.finishPlaybackHistory({ historyId: frequentFirst.historyId, playedSeconds: 35 });
+    harness.service.finishPlaybackHistory({ historyId: frequentSecond.historyId, playedSeconds: 40 });
+    harness.service.finishPlaybackHistory({ historyId: freshOnly.historyId, playedSeconds: 45 });
+
+    const now = new Date();
+    const olderDate = new Date(now);
+    olderDate.setMinutes(olderDate.getMinutes() - 10);
+    const middleDate = new Date(now);
+    middleDate.setMinutes(middleDate.getMinutes() - 5);
+    const latestDate = new Date(now);
+    latestDate.setMinutes(latestDate.getMinutes() - 1);
+    const database = createDatabase(harness.databasePath);
+    const moveHistoryEntry = database.prepare('UPDATE playback_history SET started_at = ?, ended_at = ?, created_at = ? WHERE id = ?');
+    moveHistoryEntry.run(olderDate.toISOString(), olderDate.toISOString(), olderDate.toISOString(), frequentFirst.historyId);
+    moveHistoryEntry.run(middleDate.toISOString(), middleDate.toISOString(), middleDate.toISOString(), frequentSecond.historyId);
+    moveHistoryEntry.run(latestDate.toISOString(), latestDate.toISOString(), latestDate.toISOString(), freshOnly.historyId);
+    database.close();
+
+    const byPlays = harness.service.getPlaybackHistory({ pageSize: 10 });
+    const byRecent = harness.service.getPlaybackHistory({ pageSize: 10, sort: 'recent' });
+
+    expect(byPlays.items.map((item) => item.title)).toEqual(['Frequent Title', 'Fresh Title']);
+    expect(byRecent.items.map((item) => item.title)).toEqual(['Fresh Title', 'Frequent Title']);
+    expect(byRecent.items[0]).toMatchObject({ startedAt: latestDate.toISOString(), playCount: 1 });
     harness.cleanup();
   });
 
@@ -2702,6 +2780,77 @@ describe('Library Core', () => {
       'Solo Album',
     ]);
     expect(harness.service.getArtistAlbums(yoon.id, { pageSize: 10 }).items.map((album) => album.title)).toEqual(['Duet Album']);
+    harness.cleanup();
+  });
+
+  it('merges artist punctuation variants and standard suffix aliases without rewriting track credits', async () => {
+    const harness = createHarness();
+    harness.setArtistMergeStrategy('standard');
+    const aoiNoisy = writeAudioFile(harness.folder, 'AoiNoisy.flac');
+    const aoiClean = writeAudioFile(harness.folder, 'AoiClean.flac');
+    const aiobahnRegional = writeAudioFile(harness.folder, 'AiobahnRegional.flac');
+    const aiobahnClean = writeAudioFile(harness.folder, 'AiobahnClean.flac');
+    const nightPunctuated = writeAudioFile(harness.folder, 'NightPunctuated.flac');
+    const nightPlain = writeAudioFile(harness.folder, 'NightPlain.flac');
+    const nightCode = '25\u6642\u3001\u30ca\u30a4\u30c8\u30b3\u30fc\u30c9\u3067\u3002';
+    const nightCodePlain = '25\u6642 \u30ca\u30a4\u30c8\u30b3\u30fc\u30c9\u3067';
+    harness.metadataService.overrides.set(aoiNoisy, baseMetadata({ title: 'Aoi Noisy', artist: 'Aoi--', album: 'Aoi Album', albumArtist: 'Aoi' }));
+    harness.metadataService.overrides.set(aoiClean, baseMetadata({ title: 'Aoi Clean', artist: 'Aoi', album: 'Aoi Album', albumArtist: 'Aoi' }));
+    harness.metadataService.overrides.set(
+      aiobahnRegional,
+      baseMetadata({ title: 'Regional', artist: 'Aiobahn +81', album: 'Aiobahn Album', albumArtist: 'Aiobahn' }),
+    );
+    harness.metadataService.overrides.set(
+      aiobahnClean,
+      baseMetadata({ title: 'Clean', artist: 'Aiobahn', album: 'Aiobahn Album', albumArtist: 'Aiobahn' }),
+    );
+    harness.metadataService.overrides.set(
+      nightPunctuated,
+      baseMetadata({ title: 'Night Punctuated', artist: nightCode, album: 'Night Album', albumArtist: nightCodePlain }),
+    );
+    harness.metadataService.overrides.set(
+      nightPlain,
+      baseMetadata({ title: 'Night Plain', artist: nightCodePlain, album: 'Night Album', albumArtist: nightCodePlain }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const artists = harness.service.getArtists({ pageSize: 50 }).items;
+    const aoi = artists.find((artist) => artist.artistKey === 'aoi')!;
+    const aiobahn = artists.find((artist) => artist.artistKey === 'aiobahn')!;
+    const night = artists.find((artist) => artist.artistKey === '25\u6642\u30ca\u30a4\u30c8\u30b3\u30fc\u30c9\u3067')!;
+
+    expect(aoi).toMatchObject({ name: 'Aoi', trackCount: 2, albumCount: 1 });
+    expect(aiobahn).toMatchObject({ name: 'Aiobahn', trackCount: 2, albumCount: 1 });
+    expect(night).toMatchObject({ trackCount: 2, albumCount: 1 });
+    expect(harness.service.getArtistTracks(aiobahn.id, { pageSize: 10 }).items.map((track) => track.artist).sort()).toEqual([
+      'Aiobahn +81',
+      'Aiobahn',
+    ].sort());
+    harness.cleanup();
+  });
+
+  it('keeps standard-only suffix aliases split in conservative artist merge mode', async () => {
+    const harness = createHarness();
+    harness.setArtistMergeStrategy('conservative');
+    const aiobahnRegional = writeAudioFile(harness.folder, 'ConservativeRegional.flac');
+    const aiobahnClean = writeAudioFile(harness.folder, 'ConservativeClean.flac');
+    harness.metadataService.overrides.set(
+      aiobahnRegional,
+      baseMetadata({ title: 'Regional', artist: 'Aiobahn +81', album: 'Regional Album', albumArtist: 'Aiobahn +81' }),
+    );
+    harness.metadataService.overrides.set(
+      aiobahnClean,
+      baseMetadata({ title: 'Clean', artist: 'Aiobahn', album: 'Clean Album', albumArtist: 'Aiobahn' }),
+    );
+    harness.addFolder();
+
+    await harness.scanFolder();
+
+    expect(harness.service.getArtists({ search: 'Aiobahn', pageSize: 10 }).items.map((artist) => artist.name).sort()).toEqual([
+      'Aiobahn',
+      'Aiobahn +81',
+    ]);
     harness.cleanup();
   });
 

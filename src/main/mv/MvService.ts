@@ -314,6 +314,29 @@ const isLegacyCodecCollapsedBilibiliDashVariant = (variant: TrackVideoStreamRow)
 const recordFromUnknown = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
+const mergeRawProviderJson = (base: unknown | null, issue: Record<string, unknown> | null): unknown | null => {
+  if (!issue) {
+    return base;
+  }
+
+  const baseRecord = recordFromUnknown(base);
+  return baseRecord ? { ...baseRecord, ...issue } : issue;
+};
+
+const unavailableRawProviderJsonFromResolvedVariants = (
+  variants: ResolvedMvStreamVariant[],
+): Record<string, unknown> | null =>
+  variants
+    .map((variant) => recordFromUnknown(variant.rawProviderJson))
+    .find((raw) => typeof raw?.unavailableReason === 'string') ?? null;
+
+const unavailableRawProviderJsonFromStreamRows = (
+  variants: TrackVideoStreamRow[],
+): Record<string, unknown> | null =>
+  variants
+    .map((variant) => recordFromJson(variant.raw_json))
+    .find((raw) => typeof raw?.unavailableReason === 'string') ?? null;
+
 const isStaleBilibiliDashDirectResolvedVariant = (variant: ResolvedMvStreamVariant): boolean => {
   if (variant.protocol !== 'direct') {
     return false;
@@ -624,6 +647,8 @@ const sanitizeVariant = (variant: TrackVideoStreamRow): MvQualityVariant => ({
 export class MvService {
   private readonly onlineProviderMap: Map<NetworkMvProviderId, MainMvOnlineProvider>;
   private readonly ephemeralStreams = new Map<string, EphemeralMvStreamEntry>();
+  private readonly resolveStreamsInFlight = new Map<string, Promise<MvResolvedStreams>>();
+  private readonly lastResolveIssueByVideoId = new Map<string, Record<string, unknown>>();
 
   constructor(
     private readonly database: EchoDatabase,
@@ -1093,6 +1118,24 @@ export class MvService {
   }
 
   async resolveStreams(videoId: string): Promise<MvResolvedStreams> {
+    const inFlight = this.resolveStreamsInFlight.get(videoId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const task = this.resolveStreamsWithDatabaseRecovery(videoId);
+    this.resolveStreamsInFlight.set(videoId, task);
+
+    try {
+      return await task;
+    } finally {
+      if (this.resolveStreamsInFlight.get(videoId) === task) {
+        this.resolveStreamsInFlight.delete(videoId);
+      }
+    }
+  }
+
+  private async resolveStreamsWithDatabaseRecovery(videoId: string): Promise<MvResolvedStreams> {
     try {
       return await this.resolveStreamsUnsafe(videoId);
     } catch (error) {
@@ -1141,6 +1184,14 @@ export class MvService {
 
       try {
         const resolvedVariants = await provider.resolve(this.mapRow(row), settings);
+        const resolveIssue = unavailableRawProviderJsonFromResolvedVariants(resolvedVariants);
+        if (resolvedVariants.some(isPlayableResolvedVariant)) {
+          this.lastResolveIssueByVideoId.delete(row.id);
+        } else if (resolveIssue) {
+          this.lastResolveIssueByVideoId.set(row.id, resolveIssue);
+        } else {
+          this.lastResolveIssueByVideoId.delete(row.id);
+        }
         this.cacheResolvedStreams(row, resolvedVariants);
       } catch (error) {
         if (!this.getStreamRows(row.id).some(isPlayableStreamRow)) {
@@ -2061,10 +2112,13 @@ export class MvService {
   private mapRow(row: TrackVideoRow): TrackVideo {
     const fileExists = row.provider !== 'local' || !row.file_path || existsSync(row.file_path);
     const localPlayable = row.provider === 'local' && Boolean(row.file_path) && fileExists && isBrowserPlayableVideo(row.file_path ?? '');
-    const selectedStream = row.provider === 'local' ? null : this.chooseStreamVariant(row, this.getPlaybackStreamRows(row.id));
+    const streamRows = row.provider === 'local' ? [] : this.getPlaybackStreamRows(row.id);
+    const selectedStream = row.provider === 'local' ? null : this.chooseStreamVariant(row, streamRows);
     const streamPlayable = isPlayableStreamRow(selectedStream);
     const provider = providerName(row.provider);
     const useRowSnapshot = provider === 'local';
+    const rawProviderJson = parseJson(row.raw_provider_json);
+    const resolveIssue = this.lastResolveIssueByVideoId.get(row.id) ?? unavailableRawProviderJsonFromStreamRows(streamRows);
 
     return {
       id: row.id,
@@ -2090,7 +2144,7 @@ export class MvService {
       score: Number(row.score ?? 0),
       selected: row.selected === 1,
       playableInApp: localPlayable || streamPlayable,
-      rawProviderJson: parseJson(row.raw_provider_json),
+      rawProviderJson: mergeRawProviderJson(rawProviderJson, resolveIssue),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

@@ -486,6 +486,7 @@ export type TranslationKey =
   | 'mvPanel.action.dismissUnavailable'
   | 'mvPanel.diagnostics.title'
   | 'mvPanel.notice.unavailable'
+  | 'mvPanel.status.bilibiliBlocked'
   | 'mvPanel.status.databaseUnread'
   | 'mvPanel.status.externalRequired'
   | 'mvPanel.status.inAppUnavailable'
@@ -499,16 +500,20 @@ export type TranslationKey =
   | 'mvPanel.status.unavailable'
   | 'mvPanel.status.videoFailed'
   | 'miniPlayer.action.close'
+  | 'miniPlayer.action.closeQueue'
   | 'miniPlayer.action.closeShort'
   | 'miniPlayer.action.next'
+  | 'miniPlayer.action.openQueue'
   | 'miniPlayer.action.pause'
   | 'miniPlayer.action.play'
   | 'miniPlayer.action.previous'
   | 'miniPlayer.action.resetPosition'
   | 'miniPlayer.aria.progress'
+  | 'miniPlayer.aria.queue'
   | 'miniPlayer.aria.shell'
   | 'miniPlayer.artist.unknown'
   | 'miniPlayer.status.hqPlayerTakeover'
+  | 'miniPlayer.status.queueEmpty'
   | 'miniPlayer.status.ready'
   | 'playerStatus.audioSpecifications'
   | 'playerStatus.ready'
@@ -1581,6 +1586,7 @@ export type TranslationKey =
   | 'settings.integrations.accounts.description.default'
   | 'settings.integrations.accounts.description.bilibili'
   | 'settings.integrations.accounts.loginAndSync'
+  | 'settings.integrations.accounts.clickToLogin'
   | 'settings.integrations.accounts.logout'
   | 'settings.integrations.accounts.logoutBusy'
   | 'settings.integrations.accounts.manualSave'
@@ -1903,7 +1909,6 @@ export type TranslationKey =
   | 'settings.playback.exportFormat.description'
   | 'settings.playback.exportFormat.title'
   | 'settings.playback.fixedVolume.description'
-  | 'settings.playback.fixedVolume.status.adjustable'
   | 'settings.playback.fixedVolume.status.fixed'
   | 'settings.playback.fixedVolume.title'
   | 'settings.playback.gapless.description'
@@ -2346,6 +2351,7 @@ const zhCN: TranslationMap = {
   'mvPanel.action.dismissUnavailable': '关闭 MV 不可用提示',
   'mvPanel.diagnostics.title': 'MV 诊断报告',
   'mvPanel.notice.unavailable': 'MV 不可用',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili 暂时拒绝解析，请稍后重试或外部打开',
   'mvPanel.status.databaseUnread': 'MV 数据库不可读',
   'mvPanel.status.externalRequired': '当前 MV 需要外部播放',
   'mvPanel.status.inAppUnavailable': '当前 MV 无法在应用内播放',
@@ -2359,16 +2365,20 @@ const zhCN: TranslationMap = {
   'mvPanel.status.unavailable': 'MV 不可用',
   'mvPanel.status.videoFailed': '视频加载失败',
   'miniPlayer.action.close': '关闭迷你播放器',
+  'miniPlayer.action.closeQueue': '收起播放队列',
   'miniPlayer.action.closeShort': '关闭',
   'miniPlayer.action.next': '下一首',
+  'miniPlayer.action.openQueue': '打开播放队列',
   'miniPlayer.action.pause': '暂停',
   'miniPlayer.action.play': '播放',
   'miniPlayer.action.previous': '上一首',
   'miniPlayer.action.resetPosition': '重置位置',
   'miniPlayer.aria.progress': '播放进度',
+  'miniPlayer.aria.queue': '播放队列',
   'miniPlayer.aria.shell': '迷你播放器',
   'miniPlayer.artist.unknown': '未知艺术家',
   'miniPlayer.status.hqPlayerTakeover': 'HQPlayer 接管中',
+  'miniPlayer.status.queueEmpty': '队列为空',
   'miniPlayer.status.ready': '就绪',
   'playerStatus.audioSpecifications': '音频规格',
   'playerStatus.ready': '就绪',
@@ -2613,7 +2623,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.option.rememberOutput': '保存输出设置',
   'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
   'audioDrawer.option.fixedVolume': '固定音量',
-  'audioDrawer.option.fixedVolumeDescription': '像 Roon Fixed Volume 一样锁定 ECHO 音量控制为 100%；ReplayGain 仍会独立生效。',
+  'audioDrawer.option.fixedVolumeDescription': '开启后会将 ECHO 音量控制锁定为 100%；ReplayGain 仍会独立生效。',
   'audioDrawer.option.showAsioPanelSettings': '是否显示 ASIO 面板设置',
   'audioDrawer.option.showAsioPanelSettingsDescription': '默认关闭。开启后才在 ASIO 设备下显示“打开 ASIO 面板”按钮。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -3609,7 +3619,7 @@ const zhCN: TranslationMap = {
   'settings.danger.clearCache.title': '清空曲库缓存',
   'settings.devices.empty': 'echo-audio-host 暂未返回输出设备。',
   'settings.devices.title': '设备列表',
-  'settings.general.artistInfoSources.description': '选择刷新艺人简介时使用的百科来源；百度百科和萌娘百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。',
+  'settings.general.artistInfoSources.description': '选择刷新艺人简介时使用的百科来源；百度百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。',
   'settings.general.artistInfoSources.title': '艺人信息源',
   'settings.general.artistStreamingAlbums.description': '开启后，艺人详情的专辑页会在本地专辑下方按需搜索并显示流媒体专辑；默认关闭，避免增加页面和网络压力。',
   'settings.general.artistStreamingAlbums.title': '流媒体专辑',
@@ -3668,6 +3678,7 @@ const zhCN: TranslationMap = {
   'settings.integrations.accounts.description.default': '歌词、元数据和下载接入预留。',
   'settings.integrations.accounts.description.bilibili': '用于 MV 解析和高清画质。',
   'settings.integrations.accounts.loginAndSync': '登录并同步',
+  'settings.integrations.accounts.clickToLogin': '未登录，点此登录',
   'settings.integrations.accounts.logout': '退出',
   'settings.integrations.accounts.logoutBusy': '退出中...',
   'settings.integrations.accounts.manualSave': '手动保存',
@@ -3989,8 +4000,7 @@ const zhCN: TranslationMap = {
   'settings.playback.dsdDop.title': 'DSD DoP 直出试验',
   'settings.playback.exportFormat.description': '底栏导出按钮使用这个格式；导出速度跟随当前播放速度。',
   'settings.playback.exportFormat.title': '音频导出格式',
-  'settings.playback.fixedVolume.description': '像 Roon Fixed Volume 一样锁定 ECHO 音量控制为 100%；ReplayGain 仍会独立生效。',
-  'settings.playback.fixedVolume.status.adjustable': '可调音量',
+  'settings.playback.fixedVolume.description': '开启后会将 ECHO 音量控制锁定为 100%；ReplayGain 仍会独立生效。',
   'settings.playback.fixedVolume.status.fixed': '已固定',
   'settings.playback.fixedVolume.title': '固定音量',
   'settings.playback.gapless.description': '本地同专辑相邻曲目 0 秒间隔，不淡入淡出；标准输出会临时转入原生 shared 链路。Automix 暂停期间保持独立。',
@@ -4420,6 +4430,7 @@ const zhTW: TranslationMap = {
   'mvPanel.action.dismissUnavailable': '關閉 MV 不可用提示',
   'mvPanel.diagnostics.title': 'MV 診斷報告',
   'mvPanel.notice.unavailable': 'MV 不可用',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili 暫時拒絕解析，請稍後重試或外部開啟',
   'mvPanel.status.databaseUnread': 'MV 資料庫不可讀',
   'mvPanel.status.externalRequired': '目前 MV 需要外部播放',
   'mvPanel.status.inAppUnavailable': '目前 MV 無法在應用程式內播放',
@@ -4433,16 +4444,20 @@ const zhTW: TranslationMap = {
   'mvPanel.status.unavailable': 'MV 不可用',
   'mvPanel.status.videoFailed': '影片載入失敗',
   'miniPlayer.action.close': '關閉迷你播放器',
+  'miniPlayer.action.closeQueue': '收起播放佇列',
   'miniPlayer.action.closeShort': '關閉',
   'miniPlayer.action.next': '下一首',
+  'miniPlayer.action.openQueue': '開啟播放佇列',
   'miniPlayer.action.pause': '暫停',
   'miniPlayer.action.play': '播放',
   'miniPlayer.action.previous': '上一首',
   'miniPlayer.action.resetPosition': '重置位置',
   'miniPlayer.aria.progress': '播放進度',
+  'miniPlayer.aria.queue': '播放佇列',
   'miniPlayer.aria.shell': '迷你播放器',
   'miniPlayer.artist.unknown': '未知演出者',
   'miniPlayer.status.hqPlayerTakeover': 'HQPlayer 接管中',
+  'miniPlayer.status.queueEmpty': '佇列為空',
   'miniPlayer.status.ready': '就緒',
   'playerStatus.audioSpecifications': '音訊規格',
   'playerStatus.ready': '就緒',
@@ -4873,7 +4888,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
   'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
   'audioDrawer.option.fixedVolume': '固定音量',
-  'audioDrawer.option.fixedVolumeDescription': '像 Roon Fixed Volume 一樣鎖定 ECHO 音量控制為 100%；ReplayGain 仍會獨立生效。',
+  'audioDrawer.option.fixedVolumeDescription': '開啟後會將 ECHO 音量控制鎖定為 100%；ReplayGain 仍會獨立生效。',
   'audioDrawer.option.showAsioPanelSettings': '是否顯示 ASIO 面板設定',
   'audioDrawer.option.showAsioPanelSettingsDescription': '預設關閉。開啟後才會在 ASIO 裝置下顯示「開啟 ASIO 面板」按鈕。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -5511,7 +5526,7 @@ const zhTW: TranslationMap = {
   'settings.eq.title': 'EQ',
   'settings.eq.warning.channelClipping': '存在削波風險：降低增益或前級可獲得更安全的餘量。',
   'settings.eq.warning.lowerPreamp': '降低前級可避免削波。',
-  'settings.general.artistInfoSources.description': '選擇重新整理藝人簡介時使用的百科來源；百度百科和萌娘百科更適合中文網路環境，Wikipedia 可作為國際藝人備援。',
+  'settings.general.artistInfoSources.description': '選擇重新整理藝人簡介時使用的百科來源；百度百科更適合中文網路環境，Wikipedia 可作為國際藝人備援。',
   'settings.general.artistInfoSources.title': '藝人資訊來源',
   'settings.general.artistStreamingAlbums.description': '開啟後，藝人詳情的專輯頁會在本地專輯下方按需搜尋並顯示串流專輯；預設關閉，避免增加頁面與網路壓力。',
   'settings.general.artistStreamingAlbums.title': '串流專輯',
@@ -5542,8 +5557,7 @@ const zhTW: TranslationMap = {
   'settings.playback.dsdDop.title': 'DSD DoP 直出試驗',
   'settings.playback.exportFormat.description': '底部播放列的匯出按鈕會使用這個格式；匯出速度跟隨目前播放速度。',
   'settings.playback.exportFormat.title': '音訊匯出格式',
-  'settings.playback.fixedVolume.description': '像 Roon Fixed Volume 一樣鎖定 ECHO 音量控制為 100%；ReplayGain 仍會獨立生效。',
-  'settings.playback.fixedVolume.status.adjustable': '可調音量',
+  'settings.playback.fixedVolume.description': '開啟後會將 ECHO 音量控制鎖定為 100%；ReplayGain 仍會獨立生效。',
   'settings.playback.fixedVolume.status.fixed': '已固定',
   'settings.playback.fixedVolume.title': '固定音量',
   'settings.playback.gapless.description': '本機同專輯相鄰曲目 0 秒間隔，不淡入淡出；標準輸出會暫時轉入原生 shared 鏈路。Automix 暫停期間保持獨立。',
@@ -5699,6 +5713,7 @@ const zhTW: TranslationMap = {
   'settings.integrations.accounts.description.default': '歌詞、中繼資料和下載接入預留。',
   'settings.integrations.accounts.description.bilibili': '用於 MV 解析和高畫質。',
   'settings.integrations.accounts.loginAndSync': '登入並同步',
+  'settings.integrations.accounts.clickToLogin': '未登入，點此登入',
   'settings.integrations.accounts.logout': '登出',
   'settings.integrations.accounts.logoutBusy': '登出中...',
   'settings.integrations.accounts.manualSave': '手動儲存',
@@ -6199,6 +6214,7 @@ const jaJP: TranslationMap = {
   'mvPanel.action.dismissUnavailable': 'MV 利用不可の通知を閉じる',
   'mvPanel.diagnostics.title': 'MV 診断レポート',
   'mvPanel.notice.unavailable': 'MV を利用できません',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili が一時的に解析を拒否しました。後で再試行するか外部で開いてください',
   'mvPanel.status.databaseUnread': 'MV データベースを読み取れません',
   'mvPanel.status.externalRequired': 'この MV は外部再生が必要です',
   'mvPanel.status.inAppUnavailable': 'この MV はアプリ内で再生できません',
@@ -6212,16 +6228,20 @@ const jaJP: TranslationMap = {
   'mvPanel.status.unavailable': 'MV を利用できません',
   'mvPanel.status.videoFailed': '動画の読み込みに失敗しました',
   'miniPlayer.action.close': 'ミニプレイヤーを閉じる',
+  'miniPlayer.action.closeQueue': '再生キューを閉じる',
   'miniPlayer.action.closeShort': '閉じる',
   'miniPlayer.action.next': '次の曲',
+  'miniPlayer.action.openQueue': '再生キューを開く',
   'miniPlayer.action.pause': '一時停止',
   'miniPlayer.action.play': '再生',
   'miniPlayer.action.previous': '前の曲',
   'miniPlayer.action.resetPosition': '位置をリセット',
   'miniPlayer.aria.progress': '再生位置',
+  'miniPlayer.aria.queue': '再生キュー',
   'miniPlayer.aria.shell': 'ミニプレイヤー',
   'miniPlayer.artist.unknown': '不明なアーティスト',
   'miniPlayer.status.hqPlayerTakeover': 'HQPlayer が引き継ぎ中',
+  'miniPlayer.status.queueEmpty': 'キューは空です',
   'miniPlayer.status.ready': '準備完了',
   'playerStatus.audioSpecifications': 'オーディオ仕様',
   'playerStatus.ready': '準備完了',
@@ -6660,7 +6680,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.option.rememberOutput': '出力設定を保存',
   'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
   'audioDrawer.option.fixedVolume': '固定音量',
-  'audioDrawer.option.fixedVolumeDescription': 'Roon Fixed Volume のように ECHO の音量操作を 100% に固定します。ReplayGain は引き続き独立して有効です。',
+  'audioDrawer.option.fixedVolumeDescription': '有効にすると、ECHO の音量操作を 100% に固定します。ReplayGain は引き続き独立して有効です。',
   'audioDrawer.option.showAsioPanelSettings': 'ASIO パネル設定を表示する',
   'audioDrawer.option.showAsioPanelSettingsDescription': '既定ではオフです。オンにすると ASIO デバイスの下に「ASIO パネルを開く」ボタンを表示します。',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -7367,7 +7387,7 @@ const jaJP: TranslationMap = {
   'settings.nav.about.description': 'バージョン、更新、開発ツール',
   'settings.nav.danger.label': '危険な操作',
   'settings.nav.danger.description': '復元とネットワーク安全性',
-  'settings.general.artistInfoSources.description': 'アーティスト紹介を更新するときに使う百科ソースを選びます。百度百科と萌娘百科は中国語圏向け、Wikipedia は海外アーティストの補完に使えます。',
+  'settings.general.artistInfoSources.description': 'アーティスト紹介を更新するときに使う百科ソースを選びます。百度百科は中国語圏向け、Wikipedia は海外アーティストの補完に使えます。',
   'settings.general.artistInfoSources.title': 'アーティスト情報ソース',
   'settings.general.artistStreamingAlbums.description': '有効にすると、アーティスト詳細のアルバムページでローカルアルバムの下にストリーミングアルバムを必要に応じて検索して表示します。ページとネットワーク負荷を抑えるため既定ではオフです。',
   'settings.general.artistStreamingAlbums.title': 'ストリーミングアルバム',
@@ -7397,8 +7417,7 @@ const jaJP: TranslationMap = {
   'settings.playback.dsdDop.title': 'DSD DoP 直出し試験',
   'settings.playback.exportFormat.description': '下部バーの書き出しボタンで使う形式です。書き出し速度は現在の再生速度に従います。',
   'settings.playback.exportFormat.title': '音声書き出し形式',
-  'settings.playback.fixedVolume.description': 'Roon Fixed Volume のように ECHO の音量制御を 100% に固定します。ReplayGain は独立して適用されます。',
-  'settings.playback.fixedVolume.status.adjustable': '音量調整可',
+  'settings.playback.fixedVolume.description': '有効にすると、ECHO の音量制御を 100% に固定します。ReplayGain は独立して適用されます。',
   'settings.playback.fixedVolume.status.fixed': '固定済み',
   'settings.playback.fixedVolume.title': '固定音量',
   'settings.playback.gapless.description': 'ローカルの同一アルバムで隣接する曲だけを 0 秒間隔で再生します。標準出力では一時的にネイティブ shared 経路を使い、Automix 停止中も独立して動作します。',
@@ -7561,6 +7580,7 @@ const jaJP: TranslationMap = {
   'settings.integrations.accounts.description.default': '歌詞、メタデータ、ダウンロード連携用の予約枠です。',
   'settings.integrations.accounts.description.bilibili': 'MV 解析と高画質再生に使います。',
   'settings.integrations.accounts.loginAndSync': 'ログインして同期',
+  'settings.integrations.accounts.clickToLogin': '未ログイン クリックしてログイン',
   'settings.integrations.accounts.logout': 'ログアウト',
   'settings.integrations.accounts.logoutBusy': 'ログアウト中...',
   'settings.integrations.accounts.manualSave': '手動保存',
@@ -8057,6 +8077,7 @@ const enUS: TranslationMap = {
   'mvPanel.action.dismissUnavailable': 'Dismiss MV unavailable notice',
   'mvPanel.diagnostics.title': 'MV Diagnostics Report',
   'mvPanel.notice.unavailable': 'MV unavailable',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili temporarily rejected playback parsing. Try again later or open externally',
   'mvPanel.status.databaseUnread': 'MV database is unreadable',
   'mvPanel.status.externalRequired': 'This MV requires external playback',
   'mvPanel.status.inAppUnavailable': 'This MV cannot play inside the app',
@@ -8070,16 +8091,20 @@ const enUS: TranslationMap = {
   'mvPanel.status.unavailable': 'MV unavailable',
   'mvPanel.status.videoFailed': 'Video failed to load',
   'miniPlayer.action.close': 'Close mini player',
+  'miniPlayer.action.closeQueue': 'Close playback queue',
   'miniPlayer.action.closeShort': 'Close',
   'miniPlayer.action.next': 'Next track',
+  'miniPlayer.action.openQueue': 'Open playback queue',
   'miniPlayer.action.pause': 'Pause',
   'miniPlayer.action.play': 'Play',
   'miniPlayer.action.previous': 'Previous track',
   'miniPlayer.action.resetPosition': 'Reset position',
   'miniPlayer.aria.progress': 'Playback progress',
+  'miniPlayer.aria.queue': 'Playback queue',
   'miniPlayer.aria.shell': 'Mini player',
   'miniPlayer.artist.unknown': 'Unknown Artist',
   'miniPlayer.status.hqPlayerTakeover': 'HQPlayer takeover active',
+  'miniPlayer.status.queueEmpty': 'Queue is empty',
   'miniPlayer.status.ready': 'Ready',
   'playerStatus.audioSpecifications': 'Audio specifications',
   'playerStatus.ready': 'Ready',
@@ -8518,7 +8543,7 @@ const enUS: TranslationMap = {
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
   'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
   'audioDrawer.option.fixedVolume': 'Fixed Volume',
-  'audioDrawer.option.fixedVolumeDescription': 'Locks ECHO volume control at 100% like Roon Fixed Volume; ReplayGain still applies independently.',
+  'audioDrawer.option.fixedVolumeDescription': 'When enabled, ECHO volume control is locked at 100%; ReplayGain still applies independently.',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Off by default. When enabled, ASIO devices show an Open ASIO Panel button.',
   'audioDrawer.option.alsaShared': 'ALSA',
@@ -9347,7 +9372,7 @@ const enUS: TranslationMap = {
   'settings.nav.about.description': 'Version, updates, and developer tools',
   'settings.nav.danger.label': 'Danger Zone',
   'settings.nav.danger.description': 'Recovery and network safety',
-  'settings.general.artistInfoSources.description': 'Choose the encyclopedia sources used when refreshing artist bios. Baidu Baike and Moegirl fit Chinese network contexts better, while Wikipedia can backstop international artists.',
+  'settings.general.artistInfoSources.description': 'Choose the encyclopedia sources used when refreshing artist bios. Baidu Baike fits Chinese network contexts better, while Wikipedia can backstop international artists.',
   'settings.general.artistInfoSources.title': 'Artist Info Sources',
   'settings.general.artistStreamingAlbums.description': 'When enabled, artist detail pages can search for and show streaming albums below local albums on demand. Off by default to avoid extra page and network pressure.',
   'settings.general.artistStreamingAlbums.title': 'Streaming Albums',
@@ -9377,8 +9402,7 @@ const enUS: TranslationMap = {
   'settings.playback.dsdDop.title': 'DSD DoP Passthrough Trial',
   'settings.playback.exportFormat.description': 'The player-bar export button uses this format; export speed follows the current playback speed.',
   'settings.playback.exportFormat.title': 'Audio Export Format',
-  'settings.playback.fixedVolume.description': 'Locks ECHO volume control at 100% like Roon Fixed Volume; ReplayGain still applies independently.',
-  'settings.playback.fixedVolume.status.adjustable': 'Adjustable Volume',
+  'settings.playback.fixedVolume.description': 'When enabled, ECHO volume control is locked at 100%; ReplayGain still applies independently.',
   'settings.playback.fixedVolume.status.fixed': 'Fixed',
   'settings.playback.fixedVolume.title': 'Fixed Volume',
   'settings.playback.gapless.description': '0-second gaps for adjacent local tracks from the same album. System output temporarily uses the native shared path; this stays separate while Automix is paused.',
@@ -9591,6 +9615,7 @@ const enUS: TranslationMap = {
   'settings.integrations.accounts.description.default': 'Reserved for lyrics, metadata, and download integrations.',
   'settings.integrations.accounts.description.bilibili': 'Used for MV parsing and high-quality playback.',
   'settings.integrations.accounts.loginAndSync': 'Log In And Sync',
+  'settings.integrations.accounts.clickToLogin': 'Not Logged In, Click To Log In',
   'settings.integrations.accounts.logout': 'Log Out',
   'settings.integrations.accounts.logoutBusy': 'Logging out...',
   'settings.integrations.accounts.manualSave': 'Save Manually',

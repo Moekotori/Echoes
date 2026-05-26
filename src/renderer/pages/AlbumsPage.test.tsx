@@ -212,6 +212,27 @@ describe('AlbumsPage', () => {
     window.removeEventListener('app:navigate:songs', navigateSongs);
   });
 
+  it('returns to home when an album detail was opened from the home page', async () => {
+    const targetAlbum = album('1', { title: 'Dream within a dream' });
+    const navigateRoute = vi.fn();
+    installLibrary(
+      vi.fn().mockResolvedValue(page([targetAlbum])),
+      vi.fn(),
+      vi.fn().mockResolvedValue(trackPage([])),
+      vi.fn().mockResolvedValue(null),
+    );
+    window.addEventListener('app:navigate:route', navigateRoute);
+
+    renderAlbumsPage();
+    await screen.findByText('Dream within a dream');
+    window.dispatchEvent(new CustomEvent('app:navigate:album-detail', { detail: { album: targetAlbum, returnTo: 'home' } }));
+    await screen.findByLabelText('Dream within a dream album details');
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => expect(navigateRoute).toHaveBeenCalledWith(expect.objectContaining({ detail: 'home' })));
+    window.removeEventListener('app:navigate:route', navigateRoute);
+  });
+
   it('loads page 2 when the album wall scrolls to the spacer bottom', async () => {
     const getAlbums = vi
       .fn()

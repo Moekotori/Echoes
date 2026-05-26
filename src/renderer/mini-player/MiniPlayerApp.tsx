@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ChangeEvent, PointerEvent } from 'react';
-import { Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
+import { ListMusic, Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
 import type { AudioPlaybackState, AudioStatus } from '../../shared/types/audio';
 import type { MiniPlayerState } from '../../shared/types/miniPlayer';
 import type { PlaybackStatus } from '../../shared/types/playback';
@@ -60,6 +60,7 @@ export const MiniPlayerApp = (): JSX.Element => {
   const [forwardedAudioStatus, setForwardedAudioStatus] = useState<ForwardedAudioStatus | null>(null);
   const [realtimePositionSeconds, setRealtimePositionSeconds] = useState(0);
   const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clockRef = useRef<MiniPlaybackClock>({
     durationSeconds: 0,
@@ -180,6 +181,8 @@ export const MiniPlayerApp = (): JSX.Element => {
   const positionSeconds = seekPreviewSeconds ?? realtimePositionSeconds;
   const progress = durationSeconds > 0 ? clamp(positionSeconds / durationSeconds, 0, 1) : 0;
   const hasPlayableTarget = Boolean(filePath || currentTrack || playbackStatus || activeAudioStatus);
+  const queueItems = queue.items;
+  const activeQueueId = queue.currentQueueId ?? queueItems.find((item) => item.track.id === trackId)?.queueId ?? null;
 
   useEffect(() => {
     if (trackId) {
@@ -235,6 +238,16 @@ export const MiniPlayerApp = (): JSX.Element => {
 
     return () => window.clearInterval(timer);
   }, [seekPreviewSeconds, visualState]);
+
+  useEffect(() => {
+    void window.echo?.miniPlayer?.setQueueOpen?.(isQueueOpen).catch(() => undefined);
+
+    return () => {
+      if (isQueueOpen) {
+        void window.echo?.miniPlayer?.setQueueOpen?.(false).catch(() => undefined);
+      }
+    };
+  }, [isQueueOpen]);
 
   const runPlaybackAction = useCallback(async (action: () => Promise<PlaybackStatus | null | void>): Promise<void> => {
     try {
@@ -340,8 +353,20 @@ export const MiniPlayerApp = (): JSX.Element => {
   };
 
   const handleResetBounds = useCallback((): void => {
+    setIsQueueOpen(false);
     void window.echo?.miniPlayer?.resetBounds?.().then(setMiniPlayerState).catch(() => undefined);
   }, []);
+
+  const handleToggleQueue = useCallback((): void => {
+    setIsQueueOpen((open) => !open);
+  }, []);
+
+  const handlePlayQueueItem = useCallback(
+    (queueId: string): void => {
+      void runPlaybackAction(() => queue.playQueueItem(queueId));
+    },
+    [queue, runPlaybackAction],
+  );
 
   const style = {
     '--mini-player-progress': `${progress * 100}%`,
@@ -349,7 +374,7 @@ export const MiniPlayerApp = (): JSX.Element => {
 
   return (
     <main
-      className="mini-player-app"
+      className={`mini-player-app ${isQueueOpen ? 'mini-player-app--queue-open' : ''}`}
       data-has-artwork={Boolean(artworkUrl)}
       data-playback-state={visualState}
       style={style}
@@ -402,11 +427,25 @@ export const MiniPlayerApp = (): JSX.Element => {
               </button>
             </div>
             <button
+              aria-label={isQueueOpen ? t('miniPlayer.action.closeQueue') : t('miniPlayer.action.openQueue')}
+              aria-pressed={isQueueOpen}
+              className={`mini-player-icon-button mini-player-queue-toggle ${isQueueOpen ? 'is-active' : ''}`}
+              disabled={queueItems.length === 0}
+              title={isQueueOpen ? t('miniPlayer.action.closeQueue') : t('miniPlayer.action.openQueue')}
+              type="button"
+              onClick={handleToggleQueue}
+            >
+              <ListMusic size={14} />
+            </button>
+            <button
               aria-label={t('miniPlayer.action.close')}
               className="mini-player-icon-button mini-player-close-button"
               title={t('miniPlayer.action.closeShort')}
               type="button"
-              onClick={() => void window.echo?.miniPlayer?.hide?.()}
+              onClick={() => {
+                setIsQueueOpen(false);
+                void window.echo?.miniPlayer?.hide?.();
+              }}
             >
               <X size={12} />
             </button>
@@ -440,6 +479,35 @@ export const MiniPlayerApp = (): JSX.Element => {
           </div>
           {error ? <p className="mini-player-error" title={error}>{error}</p> : null}
         </div>
+        {isQueueOpen ? (
+          <div className="mini-player-queue-panel" role="listbox" aria-label={t('miniPlayer.aria.queue')}>
+            {queueItems.length > 0 ? (
+              queueItems.map((item) => {
+                const isActive = item.queueId === activeQueueId || item.track.id === trackId;
+                const itemTitle = item.track.title || titleFromPath(item.track.path);
+                const itemArtist = item.track.artist?.trim() || item.track.albumArtist?.trim();
+
+                return (
+                  <button
+                    key={item.queueId}
+                    aria-current={isActive ? 'true' : undefined}
+                    className="mini-player-queue-item"
+                    title={itemArtist ? `${itemTitle} - ${itemArtist}` : itemTitle}
+                    type="button"
+                    onClick={() => handlePlayQueueItem(item.queueId)}
+                  >
+                    <span className="mini-player-queue-playing" aria-hidden="true">
+                      {isActive ? '||' : ''}
+                    </span>
+                    <span className="mini-player-queue-title">{itemTitle}</span>
+                  </button>
+                );
+              })
+            ) : (
+              <p className="mini-player-queue-empty">{t('miniPlayer.status.queueEmpty')}</p>
+            )}
+          </div>
+        ) : null}
       </section>
     </main>
   );

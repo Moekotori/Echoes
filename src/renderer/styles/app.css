@@ -5937,6 +5937,13 @@
   gap: 10px;
 }
 
+.settings-audio-professional-collapsed {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  width: 100%;
+}
+
 .audio-current-output-section {
   padding: 10px 0 2px;
 }
@@ -8144,6 +8151,54 @@
   gap: 12px;
 }
 
+.settings-cache-panel--replay-gain {
+  max-width: none;
+  gap: 10px;
+}
+
+.settings-replay-gain-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 14px;
+  align-items: start;
+}
+
+.settings-replay-gain-primary,
+.settings-replay-gain-presets,
+.settings-replay-gain-mode,
+.settings-replay-gain-toggles {
+  max-width: none;
+}
+
+.settings-replay-gain-presets {
+  justify-content: flex-end;
+}
+
+.settings-status-grid.settings-status-grid--replay-gain {
+  width: 100%;
+  max-width: none;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px;
+}
+
+.settings-status-grid--replay-gain span {
+  min-height: 42px;
+  padding: 7px 9px;
+}
+
+.settings-status-grid--replay-gain em {
+  font-size: 9px;
+}
+
+.settings-status-grid--replay-gain strong {
+  font-size: 11px;
+}
+
+.settings-replay-gain-advanced {
+  display: grid;
+  gap: 8px;
+}
+
 .settings-data-backup-panel {
   display: grid;
   width: 100%;
@@ -9495,6 +9550,10 @@ html[data-theme="dark"] .settings-lyrics-panel .lyrics-source-filters button[dat
   font-size: 11px;
 }
 
+.settings-account-status-link {
+  cursor: pointer;
+}
+
 .settings-account-cookie-field input {
   width: 100%;
   min-height: 34px;
@@ -10649,10 +10708,32 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
 
 .history-stats-track {
   display: grid;
+  width: 100%;
   min-width: 0;
   grid-template-columns: 18px 32px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  padding: 2px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-stats-track:hover,
+.history-stats-track:focus-visible,
+.history-stats-bar-row--link:hover,
+.history-stats-bar-row--link:focus-visible {
+  background: var(--theme-control-bg);
+}
+
+.history-stats-track:focus-visible,
+.history-stats-bar-row--link:focus-visible {
+  outline: 2px solid var(--theme-accent-solid-bg);
+  outline-offset: 2px;
 }
 
 .history-stats-track > span {
@@ -10713,10 +10794,22 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
 
 .history-stats-bar-row {
   display: grid;
+  width: 100%;
   min-width: 0;
   grid-template-columns: minmax(58px, 0.8fr) minmax(64px, 1fr) 34px;
   align-items: center;
   gap: 8px;
+}
+
+.history-stats-bar-row--link {
+  padding: 2px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
 }
 
 .history-stats-bar-row span,
@@ -13644,6 +13737,14 @@ html[data-theme="dark"] .history-play-count {
 
   .settings-chip-row,
   .settings-chip-row--actions {
+    justify-content: flex-start;
+  }
+
+  .settings-replay-gain-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-replay-gain-presets {
     justify-content: flex-start;
   }
 

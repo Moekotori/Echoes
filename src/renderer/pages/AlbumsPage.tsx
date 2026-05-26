@@ -262,6 +262,20 @@ export const AlbumsPage = (): JSX.Element => {
   }, [openAlbumDetail]);
 
   const handleBackFromAlbumDetail = useCallback((): void => {
+    if (selectedAlbumReturnTo === 'history') {
+      setSelectedAlbumReturnTo(null);
+      setSelectedAlbum(null);
+      window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: 'history' }));
+      return;
+    }
+
+    if (selectedAlbumReturnTo === 'home') {
+      setSelectedAlbumReturnTo(null);
+      setSelectedAlbum(null);
+      window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: 'home' }));
+      return;
+    }
+
     if (selectedAlbumReturnTo === 'songs') {
       window.dispatchEvent(new Event('app:navigate:songs'));
       return;
@@ -304,7 +318,7 @@ export const AlbumsPage = (): JSX.Element => {
       replaceQueue(tracks, { startTrackId: firstTrack.id, source });
       await playTrack(firstTrack, { source });
     },
-    [getAllAlbumTracks, playTrack, replaceQueue],
+    [getAllAlbumTracks, playTrack, replaceQueue, t],
   );
 
   const closeTagEditor = useCallback((): void => {

@@ -33,6 +33,7 @@ import {
   isAdvancedNativeOutputPlatform,
   normalizeAudioSharedBackendForPlatform,
 } from '../../../shared/utils/audioPlatformCapabilities';
+import { detectAsioCompatibilityProfile } from '../../../shared/utils/asioCompatibility';
 import { isHiResAudioSpec } from '../../../shared/utils/audioQuality';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
@@ -642,7 +643,7 @@ const deviceMatchesStatus = (device: AudioDeviceInfo, status: AudioStatus | null
 
 const shouldShowAsioAdvancedRoutes = (device: AudioDeviceInfo): boolean =>
   device.outputMode === 'asio' && (
-    device.name.toLocaleLowerCase().includes('asio4all') ||
+    detectAsioCompatibilityProfile(device.name) === 'asio4all' ||
     (device.asioOutputChannels ?? 0) > 2
   );
 

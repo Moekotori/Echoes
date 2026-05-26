@@ -23,6 +23,10 @@ import { isSpotifyTrack, pauseSpotifyPlayback, playSpotifyTrack } from '../integ
 import { beginPlaybackSwitchSnapshot, setPlaybackStatusSnapshot } from './playbackStatusStore';
 
 const playbackCancellationErrorMessage = 'audio_session_run_cancelled';
+const playbackHistoryChangedEvent = 'playback-history:changed';
+const libraryShuffleCandidatePageSize = 64;
+const libraryRandomQueueRefreshPageSize = 96;
+const libraryShuffleExcludeHistoryLimit = 200;
 const activePlaybackStates = new Set<AudioStatus['state']>(['loading', 'playing', 'paused']);
 const automixLateArmWindowSeconds = 60;
 const automixShortTrackArmRatio = 0.35;
@@ -1008,11 +1012,37 @@ const getShuffleCandidates = (items: QueueItem[], activeItem: QueueItem | null, 
   return items.filter((item) => !excludedQueueIds.has(item.queueId));
 };
 
+const getLibraryShuffleExcludedTrackIds = (activeItem: QueueItem | null, history: QueueItem[]): string[] => {
+  const excludedTrackIds: string[] = [];
+  const seen = new Set<string>();
+  const addTrackId = (trackId: string | null | undefined): void => {
+    if (!trackId || seen.has(trackId)) {
+      return;
+    }
+
+    seen.add(trackId);
+    excludedTrackIds.push(trackId);
+  };
+
+  addTrackId(activeItem?.track.id);
+  for (const item of history.slice(-libraryShuffleExcludeHistoryLimit).reverse()) {
+    addTrackId(item.track.id);
+  }
+
+  return excludedTrackIds;
+};
+
 const isLibraryRandomSource = (source: QueueSource | null | undefined): source is Extract<QueueSource, { type: 'songs' }> =>
   source?.type === 'songs';
 
 const isSongsRandomSortSource = (source: QueueSource | null | undefined): source is Extract<QueueSource, { type: 'songs' }> =>
   source?.type === 'songs' && source.sort === 'random';
+
+const libraryShuffleSource: Extract<QueueSource, { type: 'songs' }> = {
+  type: 'songs',
+  label: 'Library shuffle',
+  sort: 'random',
+};
 
 const pickRandom = <Item,>(items: Item[]): Item | null => items[Math.floor(Math.random() * items.length)] ?? null;
 
@@ -1505,6 +1535,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           durationSeconds: session.track.duration > 0 ? session.track.duration : undefined,
           completed,
         });
+        window.dispatchEvent(new Event(playbackHistoryChangedEvent));
       } catch {
         // History writes should never interrupt playback controls.
       }
@@ -1576,6 +1607,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         isPlaying: true,
         isFinishing: false,
       };
+      window.dispatchEvent(new Event(playbackHistoryChangedEvent));
     } catch {
       playbackHistorySessionRef.current = null;
     }
@@ -2400,14 +2432,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           excludedTrackIds.add(item.track.id);
         }
 
+        const libraryExcludeTrackIds = getLibraryShuffleExcludedTrackIds(activeItem, historyRef.current);
         const result = await library.getTracks({
           page: 1,
-          pageSize: 500,
+          pageSize: libraryShuffleCandidatePageSize,
           search: source.search,
           sort: 'random',
           hideDuplicates: source.hideDuplicates,
           showDuplicatesOnly: source.showDuplicatesOnly,
           duplicateMode: 'strict',
+          excludeTrackIds: libraryExcludeTrackIds,
+          randomWindow: true,
         });
         const freshTrack = pickRandom(result.items.filter((track) => !excludedTrackIds.has(track.id))) ?? null;
 
@@ -2432,14 +2467,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       }
 
       try {
+        const excludeTrackIds = getLibraryShuffleExcludedTrackIds(activeItem, historyRef.current);
         const result = await library.getTracks({
           page: 1,
-          pageSize: Math.max(2, pageSize),
+          pageSize: Math.max(2, Math.min(pageSize, libraryRandomQueueRefreshPageSize)),
           search: source.search,
           sort: 'random',
           hideDuplicates: source.hideDuplicates,
           showDuplicatesOnly: source.showDuplicatesOnly,
           duplicateMode: 'strict',
+          excludeTrackIds,
+          randomWindow: true,
         });
         const activeTrackId = activeItem?.track.id ?? null;
 
@@ -2598,17 +2636,21 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
     if (isShuffleEnabledRef.current) {
       const source = activeItem?.source ?? null;
-      let candidates = getShuffleCandidates(current, activeItem ?? null, historyRef.current);
+      const librarySource = isLibraryRandomSource(source) ? source : libraryShuffleSource;
+      let candidates: QueueItem[] = [];
 
-      target = pickRandom(candidates);
-
-      if (!target && isLibraryRandomSource(source)) {
-        target = await fetchLibraryShuffleTarget(source, activeItem ?? null);
+      target = await fetchLibraryShuffleTarget(librarySource, activeItem ?? null);
+      if (!target && isSongsRandomSortSource(librarySource)) {
+        const refreshedItems = await fetchLibraryRandomQueueRefresh(librarySource, activeItem ?? null, current.length || 100);
+        if (refreshedItems.length > 0) {
+          refreshedRandomQueue = refreshedItems;
+          target = refreshedItems[0] ?? null;
+        }
       }
 
-      if (!target && isSongsRandomSortSource(source)) {
-        refreshedRandomQueue = await fetchLibraryRandomQueueRefresh(source, activeItem ?? null, current.length || 100);
-        target = refreshedRandomQueue[0] ?? null;
+      if (!target) {
+        candidates = getShuffleCandidates(current, activeItem ?? null, historyRef.current);
+        target = pickRandom(candidates);
       }
 
       if (!target && navigationRepeatMode === 'all') {
@@ -2797,6 +2839,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     if (isShuffleEnabled) {
       const activeItem = currentIndex >= 0 ? items[currentIndex] : findItemByQueueId(items, currentQueueId);
       if (isLibraryRandomSource(activeItem?.source)) {
+        return true;
+      }
+      if (activeItem || currentTrack || lastPlayedTrack) {
         return true;
       }
       return getShuffleCandidates(items, activeItem ?? null, history).length > 0 || repeatMode === 'all';

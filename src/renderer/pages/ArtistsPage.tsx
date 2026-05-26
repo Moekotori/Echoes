@@ -422,6 +422,20 @@ export const ArtistsPage = (): JSX.Element => {
   }, [openArtistDetail]);
 
   const handleBackFromArtistDetail = useCallback((): void => {
+    if (selectedArtistReturnTo === 'history') {
+      setSelectedArtistReturnTo(null);
+      setSelectedArtist(null);
+      window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: 'history' }));
+      return;
+    }
+
+    if (selectedArtistReturnTo === 'home') {
+      setSelectedArtistReturnTo(null);
+      setSelectedArtist(null);
+      window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: 'home' }));
+      return;
+    }
+
     if (selectedArtistReturnTo === 'songs') {
       window.dispatchEvent(new Event('app:navigate:songs'));
       return;

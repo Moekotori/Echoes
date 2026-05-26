@@ -2326,6 +2326,7 @@ export const createLibraryService = (
   const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
   const store = new LibraryStore(database, () => ({
     chineseCrossScriptSearchEnabled: readSettings().chineseCrossScriptSearchEnabled !== false,
+    artistMergeStrategy: readSettings().artistMergeStrategy ?? 'standard',
   }));
   const fileScanner = dependencies.fileScanner ?? new TsFileScanner();
   const metadataReader =

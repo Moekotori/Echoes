@@ -13,6 +13,8 @@ import type {
   PlaybackStatsTrack,
 } from '../../shared/types/library';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { openAlbumDetailForTrack } from '../utils/albumNavigation';
+import { openArtistDetailByName } from '../utils/artistNavigation';
 
 const pageSize = 50;
 
@@ -201,6 +203,27 @@ const trackFromHistory = (entry: PlaybackHistoryEntry): LibraryTrack => ({
   fieldSources: {},
 });
 
+const trackFromStatsTrack = (track: PlaybackStatsTrack): LibraryTrack => ({
+  id: track.trackId ?? track.id,
+  path: track.id,
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  albumArtist: track.artist,
+  trackNo: null,
+  discNo: null,
+  year: null,
+  genre: null,
+  duration: track.durationSeconds,
+  codec: null,
+  sampleRate: null,
+  bitDepth: null,
+  bitrate: null,
+  coverId: null,
+  coverThumb: track.coverThumb,
+  fieldSources: {},
+});
+
 export const HistoryPage = (): JSX.Element => {
   const queue = usePlaybackQueue();
   const [items, setItems] = useState<PlaybackHistoryEntry[]>([]);
@@ -361,6 +384,30 @@ export const HistoryPage = (): JSX.Element => {
     [queue],
   );
 
+  const handleOpenTopTrack = useCallback(async (track: PlaybackStatsTrack): Promise<void> => {
+    try {
+      setError(null);
+      const album = await openAlbumDetailForTrack(trackFromStatsTrack(track), { returnTo: 'history' });
+      if (!album) {
+        setError(`未找到专辑：${track.album || 'Unknown Album'}`);
+      }
+    } catch (navigationError) {
+      setError(navigationError instanceof Error ? navigationError.message : String(navigationError));
+    }
+  }, []);
+
+  const handleOpenTopArtist = useCallback(async (artistName: string): Promise<void> => {
+    try {
+      setError(null);
+      const artist = await openArtistDetailByName(artistName, { returnTo: 'history' });
+      if (!artist) {
+        setError(`未找到艺术家：${artistName || 'Unknown Artist'}`);
+      }
+    } catch (navigationError) {
+      setError(navigationError instanceof Error ? navigationError.message : String(navigationError));
+    }
+  }, []);
+
   return (
     <div className="history-page">
       <header className="history-header">
@@ -395,7 +442,7 @@ export const HistoryPage = (): JSX.Element => {
         <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.latest} value={formatDate(summary?.rangeLatestPlayedAt ?? null)} />
       </section>
 
-      <PlaybackStatsDashboardView stats={stats} />
+      <PlaybackStatsDashboardView stats={stats} onOpenArtist={handleOpenTopArtist} onOpenTrack={handleOpenTopTrack} />
 
       <section className="history-list-section" aria-label="播放历史列表">
         {groupedItems.length > 0 ? (
@@ -468,7 +515,15 @@ const HistoryMetric = ({ icon, label, value }: { icon: JSX.Element; label: strin
   </div>
 );
 
-const PlaybackStatsDashboardView = ({ stats }: { stats: PlaybackStatsDashboard | null }): JSX.Element | null => {
+const PlaybackStatsDashboardView = ({
+  onOpenArtist,
+  onOpenTrack,
+  stats,
+}: {
+  onOpenArtist: (artistName: string) => Promise<void>;
+  onOpenTrack: (track: PlaybackStatsTrack) => Promise<void>;
+  stats: PlaybackStatsDashboard | null;
+}): JSX.Element | null => {
   if (!stats || stats.totals.playCount <= 0) {
     return null;
   }
@@ -492,10 +547,10 @@ const PlaybackStatsDashboardView = ({ stats }: { stats: PlaybackStatsDashboard |
 
       <div className="history-stats-panels">
         <StatsPanel title="最常听曲目" icon={<Music2 size={16} />}>
-          <TopTrackList tracks={stats.topTracks} />
+          <TopTrackList tracks={stats.topTracks} onOpenTrack={onOpenTrack} />
         </StatsPanel>
         <StatsPanel title="最常听艺人" icon={<Radio size={16} />}>
-          <TopArtistList artists={stats.topArtists} />
+          <TopArtistList artists={stats.topArtists} onOpenArtist={onOpenArtist} />
         </StatsPanel>
         <StatsPanel title="音质使用" icon={<Trophy size={16} />}>
           <BreakdownBars items={stats.qualityBreakdown} />
@@ -532,7 +587,13 @@ const StatsPanel = ({
   </section>
 );
 
-const TopTrackList = ({ tracks }: { tracks: PlaybackStatsTrack[] }): JSX.Element => {
+const TopTrackList = ({
+  onOpenTrack,
+  tracks,
+}: {
+  onOpenTrack: (track: PlaybackStatsTrack) => Promise<void>;
+  tracks: PlaybackStatsTrack[];
+}): JSX.Element => {
   if (tracks.length === 0) {
     return <p className="history-stats-empty">暂无曲目统计</p>;
   }
@@ -540,7 +601,7 @@ const TopTrackList = ({ tracks }: { tracks: PlaybackStatsTrack[] }): JSX.Element
   return (
     <div className="history-stats-list">
       {tracks.slice(0, 5).map((track, index) => (
-        <article className="history-stats-track" key={track.id}>
+        <button className="history-stats-track" key={track.id} type="button" onClick={() => void onOpenTrack(track)}>
           <span>{index + 1}</span>
           <div className="history-stats-cover" data-empty={!track.coverThumb}>
             {track.coverThumb ? <img alt="" src={track.coverThumb} /> : <Music2 size={16} />}
@@ -550,13 +611,19 @@ const TopTrackList = ({ tracks }: { tracks: PlaybackStatsTrack[] }): JSX.Element
             <small>{track.artist || 'Unknown artist'}</small>
           </div>
           <em>{`${track.playCount} 次`}</em>
-        </article>
+        </button>
       ))}
     </div>
   );
 };
 
-const TopArtistList = ({ artists }: { artists: PlaybackStatsArtist[] }): JSX.Element => {
+const TopArtistList = ({
+  artists,
+  onOpenArtist,
+}: {
+  artists: PlaybackStatsArtist[];
+  onOpenArtist: (artistName: string) => Promise<void>;
+}): JSX.Element => {
   if (artists.length === 0) {
     return <p className="history-stats-empty">暂无艺人统计</p>;
   }
@@ -565,13 +632,13 @@ const TopArtistList = ({ artists }: { artists: PlaybackStatsArtist[] }): JSX.Ele
   return (
     <div className="history-stats-bars">
       {artists.slice(0, 6).map((artist) => (
-        <div className="history-stats-bar-row" key={artist.artist}>
+        <button className="history-stats-bar-row history-stats-bar-row--link" key={artist.artist} type="button" onClick={() => void onOpenArtist(artist.artist)}>
           <span>{artist.artist || 'Unknown artist'}</span>
           <div className="history-stats-bar-track">
             <i style={{ width: `${Math.max(6, (artist.playCount / maxCount) * 100)}%` }} />
           </div>
           <em>{artist.playCount}</em>
-        </div>
+        </button>
       ))}
     </div>
   );

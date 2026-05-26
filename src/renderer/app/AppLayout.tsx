@@ -612,6 +612,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     setIsLyricsQueueDrawerOpen(true);
   }, []);
 
+  const handleOpenShellQueue = useCallback((): void => {
+    navigateRoute('queue');
+  }, [navigateRoute]);
+
   const handleOpenFullQueueFromLyricsDrawer = useCallback((): void => {
     navigateRoute('queue');
   }, [navigateRoute]);
@@ -1595,7 +1599,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             desktopLyricsVisible={desktopLyricsVisible}
             hasDesktopLyricsBridge={hasDesktopLyricsBridge}
             onOpenAudioSettings={() => setIsAudioDrawerOpen(true)}
-            onOpenQueue={isLyricsRoute ? handleOpenLyricsQueueDrawer : undefined}
+            onOpenQueue={isLyricsRoute ? handleOpenLyricsQueueDrawer : handleOpenShellQueue}
             onToggleDesktopLyrics={handleToggleDesktopLyrics}
           />
         </div>

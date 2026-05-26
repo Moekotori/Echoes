@@ -7,6 +7,7 @@ export type PlaybackSpeedMode = 'nightcore' | 'daycore' | 'speed';
 export type AudioLatencyProfile = 'stable' | 'balanced' | 'lowLatency';
 export type ChannelBalanceMonoMode = 'off' | 'sum' | 'left' | 'right';
 export type SharedStabilityTier = 'standard' | 'recovery' | 'emergency';
+export type AsioCompatibilityProfile = 'asio4all';
 export type AudioResamplerEngine = 'default' | 'soxr';
 export type FfmpegToolchainSource = 'explicit' | 'bundled' | 'dev-bundled' | 'system';
 export type AudioDsdOutputMode = 'pcm' | 'dop';
@@ -70,6 +71,11 @@ export type AudioLevelTelemetry = {
   inputRmsDb: number | null;
   estimatedOutputPeakDb: number | null;
   estimatedOutputRmsDb: number | null;
+  visualSpectrum?: number[];
+  visualSpectrumVersion?: 2;
+  visualEnergy?: number;
+  visualTransient?: number;
+  visualTelemetryState?: 'pcm' | 'priming' | 'fallback';
   headroomDb: number | null;
   clipCount: number;
   lastClipAt: string | null;
@@ -124,6 +130,7 @@ export type AudioStatus = {
   outputDeviceType: string | null;
   outputBackend: string | null;
   activeOutputBackendImpl: string | null;
+  asioCompatibilityProfile?: AsioCompatibilityProfile | null;
   nativeOutputFormat?: string | null;
   outputMode: AudioOutputMode;
   sharedBackend?: AudioSharedBackend | null;
@@ -261,6 +268,7 @@ export type AudioDiagnostics = Pick<
   | 'dsdNativeSampleRate'
   | 'dsdTransportSampleRate'
   | 'outputDeviceName'
+  | 'asioCompatibilityProfile'
   | 'currentFilePath'
   | 'currentTrackId'
   | 'durationSeconds'

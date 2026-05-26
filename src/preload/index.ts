@@ -1197,6 +1197,7 @@ const echoApi: EchoApi = {
     hide: () => ipcRenderer.invoke(IpcChannels.MiniPlayerHide),
     getState: () => ipcRenderer.invoke(IpcChannels.MiniPlayerGetState),
     setLocked: (locked) => ipcRenderer.invoke(IpcChannels.MiniPlayerSetLocked, locked),
+    setQueueOpen: (open) => ipcRenderer.invoke(IpcChannels.MiniPlayerSetQueueOpen, open),
     resetBounds: () => ipcRenderer.invoke(IpcChannels.MiniPlayerResetBounds),
     onStateChanged: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, state: unknown): void => {

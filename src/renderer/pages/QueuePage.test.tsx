@@ -61,11 +61,22 @@ const QueueSeeder = ({ startTrackId, tracks }: { startTrackId?: string; tracks: 
   return null;
 };
 
+const QueueSourceProbe = (): JSX.Element => {
+  const queue = usePlaybackQueue();
+
+  return (
+    <output aria-label="queue-sources">
+      {queue.items.map((item) => `${item.source.type}:${'sort' in item.source ? item.source.sort ?? '' : ''}`).join(',')}
+    </output>
+  );
+};
+
 const renderQueuePage = (tracks: LibraryTrack[], options: { startTrackId?: string } = {}): void => {
   render(
     <I18nProvider>
       <PlaybackQueueProvider>
         <QueueSeeder startTrackId={options.startTrackId} tracks={tracks} />
+        <QueueSourceProbe />
         <QueuePage />
       </PlaybackQueueProvider>
     </I18nProvider>,
@@ -125,6 +136,38 @@ describe('QueuePage', () => {
     fireEvent.doubleClick(secondRow!);
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: second.id })));
+  });
+
+  it('generates random queues as refreshable song-library random queues', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const getTracks = vi.fn().mockResolvedValue({
+      items: [first, second],
+      page: 1,
+      pageSize: 96,
+      total: 2,
+      hasMore: false,
+    });
+
+    window.echo = {
+      library: {
+        getTracks,
+      },
+    } as unknown as Window['echo'];
+
+    renderQueuePage([]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate random queue' }));
+
+    await waitFor(() =>
+      expect(getTracks).toHaveBeenCalledWith({
+        page: 1,
+        pageSize: 96,
+        sort: 'random',
+        randomWindow: true,
+      }),
+    );
+    await waitFor(() => expect(screen.getByLabelText('queue-sources').textContent).toBe('songs:random,songs:random'));
   });
 
   it('does not treat double-clicks inside the action group as row playback', async () => {
