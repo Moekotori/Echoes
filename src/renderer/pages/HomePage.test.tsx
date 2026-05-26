@@ -89,9 +89,9 @@ const album = (id: string, overrides: Partial<LibraryAlbum> = {}): LibraryAlbum 
   ...overrides,
 });
 
-const spectrum24 = (values: number[]): number[] =>
-  Array.from({ length: 24 }, (_, index) => {
-    const sourceIndex = Math.min(values.length - 1, Math.floor((index / 24) * values.length));
+const visualSpectrumTelemetry = (values: number[]): number[] =>
+  Array.from({ length: 32 }, (_, index) => {
+    const sourceIndex = Math.min(values.length - 1, Math.floor((index / 32) * values.length));
     return values[sourceIndex] ?? 0;
   });
 
@@ -162,6 +162,93 @@ const stats = (overrides: Partial<PlaybackStatsDashboard> = {}): PlaybackStatsDa
     { artist: 'Aimer', playCount: 4, completedCount: 3, playedSeconds: 720 },
     { artist: 'Moe', playCount: 2, completedCount: 2, playedSeconds: 360 },
   ],
+  topAlbums: [
+    {
+      id: 'favorite-1',
+      albumId: 'favorite-album-1',
+      mediaType: 'local',
+      albumKey: 'favorite:1',
+      title: 'Favorite Album One',
+      albumArtist: 'Moe',
+      year: null,
+      trackCount: 8,
+      duration: 1600,
+      coverId: 'favorite-cover-1',
+      coverThumb: 'echo-cover://album/favorite-cover-1',
+      playCount: 9,
+      completedCount: 8,
+      playedSeconds: 1440,
+      lastPlayedAt: '2026-05-25T09:00:00.000Z',
+    },
+    {
+      id: 'favorite-2',
+      albumId: 'favorite-album-2',
+      mediaType: 'local',
+      albumKey: 'favorite:2',
+      title: 'Favorite Album Two',
+      albumArtist: 'Aimer',
+      year: null,
+      trackCount: 10,
+      duration: 1800,
+      coverId: 'favorite-cover-2',
+      coverThumb: 'echo-cover://album/favorite-cover-2',
+      playCount: 7,
+      completedCount: 7,
+      playedSeconds: 1260,
+      lastPlayedAt: '2026-05-25T08:00:00.000Z',
+    },
+    {
+      id: 'favorite-3',
+      albumId: 'favorite-album-3',
+      mediaType: 'local',
+      albumKey: 'favorite:3',
+      title: 'Favorite Album Three',
+      albumArtist: 'ECHO',
+      year: null,
+      trackCount: 9,
+      duration: 1700,
+      coverId: 'favorite-cover-3',
+      coverThumb: 'echo-cover://album/favorite-cover-3',
+      playCount: 5,
+      completedCount: 5,
+      playedSeconds: 900,
+      lastPlayedAt: '2026-05-25T07:00:00.000Z',
+    },
+    {
+      id: 'favorite-4',
+      albumId: 'favorite-album-4',
+      mediaType: 'local',
+      albumKey: 'favorite:4',
+      title: 'Favorite Album Four',
+      albumArtist: 'Next',
+      year: null,
+      trackCount: 7,
+      duration: 1400,
+      coverId: 'favorite-cover-4',
+      coverThumb: 'echo-cover://album/favorite-cover-4',
+      playCount: 4,
+      completedCount: 4,
+      playedSeconds: 720,
+      lastPlayedAt: '2026-05-25T06:00:00.000Z',
+    },
+    {
+      id: 'favorite-5',
+      albumId: 'favorite-album-5',
+      mediaType: 'local',
+      albumKey: 'favorite:5',
+      title: 'Favorite Album Five',
+      albumArtist: 'Hidden',
+      year: null,
+      trackCount: 6,
+      duration: 1200,
+      coverId: 'favorite-cover-5',
+      coverThumb: 'echo-cover://album/favorite-cover-5',
+      playCount: 3,
+      completedCount: 3,
+      playedSeconds: 540,
+      lastPlayedAt: '2026-05-25T05:00:00.000Z',
+    },
+  ],
   formatBreakdown: [],
   qualityBreakdown: [],
   dailyActivity: [
@@ -230,6 +317,20 @@ const installLibraryMock = (overrides: Partial<NonNullable<Window['echo']>['libr
   return library;
 };
 
+const installAppSettingsMock = (settings: { homeWaveformVisualizerEnabled?: boolean } = {}) => {
+    const app = {
+      getSettings: vi.fn().mockResolvedValue({
+        homeWaveformVisualizerEnabled: false,
+        ...settings,
+      }),
+    };
+  window.echo = {
+    ...(window.echo ?? {}),
+    app,
+  } as unknown as Window['echo'];
+  return app;
+};
+
 afterEach(() => {
   cleanup();
   resetHomePageCacheForTest();
@@ -269,6 +370,9 @@ describe('HomePage', () => {
     expect(document.querySelector('.home-recent-panel .home-cover-card img')?.getAttribute('src')).toBe('echo-cover://large/daily-cover-1');
     expect(document.querySelectorAll('.home-recommend-panel .home-cover-card')).toHaveLength(7);
     expect(document.querySelector('.home-recommend-panel .home-cover-card img')?.getAttribute('src')).toMatch(/^echo-cover:\/\/large\/daily-cover-/);
+    expect(document.querySelectorAll('.home-favorite-album-panel .home-favorite-album-card')).toHaveLength(4);
+    expect(document.querySelector('.home-favorite-album-panel .home-favorite-album-card img')?.getAttribute('src')).toBe('echo-cover://large/favorite-cover-1');
+    expect(within(document.querySelector('.home-favorite-album-panel') as HTMLElement).queryByText('Favorite Album Five')).toBeNull();
     expect(library.getAlbums).toHaveBeenCalledWith({ page: 1, pageSize: 8, sort: 'recent' });
     expect(library.getAlbums).toHaveBeenCalledWith({ page: 1, pageSize: 7, sort: 'default' });
     const contentGrid = document.querySelector('.home-content-grid');
@@ -395,6 +499,13 @@ describe('HomePage', () => {
       expect((navigateAlbum.mock.calls[0]?.[0] as CustomEvent<unknown> | undefined)?.detail).toEqual(
         expect.objectContaining({ album: expect.objectContaining({ id: 'daily-1' }), returnTo: 'home' }),
       );
+
+      fireEvent.click(screen.getByRole('button', { name: /Favorite Album One/ }));
+
+      expect((navigateAlbum.mock.calls[1]?.[0] as CustomEvent<unknown> | undefined)?.detail).toEqual(
+        expect.objectContaining({ album: expect.objectContaining({ id: 'favorite-album-1' }), returnTo: 'home' }),
+      );
+      expect(queueState.value.playTrack).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener(albumDetailNavigationEvent, navigateAlbum);
     }
@@ -515,6 +626,7 @@ describe('HomePage', () => {
 
   it('uses shared native audio levels for the hero signal visualizer', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'asio',
@@ -543,8 +655,52 @@ describe('HomePage', () => {
     expect(document.querySelectorAll('.home-signal-bars i')).toHaveLength(48);
   });
 
+  it('hides the home signal visualizer when the setting is disabled', async () => {
+    installLibraryMock();
+    const app = installAppSettingsMock({ homeWaveformVisualizerEnabled: false });
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    await waitFor(() => {
+      expect(app.getSettings).toHaveBeenCalled();
+      expect(document.querySelector('.home-signal-visualizer')).toBeNull();
+    });
+    expect(document.querySelector('.home-now-card')?.getAttribute('data-signal-enabled')).toBe('false');
+    expect(document.querySelectorAll('.home-signal-bars i')).toHaveLength(0);
+  });
+
+  it('keeps the home signal visualizer hidden by default', async () => {
+    installLibraryMock();
+    installAppSettingsMock();
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    expect(document.querySelector('.home-signal-visualizer')).toBeNull();
+    expect(document.querySelector('.home-now-card')?.getAttribute('data-signal-enabled')).toBe('false');
+  });
+
+  it('updates the home signal visualizer when settings change', async () => {
+    installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    expect(document.querySelectorAll('.home-signal-bars i')).toHaveLength(48);
+
+    window.dispatchEvent(new CustomEvent('settings:changed', { detail: { homeWaveformVisualizerEnabled: false } }));
+
+    await waitFor(() => {
+      expect(document.querySelector('.home-signal-visualizer')).toBeNull();
+    });
+    expect(document.querySelector('.home-now-card')?.getAttribute('data-signal-enabled')).toBe('false');
+  });
+
   it('maps native visual spectrum telemetry without changing the hero visualizer shape', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -553,7 +709,7 @@ describe('HomePage', () => {
         inputRmsDb: -14,
         estimatedOutputPeakDb: -4,
         estimatedOutputRmsDb: -14,
-        visualSpectrum: spectrum24([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
+        visualSpectrum: visualSpectrumTelemetry([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
         visualSpectrumVersion: 2,
         visualEnergy: 0.72,
         visualTransient: 0.28,
@@ -584,6 +740,7 @@ describe('HomePage', () => {
 
   it('uses compositor animation variables so active spectrum bars move between telemetry updates', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -592,7 +749,7 @@ describe('HomePage', () => {
         inputRmsDb: -14,
         estimatedOutputPeakDb: -4,
         estimatedOutputRmsDb: -14,
-        visualSpectrum: spectrum24([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
+        visualSpectrum: visualSpectrumTelemetry([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
         visualSpectrumVersion: 2,
         visualEnergy: 0.72,
         visualTransient: 0.28,
@@ -621,7 +778,8 @@ describe('HomePage', () => {
 
   it('uses visual transient telemetry to increase active bar motion', async () => {
     installLibraryMock();
-    const visualSpectrum = spectrum24([0.62, 0.58, 0.46, 0.34, 0.24, 0.2, 0.18, 0.2, 0.26, 0.36, 0.48, 0.56]);
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
+    const visualSpectrum = visualSpectrumTelemetry([0.62, 0.58, 0.46, 0.34, 0.24, 0.2, 0.18, 0.2, 0.26, 0.36, 0.48, 0.56]);
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -660,8 +818,46 @@ describe('HomePage', () => {
     expect(nextMotion).toBeGreaterThan(firstMotion);
   });
 
+  it('keeps high startup priming spectrum from jumping into a large fake curve', async () => {
+    installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
+    sharedPlaybackState.value.audioStatus = {
+      state: 'playing',
+      outputMode: 'exclusive',
+      positionSeconds: 0.18,
+      audioLevels: {
+        inputPeakDb: -3,
+        inputRmsDb: -11,
+        estimatedOutputPeakDb: -3,
+        estimatedOutputRmsDb: -11,
+        visualSpectrum: visualSpectrumTelemetry([0.92, 0.9, 0.86, 0.72, 0.58, 0.5, 0.44, 0.42, 0.48, 0.54, 0.58, 0.6]),
+        visualSpectrumVersion: 2,
+        visualEnergy: 0.42,
+        visualTransient: 0.38,
+        visualTelemetryState: 'priming',
+        headroomDb: 3,
+        clipCount: 0,
+        lastClipAt: null,
+        meterSource: 'pre_native_estimated_post_dsp',
+      },
+    } as AudioStatus;
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    const visualizer = document.querySelector<HTMLElement>('.home-signal-visualizer');
+    const bars = document.querySelectorAll<HTMLElement>('.home-signal-bars i');
+    const scales = Array.from(bars).map((bar) => Number(bar.style.getPropertyValue('--home-signal-scale') || '0'));
+    const motions = Array.from(bars).map((bar) => Number(bar.style.getPropertyValue('--home-signal-motion') || '0'));
+
+    expect(visualizer?.dataset.telemetryState).toBe('priming');
+    expect(Math.max(...scales)).toBeLessThan(0.36);
+    expect(Math.max(...motions)).toBeLessThan(0.04);
+  });
+
   it('keeps trusted silent PCM telemetry restrained instead of drawing a fake curve', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -671,7 +867,7 @@ describe('HomePage', () => {
         inputRmsDb: null,
         estimatedOutputPeakDb: null,
         estimatedOutputRmsDb: null,
-        visualSpectrum: Array.from({ length: 24 }, () => 0),
+        visualSpectrum: Array.from({ length: 32 }, () => 0),
         visualSpectrumVersion: 2,
         visualEnergy: 0,
         visualTransient: 0,
@@ -696,6 +892,7 @@ describe('HomePage', () => {
 
   it('keeps startup priming telemetry from drawing a fake large curve', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -705,7 +902,7 @@ describe('HomePage', () => {
         inputRmsDb: null,
         estimatedOutputPeakDb: null,
         estimatedOutputRmsDb: null,
-        visualSpectrum: Array.from({ length: 24 }, () => 0),
+        visualSpectrum: Array.from({ length: 32 }, () => 0),
         visualSpectrumVersion: 2,
         visualEnergy: 0,
         visualTransient: 0,
@@ -730,6 +927,7 @@ describe('HomePage', () => {
 
   it('keeps signal animation timing stable when spectrum telemetry changes', async () => {
     installLibraryMock();
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       outputMode: 'exclusive',
@@ -738,7 +936,7 @@ describe('HomePage', () => {
         inputRmsDb: -14,
         estimatedOutputPeakDb: -4,
         estimatedOutputRmsDb: -14,
-        visualSpectrum: spectrum24([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
+        visualSpectrum: visualSpectrumTelemetry([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]),
         visualSpectrumVersion: 2,
         visualEnergy: 0.72,
         visualTransient: 0.18,
@@ -760,7 +958,7 @@ describe('HomePage', () => {
       ...(sharedPlaybackState.value.audioStatus as AudioStatus),
       audioLevels: {
         ...(sharedPlaybackState.value.audioStatus as AudioStatus).audioLevels!,
-        visualSpectrum: spectrum24([0.08, 0.12, 0.18, 0.28, 0.5, 0.8, 0.95, 0.7, 0.44, 0.24, 0.14, 0.08]),
+        visualSpectrum: visualSpectrumTelemetry([0.08, 0.12, 0.18, 0.28, 0.5, 0.8, 0.95, 0.7, 0.44, 0.24, 0.14, 0.08]),
         visualEnergy: 0.64,
         visualTransient: 0.32,
       },
@@ -775,7 +973,8 @@ describe('HomePage', () => {
 
   it('keeps real spectrum bars tied to telemetry instead of the track seed', async () => {
     installLibraryMock();
-    const visualSpectrum = spectrum24([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]);
+    installAppSettingsMock({ homeWaveformVisualizerEnabled: true });
+    const visualSpectrum = visualSpectrumTelemetry([0.9, 0.75, 0.5, 0.25, 0.12, 0.08, 0.06, 0.08, 0.14, 0.24, 0.38, 0.52]);
     sharedPlaybackState.value.audioStatus = {
       state: 'playing',
       currentTrackId: 'seed-a',

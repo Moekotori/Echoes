@@ -115,8 +115,8 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsOffsetControlsEnabled: false,
   lyricsSmartAlignmentEnabled: true,
   lyricsPreferredProvider: 'lrclib',
-  lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic'],
-  lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic'],
+  lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'],
+  lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'],
   lyricsDeepSearchEnabled: true,
   lyricsEnabled: true,
   lyricsHeaderHidden: false,
@@ -171,15 +171,17 @@ const fallbackLyricsFontFamilies = [
   'Inter',
   'Outfit',
 ];
-const defaultLyricsEnabledProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
-const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
-type OnlineLyricsProviderId = Extract<LyricsProviderId, 'lrclib' | 'netease' | 'qqmusic'>;
-const onlineLyricsProviderIds: OnlineLyricsProviderId[] = ['lrclib', 'netease', 'qqmusic'];
+const defaultLyricsEnabledProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
+const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
+type OnlineLyricsProviderId = Extract<LyricsProviderId, 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo'>;
+const onlineLyricsProviderIds: OnlineLyricsProviderId[] = ['lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
 const isOnlineLyricsProvider = (provider: LyricsProviderId): provider is OnlineLyricsProviderId => onlineLyricsProviderIds.includes(provider as OnlineLyricsProviderId);
 const lyricsSourceOptions = [
   { id: 'lrclib', labelKey: 'lyricsSettings.provider.lrclib', descriptionKey: 'lyricsSettings.provider.lrclibDescription' },
   { id: 'netease', labelKey: 'lyricsSettings.provider.netease', descriptionKey: 'lyricsSettings.provider.chineseCatalogDescription' },
   { id: 'qqmusic', labelKey: 'lyricsSettings.provider.qqmusic', descriptionKey: 'lyricsSettings.provider.chineseCatalogDescription' },
+  { id: 'kugou', labelKey: 'lyricsSettings.provider.kugou', descriptionKey: 'lyricsSettings.provider.chineseCatalogDescription' },
+  { id: 'kuwo', labelKey: 'lyricsSettings.provider.kuwo', descriptionKey: 'lyricsSettings.provider.chineseCatalogDescription' },
 ] satisfies Array<{ id: LyricsProviderId; labelKey: TranslationKey; descriptionKey: TranslationKey }>;
 const lyricsSourceOptionById = new Map(lyricsSourceOptions.map((source) => [source.id, source]));
 
@@ -189,6 +191,8 @@ const lyricsProviderLabelKeys: Record<LyricsSource, TranslationKey> = {
   lrclib: 'lyricsSettings.provider.lrclib',
   netease: 'lyricsSettings.provider.netease',
   qqmusic: 'lyricsSettings.provider.qqmusic',
+  kugou: 'lyricsSettings.provider.kugou',
+  kuwo: 'lyricsSettings.provider.kuwo',
   musixmatch: 'lyricsSettings.provider.musixmatch',
   genius: 'lyricsSettings.provider.genius',
   manual: 'lyricsSettings.provider.manual',
@@ -343,7 +347,7 @@ const riskLabel = (
 };
 
 const sourceFilterKey = (candidate: LyricsSearchCandidate): string => `${candidate.provider}:${candidate.sourceLabel}`;
-const searchableLyricsProviderIds: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
+const searchableLyricsProviderIds: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
 const searchableLyricsProviderSet = new Set<string>(searchableLyricsProviderIds);
 
 const mergeLyricsCandidates = (
@@ -520,9 +524,11 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
       ['lrclib', 1],
       ['netease', 2],
       ['qqmusic', 3],
-      ['musixmatch', 4],
-      ['genius', 5],
-      ['manual', 6],
+      ['kugou', 4],
+      ['kuwo', 5],
+      ['musixmatch', 6],
+      ['genius', 7],
+      ['manual', 8],
     ]);
     const sourceMap = new Map<string, { key: string; label: string; count: number; order: number }>();
 

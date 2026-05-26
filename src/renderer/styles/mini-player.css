@@ -49,13 +49,17 @@ body:has(.mini-player-app),
 }
 
 .mini-player-app--queue-open .mini-player-shell {
-  grid-template-rows: 59px minmax(0, 1fr);
-  row-gap: 0;
   height: 324px;
   min-height: 324px;
   max-height: 324px;
+  padding-bottom: 0;
   border-radius: 8px;
   clip-path: inset(0 round 8px);
+}
+
+.mini-player-app--queue-open .mini-player-main {
+  align-self: start;
+  height: 54px;
 }
 
 html[data-theme="dark"] .mini-player-shell {
@@ -111,7 +115,7 @@ html[data-theme="dark"] .mini-player-cover {
 }
 
 .mini-player-transport,
-.mini-player-actions,
+.mini-player-reset-button,
 .mini-player-queue-toggle,
 .mini-player-close-button {
   -webkit-app-region: no-drag;
@@ -121,7 +125,7 @@ html[data-theme="dark"] .mini-player-cover {
   -webkit-app-region: drag;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 22px 22px;
+  grid-template-columns: minmax(0, 1fr) auto 22px 22px 22px;
   align-items: center;
   min-width: 0;
   gap: 6px;
@@ -157,30 +161,6 @@ html[data-theme="dark"] .mini-player-cover {
   color: var(--theme-muted-text);
   font-size: 11.25px;
   line-height: 13px;
-}
-
-.mini-player-actions {
-  position: absolute;
-  top: 0;
-  right: calc(100% + 6px);
-  display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--theme-panel-border) 76%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--theme-panel-bg-strong) 92%, transparent);
-  box-shadow: 0 8px 20px rgb(24 16 14 / 0.12);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(3px);
-  transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.mini-player-shell:hover .mini-player-actions,
-.mini-player-shell:focus-within .mini-player-actions {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
 }
 
 .mini-player-transport {
@@ -333,11 +313,11 @@ html[data-theme="dark"] .mini-player-cover {
 
 .mini-player-queue-panel {
   -webkit-app-region: no-drag;
-  grid-column: 1 / -1;
-  grid-row: 2;
-  min-height: 0;
-  height: 250px;
-  margin: 0 -10px -7px -8px;
+  position: absolute;
+  top: 74px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   overflow-y: auto;
   border-top: 1px solid color-mix(in srgb, var(--theme-panel-border) 62%, transparent);
   background: color-mix(in srgb, var(--theme-panel-bg-strong) 94%, transparent);
@@ -373,6 +353,14 @@ html[data-theme="dark"] .mini-player-cover {
 
 .mini-player-queue-item[aria-current="true"] {
   color: var(--theme-heading-text);
+  background: color-mix(in srgb, var(--theme-accent-bg) 42%, var(--theme-panel-bg-muted));
+}
+
+.mini-player-queue-item--static {
+  cursor: default;
+}
+
+.mini-player-queue-item--static:hover {
   background: color-mix(in srgb, var(--theme-accent-bg) 42%, var(--theme-panel-bg-muted));
 }
 

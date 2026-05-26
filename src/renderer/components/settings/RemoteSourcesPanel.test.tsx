@@ -6,9 +6,11 @@ import type {
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobKind,
   RemoteBackgroundJobStatus,
+  RemoteDirectoryItem,
   RemoteSource,
   RemoteSourceOverview,
   RemoteSyncStatus,
+  RemoteTrackLookupItem,
 } from '../../../shared/types/remoteSources';
 
 const remoteApiMocks = vi.hoisted(() => ({
@@ -24,6 +26,7 @@ const remoteApiMocks = vi.hoisted(() => ({
   cancelSync: vi.fn(),
   getSyncStatus: vi.fn(),
   createStreamUrl: vi.fn(),
+  lookupTracks: vi.fn(),
   startBackgroundJobs: vi.fn(),
   pauseBackgroundJobs: vi.fn(),
   resumeBackgroundJobs: vi.fn(),
@@ -34,8 +37,17 @@ const remoteApiMocks = vi.hoisted(() => ({
   updateRuntimeLimits: vi.fn(),
 }));
 
+const playbackQueueMocks = vi.hoisted(() => ({
+  appendToQueue: vi.fn(),
+  playTrack: vi.fn(),
+}));
+
 vi.mock('../../utils/echoBridge', () => ({
   getRemoteSourcesBridge: () => remoteApiMocks,
+}));
+
+vi.mock('../../stores/PlaybackQueueProvider', () => ({
+  usePlaybackQueue: () => playbackQueueMocks,
 }));
 
 const jobKinds: RemoteBackgroundJobKind[] = ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill'];
@@ -105,6 +117,38 @@ const globalStatus = (overrides: GlobalStatusOverrides = {}): RemoteBackgroundGl
   updatedAt: overrides.updatedAt ?? null,
 });
 
+const directoryItem = (overrides: Partial<RemoteDirectoryItem> = {}): RemoteDirectoryItem => ({
+  sourceId: 'source-1',
+  provider: 'webdav',
+  path: '/音乐 Space/Echo Song.mp3',
+  name: 'Echo Song.mp3',
+  kind: 'file',
+  sizeBytes: 16,
+  modifiedAt: null,
+  etag: null,
+  contentType: 'audio/mpeg',
+  audio: true,
+  ...overrides,
+});
+
+const lookupTrack = (overrides: Partial<RemoteTrackLookupItem> = {}): RemoteTrackLookupItem => ({
+  trackId: 'remote-track-1',
+  sourceId: 'source-1',
+  remotePath: '/音乐 Space/Echo Song.mp3',
+  title: 'Indexed Echo Song',
+  artist: 'Echo Artist',
+  album: 'Echo Album',
+  duration: 123,
+  codec: 'mp3',
+  coverThumb: null,
+  metadataStatus: 'ok',
+  coverStatus: 'pending',
+  lyricsStatus: 'not_found',
+  mvStatus: 'pending',
+  availability: 'available',
+  ...overrides,
+});
+
 const emptyStatusCounts = () => ({ pending: 0, searching: 0, partial: 0, ok: 0, not_found: 0, error: 0 });
 
 const overviewFor = (items: RemoteSource[]): RemoteSourceOverview => {
@@ -153,6 +197,9 @@ describe('RemoteSourcesPanel', () => {
     for (const mock of Object.values(remoteApiMocks)) {
       mock.mockReset();
     }
+    for (const mock of Object.values(playbackQueueMocks)) {
+      mock.mockReset();
+    }
     remoteApiMocks.list.mockImplementation(() => Promise.resolve(sources));
     remoteApiMocks.getOverview.mockImplementation(() => Promise.resolve(overviewFor(sources)));
     remoteApiMocks.listIssues.mockResolvedValue([]);
@@ -182,23 +229,11 @@ describe('RemoteSourcesPanel', () => {
       message: '连接成功。',
       testedAt: '2026-01-01T00:00:00.000Z',
     });
-    remoteApiMocks.browse.mockResolvedValue([
-      {
-        sourceId: 'source-1',
-        provider: 'webdav',
-        path: '/音乐 Space/Echo Song.mp3',
-        name: 'Echo Song.mp3',
-        kind: 'file',
-        sizeBytes: 16,
-        modifiedAt: null,
-        etag: null,
-        contentType: 'audio/mpeg',
-        audio: true,
-      },
-    ]);
+    remoteApiMocks.browse.mockResolvedValue([directoryItem()]);
     remoteApiMocks.sync.mockResolvedValue(syncStatus('created-source'));
     remoteApiMocks.cancelSync.mockResolvedValue(syncStatus());
     remoteApiMocks.getSyncStatus.mockImplementation((sourceId) => Promise.resolve(syncStatus(sourceId)));
+    remoteApiMocks.lookupTracks.mockResolvedValue([]);
     remoteApiMocks.getJobStatus.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.startBackgroundJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.pauseBackgroundJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
@@ -206,6 +241,7 @@ describe('RemoteSourcesPanel', () => {
     remoteApiMocks.retryFailedJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.setBackgroundPaused.mockResolvedValue(globalStatus());
     remoteApiMocks.getBackgroundGlobalStatus.mockResolvedValue(globalStatus());
+    playbackQueueMocks.playTrack.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
@@ -283,16 +319,213 @@ describe('RemoteSourcesPanel', () => {
     }));
   });
 
-  it('shows browse previews and confirms before deleting an existing source', async () => {
+  it('browses folders from the remote workbench and returns to the root', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.browse.mockImplementation(async (_sourceId, path) => {
+      if (path === '/音乐 Space/Album') {
+        return [
+          directoryItem({
+            path: '/音乐 Space/Album/Deep Cut.flac',
+            name: 'Deep Cut.flac',
+            sizeBytes: 32,
+            contentType: 'audio/flac',
+          }),
+        ];
+      }
+      return [
+        directoryItem({
+          path: '/音乐 Space/Album',
+          name: 'Album',
+          kind: 'directory',
+          sizeBytes: null,
+          contentType: null,
+          audio: false,
+        }),
+        directoryItem({
+          path: '/音乐 Space/Root Song.flac',
+          name: 'Root Song.flac',
+          sizeBytes: 32,
+          contentType: 'audio/flac',
+        }),
+        directoryItem({
+          path: '/音乐 Space/cover.jpg',
+          name: 'cover.jpg',
+          kind: 'file',
+          sizeBytes: 4,
+          contentType: 'image/jpeg',
+          audio: false,
+        }),
+      ];
+    });
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Root Song.flac');
+    expect(remoteApiMocks.browse).toHaveBeenCalledWith('source-1', null);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Album$/u }));
+    await screen.findByText('Deep Cut.flac');
+    expect(remoteApiMocks.browse).toHaveBeenCalledWith('source-1', '/音乐 Space/Album');
+
+    fireEvent.click(screen.getByRole('button', { name: /上级/u }));
+    await waitFor(() => expect(remoteApiMocks.browse).toHaveBeenLastCalledWith('source-1', null));
+    await screen.findByText('Root Song.flac');
+  });
+
+  it('shows browse errors in the file browser', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.browse.mockRejectedValueOnce(new Error('network down'));
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findAllByText('network down');
+    expect(screen.getByRole('button', { name: /^重试$/u })).toBeTruthy();
+    expect(remoteApiMocks.lookupTracks).not.toHaveBeenCalled();
+  });
+
+  it('uses indexed remote tracks when browser files are already in the library', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.lookupTracks.mockResolvedValue([lookupTrack()]);
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Indexed Echo Song');
+    expect(remoteApiMocks.lookupTracks).toHaveBeenCalledWith('source-1', ['/音乐 Space/Echo Song.mp3']);
+    expect(screen.getAllByText('已入库').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Echo Artist/u)).toBeTruthy();
+    expect(screen.getByText(/元数据 完成/u)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^播放$/u }));
+    await waitFor(() => expect(playbackQueueMocks.playTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'remote-track-1',
+        mediaType: 'remote',
+        remotePath: '/音乐 Space/Echo Song.mp3',
+        title: 'Indexed Echo Song',
+      }),
+      expect.objectContaining({ forceNewQueueItem: true }),
+    ));
+  });
+
+  it('filters browser items by audio, indexed, and unindexed status', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.browse.mockResolvedValue([
+      directoryItem({
+        path: '/音乐 Space/Album',
+        name: 'Album',
+        kind: 'directory',
+        sizeBytes: null,
+        contentType: null,
+        audio: false,
+      }),
+      directoryItem({
+        path: '/音乐 Space/Indexed.flac',
+        name: 'Indexed.flac',
+        contentType: 'audio/flac',
+        audio: true,
+      }),
+      directoryItem({
+        path: '/音乐 Space/Loose.mp3',
+        name: 'Loose.mp3',
+        contentType: 'audio/mpeg',
+        audio: true,
+      }),
+      directoryItem({
+        path: '/音乐 Space/readme.txt',
+        name: 'readme.txt',
+        kind: 'file',
+        sizeBytes: 8,
+        contentType: 'text/plain',
+        audio: false,
+      }),
+    ]);
+    remoteApiMocks.lookupTracks.mockResolvedValue([
+      lookupTrack({
+        remotePath: '/音乐 Space/Indexed.flac',
+        title: 'Indexed Song',
+      }),
+    ]);
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Indexed Song');
+    expect(screen.getByText('文件夹 1')).toBeTruthy();
+    expect(screen.getByText('音频 2')).toBeTruthy();
+    expect(screen.getByText('已入库 1')).toBeTruthy();
+    expect(screen.getByText('未索引 1')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^已入库$/u }));
+    expect(screen.getByText('Indexed Song')).toBeTruthy();
+    expect(screen.queryByText('Loose.mp3')).toBeNull();
+    expect(screen.queryByText('Album')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^未索引$/u }));
+    expect(screen.getByText('Loose.mp3')).toBeTruthy();
+    expect(screen.queryByText('Indexed Song')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^音频$/u }));
+    expect(screen.getByText('Loose.mp3')).toBeTruthy();
+    expect(screen.getByText('Indexed Song')).toBeTruthy();
+    expect(screen.queryByText('readme.txt')).toBeNull();
+  });
+
+  it('offers play and queue actions only for audio files', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.browse.mockResolvedValue([
+      directoryItem({
+        path: '/音乐 Space/Echo Song.mp3',
+        name: 'Echo Song.mp3',
+        contentType: 'audio/mpeg',
+        audio: true,
+      }),
+      directoryItem({
+        path: '/音乐 Space/readme.txt',
+        name: 'readme.txt',
+        kind: 'file',
+        sizeBytes: 8,
+        contentType: 'text/plain',
+        audio: false,
+      }),
+    ]);
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Echo Song.mp3');
+    expect(screen.getByText('不可播放')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^播放$/u }));
+    await waitFor(() => expect(playbackQueueMocks.playTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaType: 'remote',
+        sourceId: 'source-1',
+        remotePath: '/音乐 Space/Echo Song.mp3',
+        title: 'Echo Song',
+      }),
+      expect.objectContaining({ forceNewQueueItem: true }),
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: /加入队列/u }));
+    expect(playbackQueueMocks.appendToQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaType: 'remote',
+        sourceId: 'source-1',
+        remotePath: '/音乐 Space/Echo Song.mp3',
+      }),
+      expect.objectContaining({ type: 'manual' }),
+    );
+  });
+
+  it('confirms before deleting an existing source', async () => {
     sources = [remoteSource()];
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
-    fireEvent.click(screen.getByRole('button', { name: /^浏览$/u }));
-    await screen.findByText('/音乐 Space/Echo Song.mp3');
-    expect(remoteApiMocks.browse).toHaveBeenCalledWith('source-1');
-
+    await screen.findAllByText('Mock AList');
     fireEvent.click(screen.getByRole('button', { name: /删除/u }));
     expect(remoteApiMocks.delete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /删除/u }));
@@ -303,7 +536,7 @@ describe('RemoteSourcesPanel', () => {
     sources = [remoteSource()];
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
     expect(remoteApiMocks.list).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole('button', { name: /加载封面/u }));
@@ -326,7 +559,7 @@ describe('RemoteSourcesPanel', () => {
     }));
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
     expect(screen.getByText('\u4f4e\u8d1f\u8f7d\u8fd0\u884c')).toBeTruthy();
     expect(screen.getByText(/\u64ad\u653e\u4e2d\uff0c\u540e\u53f0\u4efb\u52a1\u5df2\u964d\u4f4e\u8d1f\u8f7d/u)).toBeTruthy();
     expect(screen.getByText(/\u64ad\u653e\u4e2d\uff0c\u5c01\u9762\u548c\u6b4c\u8bcd\u7b49\u540e\u53f0\u4efb\u52a1/u)).toBeTruthy();
@@ -375,7 +608,7 @@ describe('RemoteSourcesPanel', () => {
 
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
     expect(screen.getAllByText('已索引歌曲').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/8/u).length).toBeGreaterThan(0);
     expect(screen.getByText(/有 2 首元数据异常/u)).toBeTruthy();
@@ -398,7 +631,7 @@ describe('RemoteSourcesPanel', () => {
     ];
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
     expect(screen.getByText('远程库控制台')).toBeTruthy();
     expect(screen.getByRole('button', { name: /网盘 \/ WebDAV.*1 个.*4 首/u })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Subsonic \/ Navidrome.*1 个.*12 首/u })).toBeTruthy();
@@ -410,7 +643,7 @@ describe('RemoteSourcesPanel', () => {
     sources = [remoteSource()];
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
 
     fireEvent.click(screen.getByRole('button', { name: /\u5339\u914d\u6b4c\u8bcd/u }));
     await waitFor(() => expect(remoteApiMocks.startBackgroundJobs).toHaveBeenCalledWith('source-1', ['lyrics']));
@@ -433,7 +666,7 @@ describe('RemoteSourcesPanel', () => {
     remoteApiMocks.resumeBackgroundJobs.mockResolvedValue({ ...status, paused: false });
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
     const coverButton = screen.getByRole('button', { name: /加载封面/u });
     expect(coverButton.getAttribute('data-state')).toBe('active');
     expect(coverButton.getAttribute('aria-pressed')).toBe('true');
@@ -447,8 +680,9 @@ describe('RemoteSourcesPanel', () => {
     expect(enableButton.getAttribute('data-state')).toBe('off');
   });
 
-  it('removes a deleted source from local state even if the refresh fails', async () => {
+  it('removes a deleted source and clears the browser state even if the refresh fails', async () => {
     sources = [remoteSource()];
+    remoteApiMocks.lookupTracks.mockResolvedValue([lookupTrack()]);
     remoteApiMocks.list
       .mockImplementationOnce(() => Promise.resolve(sources))
       .mockImplementation(() => Promise.reject(new Error('refresh failed')));
@@ -457,10 +691,14 @@ describe('RemoteSourcesPanel', () => {
 
     render(<RemoteSourcesPanel />);
 
-    await screen.findByText('Mock AList');
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Indexed Echo Song');
+
     fireEvent.click(screen.getByRole('button', { name: /删除/u }));
 
     await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
     await waitFor(() => expect(screen.queryByText('Mock AList')).toBeNull());
+    expect(screen.queryByText('Indexed Echo Song')).toBeNull();
   });
 });

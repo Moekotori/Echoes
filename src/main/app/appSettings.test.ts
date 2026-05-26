@@ -93,8 +93,8 @@ describe('app settings normalization', () => {
     expect(settings.audioAnalysisEnabled).toBe(true);
     expect(settings.smtcLyricsEnabled).toBe(false);
     expect(settings.lyricsNetworkEnabled).toBe(true);
-    expect(settings.lyricsEnabledProviders).toEqual(['local', 'lrclib', 'netease', 'qqmusic']);
-    expect(settings.lyricsProviderOrder).toEqual(['local', 'lrclib', 'netease', 'qqmusic']);
+    expect(settings.lyricsEnabledProviders).toEqual(['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
+    expect(settings.lyricsProviderOrder).toEqual(['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
     expect(settings.lyricsDeepSearchEnabled).toBe(true);
     expect(settings.lyricsAutoSearch).toBe(true);
     expect(settings.lyricsAutoAcceptScore).toBe(0.5);
@@ -153,6 +153,7 @@ describe('app settings normalization', () => {
     expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
     expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
+    expect(settings.homeWaveformVisualizerEnabled).toBe(false);
     expect(settings.gaplessPlaybackEnabled).toBe(false);
   });
 
@@ -176,6 +177,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).fastStartupEnabled).toBe(false);
     expect(normalizeSettings({ fastStartupEnabled: true }).fastStartupEnabled).toBe(true);
     expect(normalizeSettings({ fastStartupEnabled: 'true' }).fastStartupEnabled).toBe(false);
+  });
+
+  it('keeps the home waveform visualizer disabled unless explicitly enabled', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).homeWaveformVisualizerEnabled).toBe(false);
+    expect(normalizeSettings({ homeWaveformVisualizerEnabled: true }).homeWaveformVisualizerEnabled).toBe(true);
+    expect(normalizeSettings({ homeWaveformVisualizerEnabled: false }).homeWaveformVisualizerEnabled).toBe(false);
+    expect(normalizeSettings({ homeWaveformVisualizerEnabled: 'true' }).homeWaveformVisualizerEnabled).toBe(false);
   });
 
   it('normalizes automatic data backup settings safely', async () => {
@@ -1140,7 +1150,7 @@ describe('app settings normalization', () => {
       lyricsNetworkEnabled: false,
       lyricsPreferredProvider: 'lrclib',
       lyricsEnabledProviders: ['local', 'qqmusic'],
-      lyricsProviderOrder: ['qqmusic', 'lrclib', 'local', 'netease'],
+      lyricsProviderOrder: ['qqmusic', 'lrclib', 'local', 'netease', 'kugou', 'kuwo'],
       lyricsProviderTimeoutMs: 1000,
       lyricsTotalMatchTimeoutMs: 15000,
       lyricsCoverAutoAcceptScore: 1,
@@ -1229,6 +1239,30 @@ describe('app settings normalization', () => {
       desktopLyricsRomanizationEnabled: true,
       desktopLyricsTranslationEnabled: true,
     });
+  });
+
+  it('adds new lyrics providers when saved settings still use the old default source list', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const settings = normalizeSettings({
+      lyricsEnabledProviders: ['local', 'lrclib', 'netease', 'qqmusic'],
+      lyricsProviderOrder: ['local', 'lrclib', 'netease', 'qqmusic'],
+    });
+
+    expect(settings.lyricsEnabledProviders).toEqual(['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
+    expect(settings.lyricsProviderOrder).toEqual(['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
+  });
+
+  it('does not re-enable new lyrics providers for a manually reduced source list', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const settings = normalizeSettings({
+      lyricsEnabledProviders: ['local', 'lrclib'],
+      lyricsProviderOrder: ['local', 'lrclib'],
+    });
+
+    expect(settings.lyricsEnabledProviders).toEqual(['local', 'lrclib']);
+    expect(settings.lyricsProviderOrder).toEqual(['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
   });
 
   it('normalizes channel balance settings for old and malformed settings files', async () => {

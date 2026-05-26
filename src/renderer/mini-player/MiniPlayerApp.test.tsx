@@ -85,7 +85,10 @@ const makePlaybackStatus = (track: LibraryTrack): PlaybackStatus => ({
   filePath: track.path,
 });
 
-const installEchoMock = (track: LibraryTrack): void => {
+const installEchoMock = (
+  track: LibraryTrack,
+  options: { desktopLyricsAudioStatus?: AudioStatus | null } = {},
+): void => {
   const audioStatus = makeAudioStatus(track);
   const playbackStatus = makePlaybackStatus(track);
 
@@ -113,7 +116,7 @@ const installEchoMock = (track: LibraryTrack): void => {
         onStatus: vi.fn(() => vi.fn()),
       },
       desktopLyrics: {
-        getLastAudioStatus: vi.fn().mockResolvedValue(null),
+        getLastAudioStatus: vi.fn().mockResolvedValue(options.desktopLyricsAudioStatus ?? null),
         onAudioStatus: vi.fn(() => undefined),
       },
       miniPlayer: {
@@ -247,5 +250,38 @@ describe('MiniPlayerApp', () => {
     expect(screen.getByText('虹ヶ咲学園スクールアイドル同好会')).toBeTruthy();
     expect(screen.queryByText('Episode 33')).toBeNull();
     expect(document.querySelector('.mini-player-cover img')?.getAttribute('src')).toBe('echo-cover://thumb/status-cover');
+  });
+
+  it('ignores stale forwarded system audio status for a different track', async () => {
+    const staleTrack = makeTrack({
+      id: 'stale-track',
+      path: 'D:\\Music\\Old Mini Song.flac',
+      title: 'Old Mini Song',
+      artist: 'Old Artist',
+      coverThumb: 'echo-cover://thumb/old-cover',
+    });
+    const liveTrack = makeTrack({
+      id: 'live-track',
+      path: 'D:\\Music\\Actual Mini Song.flac',
+      title: 'Actual Mini Song',
+      artist: 'Actual Artist',
+      coverThumb: null,
+    });
+    installEchoMock(liveTrack, {
+      desktopLyricsAudioStatus: {
+        ...makeAudioStatus(staleTrack),
+        outputMode: 'system',
+      },
+    });
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={staleTrack} tracks={[staleTrack, liveTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText('Actual Mini Song')).toBeTruthy();
+    expect(screen.getByText('Actual Artist')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Old Mini Song')).toBeNull());
   });
 });

@@ -3682,6 +3682,24 @@ export const SettingsPage = (): JSX.Element => {
         terms: [t('settings.general.playerWaveformProgress.title'), t('settings.general.playerWaveformProgress.description'), '波形进度条', '波形進度條', '波形播放进度', 'waveform progress', 'waveform seekbar', 'waveform scrubber', 'roon'],
       },
       {
+        id: 'row-home-waveform-visualizer',
+        sectionKey: 'general',
+        targetId: 'settings-row-home-waveform-visualizer',
+        title: t('settings.general.homeWaveformVisualizer.title'),
+        description: t('settings.general.homeWaveformVisualizer.description'),
+        terms: [
+          t('settings.general.homeWaveformVisualizer.title'),
+          t('settings.general.homeWaveformVisualizer.description'),
+          '首页波形图',
+          '主页波形图',
+          '音频可视化',
+          '可视化条',
+          'waveform visualizer',
+          'audio visualizer',
+          'home visualizer',
+        ],
+      },
+      {
         id: 'row-artist-streaming-albums',
         sectionKey: 'general',
         targetId: 'settings-row-artist-streaming-albums',
@@ -8345,6 +8363,22 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() =>
                     patchAppSettings({
                       playerWaveformProgressEnabled: !(appSettings?.playerWaveformProgressEnabled ?? false),
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-home-waveform-visualizer"
+                highlighted={highlightedSettingId === 'settings-row-home-waveform-visualizer'}
+                title={t('settings.general.homeWaveformVisualizer.title')}
+                description={t('settings.general.homeWaveformVisualizer.description')}
+              >
+                <ToggleButton
+                  active={appSettings?.homeWaveformVisualizerEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      homeWaveformVisualizerEnabled: appSettings?.homeWaveformVisualizerEnabled !== true,
                     })
                   }
                 />

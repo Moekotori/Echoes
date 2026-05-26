@@ -3,14 +3,14 @@ import type { LyricsProvider, LyricsProviderResult, LyricsProviderSearchRequest 
 import { LyricsMatchEngine } from './LyricsMatchEngine';
 
 const provider = (
-  id: 'lrclib' | 'netease' | 'qqmusic',
+  id: 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo',
   results: LyricsProviderResult[],
   delayMs = 0,
   capabilities: Partial<LyricsProvider['capabilities']> = {},
 ): LyricsProvider => ({
   id,
-  label: id === 'lrclib' ? 'LRCLIB' : id === 'netease' ? 'NetEase Lyrics' : 'QQ Music',
-  priority: id === 'lrclib' ? 700 : id === 'netease' ? 600 : 590,
+  label: id === 'lrclib' ? 'LRCLIB' : id === 'netease' ? 'NetEase Lyrics' : id === 'qqmusic' ? 'QQ Music' : id === 'kugou' ? 'KuGou' : 'Kuwo',
+  priority: id === 'lrclib' ? 700 : id === 'netease' ? 600 : id === 'qqmusic' ? 590 : id === 'kugou' ? 570 : 560,
   capabilities: {
     synced: true,
     plain: true,
@@ -35,6 +35,25 @@ const provider = (
 
     return request.signal?.aborted ? [] : results;
   }),
+});
+
+const hangingProvider = (
+  id: 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo',
+): LyricsProvider => ({
+  id,
+  label: id,
+  priority: 600,
+  capabilities: {
+    synced: true,
+    plain: true,
+    translation: false,
+    romanization: false,
+    byDuration: true,
+    byIsrc: false,
+    byMusicBrainzId: false,
+    needsAccount: false,
+  },
+  search: vi.fn(() => new Promise<LyricsProviderResult[]>(() => {})),
 });
 
 const result = (overrides: Partial<LyricsProviderResult> = {}): LyricsProviderResult => ({
@@ -144,6 +163,24 @@ describe('LyricsMatchEngine', () => {
 
     expect(matched.accepted?.providerLyricsId).toBe('fast');
   });
+
+  it('returns a lower-priority match when a higher-priority provider hangs', async () => {
+    const hanging = hangingProvider('netease');
+    const fast = provider('kugou', [result({ provider: 'kugou', providerLyricsId: 'kugou-fast' })], 0);
+    const engine = new LyricsMatchEngine([hanging, fast]);
+    const startedAt = Date.now();
+
+    const matched = await engine.match(query, {
+      enabledProviders: ['netease', 'kugou'],
+      providerTimeoutMs: 20,
+      totalMatchTimeoutMs: 60,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(250);
+    expect(matched.accepted?.provider).toBe('kugou');
+    expect(matched.accepted?.providerLyricsId).toBe('kugou-fast');
+  });
+
 
   it('uses provider order as priority when deep search is disabled', async () => {
     const first = provider('netease', [result({ provider: 'netease', providerLyricsId: 'first' })], 10);

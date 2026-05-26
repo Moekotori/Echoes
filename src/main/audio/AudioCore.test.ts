@@ -1174,9 +1174,9 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(status.audioLevels?.inputPeakDb).toBe(-6);
     expect(status.audioLevels?.inputRmsDb).toBe(-6);
-    expect(status.audioLevels?.visualSpectrum).toHaveLength(24);
+    expect(status.audioLevels?.visualSpectrum).toHaveLength(32);
     expect(status.audioLevels?.visualSpectrumVersion).toBe(2);
-    expect(status.audioLevels?.visualTelemetryState).toBe('pcm');
+    expect(status.audioLevels?.visualTelemetryState).toBe('priming');
     expect(status.audioLevels?.meterSource).toBe('pre_native_estimated_post_dsp');
     session.stop();
   });
@@ -7087,7 +7087,7 @@ describe('AudioSession host availability', () => {
       expect(second.warnings).not.toContain('mutated-status');
       expect(second.automix?.enabled).toBe(false);
       expect(second.audioLevels?.clipCount).toBe(0);
-      expect(second.audioLevels?.visualSpectrum).toHaveLength(24);
+      expect(second.audioLevels?.visualSpectrum).toHaveLength(32);
     } finally {
       session.dispose();
     }

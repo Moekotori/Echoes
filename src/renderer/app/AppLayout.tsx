@@ -102,6 +102,14 @@ const defaultLyricsMiniPlayerSettings: LyricsMiniPlayerSettings = {
 };
 
 const persistentRouteIds = new Set<AppRouteId>(['songs']);
+const readSongsNavigationRemoteSourceId = (event: Event): string | null => {
+  if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) {
+    return null;
+  }
+
+  const remoteSourceId = (event.detail as { remoteSourceId?: unknown }).remoteSourceId;
+  return typeof remoteSourceId === 'string' && remoteSourceId.trim().length > 0 ? remoteSourceId : null;
+};
 const accountProviderLabelKeys: Record<AccountProvider, TranslationKey> = {
   netease: 'accountProvider.netease',
   qqmusic: 'accountProvider.qqmusic',
@@ -1009,8 +1017,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     const handleNavigateQueue = (): void => {
       navigateRoute('queue');
     };
-    const handleNavigateSongs = (): void => {
+    const handleNavigateSongs = (event: Event): void => {
+      const remoteSourceId = readSongsNavigationRemoteSourceId(event);
       navigateRoute('songs');
+      if (remoteSourceId) {
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('library:show-remote-source', { detail: { sourceId: remoteSourceId } }));
+        }, 0);
+      }
     };
     const handleNavigateSettings = (): void => {
       navigateRoute('settings');

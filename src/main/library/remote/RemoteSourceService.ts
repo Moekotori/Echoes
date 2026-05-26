@@ -20,6 +20,7 @@ import type {
   RemoteSourceUpdate,
   RemoteStreamUrlResult,
   RemoteSyncStatus,
+  RemoteTrackLookupItem,
   RemoteVisibleHydrationOptions,
   TestRemoteSourceResult,
 } from '../../../shared/types/remoteSources';
@@ -209,6 +210,11 @@ export class RemoteSourceService {
   getTrackAsLibraryTrack(trackId: string): LibraryTrack | null {
     const track = this.store.getTrack(trackId);
     return track ? this.store.toLibraryTrack(track) : null;
+  }
+
+  lookupTracks(sourceId: string, remotePaths: string[]): RemoteTrackLookupItem[] {
+    this.requireSource(sourceId);
+    return this.store.lookupTracksBySourcePaths(sourceId, remotePaths);
   }
 
   hydrateVisibleTracks(trackIds: string[], options: RemoteVisibleHydrationOptions = {}): LibraryTrack[] {

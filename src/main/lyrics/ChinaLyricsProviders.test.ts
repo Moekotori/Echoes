@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { KugouLyricsProvider } from './KugouLyricsProvider';
+import { KuwoLyricsProvider } from './KuwoLyricsProvider';
 import { NeteaseLyricsProvider } from './NeteaseLyricsProvider';
 import { QQMusicLyricsProvider } from './QQMusicLyricsProvider';
 import { buildNormalizedLyricsQuery } from './lyricsQueryBuilder';
@@ -420,10 +422,109 @@ describe('China lyrics providers', () => {
     });
   });
 
+  it('maps KuGou search, lyric candidate, and downloaded LRC responses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          data: {
+            info: [
+              {
+                hash: 'kugou-hash',
+                SongName: 'Echo Song',
+                SingerName: 'Echo Artist',
+                AlbumName: 'Echo Album',
+                Duration: 120,
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          candidates: [
+            {
+              id: 'lyric-id',
+              accesskey: 'lyric-key',
+              song: 'Echo Song',
+              singer: 'Echo Artist',
+              duration: 120000,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          content: Buffer.from('[00:01.00]KuGou line', 'utf8').toString('base64'),
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [candidate] = await new KugouLyricsProvider().search(request);
+
+    expect(candidate).toMatchObject({
+      provider: 'kugou',
+      providerLyricsId: 'kugou:lyric-id',
+      title: 'Echo Song',
+      artist: 'Echo Artist',
+      album: 'Echo Album',
+      durationSeconds: 120,
+      syncedLyrics: '[00:01.00]KuGou line',
+      sourceLabel: 'KuGou',
+    });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('hash=kugou-hash');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('accesskey=lyric-key');
+  });
+
+  it('maps Kuwo search and lrclist responses to synced lyrics', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          abslist: [
+            {
+              MUSICRID: 'MUSIC_12345',
+              SONGNAME: 'Echo Song',
+              ARTIST: 'Echo Artist',
+              ALBUM: 'Echo Album',
+              DURATION: 120,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          data: {
+            lrclist: [
+              { time: '1.2', lineLyric: 'Kuwo line' },
+              { time: '2.34', lineLyric: 'Second line' },
+            ],
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [candidate] = await new KuwoLyricsProvider().search(request);
+
+    expect(candidate).toMatchObject({
+      provider: 'kuwo',
+      providerLyricsId: 'kuwo:12345',
+      title: 'Echo Song',
+      artist: 'Echo Artist',
+      album: 'Echo Album',
+      durationSeconds: 120,
+      syncedLyrics: '[00:01.20]Kuwo line\n[00:02.34]Second line',
+      sourceLabel: 'Kuwo',
+    });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('musicId=12345');
+  });
+
   it('swallows provider network failures', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
 
     await expect(new NeteaseLyricsProvider().search(request)).resolves.toEqual([]);
     await expect(new QQMusicLyricsProvider().search(request)).resolves.toEqual([]);
+    await expect(new KugouLyricsProvider().search(request)).resolves.toEqual([]);
+    await expect(new KuwoLyricsProvider().search(request)).resolves.toEqual([]);
   });
 });

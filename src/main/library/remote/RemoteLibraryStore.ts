@@ -15,6 +15,7 @@ import type {
   RemoteSourceStatus,
   RemoteSourceSyncMode,
   RemoteSourceUpdate,
+  RemoteTrackLookupItem,
 } from '../../../shared/types/remoteSources';
 import type { RemoteSourceSecret, RemoteTrackWrite } from './remoteTypes';
 import { RemoteSourceSecretStore } from './RemoteSourceSecretStore';
@@ -353,6 +354,24 @@ export class RemoteLibraryStore {
       .prepare<[string, string], DbRow>('SELECT * FROM remote_tracks WHERE source_id = ? AND remote_path = ?')
       .get(sourceId, remotePath);
     return row ? this.mapTrack(row) : null;
+  }
+
+  lookupTracksBySourcePaths(sourceId: string, remotePaths: string[]): RemoteTrackLookupItem[] {
+    const paths = Array.from(new Set(remotePaths.filter((path) => typeof path === 'string' && path.trim().length > 0).map((path) => path.trim()))).slice(0, 200);
+    if (paths.length === 0) {
+      return [];
+    }
+
+    const placeholders = paths.map(() => '?').join(', ');
+    return this.database
+      .prepare<unknown[], DbRow>(
+        `SELECT id, source_id, remote_path, title, artist, album, duration, codec, cover_id,
+          metadata_status, cover_status, lyrics_status, mv_status, availability
+         FROM remote_tracks
+         WHERE source_id = ? AND remote_path IN (${placeholders})`,
+      )
+      .all(sourceId, ...paths)
+      .map((row) => this.mapTrackLookup(row));
   }
 
   getTrackIdsForBackgroundJobs(sourceId: string, kinds: RemoteBackgroundJobKind[], options: { failedOnly?: boolean; limit?: number } = {}): string[] {
@@ -834,6 +853,27 @@ export class RemoteLibraryStore {
       remotePath: String(row.remote_path),
       sizeBytes: numberOrNull(row.size_bytes),
       updatedAt: String(row.updated_at),
+    };
+  }
+
+  private mapTrackLookup(row: DbRow): RemoteTrackLookupItem {
+    const coverId = textOrNull(row.cover_id);
+
+    return {
+      trackId: String(row.id),
+      sourceId: String(row.source_id),
+      remotePath: String(row.remote_path),
+      title: String(row.title),
+      artist: String(row.artist),
+      album: String(row.album),
+      duration: numberOrNull(row.duration),
+      codec: textOrNull(row.codec),
+      coverThumb: coverId ? `echo-cover://thumb/${encodeURIComponent(coverId)}` : null,
+      metadataStatus: remoteTrackStatusOrPending(row.metadata_status),
+      coverStatus: remoteTrackStatusOrPending(row.cover_status),
+      lyricsStatus: remoteTrackStatusOrPending(row.lyrics_status),
+      mvStatus: remoteTrackStatusOrPending(row.mv_status),
+      availability: row.availability === 'available' || row.availability === 'missing' ? row.availability : 'unknown',
     };
   }
 

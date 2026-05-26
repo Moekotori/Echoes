@@ -2,7 +2,7 @@ import type { LyricLine, LyricsKind } from '../../../shared/types/lyrics';
 
 export type LyricsState = {
   kind: LyricsKind;
-  source: 'none' | 'local' | 'online' | 'placeholder' | 'cached' | 'manual' | 'lrclib' | 'netease' | 'qqmusic' | 'musixmatch' | 'genius';
+  source: 'none' | 'local' | 'online' | 'placeholder' | 'cached' | 'manual' | 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo' | 'musixmatch' | 'genius';
   lines: LyricLine[];
   offsetMs: number;
 };

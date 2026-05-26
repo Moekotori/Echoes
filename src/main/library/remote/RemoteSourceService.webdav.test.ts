@@ -197,6 +197,30 @@ describe('RemoteSourceService WebDAV integration', () => {
       expect.objectContaining({ id: tracks.items[0].id, mediaType: 'remote' }),
     ]);
 
+    expect(service.lookupTracks(source.id, [trackPath, '/音乐 Space/missing.flac', trackPath])).toEqual([
+      expect.objectContaining({
+        trackId: tracks.items[0].id,
+        sourceId: source.id,
+        remotePath: trackPath,
+        title: '会魔法的老人',
+        metadataStatus: 'pending',
+        availability: 'available',
+      }),
+    ]);
+    expect(service.lookupTracks(source.id, [])).toEqual([]);
+
+    const otherSource = service.createSource({
+      provider: 'webdav',
+      displayName: 'Other AList',
+      baseUrl: `http://127.0.0.1:${port}/dav`,
+      username,
+      secret: password,
+      authType: 'basic',
+      config: { rootPath, scanConcurrency: 2, metadataConcurrency: 1 },
+      syncMode: 'index',
+    });
+    expect(service.lookupTracks(otherSource.id, [trackPath])).toEqual([]);
+
     database.prepare("UPDATE remote_tracks SET metadata_status = 'error', cover_status = 'error', lyrics_status = 'not_found' WHERE source_id = ?").run(source.id);
     expect(service.getOverview()).toMatchObject({
       totalSources: 1,

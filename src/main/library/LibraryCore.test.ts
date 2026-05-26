@@ -2553,6 +2553,7 @@ describe('Library Core', () => {
     });
     expect(stats.topTracks[0]).toMatchObject({ title: 'Stats HiRes', playCount: 2, playedSeconds: 110 });
     expect(stats.topArtists[0]).toMatchObject({ artist: 'Blue Artist', playCount: 2 });
+    expect(stats.topAlbums?.[0]).toMatchObject({ title: 'Night Album', playCount: 2, playedSeconds: 110 });
     expect(stats.formatBreakdown.map((item) => item.label)).toContain('FLAC');
     expect(stats.formatBreakdown.map((item) => item.label)).toContain('MP3');
     expect(stats.qualityBreakdown.map((item) => item.label)).toEqual(expect.arrayContaining(['Hi-Res', 'Lossy']));

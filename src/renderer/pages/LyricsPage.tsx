@@ -166,8 +166,8 @@ const albumNavigationTransitionMs = 180;
 const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsEnabled: true,
   lyricsNetworkEnabled: true,
-  lyricsEnabledProviders: ["local", "lrclib", "netease", "qqmusic"],
-  lyricsProviderOrder: ["local", "lrclib", "netease", "qqmusic"],
+  lyricsEnabledProviders: ["local", "lrclib", "netease", "qqmusic", "kugou", "kuwo"],
+  lyricsProviderOrder: ["local", "lrclib", "netease", "qqmusic", "kugou", "kuwo"],
   lyricsHeaderHidden: false,
   lyricsMvAutoShowTrackInfoDisabled: true,
   lyricsCandidatePanelAutoOpenEnabled: true,
@@ -426,6 +426,8 @@ const reasonLabels: Record<string, string> = {
   local_sidecar_priority: "本地歌词",
   netease_provider: "NetEase",
   qqmusic_provider: "QQ 音乐",
+  kugou_provider: "酷狗",
+  kuwo_provider: "酷我",
 };
 
 const visibleReasons = (candidate: LyricsSearchCandidate): string[] =>
@@ -437,7 +439,7 @@ const visibleReasons = (candidate: LyricsSearchCandidate): string[] =>
 const sourceFilterKey = (candidate: LyricsSearchCandidate): LyricsProviderId =>
   candidate.provider;
 
-const searchableLyricsProviderIds: LyricsProviderId[] = ["local", "lrclib", "netease", "qqmusic"];
+const searchableLyricsProviderIds: LyricsProviderId[] = ["local", "lrclib", "netease", "qqmusic", "kugou", "kuwo"];
 const searchableLyricsProviderSet = new Set<string>(searchableLyricsProviderIds);
 const isCandidateSourceFilter = (value: string | null): value is CandidateSourceFilter =>
   value === "all" || searchableLyricsProviderSet.has(value ?? "");
@@ -446,6 +448,8 @@ const lyricsProviderLabels: Partial<Record<LyricsProviderId, string>> = {
   lrclib: "LRCLIB",
   netease: "NetEase",
   qqmusic: "QQ 音乐",
+  kugou: "酷狗",
+  kuwo: "酷我",
   musixmatch: "Musixmatch",
   genius: "Genius",
 };
@@ -1892,9 +1896,11 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       ["lrclib", 1],
       ["netease", 2],
       ["qqmusic", 3],
-      ["musixmatch", 4],
-      ["genius", 5],
-      ["manual", 6],
+      ["kugou", 4],
+      ["kuwo", 5],
+      ["musixmatch", 6],
+      ["genius", 7],
+      ["manual", 8],
     ]);
     const sourceMap = new Map<
       CandidateSourceFilter,

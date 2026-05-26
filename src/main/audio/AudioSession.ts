@@ -250,6 +250,7 @@ const nativeStartupTelemetryLogIntervalMs = 500;
 const guardedPositionJumpDiagnosticLogIntervalMs = 2_000;
 const levelMeterVisualIntervalMs = 33;
 const levelMeterStatusIntervalMs = 33;
+const isHomeWaveformVisualizerEnabled = (): boolean => getAppSettings().homeWaveformVisualizerEnabled === true;
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;
 const asioUnavailableCooldownMs = 30_000;
@@ -1235,6 +1236,7 @@ export class AudioSession extends EventEmitter {
     clipCount: 0,
     lastClipAt: null,
   };
+  private readonly disabledVisualSpectrum = Array.from({ length: visualSpectrumBucketCount }, () => 0);
   private errorMessage: string | null = null;
   private outputWarnings: string[] = [];
   private pausedPositionSeconds: number | null = null;
@@ -2800,7 +2802,13 @@ export class AudioSession extends EventEmitter {
     const plan = this.currentPlan;
     const eqState = getEqBridge().getState();
     const channelBalanceState = getEqBridge().getChannelBalanceState();
-    const audioLevels = createAudioLevelTelemetry(this.levelSnapshot, eqState, channelBalanceState);
+    const homeWaveformVisualizerEnabled = isHomeWaveformVisualizerEnabled();
+    this.levelMeterTransform?.setVisualSpectrumEnabled(homeWaveformVisualizerEnabled);
+    const audioLevels = createAudioLevelTelemetry(
+      homeWaveformVisualizerEnabled ? this.levelSnapshot : this.createLevelSnapshotWithoutVisualTelemetry(this.levelSnapshot),
+      eqState,
+      channelBalanceState,
+    );
     const realtimeLevelClippingRisk = audioLevels.estimatedOutputPeakDb !== null && audioLevels.estimatedOutputPeakDb >= 0;
     const realtimeLevelClipped = audioLevels.clipCount > 0;
     const chainedPlaybackActive = this.activeAutomix !== null;
@@ -5547,6 +5555,7 @@ export class AudioSession extends EventEmitter {
       undefined,
       this.currentProbe?.fileSampleRate ?? undefined,
       this.currentProbe?.channels ?? undefined,
+      isHomeWaveformVisualizerEnabled(),
     );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     let inputEnded = false;
@@ -5668,6 +5677,7 @@ export class AudioSession extends EventEmitter {
       undefined,
       this.currentProbe?.fileSampleRate ?? undefined,
       this.currentProbe?.channels ?? undefined,
+      isHomeWaveformVisualizerEnabled(),
     );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     const combinedRun: DecoderRun = {
@@ -6364,7 +6374,9 @@ export class AudioSession extends EventEmitter {
   }
 
   private handleLevelSnapshot(snapshot: PcmLevelSnapshot): void {
-    this.levelSnapshot = snapshot;
+    const homeWaveformVisualizerEnabled = isHomeWaveformVisualizerEnabled();
+    this.levelMeterTransform?.setVisualSpectrumEnabled(homeWaveformVisualizerEnabled);
+    this.levelSnapshot = homeWaveformVisualizerEnabled ? snapshot : this.createLevelSnapshotWithoutVisualTelemetry(snapshot);
     if (this.state === 'playing') {
       const now = Date.now();
       if (now - this.lastLevelMeterStatusEmittedAt >= levelMeterStatusIntervalMs) {
@@ -6372,6 +6384,16 @@ export class AudioSession extends EventEmitter {
         this.emitStatus();
       }
     }
+  }
+
+  private createLevelSnapshotWithoutVisualTelemetry(snapshot: PcmLevelSnapshot): PcmLevelSnapshot {
+    return {
+      ...snapshot,
+      visualSpectrum: this.disabledVisualSpectrum,
+      visualEnergy: 0,
+      visualTransient: 0,
+      visualTelemetryState: 'fallback',
+    };
   }
 
   private stopResources(): void {

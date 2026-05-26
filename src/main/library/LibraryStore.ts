@@ -3499,6 +3499,91 @@ export class LibraryStore {
        LIMIT 8`,
       ...params,
     );
+    const topAlbumRows = this.allRows(
+      `WITH filtered_history AS (
+         SELECT history.*, ${historyKeySql} AS history_key
+         FROM playback_history AS history
+         ${whereSql}
+       ),
+       album_history AS (
+         SELECT
+           filtered_history.*,
+           (
+             SELECT album_tracks.album_id
+             FROM album_tracks
+             INNER JOIN tracks ON tracks.id = album_tracks.track_id AND tracks.missing = 0
+             WHERE album_tracks.track_id = filtered_history.track_id
+             ORDER BY album_tracks.position ASC
+             LIMIT 1
+           ) AS resolved_album_id
+         FROM filtered_history
+       ),
+       album_rows AS (
+         SELECT
+           album_history.*,
+           albums.id AS album_id,
+           albums.album_key,
+           albums.title AS album_title,
+           albums.album_artist AS album_artist_name,
+           albums.year AS album_year,
+           albums.track_count AS album_track_count,
+           albums.duration AS album_duration,
+           albums.cover_id AS album_cover_id,
+           COALESCE(
+             albums.id,
+             'history:' ||
+               lower(trim(COALESCE(NULLIF(TRIM(album_history.album_artist), ''), NULLIF(TRIM(album_history.artist_snapshot), ''), NULLIF(TRIM(album_history.artist), ''), 'Unknown Artist'))) ||
+               char(31) ||
+               lower(trim(COALESCE(NULLIF(TRIM(album_history.album_snapshot), ''), NULLIF(TRIM(album_history.album), ''), 'Unknown Album')))
+           ) AS album_group_key
+         FROM album_history
+         LEFT JOIN albums ON albums.id = album_history.resolved_album_id
+         WHERE NULLIF(TRIM(COALESCE(albums.title, album_history.album_snapshot, album_history.album, '')), '') IS NOT NULL
+       ),
+       grouped_albums AS (
+         SELECT
+           album_group_key,
+           COUNT(*) AS play_count,
+           COALESCE(SUM(CASE WHEN completed > 0 THEN 1 ELSE 0 END), 0) AS completed_count,
+           COALESCE(SUM(played_seconds), 0) AS played_seconds,
+           MAX(started_at) AS last_played_at
+         FROM album_rows
+         GROUP BY album_group_key
+       ),
+       latest_album_history AS (
+         SELECT album_rows.*
+         FROM album_rows
+         INNER JOIN grouped_albums ON grouped_albums.album_group_key = album_rows.album_group_key
+         WHERE album_rows.id = (
+           SELECT latest.id
+           FROM album_rows AS latest
+           WHERE latest.album_group_key = grouped_albums.album_group_key
+           ORDER BY latest.started_at DESC, latest.created_at DESC, latest.id DESC
+           LIMIT 1
+         )
+       )
+       SELECT
+         grouped_albums.album_group_key AS id,
+         latest_album_history.album_id,
+         latest_album_history.album_key,
+         latest_album_history.media_type,
+         COALESCE(latest_album_history.album_title, latest_album_history.album_snapshot, latest_album_history.album, 'Unknown Album') AS title,
+         COALESCE(latest_album_history.album_artist_name, latest_album_history.album_artist, latest_album_history.artist_snapshot, latest_album_history.artist, 'Unknown Artist') AS album_artist,
+         latest_album_history.album_year AS year,
+         COALESCE(latest_album_history.album_track_count, 1) AS track_count,
+         COALESCE(latest_album_history.album_duration, latest_album_history.duration_seconds, latest_album_history.duration_snapshot, 0) AS duration,
+         COALESCE(latest_album_history.album_cover_id, latest_album_history.cover_id) AS cover_id,
+         latest_album_history.cover_snapshot,
+         grouped_albums.play_count,
+         grouped_albums.completed_count,
+         grouped_albums.played_seconds,
+         grouped_albums.last_played_at
+       FROM grouped_albums
+       INNER JOIN latest_album_history ON latest_album_history.album_group_key = grouped_albums.album_group_key
+       ORDER BY grouped_albums.play_count DESC, grouped_albums.played_seconds DESC, grouped_albums.last_played_at DESC
+       LIMIT 8`,
+      ...params,
+    );
     const formatRows = this.allRows(
       `SELECT
          CASE
@@ -3583,6 +3668,26 @@ export class LibraryStore {
         completedCount: Number(row.completed_count ?? 0),
         playedSeconds: Number(row.played_seconds ?? 0),
       })),
+      topAlbums: topAlbumRows.map((row) => {
+        const coverId = textOrNull(row.cover_id);
+        return {
+          id: String(row.id),
+          albumId: textOrNull(row.album_id),
+          mediaType: row.media_type === 'remote' ? 'remote' : 'local',
+          albumKey: textOrNull(row.album_key),
+          title: String(row.title ?? 'Unknown Album'),
+          albumArtist: String(row.album_artist ?? 'Unknown Artist'),
+          year: numberOrNull(row.year),
+          trackCount: Number(row.track_count ?? 0),
+          duration: Number(row.duration ?? 0),
+          coverId,
+          coverThumb: coverId ? this.toCoverUrl(coverId, 'album') : textOrNull(row.cover_snapshot),
+          playCount: Number(row.play_count ?? 0),
+          completedCount: Number(row.completed_count ?? 0),
+          playedSeconds: Number(row.played_seconds ?? 0),
+          lastPlayedAt: textOrNull(row.last_played_at),
+        };
+      }),
       formatBreakdown: formatRows.map((row) => ({
         id: String(row.label ?? 'Unknown'),
         label: String(row.label ?? 'Unknown'),

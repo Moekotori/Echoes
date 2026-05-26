@@ -1141,6 +1141,8 @@ export type TranslationKey =
   | 'lyricsSettings.provider.cached'
   | 'lyricsSettings.provider.chineseCatalogDescription'
   | 'lyricsSettings.provider.genius'
+  | 'lyricsSettings.provider.kugou'
+  | 'lyricsSettings.provider.kuwo'
   | 'lyricsSettings.provider.local'
   | 'lyricsSettings.provider.lrclib'
   | 'lyricsSettings.provider.lrclibDescription'
@@ -1540,6 +1542,8 @@ export type TranslationKey =
   | 'settings.general.fastStartup.title'
   | 'settings.general.firstRunWizard.description'
   | 'settings.general.firstRunWizard.title'
+  | 'settings.general.homeWaveformVisualizer.description'
+  | 'settings.general.homeWaveformVisualizer.title'
   | 'settings.general.language.description'
   | 'settings.general.language.title'
   | 'settings.general.playerWaveformProgress.description'
@@ -3233,6 +3237,8 @@ const zhCN: TranslationMap = {
   'lyricsSettings.provider.cached': '缓存歌词',
   'lyricsSettings.provider.chineseCatalogDescription': '中文曲库补充',
   'lyricsSettings.provider.genius': 'Genius',
+  'lyricsSettings.provider.kugou': '酷狗音乐',
+  'lyricsSettings.provider.kuwo': '酷我音乐',
   'lyricsSettings.provider.local': '本地歌词',
   'lyricsSettings.provider.lrclib': 'LRCLIB',
   'lyricsSettings.provider.lrclibDescription': '开放歌词库',
@@ -3636,6 +3642,8 @@ const zhCN: TranslationMap = {
   'settings.general.language.title': '显示语言',
   'settings.general.playerWaveformProgress.description': '开启后，底部播放栏会用轻量波形样式显示进度；默认关闭，不解码音频也不增加后台分析。',
   'settings.general.playerWaveformProgress.title': '波形进度条',
+  'settings.general.homeWaveformVisualizer.description': '控制主页“今日回声”的实时波形图。关闭后不渲染波形，也会跳过主页波形用的频谱分析。',
+  'settings.general.homeWaveformVisualizer.title': '主页波形图',
   'settings.general.rememberWindowSize.description': '开启后会记住你上次拖拽后的窗口宽高，下次启动自动恢复。',
   'settings.general.rememberWindowSize.title': '记住窗口尺寸',
   'settings.general.searchTraditionalVariants.description': '开启后，输入繁体可以搜到简体结果，输入简体也可以搜到繁体结果。',
@@ -5245,6 +5253,8 @@ const zhTW: TranslationMap = {
   'lyricsSettings.provider.cached': '快取歌詞',
   'lyricsSettings.provider.chineseCatalogDescription': '中文曲庫補充',
   'lyricsSettings.provider.genius': 'Genius',
+  'lyricsSettings.provider.kugou': '酷狗音樂',
+  'lyricsSettings.provider.kuwo': '酷我音樂',
   'lyricsSettings.provider.local': '本地歌詞',
   'lyricsSettings.provider.lrclib': 'LRCLIB',
   'lyricsSettings.provider.lrclibDescription': '開放歌詞庫',
@@ -5537,6 +5547,8 @@ const zhTW: TranslationMap = {
   'settings.general.firstRunWizard.title': '首次啟動指引',
   'settings.general.playerWaveformProgress.description': '開啟後，底部播放列會用輕量波形樣式顯示進度；預設關閉，不解碼音訊也不增加背景分析。',
   'settings.general.playerWaveformProgress.title': '波形進度條',
+  'settings.general.homeWaveformVisualizer.description': '控制首頁「今日回聲」的即時波形圖。關閉後不渲染波形，也會跳過首頁波形使用的頻譜分析。',
+  'settings.general.homeWaveformVisualizer.title': '首頁波形圖',
   'settings.general.rememberWindowSize.description': '開啟後會記住你上次拖曳後的視窗寬高，下次啟動自動恢復。',
   'settings.general.rememberWindowSize.title': '記住視窗尺寸',
   'settings.general.searchTraditionalVariants.description': '開啟後，輸入繁體可以搜到簡體結果，輸入簡體也可以搜到繁體結果。',
@@ -7044,6 +7056,8 @@ const jaJP: TranslationMap = {
   'lyricsSettings.provider.cached': 'キャッシュ歌詞',
   'lyricsSettings.provider.chineseCatalogDescription': '中国語カタログ補完',
   'lyricsSettings.provider.genius': 'Genius',
+  'lyricsSettings.provider.kugou': 'KuGou Music',
+  'lyricsSettings.provider.kuwo': 'Kuwo Music',
   'lyricsSettings.provider.local': 'ローカル歌詞',
   'lyricsSettings.provider.lrclib': 'LRCLIB',
   'lyricsSettings.provider.lrclibDescription': 'オープン歌詞ライブラリ',
@@ -7400,6 +7414,8 @@ const jaJP: TranslationMap = {
   'settings.general.firstRunWizard.title': '初回起動ガイド',
   'settings.general.playerWaveformProgress.description': '有効にすると、下部プレイヤーの進行表示を軽量な波形スタイルにします。既定ではオフで、音声デコードやバックグラウンド解析は行いません。',
   'settings.general.playerWaveformProgress.title': '波形プログレスバー',
+  'settings.general.homeWaveformVisualizer.description': 'ホームの「今日のエコー」に表示するリアルタイム波形を制御します。オフにすると波形を描画せず、ホーム波形用のスペクトラム解析もスキップします。',
+  'settings.general.homeWaveformVisualizer.title': 'ホーム波形ビジュアライザー',
   'settings.general.rememberWindowSize.description': '有効にすると、前回ドラッグして変更したウィンドウの幅と高さを記憶し、次回起動時に自動で復元します。',
   'settings.general.rememberWindowSize.title': 'ウィンドウサイズを記憶',
   'settings.general.searchTraditionalVariants.description': '有効にすると、繁体字入力で簡体字の結果を検索でき、簡体字入力でも繁体字の結果を検索できます。',
@@ -8907,6 +8923,8 @@ const enUS: TranslationMap = {
   'lyricsSettings.provider.cached': 'Cached lyrics',
   'lyricsSettings.provider.chineseCatalogDescription': 'Chinese catalog supplement',
   'lyricsSettings.provider.genius': 'Genius',
+  'lyricsSettings.provider.kugou': 'KuGou Music',
+  'lyricsSettings.provider.kuwo': 'Kuwo Music',
   'lyricsSettings.provider.local': 'Local lyrics',
   'lyricsSettings.provider.lrclib': 'LRCLIB',
   'lyricsSettings.provider.lrclibDescription': 'Open lyrics library',
@@ -9385,6 +9403,8 @@ const enUS: TranslationMap = {
   'settings.general.firstRunWizard.title': 'First-Run Guide',
   'settings.general.playerWaveformProgress.description': 'Show a lightweight waveform-style progress bar in the bottom player. Off by default, with no audio decoding or background analysis.',
   'settings.general.playerWaveformProgress.title': 'Waveform Progress Bar',
+  'settings.general.homeWaveformVisualizer.description': 'Controls the live waveform in Home > Today Echo. Turning it off hides the waveform and skips the spectrum analysis used for it.',
+  'settings.general.homeWaveformVisualizer.title': 'Home Waveform Visualizer',
   'settings.general.rememberWindowSize.description': 'Remember the window size after you resize it, then restore it automatically on the next launch.',
   'settings.general.rememberWindowSize.title': 'Remember Window Size',
   'settings.general.searchTraditionalVariants.description': 'When enabled, Traditional Chinese input can find Simplified Chinese results, and Simplified Chinese input can find Traditional Chinese results.',

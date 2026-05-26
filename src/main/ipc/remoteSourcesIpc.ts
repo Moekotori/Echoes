@@ -50,6 +50,14 @@ const normalizeTrackIds = (value: unknown): string[] => {
   return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()))).slice(0, 40);
 };
 
+const normalizeRemotePaths = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()))).slice(0, 200);
+};
+
 const normalizeVisibleHydrationOptions = (value: unknown): RemoteVisibleHydrationOptions => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -214,6 +222,9 @@ export const registerRemoteSourcesIpc = (): void => {
   });
   ipcMain.handle(IpcChannels.RemoteSourcesHydrateVisibleTracks, (_event, trackIds: unknown, options: unknown) =>
     getRemoteSourceService().hydrateVisibleTracks(normalizeTrackIds(trackIds), normalizeVisibleHydrationOptions(options)),
+  );
+  ipcMain.handle(IpcChannels.RemoteSourcesLookupTracks, (_event, sourceId: unknown, remotePaths: unknown) =>
+    getRemoteSourceService().lookupTracks(requireText(sourceId, 'sourceId'), normalizeRemotePaths(remotePaths)),
   );
   ipcMain.handle(IpcChannels.RemoteSourcesStartBackgroundJobs, (_event, sourceId: unknown, kinds?: unknown) =>
     getRemoteSourceService().startBackgroundJobs(requireText(sourceId, 'sourceId'), normalizeJobKinds(kinds)),

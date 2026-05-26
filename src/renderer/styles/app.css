@@ -12255,6 +12255,344 @@ html[data-theme="dark"] .history-play-count {
   color: var(--color-text);
 }
 
+.remote-browser-workbench {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.remote-browser-sources,
+.remote-file-browser {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+}
+
+.remote-browser-sources {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+
+.remote-browser-panel-head,
+.remote-file-browser-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote-browser-panel-head span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-browser-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-browser-source-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.remote-browser-source-list button.active {
+  border-color: var(--color-accent);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.remote-browser-source-list button span,
+.remote-browser-source-list button strong,
+.remote-browser-source-list button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-browser-source-list button span {
+  display: grid;
+  gap: 3px;
+}
+
+.remote-browser-source-list button small,
+.remote-browser-source-list button em {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.remote-file-browser {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.remote-file-browser-head h3,
+.remote-file-browser-head p {
+  margin: 0;
+}
+
+.remote-file-browser-head p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  word-break: break-all;
+}
+
+.remote-file-browser-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-file-browser-actions,
+.remote-browser-breadcrumbs,
+.remote-file-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.remote-file-browser-actions {
+  justify-content: flex-end;
+}
+
+.remote-file-browser-actions button,
+.remote-browser-breadcrumbs button,
+.remote-browser-empty button,
+.remote-browser-error button,
+.remote-file-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.remote-file-browser-actions button:hover:not(:disabled),
+.remote-browser-breadcrumbs button:hover:not(:disabled),
+.remote-browser-empty button:hover:not(:disabled),
+.remote-browser-error button:hover:not(:disabled),
+.remote-file-row-actions button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.remote-browser-breadcrumbs button[aria-current="page"] {
+  color: var(--color-muted);
+}
+
+.remote-browser-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.remote-browser-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-browser-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+}
+
+.remote-browser-directory-stats,
+.remote-browser-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.remote-browser-directory-stats span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-browser-filter button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: var(--color-muted);
+}
+
+.remote-browser-filter button.active,
+.remote-browser-filter button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.remote-browser-error,
+.remote-browser-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+.remote-browser-error {
+  border-color: rgba(245, 158, 11, 0.42);
+  color: #fde68a;
+}
+
+.remote-browser-empty div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.remote-browser-empty span {
+  color: var(--color-muted);
+}
+
+.remote-file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+.remote-file-row[data-kind="directory"] {
+  background: color-mix(in srgb, var(--color-bg) 72%, var(--color-accent) 8%);
+}
+
+.remote-file-row-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.remote-file-row-main > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.remote-file-kind {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg-elevated) 70%, transparent);
+  color: var(--color-muted);
+}
+
+.remote-file-name-button {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-file-name-button:hover {
+  color: var(--color-accent);
+}
+
+.remote-file-row-main strong,
+.remote-file-row-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-file-row-main small,
+.remote-file-row-actions span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.remote-file-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.remote-file-meta-strip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-elevated) 78%, transparent);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.remote-file-meta-strip span[data-tone="ready"] {
+  color: var(--color-green);
+}
+
+.remote-file-meta-strip span[data-tone="warning"] {
+  color: #fde68a;
+}
+
 .remote-source-filter {
   display: inline-flex;
   align-items: center;
@@ -13471,6 +13809,7 @@ html[data-theme="dark"] .history-play-count {
 
   .remote-command-center,
   .remote-overview-grid,
+  .remote-browser-workbench,
   .remote-source-form,
   .remote-source-grid,
   .remote-source-health-strip,
@@ -13787,6 +14126,7 @@ html[data-theme="dark"] .history-play-count {
   .downloads-header,
   .downloads-section-title,
   .remote-sources-hero,
+  .remote-file-browser-head,
   .remote-source-card-head {
     align-items: stretch;
     flex-direction: column;
@@ -13801,6 +14141,7 @@ html[data-theme="dark"] .history-play-count {
   .download-job-row,
   .remote-command-center,
   .remote-overview-grid,
+  .remote-browser-workbench,
   .remote-source-form,
   .remote-source-grid,
   .remote-source-health-strip,
@@ -13811,6 +14152,26 @@ html[data-theme="dark"] .history-play-count {
 
   .downloads-side {
     grid-template-columns: 1fr;
+  }
+
+  .remote-file-browser-actions {
+    justify-content: flex-start;
+  }
+
+  .remote-browser-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .remote-browser-empty,
+  .remote-browser-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .remote-file-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .download-search-result .downloads-action-button,

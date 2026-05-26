@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  ChevronLeft,
   Check,
   Database,
+  File,
   FolderOpen,
   Gauge,
   HardDrive,
+  ListPlus,
   Music2,
   PauseCircle,
   Play,
@@ -32,8 +35,12 @@ import type {
   RemoteSourceProvider,
   RemoteSourceSyncMode,
   RemoteSyncStatus,
+  RemoteTrackLookupItem,
+  RemoteTrackStatus,
   TestRemoteSourceResult,
 } from '../../../shared/types/remoteSources';
+import type { LibraryTrack } from '../../../shared/types/library';
+import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getRemoteSourcesBridge } from '../../utils/echoBridge';
 
 type Tab = {
@@ -351,14 +358,219 @@ const withoutSourceKey = <T,>(sourceId: string, values: Record<string, T>): Reco
   return next;
 };
 
+type RemoteBrowserState = {
+  path: string | null;
+  items: RemoteDirectoryItem[];
+  indexedTracks: Record<string, RemoteTrackLookupItem>;
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+  lookupError: string | null;
+};
+
+const emptyBrowserState = (): RemoteBrowserState => ({
+  path: null,
+  items: [],
+  indexedTracks: {},
+  loading: false,
+  loaded: false,
+  error: null,
+  lookupError: null,
+});
+
+type RemoteBrowserFilter = 'all' | 'audio' | 'unindexed' | 'indexed';
+
+const browserFilterOptions: Array<{ value: RemoteBrowserFilter; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'audio', label: '音频' },
+  { value: 'unindexed', label: '未索引' },
+  { value: 'indexed', label: '已入库' },
+];
+
+const remoteTrackStatusLabels: Record<RemoteTrackStatus, string> = {
+  pending: '待处理',
+  searching: '处理中',
+  partial: '部分',
+  ok: '完成',
+  not_found: '未找到',
+  error: '异常',
+};
+
+const normalizeBrowserPath = (value: string | null | undefined): string => {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === '/') {
+    return '/';
+  }
+
+  return `/${trimmed.replace(/^\/+/u, '').replace(/\/+$/u, '')}`;
+};
+
+const rootPathForSource = (source: RemoteSource): string => {
+  const rootPath = source.config.rootPath;
+  return normalizeBrowserPath(typeof rootPath === 'string' ? rootPath : '/');
+};
+
+const displayPathForBrowser = (source: RemoteSource, path: string | null): string =>
+  path ? normalizeBrowserPath(path) : rootPathForSource(source);
+
+const parentBrowserPath = (source: RemoteSource, path: string | null): string | null => {
+  const rootPath = rootPathForSource(source);
+  const currentPath = displayPathForBrowser(source, path);
+  if (currentPath === rootPath) {
+    return null;
+  }
+
+  const parent = currentPath.slice(0, currentPath.lastIndexOf('/')) || '/';
+  return parent === rootPath ? null : parent;
+};
+
+const browserBreadcrumbs = (source: RemoteSource, path: string | null): Array<{ label: string; path: string | null }> => {
+  const rootPath = rootPathForSource(source);
+  const currentPath = displayPathForBrowser(source, path);
+  const relativePath = rootPath === '/'
+    ? currentPath.replace(/^\/+/u, '')
+    : currentPath.startsWith(`${rootPath}/`)
+      ? currentPath.slice(rootPath.length + 1)
+      : '';
+  const crumbs: Array<{ label: string; path: string | null }> = [{ label: '根目录', path: null }];
+  if (!relativePath) {
+    return crumbs;
+  }
+
+  let cursor = rootPath === '/' ? '' : rootPath;
+  for (const segment of relativePath.split('/').filter(Boolean)) {
+    cursor = normalizeBrowserPath(`${cursor}/${segment}`);
+    crumbs.push({ label: segment, path: cursor });
+  }
+  return crumbs;
+};
+
+const nameForDirectoryItem = (item: RemoteDirectoryItem): string => {
+  if (item.name.trim()) {
+    return item.name;
+  }
+  const normalizedPath = normalizeBrowserPath(item.path);
+  return normalizedPath.split('/').filter(Boolean).at(-1) ?? normalizedPath;
+};
+
+const audioFormatFor = (item: RemoteDirectoryItem): string => {
+  const name = nameForDirectoryItem(item);
+  const match = name.match(/\.([a-z0-9]+)$/iu);
+  return match?.[1]?.toUpperCase() ?? (item.contentType?.split('/').at(-1)?.toUpperCase() || 'AUDIO');
+};
+
+const titleForAudioItem = (item: RemoteDirectoryItem): string =>
+  nameForDirectoryItem(item).replace(/\.[^.]+$/u, '').replace(/[_-]+/gu, ' ').trim() || nameForDirectoryItem(item);
+
+const sourceQueueLabel = (source: RemoteSource): string => `网盘：${source.displayName}`;
+
+const remoteBrowserTrackId = (source: RemoteSource, item: RemoteDirectoryItem): string =>
+  `remote-browser:${source.id}:${item.path}`;
+
+const trackFromBrowserItem = (source: RemoteSource, item: RemoteDirectoryItem): LibraryTrack => ({
+  id: remoteBrowserTrackId(source, item),
+  mediaType: 'remote',
+  isTemporary: true,
+  path: `remote://${source.id}${item.path}`,
+  sourceId: source.id,
+  sourceDisplayName: source.displayName,
+  provider: source.provider,
+  remotePath: item.path,
+  stableKey: `${source.id}:${item.path}:${item.etag ?? item.modifiedAt ?? item.sizeBytes ?? 'unknown'}`,
+  title: titleForAudioItem(item),
+  artist: 'Unknown Artist',
+  album: source.displayName,
+  albumArtist: 'Unknown Artist',
+  trackNo: null,
+  discNo: null,
+  year: null,
+  genre: null,
+  duration: 0,
+  codec: audioFormatFor(item).toLowerCase(),
+  sampleRate: null,
+  bitDepth: null,
+  bitrate: null,
+  coverId: null,
+  coverThumb: null,
+  metadataStatus: 'pending',
+  embeddedMetadataStatus: 'pending',
+  embeddedCoverStatus: 'pending',
+  fieldSources: {
+    title: 'remote-browser',
+    artist: 'remote-browser',
+    album: 'remote-source',
+  },
+});
+
+const trackFromLookupItem = (source: RemoteSource, track: RemoteTrackLookupItem): LibraryTrack => ({
+  id: track.trackId,
+  mediaType: 'remote',
+  path: `remote://${source.id}${track.remotePath}`,
+  sourceId: source.id,
+  sourceDisplayName: source.displayName,
+  provider: source.provider,
+  remotePath: track.remotePath,
+  stableKey: null,
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  albumArtist: track.artist,
+  trackNo: null,
+  discNo: null,
+  year: null,
+  genre: null,
+  duration: track.duration ?? 0,
+  codec: track.codec,
+  sampleRate: null,
+  bitDepth: null,
+  bitrate: null,
+  coverId: null,
+  coverThumb: track.coverThumb,
+  metadataStatus: track.metadataStatus,
+  embeddedMetadataStatus: 'pending',
+  embeddedCoverStatus: track.coverStatus === 'ok' ? 'present' : 'pending',
+  fieldSources: {
+    title: 'remote-index',
+    artist: 'remote-index',
+    album: 'remote-index',
+  },
+  unavailable: track.availability === 'missing',
+});
+
+const sortDirectoryItems = (items: RemoteDirectoryItem[]): RemoteDirectoryItem[] =>
+  [...items].sort((left, right) => {
+    const kindRank = (item: RemoteDirectoryItem): number => item.kind === 'directory' ? 0 : item.audio ? 1 : 2;
+    const rankDiff = kindRank(left) - kindRank(right);
+    return rankDiff !== 0 ? rankDiff : nameForDirectoryItem(left).localeCompare(nameForDirectoryItem(right), 'zh-Hans-CN');
+  });
+
+const indexedTrackMap = (tracks: RemoteTrackLookupItem[]): Record<string, RemoteTrackLookupItem> =>
+  Object.fromEntries(tracks.map((track) => [track.remotePath, track]));
+
+const shouldShowBrowserItem = (item: RemoteDirectoryItem, indexedTrack: RemoteTrackLookupItem | undefined, filter: RemoteBrowserFilter): boolean => {
+  if (filter === 'audio') {
+    return item.audio;
+  }
+  if (filter === 'indexed') {
+    return item.audio && Boolean(indexedTrack);
+  }
+  if (filter === 'unindexed') {
+    return item.audio && !indexedTrack;
+  }
+  return true;
+};
+
 export const RemoteSourcesPanel = (): JSX.Element => {
   const remoteApi = getRemoteSourcesBridge();
+  const { appendToQueue, playTrack } = usePlaybackQueue();
   const [activeProvider, setActiveProvider] = useState<RemoteSourceProvider>('webdav');
   const [sources, setSources] = useState<RemoteSource[]>([]);
   const [overview, setOverview] = useState<RemoteSourceOverview>(() => emptyOverview());
   const [syncStatuses, setSyncStatuses] = useState<Record<string, RemoteSyncStatus>>({});
   const [jobStatuses, setJobStatuses] = useState<Record<string, RemoteBackgroundJobStatus>>({});
-  const [browsePreviews, setBrowsePreviews] = useState<Record<string, RemoteDirectoryItem[]>>({});
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [browserStates, setBrowserStates] = useState<Record<string, RemoteBrowserState>>({});
+  const [browserFilter, setBrowserFilter] = useState<RemoteBrowserFilter>('all');
   const [issuePreviews, setIssuePreviews] = useState<Record<string, RemoteSourceIssueItem[]>>({});
   const [globalJobStatus, setGlobalJobStatus] = useState<RemoteBackgroundGlobalStatus>(emptyGlobalStatus);
   const [form, setForm] = useState({
@@ -383,6 +595,11 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   const activeTab = useMemo(() => tabs.find((tab) => tab.provider === activeProvider) ?? tabs[0], [activeProvider]);
   const visibleSources = useMemo(() => sources.filter((source) => source.provider === activeProvider), [activeProvider, sources]);
   const visibleSourceIds = useMemo(() => visibleSources.map((source) => source.id), [visibleSources]);
+  const selectedSource = useMemo(
+    () => visibleSources.find((source) => source.id === selectedSourceId) ?? visibleSources[0] ?? null,
+    [selectedSourceId, visibleSources],
+  );
+  const selectedBrowser = selectedSource ? browserStates[selectedSource.id] ?? emptyBrowserState() : null;
   const overviewBySourceId = useMemo(() => new Map(overview.sources.map((source) => [source.sourceId, source])), [overview.sources]);
   const playbackLoadReduced = globalJobStatus.playbackActive && !globalJobStatus.paused;
   const providerSummaries = useMemo(() => tabs.map((tab) => {
@@ -452,6 +669,17 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   }, [refreshSources]);
 
   useEffect(() => {
+    if (visibleSources.length === 0) {
+      setSelectedSourceId(null);
+      return;
+    }
+    if (selectedSourceId && visibleSources.some((source) => source.id === selectedSourceId)) {
+      return;
+    }
+    setSelectedSourceId(visibleSources[0].id);
+  }, [selectedSourceId, visibleSources]);
+
+  useEffect(() => {
     const hasRunningSync = visibleSourceIds.some((sourceId) => syncStatuses[sourceId]?.status === 'running');
     const hasRunningJobs = visibleSourceIds.some((sourceId) => {
       const status = jobStatuses[sourceId];
@@ -496,6 +724,96 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       void refreshSources();
     }
   }, [refreshSources, syncStatuses]);
+
+  const loadBrowserDirectory = useCallback(async (source: RemoteSource, path: string | null = null): Promise<void> => {
+    if (!remoteApi) {
+      return;
+    }
+
+    setSelectedSourceId(source.id);
+    setBrowserStates((current) => ({
+      ...current,
+      [source.id]: {
+        ...(current[source.id] ?? emptyBrowserState()),
+        path,
+        items: [],
+        indexedTracks: {},
+        loading: true,
+        error: null,
+        lookupError: null,
+      },
+    }));
+
+    try {
+      const items = sortDirectoryItems(await remoteApi.browse(source.id, path));
+      const audioPaths = items.filter((item) => item.audio).map((item) => item.path);
+      let indexedTracks: Record<string, RemoteTrackLookupItem> = {};
+      let lookupError: string | null = null;
+      if (audioPaths.length > 0) {
+        try {
+          indexedTracks = indexedTrackMap(await remoteApi.lookupTracks(source.id, audioPaths));
+        } catch (error) {
+          lookupError = error instanceof Error ? error.message : '读取入库状态失败。';
+        }
+      }
+      setBrowserStates((current) => ({
+        ...current,
+        [source.id]: {
+          path,
+          items,
+          indexedTracks,
+          loading: false,
+          loaded: true,
+          error: null,
+          lookupError,
+        },
+      }));
+      setMessage(lookupError
+        ? `已打开 ${source.displayName}：${formatCount(items.length)} 个项目，入库状态暂未读取。`
+        : `已打开 ${source.displayName}：${formatCount(items.length)} 个项目。`);
+    } catch (error) {
+      setBrowserStates((current) => ({
+        ...current,
+        [source.id]: {
+          ...(current[source.id] ?? emptyBrowserState()),
+          path,
+          loading: false,
+          loaded: true,
+          error: error instanceof Error ? error.message : '读取目录失败。',
+          lookupError: null,
+        },
+      }));
+      setMessage(error instanceof Error ? error.message : '读取目录失败。');
+    }
+  }, [remoteApi]);
+
+  const playBrowserItem = useCallback(async (source: RemoteSource, item: RemoteDirectoryItem, indexedTrack?: RemoteTrackLookupItem): Promise<void> => {
+    const track = indexedTrack ? trackFromLookupItem(source, indexedTrack) : trackFromBrowserItem(source, item);
+    setBusy(`play:${source.id}:${item.path}`);
+    setMessage(null);
+    try {
+      await playTrack(track, {
+        source: { type: 'manual', label: sourceQueueLabel(source) },
+        forceNewQueueItem: true,
+      });
+      setMessage(`正在播放：${track.title}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '播放失败。');
+    } finally {
+      setBusy(null);
+    }
+  }, [playTrack]);
+
+  const queueBrowserItem = useCallback((source: RemoteSource, item: RemoteDirectoryItem, indexedTrack?: RemoteTrackLookupItem): void => {
+    const track = indexedTrack ? trackFromLookupItem(source, indexedTrack) : trackFromBrowserItem(source, item);
+    appendToQueue(track, { type: 'manual', label: sourceQueueLabel(source) });
+    setMessage(`已加入队列：${track.title}`);
+  }, [appendToQueue]);
+
+  const showSourceInSongs = useCallback((source: RemoteSource): void => {
+    window.dispatchEvent(new CustomEvent('app:navigate:songs', { detail: { remoteSourceId: source.id } }));
+    setMessage(`已切换到歌曲列表：${source.displayName}`);
+  }, []);
 
   const updateForm = (patch: Partial<typeof form>): void => {
     setForm((current) => ({ ...current, ...patch }));
@@ -573,7 +891,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     }
   };
 
-  const runSourceAction = async (
+  const runSourceAction = useCallback(async (
     source: RemoteSource,
     action: 'test' | 'sync' | 'metadata' | 'cover' | 'match' | 'retryFailed' | 'pauseJobs' | 'toggle' | 'delete' | 'cancel' | 'browse',
   ): Promise<void> => {
@@ -633,7 +951,8 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         setSources((current) => current.filter((item) => item.id !== source.id));
         setSyncStatuses((current) => withoutSourceKey(source.id, current));
         setJobStatuses((current) => withoutSourceKey(source.id, current));
-        setBrowsePreviews((current) => withoutSourceKey(source.id, current));
+        setBrowserStates((current) => withoutSourceKey(source.id, current));
+        setSelectedSourceId((current) => current === source.id ? null : current);
         setIssuePreviews((current) => withoutSourceKey(source.id, current));
         setOverview((current) => removeOverviewSource(current, source.id));
         window.dispatchEvent(new Event('library:changed'));
@@ -641,9 +960,8 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       } else if (action === 'cancel') {
         await remoteApi.cancelSync(source.id);
       } else if (action === 'browse') {
-        const items = await remoteApi.browse(source.id);
-        setBrowsePreviews((current) => ({ ...current, [source.id]: items.slice(0, 8) }));
-        setMessage(`浏览成功：发现 ${items.length} 个项目。`);
+        await loadBrowserDirectory(source, null);
+        return;
       }
       await refreshSources();
     } catch (error) {
@@ -651,7 +969,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     } finally {
       setBusy(null);
     }
-  };
+  }, [globalJobStatus, jobStatuses, loadBrowserDirectory, refreshSources, refreshStatuses, remoteApi]);
 
   const showSourceIssues = async (source: RemoteSource, kind: RemoteSourceIssueKind): Promise<void> => {
     if (!remoteApi) {
@@ -744,6 +1062,246 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       </div>
     </section>
   );
+
+  const renderBrowserWorkbench = (): JSX.Element | null => {
+    if (!activeTab.supported || visibleSources.length === 0 || !selectedSource || !selectedBrowser) {
+      return null;
+    }
+
+    const sourceOverview = overviewBySourceId.get(selectedSource.id) ?? emptyOverviewItem(selectedSource);
+    const currentPath = displayPathForBrowser(selectedSource, selectedBrowser.path);
+    const parentPath = parentBrowserPath(selectedSource, selectedBrowser.path);
+    const canGoUp = currentPath !== rootPathForSource(selectedSource);
+    const breadcrumbs = browserBreadcrumbs(selectedSource, selectedBrowser.path);
+    const directoryCount = selectedBrowser.items.filter((item) => item.kind === 'directory').length;
+    const audioItems = selectedBrowser.items.filter((item) => item.audio);
+    const indexedAudioCount = audioItems.filter((item) => selectedBrowser.indexedTracks[item.path]).length;
+    const unindexedAudioCount = Math.max(0, audioItems.length - indexedAudioCount);
+    const filteredItems = selectedBrowser.items.filter((item) => shouldShowBrowserItem(item, selectedBrowser.indexedTracks[item.path], browserFilter));
+
+    return (
+      <section className="remote-browser-workbench" aria-label="网盘文件浏览器">
+        <aside className="remote-browser-sources" aria-label="远程来源">
+          <div className="remote-browser-panel-head">
+            <strong>来源</strong>
+            <span>{formatCount(visibleSources.length)} 个</span>
+          </div>
+          <div className="remote-browser-source-list">
+            {visibleSources.map((source) => {
+              const itemOverview = overviewBySourceId.get(source.id) ?? emptyOverviewItem(source);
+              const state = browserStates[source.id];
+              const selected = source.id === selectedSource.id;
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  className={selected ? 'active' : ''}
+                  onClick={() => {
+                    setSelectedSourceId(source.id);
+                    if (!state?.loaded && !state?.loading) {
+                      void loadBrowserDirectory(source, null);
+                    }
+                  }}
+                >
+                  <span>
+                    <strong>{source.displayName}</strong>
+                    <small>{providerLabels[source.provider]} · {sourceStatusLabels[source.status]}</small>
+                  </span>
+                  <em>{formatCount(itemOverview.trackCount)} 首</em>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="remote-file-browser">
+          <div className="remote-file-browser-head">
+            <div>
+              <span className="remote-file-browser-eyebrow">
+                <FolderOpen size={15} />
+                {providerLabels[selectedSource.provider]}
+              </span>
+              <h3>{selectedSource.displayName}</h3>
+              <p>{currentPath}</p>
+            </div>
+            <div className="remote-file-browser-actions">
+              <button type="button" disabled={!canGoUp || selectedBrowser.loading} onClick={() => void loadBrowserDirectory(selectedSource, parentPath)}>
+                <ChevronLeft size={15} />上级
+              </button>
+              <button type="button" disabled={selectedBrowser.loading} onClick={() => void loadBrowserDirectory(selectedSource, selectedBrowser.path)}>
+                <RefreshCw size={15} />刷新目录
+              </button>
+              <button type="button" disabled={busy === `sync:${selectedSource.id}`} onClick={() => void runSourceAction(selectedSource, 'sync')}>
+                <Database size={15} />同步索引
+              </button>
+            </div>
+          </div>
+
+          <div className="remote-browser-breadcrumbs" aria-label="当前目录">
+            {breadcrumbs.map((crumb, index) => {
+              const isCurrent = (selectedBrowser.path === null && crumb.path === null) || selectedBrowser.path === crumb.path;
+              return (
+                <button
+                  key={`${crumb.path ?? 'root'}:${index}`}
+                  type="button"
+                  disabled={isCurrent || selectedBrowser.loading}
+                  aria-current={isCurrent ? 'page' : undefined}
+                  onClick={() => void loadBrowserDirectory(selectedSource, crumb.path)}
+                >
+                  {crumb.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="remote-browser-summary" aria-label={`${selectedSource.displayName} 浏览摘要`}>
+            <span><Music2 size={15} />已索引 {formatCount(sourceOverview.trackCount)} 首</span>
+            <span><HardDrive size={15} />容量 {formatBytes(sourceOverview.totalSizeBytes)}</span>
+            <span><Gauge size={15} />{selectedSource.syncMode === 'browse' ? '仅浏览' : '可同步索引'}</span>
+          </div>
+
+          {selectedBrowser.loaded ? (
+            <div className="remote-browser-toolbar" aria-label="当前目录统计和筛选">
+              <div className="remote-browser-directory-stats">
+                <span>文件夹 {formatCount(directoryCount)}</span>
+                <span>音频 {formatCount(audioItems.length)}</span>
+                <span>已入库 {formatCount(indexedAudioCount)}</span>
+                <span>未索引 {formatCount(unindexedAudioCount)}</span>
+              </div>
+              <div className="remote-browser-filter" role="group" aria-label="文件筛选">
+                {browserFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={browserFilter === option.value ? 'active' : ''}
+                    onClick={() => setBrowserFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedBrowser.loading ? <p className="settings-inline-note">正在读取目录...</p> : null}
+          {selectedBrowser.lookupError ? <p className="settings-inline-note">入库状态暂未读取：{selectedBrowser.lookupError}</p> : null}
+          {selectedBrowser.error ? (
+            <div className="remote-browser-error">
+              <AlertTriangle size={16} />
+              <span>{selectedBrowser.error}</span>
+              <button type="button" onClick={() => void loadBrowserDirectory(selectedSource, selectedBrowser.path)}>重试</button>
+            </div>
+          ) : null}
+          {!selectedBrowser.loaded && !selectedBrowser.loading ? (
+            <div className="remote-browser-empty">
+              <FolderOpen size={22} />
+              <div>
+                <strong>打开文件夹浏览这个来源</strong>
+                <span>这里只按需读取当前目录，不会开始全盘扫描或下载。</span>
+              </div>
+              <button type="button" onClick={() => void loadBrowserDirectory(selectedSource, null)}>打开根目录</button>
+            </div>
+          ) : null}
+          {selectedBrowser.loaded && !selectedBrowser.loading && !selectedBrowser.error && selectedBrowser.items.length === 0 ? (
+            <div className="remote-browser-empty">
+              <FolderOpen size={22} />
+              <div>
+                <strong>这个目录没有可显示项目</strong>
+                <span>可以返回上级目录，或检查远程来源的根目录设置。</span>
+              </div>
+            </div>
+          ) : null}
+          {!selectedBrowser.error && selectedBrowser.loaded && selectedBrowser.items.length > 0 && filteredItems.length === 0 ? (
+            <div className="remote-browser-empty">
+              <FolderOpen size={22} />
+              <div>
+                <strong>当前筛选没有匹配项目</strong>
+                <span>可以切回全部，或进入其它目录查看。</span>
+              </div>
+            </div>
+          ) : null}
+          {!selectedBrowser.error && filteredItems.length > 0 ? (
+            <div className="remote-file-list" aria-label={`${selectedSource.displayName} 文件列表`}>
+              {filteredItems.map((item) => {
+                const itemName = nameForDirectoryItem(item);
+                const isDirectory = item.kind === 'directory';
+                const indexedTrack = selectedBrowser.indexedTracks[item.path];
+                const playKey = `play:${selectedSource.id}:${item.path}`;
+                return (
+                  <div className="remote-file-row" key={item.path} data-kind={isDirectory ? 'directory' : item.audio ? 'audio' : 'file'}>
+                    <div className="remote-file-row-main">
+                      <span className="remote-file-kind">
+                        {isDirectory ? <FolderOpen size={16} /> : item.audio ? <Music2 size={16} /> : <File size={16} />}
+                      </span>
+                      <div>
+                        {isDirectory ? (
+                          <button type="button" className="remote-file-name-button" onClick={() => void loadBrowserDirectory(selectedSource, item.path)}>
+                            {itemName}
+                          </button>
+                        ) : indexedTrack ? (
+                          <strong>{indexedTrack.title}</strong>
+                        ) : (
+                          <strong>{itemName}</strong>
+                        )}
+                        <small>
+                          {isDirectory
+                            ? '文件夹'
+                            : indexedTrack
+                              ? `${itemName} · ${indexedTrack.artist} · ${indexedTrack.album}`
+                              : item.audio
+                                ? `${audioFormatFor(item)} · 未索引 / 可直接播放`
+                                : item.contentType ?? '普通文件'}
+                          {' · '}
+                          {formatBytes(item.sizeBytes ?? 0)}
+                          {item.modifiedAt ? ` · ${formatDate(item.modifiedAt)}` : ''}
+                        </small>
+                        {indexedTrack ? (
+                          <div className="remote-file-meta-strip">
+                            <span data-tone="ready">已入库</span>
+                            <span>元数据 {remoteTrackStatusLabels[indexedTrack.metadataStatus]}</span>
+                            <span>封面 {remoteTrackStatusLabels[indexedTrack.coverStatus]}</span>
+                            <span>歌词 {remoteTrackStatusLabels[indexedTrack.lyricsStatus]}</span>
+                          </div>
+                        ) : item.audio ? (
+                          <div className="remote-file-meta-strip">
+                            <span data-tone="warning">未索引</span>
+                            <span>可直接播放</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="remote-file-row-actions">
+                      {isDirectory ? (
+                        <button type="button" onClick={() => void loadBrowserDirectory(selectedSource, item.path)}>
+                          打开
+                        </button>
+                      ) : item.audio ? (
+                        <>
+                          <button type="button" disabled={busy === playKey} onClick={() => void playBrowserItem(selectedSource, item, indexedTrack)}>
+                            <Play size={14} />播放
+                          </button>
+                          <button type="button" onClick={() => queueBrowserItem(selectedSource, item, indexedTrack)}>
+                            <ListPlus size={14} />加入队列
+                          </button>
+                          {indexedTrack ? (
+                            <button type="button" onClick={() => showSourceInSongs(selectedSource)}>
+                              歌曲列表
+                            </button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span>不可播放</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </section>
+    );
+  };
 
   const renderForm = (): JSX.Element => (
     <section className="remote-source-form">
@@ -884,6 +1442,8 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         </section>
       ) : null}
 
+      {renderBrowserWorkbench()}
+
       {activeTab.supported ? renderForm() : (
         <section className="remote-source-coming-soon">
           <Play size={18} />
@@ -896,7 +1456,6 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         {visibleSources.map((source) => {
           const syncStatus = syncStatuses[source.id] ?? emptyStatus(source.id);
           const jobStatus = jobStatuses[source.id] ?? emptyJobStatus(source.id);
-          const browsePreview = browsePreviews[source.id] ?? [];
           const issuePreview = issuePreviews[source.id] ?? [];
           const sourceOverview = overviewBySourceId.get(source.id) ?? emptyOverviewItem(source);
           const running = syncStatus.status === 'running';
@@ -1028,16 +1587,6 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 ))}
               </div>
               {syncStatus.currentPath ? <p className="settings-inline-note">当前文件：{syncStatus.currentPath}</p> : null}
-              {browsePreview.length > 0 ? (
-                <div className="remote-sync-status" aria-label={`${source.displayName} 浏览结果`}>
-                  {browsePreview.map((item) => (
-                    <span key={item.path}>
-                      <em>{item.kind === 'directory' ? '目录' : item.audio ? '音频' : '文件'}</em>
-                      <strong>{item.path}</strong>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
               {issuePreview.length > 0 ? (
                 <div className="remote-issue-list" aria-label={`${source.displayName} 问题预览`}>
                   {issuePreview.map((item) => (
@@ -1058,7 +1607,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                     <RefreshCw size={15} />同步
                   </button>
                   <button type="button" disabled={busy === `browse:${source.id}`} onClick={() => void runSourceAction(source, 'browse')}>
-                    <FolderOpen size={15} />浏览
+                    <FolderOpen size={15} />浏览文件夹
                   </button>
                   {running ? <button type="button" onClick={() => void runSourceAction(source, 'cancel')}>取消</button> : null}
                 </div>

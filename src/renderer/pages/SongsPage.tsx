@@ -299,6 +299,26 @@ export const SongsPage = (): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    const handleShowRemoteSource = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const sourceId = detail && typeof detail.sourceId === 'string' ? detail.sourceId.trim() : '';
+      if (!sourceId) {
+        return;
+      }
+
+      setSourceMode('remote');
+      setRemoteSourceId(sourceId);
+      setShowDuplicatesOnly(false);
+      setSelectedTrackIds({});
+    };
+
+    window.addEventListener('library:show-remote-source', handleShowRemoteSource);
+    return () => {
+      window.removeEventListener('library:show-remote-source', handleShowRemoteSource);
+    };
+  }, [setSourceMode]);
+
+  useEffect(() => {
     beginSongsStartupLoadDiagnostics({
       source: initialSnapshot ? 'renderer-snapshot' : 'sqlite',
       itemCount: initialSnapshot?.items.length ?? 0,

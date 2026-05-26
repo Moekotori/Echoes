@@ -203,24 +203,44 @@ export class LyricsMatchEngine {
   ): Promise<MatchedLyricsCandidate[]> {
     const controller = new AbortController();
     const detach = mergeSignals(totalSignal, controller);
-    const timer = setTimeout(() => controller.abort(), settings.providerTimeoutMs);
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let detachTimeoutAbort = (): void => {};
 
     try {
-      const results = await provider.search({
+      const providerSearch = provider.search({
         query: sanitizeQueryForProvider(query, provider),
         normalized,
         timeoutMs: settings.providerTimeoutMs,
         signal: controller.signal,
+      }).catch(() => [] as LyricsProviderResult[]);
+      const timeoutSearch = new Promise<LyricsProviderResult[]>((resolve) => {
+        const resolveEmpty = (): void => {
+          timedOut = true;
+          controller.abort();
+          resolve([]);
+        };
+        totalSignal.addEventListener('abort', resolveEmpty, { once: true });
+        detachTimeoutAbort = () => totalSignal.removeEventListener('abort', resolveEmpty);
+        timer = setTimeout(() => {
+          resolveEmpty();
+        }, settings.providerTimeoutMs);
       });
+      const results = await Promise.race([providerSearch, timeoutSearch]);
 
-      return results
+      return timedOut || controller.signal.aborted
+        ? []
+        : results
         .map((result) => this.resultToCandidate(provider, normalized, result, settings))
         .filter((candidate): candidate is MatchedLyricsCandidate => Boolean(candidate));
     } catch {
       return [];
     } finally {
       detach();
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      detachTimeoutAbort();
     }
   }
 

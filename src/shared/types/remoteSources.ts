@@ -104,6 +104,23 @@ export type RemoteTrackIdentity = {
   duration: number | null;
 };
 
+export type RemoteTrackLookupItem = {
+  trackId: string;
+  sourceId: string;
+  remotePath: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number | null;
+  codec: string | null;
+  coverThumb: string | null;
+  metadataStatus: RemoteTrackStatus;
+  coverStatus: RemoteTrackStatus;
+  lyricsStatus: RemoteTrackStatus;
+  mvStatus: RemoteTrackStatus;
+  availability: RemoteTrackAvailability;
+};
+
 export type LocalMediaItem = {
   mediaType: 'local';
   trackId: string;

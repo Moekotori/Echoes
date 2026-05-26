@@ -307,6 +307,7 @@ export type AppSettings = {
   mvAllow60fps: boolean;
   channelBalance: ChannelBalanceState;
   playerVolume: number;
+  homeWaveformVisualizerEnabled?: boolean;
   playerWaveformProgressEnabled?: boolean;
   fixedVolumeEnabled?: boolean;
   gaplessPlaybackEnabled?: boolean;

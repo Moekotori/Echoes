@@ -847,6 +847,24 @@ export type PlaybackStatsArtist = {
   playedSeconds: number;
 };
 
+export type PlaybackStatsAlbum = {
+  id: string;
+  albumId: string | null;
+  mediaType?: 'local' | 'remote';
+  albumKey: string | null;
+  title: string;
+  albumArtist: string;
+  year: number | null;
+  trackCount: number;
+  duration: number;
+  coverId: string | null;
+  coverThumb: string | null;
+  playCount: number;
+  completedCount: number;
+  playedSeconds: number;
+  lastPlayedAt: string | null;
+};
+
 export type PlaybackStatsBreakdownItem = {
   id: string;
   label: string;
@@ -871,6 +889,7 @@ export type PlaybackStatsDashboard = {
   };
   topTracks: PlaybackStatsTrack[];
   topArtists: PlaybackStatsArtist[];
+  topAlbums?: PlaybackStatsAlbum[];
   formatBreakdown: PlaybackStatsBreakdownItem[];
   qualityBreakdown: PlaybackStatsBreakdownItem[];
   dailyActivity: PlaybackStatsDay[];

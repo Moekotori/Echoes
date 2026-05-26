@@ -25,8 +25,16 @@ type MiniPlaybackClock = {
   updatedAtMs: number;
 };
 
+type PlaybackVisualIntentSnapshot = {
+  currentTrackId: string | null;
+  filePath: string | null;
+  expectedPositionMs: number;
+  startedAtMs: number;
+};
+
 const progressRenderIntervalMs = 500;
 const forwardedSystemStatusMaxAgeMs = 30_000;
+const trackSwitchVisualIntentPositionToleranceMs = 1500;
 const activeStates = new Set<AudioPlaybackState>(['loading', 'playing']);
 const restartStates = new Set<AudioPlaybackState>(['idle', 'stopped', 'ended']);
 
@@ -49,6 +57,56 @@ const playbackTrackKey = (audioStatus: AudioStatus | null, playbackStatus: Playb
 
 const lightweightArtworkUrl = (track: { coverThumb: string | null } | null, audioStatus: AudioStatus | null): string | null =>
   track?.coverThumb ?? audioStatus?.currentTrackCoverUrl ?? null;
+
+const audioStatusMatchesPlaybackStatus = (audioStatus: AudioStatus, playbackStatus: PlaybackStatus | null): boolean => {
+  if (!playbackStatus?.currentTrackId && !playbackStatus?.filePath) {
+    return true;
+  }
+
+  return (
+    Boolean(playbackStatus.currentTrackId && audioStatus.currentTrackId === playbackStatus.currentTrackId) ||
+    Boolean(playbackStatus.filePath && audioStatus.currentFilePath === playbackStatus.filePath)
+  );
+};
+
+const audioStatusMatchesVisualIntent = (status: AudioStatus, intent: PlaybackVisualIntentSnapshot | null | undefined): boolean => {
+  if (!intent) {
+    return true;
+  }
+
+  const matchesIntent =
+    Boolean(intent.currentTrackId && status.currentTrackId === intent.currentTrackId) ||
+    Boolean(intent.filePath && status.currentFilePath === intent.filePath);
+  if (!matchesIntent) {
+    return false;
+  }
+
+  const playbackRate = Number.isFinite(status.playbackRate) ? Math.max(0.25, Math.min(4, status.playbackRate)) : 1;
+  const elapsedMs = status.state === 'playing' || status.state === 'paused' ? Math.max(0, Date.now() - intent.startedAtMs) : 0;
+  const expectedPositionMs = intent.expectedPositionMs + elapsedMs * playbackRate;
+  return Math.round(Math.max(0, status.positionSeconds) * 1000) <= expectedPositionMs + trackSwitchVisualIntentPositionToleranceMs;
+};
+
+const isUsableAudioStatus = (
+  audioStatus: AudioStatus | null | undefined,
+  playbackStatus: PlaybackStatus | null,
+  playbackVisualIntent: PlaybackVisualIntentSnapshot | null | undefined,
+): audioStatus is AudioStatus =>
+  Boolean(
+    audioStatus &&
+      audioStatusMatchesPlaybackStatus(audioStatus, playbackStatus) &&
+      audioStatusMatchesVisualIntent(audioStatus, playbackVisualIntent),
+  );
+
+const requestMiniPlayerQueueBounds = (open: boolean): void => {
+  void window.echo?.miniPlayer?.setQueueOpen?.(open).catch(() => undefined);
+
+  try {
+    window.resizeTo(window.outerWidth || 388, open ? 324 : 74);
+  } catch {
+    // Electron IPC is the primary resize path; resizeTo is only a renderer fallback.
+  }
+};
 
 export const MiniPlayerApp = (): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
@@ -123,15 +181,24 @@ export const MiniPlayerApp = (): JSX.Element => {
 
   const activeAudioStatus = useMemo(() => {
     const forwarded = forwardedAudioStatus;
+    const playbackVisualIntent = sharedPlaybackStatus.playbackVisualIntent;
     if (
       forwarded?.status.outputMode === 'system' &&
-      Date.now() - forwarded.updatedAtMs <= forwardedSystemStatusMaxAgeMs
+      Date.now() - forwarded.updatedAtMs <= forwardedSystemStatusMaxAgeMs &&
+      isUsableAudioStatus(forwarded.status, sharedPlaybackStatus.playbackStatus, playbackVisualIntent)
     ) {
       return forwarded.status;
     }
 
-    return sharedPlaybackStatus.audioStatus;
-  }, [forwardedAudioStatus, sharedPlaybackStatus.audioStatus, sharedPlaybackStatus.version]);
+    return isUsableAudioStatus(sharedPlaybackStatus.audioStatus, sharedPlaybackStatus.playbackStatus, playbackVisualIntent)
+      ? sharedPlaybackStatus.audioStatus
+      : null;
+  }, [
+    forwardedAudioStatus,
+    sharedPlaybackStatus.audioStatus,
+    sharedPlaybackStatus.playbackStatus,
+    sharedPlaybackStatus.playbackVisualIntent,
+  ]);
 
   const playbackStatus = sharedPlaybackStatus.playbackStatus;
   const visualState = getVisualPlaybackState({
@@ -183,6 +250,7 @@ export const MiniPlayerApp = (): JSX.Element => {
   const hasPlayableTarget = Boolean(filePath || currentTrack || playbackStatus || activeAudioStatus);
   const queueItems = queue.items;
   const activeQueueId = queue.currentQueueId ?? queueItems.find((item) => item.track.id === trackId)?.queueId ?? null;
+  const hasQueuePreview = queueItems.length > 0 || Boolean(currentTrack || title);
 
   useEffect(() => {
     if (trackId) {
@@ -240,11 +308,11 @@ export const MiniPlayerApp = (): JSX.Element => {
   }, [seekPreviewSeconds, visualState]);
 
   useEffect(() => {
-    void window.echo?.miniPlayer?.setQueueOpen?.(isQueueOpen).catch(() => undefined);
+    requestMiniPlayerQueueBounds(isQueueOpen);
 
     return () => {
       if (isQueueOpen) {
-        void window.echo?.miniPlayer?.setQueueOpen?.(false).catch(() => undefined);
+        requestMiniPlayerQueueBounds(false);
       }
     };
   }, [isQueueOpen]);
@@ -358,7 +426,11 @@ export const MiniPlayerApp = (): JSX.Element => {
   }, []);
 
   const handleToggleQueue = useCallback((): void => {
-    setIsQueueOpen((open) => !open);
+    setIsQueueOpen((open) => {
+      const nextOpen = !open;
+      requestMiniPlayerQueueBounds(nextOpen);
+      return nextOpen;
+    });
   }, []);
 
   const handlePlayQueueItem = useCallback(
@@ -427,10 +499,19 @@ export const MiniPlayerApp = (): JSX.Element => {
               </button>
             </div>
             <button
+              aria-label={t('miniPlayer.action.resetPosition')}
+              className="mini-player-icon-button mini-player-reset-button"
+              title={t('miniPlayer.action.resetPosition')}
+              type="button"
+              onClick={handleResetBounds}
+            >
+              <RotateCcw size={13} />
+            </button>
+            <button
               aria-label={isQueueOpen ? t('miniPlayer.action.closeQueue') : t('miniPlayer.action.openQueue')}
               aria-pressed={isQueueOpen}
               className={`mini-player-icon-button mini-player-queue-toggle ${isQueueOpen ? 'is-active' : ''}`}
-              disabled={queueItems.length === 0}
+              disabled={!hasQueuePreview}
               title={isQueueOpen ? t('miniPlayer.action.closeQueue') : t('miniPlayer.action.openQueue')}
               type="button"
               onClick={handleToggleQueue}
@@ -449,17 +530,6 @@ export const MiniPlayerApp = (): JSX.Element => {
             >
               <X size={12} />
             </button>
-            <div className="mini-player-actions">
-              <button
-                aria-label={t('miniPlayer.action.resetPosition')}
-                className="mini-player-icon-button"
-                title={t('miniPlayer.action.resetPosition')}
-                type="button"
-                onClick={handleResetBounds}
-              >
-                <RotateCcw size={13} />
-              </button>
-            </div>
           </div>
 
           <div className="mini-player-progress-row">
@@ -503,6 +573,11 @@ export const MiniPlayerApp = (): JSX.Element => {
                   </button>
                 );
               })
+            ) : currentTrack || title ? (
+              <div className="mini-player-queue-item mini-player-queue-item--static" aria-current="true">
+                <span className="mini-player-queue-playing" aria-hidden="true">||</span>
+                <span className="mini-player-queue-title">{title}</span>
+              </div>
             ) : (
               <p className="mini-player-queue-empty">{t('miniPlayer.status.queueEmpty')}</p>
             )}

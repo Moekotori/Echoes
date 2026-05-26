@@ -59,8 +59,9 @@ const defaultDesktopLyricsStrokeColor = '#111827';
 const defaultDesktopLyricsFontFamily = 'Microsoft YaHei';
 const defaultLyricsMiniPlayerColor = '#232120';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
-const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
-const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
+const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo', 'musixmatch', 'genius', 'manual'];
+const legacyDefaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
+const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
 export const defaultNetworkProxyBypassRules = '<local>;localhost;127.0.0.1;::1;*.local;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
 const appMemoryVersion = 6;
 const locales: AppLocale[] = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP'];
@@ -440,6 +441,7 @@ export const defaultSettings: AppSettings = {
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
+  homeWaveformVisualizerEnabled: false,
   playerWaveformProgressEnabled: false,
   fixedVolumeEnabled: false,
   gaplessPlaybackEnabled: false,
@@ -1007,6 +1009,19 @@ const normalizeLyricsProviderList = (value: unknown, fallback: LyricsProviderId[
   return [...new Set(providers)];
 };
 
+const migrateLegacyDefaultLyricsProviders = (providers: LyricsProviderId[]): LyricsProviderId[] => {
+  const providerSet = new Set(providers);
+  const isLegacyDefaultEnabled = legacyDefaultLyricsProviderOrder.every((provider) => providerSet.has(provider));
+  if (!isLegacyDefaultEnabled) {
+    return providers;
+  }
+
+  return [
+    ...providers,
+    ...defaultLyricsProviderOrder.filter((provider) => !providerSet.has(provider)),
+  ];
+};
+
 const normalizeArtistOnlineInfoSources = (value: unknown): ArtistOnlineInfoSource[] => {
   if (!Array.isArray(value)) {
     return [...defaultArtistOnlineInfoSources];
@@ -1242,7 +1257,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   const mvImmersiveBackgroundBlurPx = Number(settings.mvImmersiveBackgroundBlurPx);
   const mvImmersiveBackgroundBrightnessPercent = Number(settings.mvImmersiveBackgroundBrightnessPercent);
   const mvImmersiveBackgroundOverlayOpacityPercent = Number(settings.mvImmersiveBackgroundOverlayOpacityPercent);
-  const lyricsEnabledProviders = normalizeLyricsProviderList(settings.lyricsEnabledProviders, defaultSettings.lyricsEnabledProviders ?? defaultLyricsProviderOrder);
+  const lyricsEnabledProviders = migrateLegacyDefaultLyricsProviders(
+    normalizeLyricsProviderList(settings.lyricsEnabledProviders, defaultSettings.lyricsEnabledProviders ?? defaultLyricsProviderOrder),
+  );
   const lyricsProviderOrder = normalizeLyricsProviderList(
     settings.lyricsProviderOrder,
     Array.isArray(settings.lyricsEnabledProviders) ? settings.lyricsEnabledProviders : defaultSettings.lyricsProviderOrder,
@@ -1342,7 +1359,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     audioAnalysisEnabled: settings.audioAnalysisEnabled !== false,
     lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
     lyricsPreferredProvider: 'lrclib',
-    lyricsEnabledProviders: lyricsEnabledProviders.length ? lyricsEnabledProviders : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']),
+    lyricsEnabledProviders: lyricsEnabledProviders.length ? lyricsEnabledProviders : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']),
     lyricsProviderOrder: [
       ...lyricsProviderOrder,
       ...defaultLyricsProviderOrder.filter((provider) => !lyricsProviderOrder.includes(provider)),
@@ -1483,6 +1500,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
+    homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled === true,
     playerWaveformProgressEnabled: settings.playerWaveformProgressEnabled === true,
     fixedVolumeEnabled: settings.fixedVolumeEnabled === true,
     gaplessPlaybackEnabled: settings.gaplessPlaybackEnabled === true,

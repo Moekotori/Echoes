@@ -1516,6 +1516,7 @@ const echoApi: EchoApi = {
     getSyncStatus: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesGetSyncStatus, sourceId),
     createStreamUrl: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesCreateStreamUrl, input),
     hydrateVisibleTracks: (trackIds, options) => ipcRenderer.invoke(IpcChannels.RemoteSourcesHydrateVisibleTracks, trackIds, options),
+    lookupTracks: (sourceId, remotePaths) => ipcRenderer.invoke(IpcChannels.RemoteSourcesLookupTracks, sourceId, remotePaths),
     startBackgroundJobs: (sourceId, kinds) => ipcRenderer.invoke(IpcChannels.RemoteSourcesStartBackgroundJobs, sourceId, kinds),
     pauseBackgroundJobs: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesPauseBackgroundJobs, sourceId),
     resumeBackgroundJobs: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesResumeBackgroundJobs, sourceId),

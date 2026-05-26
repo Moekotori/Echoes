@@ -198,6 +198,7 @@ import type {
   RemoteSourceIssueKind,
   RemoteSourceInput,
   RemoteSourceOverview,
+  RemoteTrackLookupItem,
   RemoteSourceUpdate,
   RemoteStreamUrlResult,
   RemoteSyncStatus,
@@ -500,6 +501,7 @@ export type EchoApi = {
     getSyncStatus: (sourceId: string) => Promise<RemoteSyncStatus>;
     createStreamUrl: (input: { trackId?: string; sourceId?: string; remotePath?: string; stableKey?: string }) => Promise<RemoteStreamUrlResult>;
     hydrateVisibleTracks: (trackIds: string[], options?: RemoteVisibleHydrationOptions) => Promise<LibraryTrack[]>;
+    lookupTracks: (sourceId: string, remotePaths: string[]) => Promise<RemoteTrackLookupItem[]>;
     startBackgroundJobs: (sourceId: string, kinds?: RemoteBackgroundJobKind[]) => Promise<RemoteBackgroundJobStatus>;
     pauseBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
     resumeBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;

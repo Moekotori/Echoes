@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AudioStatus } from '../../shared/types/audio';
+import type { AppSettings } from '../../shared/types/appSettings';
 import {
   Album,
   ChevronLeft,
@@ -24,6 +25,7 @@ import type {
   PlaybackHistoryEntry,
   PlaybackHistoryQuery,
   PlaybackHistorySummary,
+  PlaybackStatsAlbum,
   PlaybackStatsDashboard,
   PlaybackStatsDay,
 } from '../../shared/types/library';
@@ -38,15 +40,37 @@ const recentPlayedAlbumHistoryPageSize = 12;
 const randomQueuePageSize = 36;
 const recentShelfPageSize = 4;
 const recommendedAlbumPageSize = 7;
+const artistLeaderboardLimit = 5;
+const favoriteAlbumLimit = 4;
 const homeNowTitleMarqueeMinChars = 34;
 const homeNowTitleMarqueeOverflowPx = 12;
 const weeklyHeatmapWeeks = 12;
 const signalBarCount = 48;
 const playbackHistoryChangedEvent = 'playback-history:changed';
 const visualActiveStates = new Set<AudioStatus['state']>(['loading', 'playing']);
+const signalVisualAttackMs = 58;
+const signalVisualReleaseMs = 190;
+const signalVisualMotionAttackMs = 82;
+const signalVisualMotionReleaseMs = 220;
+const signalVisualOpacityMs = 130;
 
 type HomeRouteId = Extract<AppRouteId, 'albums' | 'artists' | 'folders' | 'history' | 'inbox' | 'liked' | 'playlists' | 'queue' | 'songs'>;
 type RecentPanelMode = 'added' | 'played';
+type SignalBarModel = {
+  delay: string;
+  duration: string;
+  fallScale: string;
+  height: string;
+  maxScale: string;
+  midScale: string;
+  minScale: string;
+  motion: string;
+  opacity: string;
+  targetHeight: number;
+  targetMotion: number;
+  targetOpacity: number;
+  targetScale: number;
+};
 type MetricTileProps = {
   icon: LucideIcon;
   label: string;
@@ -179,10 +203,12 @@ const emptyHomePageData: HomePageData = {
 };
 let cachedHomePageData: HomePageData | null = null;
 let cachedRecentPanelMode: RecentPanelMode = 'added';
+let cachedHomeWaveformVisualizerEnabled: boolean | null = null;
 
 export const resetHomePageCacheForTest = (): void => {
   cachedHomePageData = null;
   cachedRecentPanelMode = 'added';
+  cachedHomeWaveformVisualizerEnabled = null;
 };
 
 const formatCompactNumber = (value: number): string => {
@@ -230,7 +256,7 @@ const ArtistLeaderboard = ({
 }): JSX.Element => {
   const visibleArtists = artists
     .filter((artist) => artist.artist.trim().length > 0)
-    .slice(0, 8);
+    .slice(0, artistLeaderboardLimit);
   const maxPlayCount = Math.max(...visibleArtists.map((artist) => artist.playCount), 1);
 
   if (visibleArtists.length === 0) {
@@ -279,6 +305,75 @@ const ArtistLeaderboard = ({
         );
       })}
     </ol>
+  );
+};
+
+const statsAlbumToLibraryAlbum = (album: PlaybackStatsAlbum): LibraryAlbum | null => {
+  if (!album.albumId) {
+    return null;
+  }
+
+  return {
+    id: album.albumId,
+    mediaType: album.mediaType === 'remote' ? 'remote' : 'local',
+    albumKey: album.albumKey ?? album.albumId,
+    title: album.title,
+    albumArtist: album.albumArtist,
+    year: album.year,
+    trackCount: album.trackCount,
+    duration: album.duration,
+    coverId: album.coverId,
+    coverThumb: album.coverThumb,
+  };
+};
+
+const FavoriteAlbumGrid = ({
+  albums,
+  onOpenAlbum,
+}: {
+  albums: PlaybackStatsAlbum[];
+  onOpenAlbum: (album: PlaybackStatsAlbum) => void;
+}): JSX.Element => {
+  const visibleAlbums = albums
+    .filter((album) => album.title.trim().length > 0)
+    .slice(0, favoriteAlbumLimit);
+
+  if (visibleAlbums.length === 0) {
+    return (
+      <div className="home-favorite-album-empty" role="status">
+        <Album size={18} />
+        <span>
+          <strong>还没有常听专辑</strong>
+          <small>播放更多专辑后，这里会按听过最多次数选出前四张。</small>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="home-favorite-album-grid" aria-label="你喜欢的专辑">
+      {visibleAlbums.map((album, index) => {
+        const canOpen = statsAlbumToLibraryAlbum(album) !== null;
+
+        return (
+          <button
+            className="home-favorite-album-card"
+            disabled={!canOpen}
+            key={album.id}
+            type="button"
+            onClick={() => onOpenAlbum(album)}
+          >
+            <Artwork coverThumb={homeArtworkUrl(album, 'large')} title={album.title} size={96} />
+            <span className="home-favorite-album-rank">{String(index + 1).padStart(2, '0')}</span>
+            <span className="home-favorite-album-copy">
+              <strong>{album.title}</strong>
+              <small>{album.albumArtist || '未知艺术家'}</small>
+              <em>{formatCompactNumber(album.playCount)} 次 · {formatDuration(album.playedSeconds)}</em>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 };
 
@@ -437,6 +532,12 @@ const visualSpectrumAt = (spectrum: number[], position: number): number => {
   return spectrum[leftIndex] * (1 - mix) + spectrum[rightIndex] * mix;
 };
 
+const signalVisualStep = (current: number, target: number, elapsedMs: number, attackMs: number, releaseMs: number): number => {
+  const timeConstant = target > current ? attackMs : releaseMs;
+  const alpha = 1 - Math.exp(-Math.max(0, elapsedMs) / timeConstant);
+  return current + (target - current) * Math.min(1, Math.max(0, alpha));
+};
+
 const startOfThisWeekQuery = (): PlaybackHistoryQuery => {
   const start = startOfWeek(new Date());
 
@@ -452,6 +553,42 @@ const weeklyHeatmapQuery = (): PlaybackHistoryQuery => {
 
 const navigateHomeRoute = (routeId: HomeRouteId): void => {
   window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: routeId }));
+};
+
+const readHomeWaveformVisualizerEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
+  settings?.homeWaveformVisualizerEnabled === true;
+
+const useHomeWaveformVisualizerEnabled = (): boolean => {
+  const [enabled, setEnabled] = useState(() => cachedHomeWaveformVisualizerEnabled ?? false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'homeWaveformVisualizerEnabled')) {
+        return;
+      }
+
+      const nextEnabled = readHomeWaveformVisualizerEnabled(settings);
+      cachedHomeWaveformVisualizerEnabled = nextEnabled;
+      if (!cancelled) {
+        setEnabled(nextEnabled);
+      }
+    };
+
+    void window.echo?.app?.getSettings?.().then(applySettings).catch(() => undefined);
+
+    const handleSettingsChanged = (event: Event): void => {
+      applySettings((event as CustomEvent<Partial<AppSettings> | null | undefined>).detail);
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
+
+  return enabled;
 };
 
 const homeArtworkUrl = (
@@ -532,6 +669,21 @@ const SectionHeader = ({
 );
 
 const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus | null }): JSX.Element => {
+  const barElementsRef = useRef<Array<HTMLElement | null>>([]);
+  const targetBarsRef = useRef<SignalBarModel[]>([]);
+  const smoothedSignalRef = useRef<{
+    frameId: number | null;
+    lastTime: number;
+    motion: number[];
+    opacity: number[];
+    scale: number[];
+  }>({
+    frameId: null,
+    lastTime: 0,
+    motion: [],
+    opacity: [],
+    scale: [],
+  });
   const audioLevels = status?.audioLevels ?? null;
   const isActive = visualActiveStates.has(status?.state ?? 'idle');
   const peakUnit = dbToSignalUnit(audioLevels?.estimatedOutputPeakDb ?? audioLevels?.inputPeakDb);
@@ -576,7 +728,7 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
         : 0;
   const hasVisualSpectrum = trustedPcmSpectrum && !flatActiveMeter && visualSpectrumPeak > 0.001;
   const timeSlice = Math.floor(positionSeconds * 12);
-  const bars = Array.from({ length: signalBarCount }, (_, index) => {
+  const bars: SignalBarModel[] = Array.from({ length: signalBarCount }, (_, index) => {
     const position = index / Math.max(1, signalBarCount - 1);
     const coarse = seededSignalNoise(signalSeed, index);
     const fine = seededSignalNoise(signalSeed, index + 101);
@@ -607,15 +759,22 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
         )
       : 0;
     const spectralProfile = hasVisualSpectrum
-      ? clampSignal(spectrumContour * (1.04 + energy * 0.22) + edgeDrop * (0.018 + visualTransient * 0.035))
+      ? clampSignal(spectrumContour * (1.02 + energy * 0.2) + edgeDrop * (telemetryIsPriming ? 0.006 : 0.018 + visualTransient * 0.035))
       : fallbackProfile;
     const meterHeight = hasVisualSpectrum
-      ? 4 + (0.035 + spectralProfile * (0.66 + energy * 0.58) + energy * 0.12 + visualTransient * edgeDrop * 0.18) * 86
+      ? 4 +
+        (0.028 +
+          spectralProfile * (telemetryIsPriming ? 0.2 + energy * 0.12 : 0.66 + energy * 0.58) +
+          energy * (telemetryIsPriming ? 0.05 : 0.12) +
+          (telemetryIsPriming ? 0 : visualTransient * edgeDrop * 0.18)) *
+          86
       : 4 + (energy * (0.16 + spectralProfile * comb) + rms * edgeDrop * 0.1 + fallbackHit * crest * 0.38) * 86;
     const idleHeight = 3 + (0.03 + coarse * 0.05) * 34;
     const height = meterReady && isActive ? meterHeight : idleHeight;
     const motion = hasVisualSpectrum
-      ? 0.032 + spectrumContour * 0.09 + visualTransient * 0.18 + crest * 0.05
+      ? telemetryIsPriming
+        ? 0.018 + spectrumContour * 0.035 + visualTransient * 0.035
+        : 0.032 + spectrumContour * 0.09 + visualTransient * 0.18 + crest * 0.05
       : meterReady && isActive
         ? 0.08 + spectralProfile * 0.12 + crest * 0.18 + fallbackHit * 0.18
         : 0.04 + coarse * 0.05;
@@ -631,18 +790,22 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
         ? 0.5 + Math.min(0.42, energy * 0.25 + spectralProfile * 0.2 + (hasVisualSpectrum ? 0 : fallbackHit * 0.13))
         : 0.12 + coarse * 0.08;
     const requestedMotion = hasVisualSpectrum
-      ? targetScale * (0.045 + spectrumContour * 0.11) + visualTransient * 0.04 + energy * 0.012 + crest * 0.012
+      ? telemetryIsPriming
+        ? targetScale * (0.024 + spectrumContour * 0.045) + visualTransient * 0.012
+        : targetScale * (0.045 + spectrumContour * 0.11) + visualTransient * 0.04 + energy * 0.012 + crest * 0.012
       : targetScale * (0.1 + spectralProfile * 0.18) + energy * 0.02 + crest * 0.024 + fallbackHit * 0.012;
     const liveMotion =
       meterReady && isActive
         ? meterIsPriming
-          ? Math.min(0.045, targetScale * 0.5)
+          ? Math.min(telemetryIsPriming ? 0.03 : 0.045, targetScale * (telemetryIsPriming ? 0.32 : 0.5))
           : Math.min(0.24, targetScale * 0.68, Math.max(flatActiveMeter ? 0.055 : 0.024, requestedMotion))
         : 0;
 
     return {
       delay: `${hasVisualSpectrum ? -(index % 12) * 0.018 : -(index % 23) * (0.026 + fine * 0.018)}s`,
-      duration: `${hasVisualSpectrum ? 980 + Math.round((0.5 + edgeDrop * 0.5) * 260) : 980 + Math.round((coarse * 0.48 + fine * 0.16) * 620)}ms`,
+      duration: `${
+        hasVisualSpectrum ? 980 + Math.round((0.5 + edgeDrop * 0.5) * 260) + (telemetryIsPriming ? 180 : 0) : 980 + Math.round((coarse * 0.48 + fine * 0.16) * 620)
+      }ms`,
       fallScale: fallScale.toFixed(3),
       height: `${targetHeight.toFixed(2)}%`,
       maxScale: maxScale.toFixed(3),
@@ -651,17 +814,82 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
       motion: liveMotion.toFixed(4),
       opacity: targetOpacity.toFixed(3),
       targetHeight,
+      targetMotion: liveMotion,
       targetOpacity,
       targetScale,
     };
   });
+  targetBarsRef.current = bars;
+
+  useEffect(() => {
+    const state = smoothedSignalRef.current;
+
+    const applyImmediateTargets = (): void => {
+      targetBarsRef.current.forEach((bar, index) => {
+        state.scale[index] = bar.targetScale;
+        state.motion[index] = bar.targetMotion;
+        state.opacity[index] = bar.targetOpacity;
+        const element = barElementsRef.current[index];
+        element?.style.setProperty('--home-signal-display-scale', bar.targetScale.toFixed(4));
+        element?.style.setProperty('--home-signal-display-motion', bar.targetMotion.toFixed(4));
+        element?.style.setProperty('--home-signal-display-opacity', bar.targetOpacity.toFixed(3));
+      });
+    };
+
+    if (!isActive || !meterReady) {
+      if (state.frameId !== null) {
+        window.cancelAnimationFrame(state.frameId);
+        state.frameId = null;
+      }
+      state.lastTime = 0;
+      applyImmediateTargets();
+      return undefined;
+    }
+
+    const tick = (timestamp: number): void => {
+      const elapsedMs = state.lastTime > 0 ? Math.min(48, timestamp - state.lastTime) : 16.7;
+      state.lastTime = timestamp;
+
+      targetBarsRef.current.forEach((bar, index) => {
+        const currentScale = state.scale[index] ?? bar.targetScale;
+        const currentMotion = state.motion[index] ?? bar.targetMotion;
+        const currentOpacity = state.opacity[index] ?? bar.targetOpacity;
+        const nextScale = signalVisualStep(currentScale, bar.targetScale, elapsedMs, signalVisualAttackMs, signalVisualReleaseMs);
+        const nextMotion = signalVisualStep(currentMotion, bar.targetMotion, elapsedMs, signalVisualMotionAttackMs, signalVisualMotionReleaseMs);
+        const nextOpacity = signalVisualStep(currentOpacity, bar.targetOpacity, elapsedMs, signalVisualOpacityMs, signalVisualOpacityMs);
+        const element = barElementsRef.current[index];
+
+        state.scale[index] = nextScale;
+        state.motion[index] = nextMotion;
+        state.opacity[index] = nextOpacity;
+        element?.style.setProperty('--home-signal-display-scale', nextScale.toFixed(4));
+        element?.style.setProperty('--home-signal-display-motion', nextMotion.toFixed(4));
+        element?.style.setProperty('--home-signal-display-opacity', nextOpacity.toFixed(3));
+      });
+
+      state.frameId = window.requestAnimationFrame(tick);
+    };
+
+    state.frameId = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (state.frameId !== null) {
+        window.cancelAnimationFrame(state.frameId);
+        state.frameId = null;
+      }
+      state.lastTime = 0;
+    };
+  }, [isActive, meterReady, signalSeed]);
 
   return (
-    <div className="home-signal-visualizer" data-active={isActive} data-meter-ready={meterReady} aria-label="音频可视化">
+    <div className="home-signal-visualizer" data-active={isActive} data-meter-ready={meterReady} data-telemetry-state={visualTelemetryState ?? 'none'} aria-label="音频可视化">
       <div className="home-signal-bars" aria-hidden="true">
         {bars.map((bar, index) => (
           <i
             key={index}
+            ref={(element) => {
+              barElementsRef.current[index] = element;
+            }}
             style={
               {
                 '--home-signal-delay': bar.delay,
@@ -827,6 +1055,7 @@ export const HomePage = (): JSX.Element => {
 
   const focusTrack = queue.currentTrack ?? queue.lastPlayedTrack ?? recentTracks[0] ?? (recentHistory[0] ? trackFromHistory(recentHistory[0]) : null);
   const audioStatus = playbackStatusSnapshot.audioStatus;
+  const homeWaveformVisualizerEnabled = useHomeWaveformVisualizerEnabled();
   const topArtist = stats?.topArtists[0]?.artist ?? focusTrack?.artist ?? 'ECHO';
 
   const playTrack = useCallback(
@@ -905,6 +1134,13 @@ export const HomePage = (): JSX.Element => {
 
   const openRecommendedAlbum = useCallback((album: LibraryAlbum): void => {
     requestAlbumDetailNavigation(album, { returnTo: 'home' });
+  }, []);
+
+  const openFavoriteAlbum = useCallback((album: PlaybackStatsAlbum): void => {
+    const libraryAlbum = statsAlbumToLibraryAlbum(album);
+    if (libraryAlbum) {
+      requestAlbumDetailNavigation(libraryAlbum, { returnTo: 'home' });
+    }
   }, []);
 
   const changeRecentPanelMode = useCallback((mode: RecentPanelMode): void => {
@@ -1220,7 +1456,7 @@ export const HomePage = (): JSX.Element => {
             <Radio size={15} />
             今日回声
           </span>
-          <h1>让你的曲库先醒过来。</h1>
+          <h1>从你的音乐库开始播放。</h1>
           <p>
             {focusTrack
               ? `接上 ${focusTrack.artist || '未知艺术家'} 的「${focusTrack.title}」，或者从最近入库里挑一张封面开始。`
@@ -1242,7 +1478,7 @@ export const HomePage = (): JSX.Element => {
           </div>
         </div>
 
-        <div className="home-now-card" data-empty={!focusTrack}>
+        <div className="home-now-card" data-empty={!focusTrack} data-signal-enabled={homeWaveformVisualizerEnabled}>
           <div className="home-now-artwork-stack">
             <Artwork coverThumb={focusTrack ? homeArtworkUrl(focusTrack, 'album') : null} title={focusTrack?.title ?? '暂无播放'} size={132} />
           </div>
@@ -1251,7 +1487,9 @@ export const HomePage = (): JSX.Element => {
             <HomeNowTitle title={focusTrack?.title ?? '暂无播放'} />
             <HomeNowMeta track={focusTrack} onOpenAlbum={(track) => void openTrackAlbum(track)} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
           </div>
-          <SignalVisualizer seed={audioStatus?.currentTrackId ?? focusTrack?.id ?? focusTrack?.path ?? focusTrack?.title ?? 'idle'} status={audioStatus} />
+          {homeWaveformVisualizerEnabled ? (
+            <SignalVisualizer seed={audioStatus?.currentTrackId ?? focusTrack?.id ?? focusTrack?.path ?? focusTrack?.title ?? 'idle'} status={audioStatus} />
+          ) : null}
         </div>
       </section>
 
@@ -1387,9 +1625,16 @@ export const HomePage = (): JSX.Element => {
         )}
       </section>
 
-      <section className="home-panel home-artist-rank-panel" data-empty={(stats?.topArtists.length ?? 0) === 0}>
-        <SectionHeader title="艺人排行榜" />
-        <ArtistLeaderboard artists={stats?.topArtists ?? []} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
+      <section className="home-stats-grid" aria-label="播放偏好">
+        <div className="home-panel home-artist-rank-panel" data-empty={(stats?.topArtists.length ?? 0) === 0}>
+          <SectionHeader title="艺人排行榜" />
+          <ArtistLeaderboard artists={stats?.topArtists ?? []} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
+        </div>
+
+        <div className="home-panel home-favorite-album-panel" data-empty={(stats?.topAlbums?.length ?? 0) === 0}>
+          <SectionHeader title="你喜欢的专辑" />
+          <FavoriteAlbumGrid albums={stats?.topAlbums ?? []} onOpenAlbum={openFavoriteAlbum} />
+        </div>
       </section>
 
       {error || isLoading ? (

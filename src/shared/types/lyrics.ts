@@ -20,6 +20,8 @@ export type LyricsProviderId =
   | 'lrclib'
   | 'netease'
   | 'qqmusic'
+  | 'kugou'
+  | 'kuwo'
   | 'musixmatch'
   | 'genius'
   | 'manual';

@@ -269,6 +269,13 @@
   background: var(--home-now-empty-bg);
 }
 
+.home-now-card[data-signal-enabled="false"] {
+  grid-template-areas: "copy spacer art";
+  grid-template-rows: auto;
+  align-content: center;
+  min-height: 206px;
+}
+
 .home-now-card::before {
   position: absolute;
   inset: 0;
@@ -435,6 +442,7 @@
   position: relative;
   display: grid;
   grid-area: signal;
+  contain: layout paint;
   min-height: 86px;
   align-self: stretch;
   align-items: end;
@@ -475,18 +483,20 @@
 }
 
 .home-signal-bars i {
+  --home-signal-live-motion: var(--home-signal-display-motion, var(--home-signal-motion, 0));
+  --home-signal-live-scale: var(--home-signal-display-scale, var(--home-signal-scale, 0.12));
   display: block;
   height: 100%;
   min-height: 2px;
   border-radius: 3px 3px 1px 1px;
   background: var(--home-waveform-bg);
   box-shadow: 0 0 6px var(--home-signal-glow);
-  opacity: var(--home-signal-opacity);
-  transform: scaleY(var(--home-signal-scale, 0.12)) translateZ(0);
+  opacity: var(--home-signal-display-opacity, var(--home-signal-opacity));
+  transform: scaleY(var(--home-signal-live-scale)) translateZ(0);
   transform-origin: bottom;
   transition:
-    transform 210ms cubic-bezier(0.18, 1.28, 0.22, 1),
-    opacity 140ms ease-out;
+    transform 360ms cubic-bezier(0.18, 0.72, 0.22, 1),
+    opacity 220ms ease-out;
   will-change: transform, opacity;
 }
 
@@ -494,9 +504,9 @@
   animation: homeSignalLive var(--home-signal-duration) linear infinite;
   animation-delay: var(--home-signal-delay);
   transition:
-    --home-signal-scale 220ms cubic-bezier(0.16, 0.88, 0.22, 1),
-    --home-signal-motion 220ms cubic-bezier(0.16, 0.88, 0.22, 1),
-    opacity 100ms linear;
+    --home-signal-scale 480ms cubic-bezier(0.18, 0.72, 0.22, 1),
+    --home-signal-motion 480ms cubic-bezier(0.18, 0.72, 0.22, 1),
+    opacity 220ms linear;
 }
 
 .home-signal-visualizer[data-active="true"][data-meter-ready="false"] .home-signal-bars i {
@@ -520,87 +530,87 @@
 
 @keyframes homeSignalLive {
   0% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.2)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.2)) translateZ(0);
   }
 
   5% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.04)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.04)) translateZ(0);
   }
 
   10% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.18)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.18)) translateZ(0);
   }
 
   15% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.48)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.48)) translateZ(0);
   }
 
   20% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.76)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.76)) translateZ(0);
   }
 
   25% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 1)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 1)) translateZ(0);
   }
 
   30% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.82)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.82)) translateZ(0);
   }
 
   35% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.5)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.5)) translateZ(0);
   }
 
   40% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.1)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.1)) translateZ(0);
   }
 
   45% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.28)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.28)) translateZ(0);
   }
 
   50% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.58)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.58)) translateZ(0);
   }
 
   55% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.8)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.8)) translateZ(0);
   }
 
   60% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.9)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.9)) translateZ(0);
   }
 
   65% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.78)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.78)) translateZ(0);
   }
 
   70% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.5)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.5)) translateZ(0);
   }
 
   75% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.14)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.14)) translateZ(0);
   }
 
   80% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.2)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.2)) translateZ(0);
   }
 
   85% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.48)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.48)) translateZ(0);
   }
 
   90% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.38)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.38)) translateZ(0);
   }
 
   95% {
-    transform: scaleY(calc(var(--home-signal-scale) + var(--home-signal-motion) * 0.08)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) + var(--home-signal-live-motion) * 0.08)) translateZ(0);
   }
 
   100% {
-    transform: scaleY(calc(var(--home-signal-scale) - var(--home-signal-motion) * 0.2)) translateZ(0);
+    transform: scaleY(calc(var(--home-signal-live-scale) - var(--home-signal-live-motion) * 0.2)) translateZ(0);
   }
 }
 
@@ -770,6 +780,13 @@
   grid-template-columns: minmax(0, 1.42fr) minmax(292px, 0.58fr);
 }
 
+.home-stats-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
+  align-items: start;
+  gap: 16px;
+}
+
 .home-panel {
   min-width: 0;
   padding: 18px;
@@ -800,6 +817,10 @@
 
 .home-artist-rank-panel {
   gap: 14px;
+}
+
+.home-stats-grid .home-artist-rank-panel {
+  gap: 12px;
 }
 
 .home-artist-leaderboard {
@@ -848,6 +869,13 @@
     color 160ms ease;
 }
 
+.home-stats-grid .home-artist-rank-row {
+  min-height: 48px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 8px 12px;
+}
+
 .home-artist-rank-row::before {
   position: absolute;
   inset: 12px auto 12px 0;
@@ -872,6 +900,10 @@
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-bg) 38%, transparent), transparent 70%),
     transparent;
+}
+
+.home-stats-grid .home-artist-rank-row[data-rank-lead="true"] {
+  min-height: 54px;
 }
 
 .home-artist-rank-row[data-rank-lead="true"]::before {
@@ -958,6 +990,141 @@
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-solid-bg) 78%, transparent), color-mix(in srgb, var(--theme-heading-text) 8%, var(--theme-accent-solid-bg)));
+}
+
+.home-favorite-album-panel {
+  gap: 12px;
+}
+
+.home-favorite-album-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-favorite-album-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 116px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  padding: 10px;
+  color: var(--theme-page-text);
+  border: 1px solid var(--home-row-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--home-row-bg) 92%, transparent);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.home-favorite-album-card:hover,
+.home-favorite-album-card:focus-visible {
+  border-color: var(--home-row-hover-border);
+  background: var(--home-row-hover-bg);
+  transform: translateY(-1px);
+}
+
+.home-favorite-album-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-accent-solid-bg) 50%, transparent);
+  outline-offset: -2px;
+}
+
+.home-favorite-album-card:disabled {
+  cursor: default;
+  opacity: 0.74;
+}
+
+.home-favorite-album-card:disabled:hover {
+  border-color: var(--home-row-border);
+  background: color-mix(in srgb, var(--home-row-bg) 92%, transparent);
+  transform: none;
+}
+
+.home-favorite-album-card .home-artwork {
+  border-radius: 8px;
+}
+
+.home-favorite-album-rank {
+  position: absolute;
+  inset: 8px 8px auto auto;
+  color: color-mix(in srgb, var(--theme-accent-text-strong) 86%, var(--theme-heading-text) 14%);
+  font-size: 11px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.home-favorite-album-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding-right: 26px;
+}
+
+.home-favorite-album-copy strong,
+.home-favorite-album-copy small,
+.home-favorite-album-copy em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-favorite-album-copy strong {
+  color: var(--theme-heading-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.home-favorite-album-copy small,
+.home-favorite-album-copy em {
+  color: var(--theme-muted-text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.home-favorite-album-empty {
+  display: flex;
+  min-width: 0;
+  min-height: 116px;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  color: var(--theme-muted-text);
+  border: 1px dashed color-mix(in srgb, var(--home-row-border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 48%, transparent);
+}
+
+.home-favorite-album-empty svg {
+  flex: 0 0 auto;
+  color: var(--theme-subtle-text);
+}
+
+.home-favorite-album-empty span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.home-favorite-album-empty strong {
+  color: var(--theme-heading-text);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.home-favorite-album-empty small {
+  color: var(--theme-muted-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .home-artist-rank-empty {
@@ -1293,7 +1460,8 @@ html[data-theme="dark"] .home-artwork {
 
 @media (max-width: 1100px) {
   .home-hero,
-  .home-content-grid {
+  .home-content-grid,
+  .home-stats-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1331,6 +1499,10 @@ html[data-theme="dark"] .home-artwork {
     min-height: 240px;
   }
 
+  .home-now-card[data-signal-enabled="false"] {
+    min-height: 206px;
+  }
+
   .home-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1360,6 +1532,10 @@ html[data-theme="dark"] .home-artwork {
 
   .home-recommend-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-favorite-album-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .home-week-panel {
@@ -1402,6 +1578,14 @@ html[data-theme="dark"] .home-artwork {
     grid-template-rows: auto auto 76px;
   }
 
+  .home-now-card[data-signal-enabled="false"] {
+    grid-template-areas:
+      "art"
+      "copy";
+    grid-template-rows: auto auto;
+    min-height: 0;
+  }
+
   .home-now-copy {
     width: 100%;
     padding-top: 0;
@@ -1419,6 +1603,7 @@ html[data-theme="dark"] .home-artwork {
 @media (prefers-reduced-motion: reduce) {
   .home-primary-action,
   .home-secondary-action,
+  .home-favorite-album-card,
   .home-artist-rank-row,
   .home-section-header button {
     transition: none;
@@ -1426,6 +1611,7 @@ html[data-theme="dark"] .home-artwork {
 
   .home-primary-action:not(:disabled):hover,
   .home-secondary-action:not(:disabled):hover,
+  .home-favorite-album-card:hover,
   .home-section-header button:hover {
     transform: none;
   }

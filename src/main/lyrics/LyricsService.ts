@@ -31,6 +31,8 @@ import {
 import { normalizeText, normalizeTextForIdentity } from './lyricsScoring';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 import { LrclibProvider, mapLrclibRecordToTrackLyrics, type LrclibRecord } from './LrclibProvider';
+import { KugouLyricsProvider } from './KugouLyricsProvider';
+import { KuwoLyricsProvider } from './KuwoLyricsProvider';
 import { NeteaseLyricsProvider } from './NeteaseLyricsProvider';
 import { QQMusicLyricsProvider } from './QQMusicLyricsProvider';
 import { LyricsMatchEngine, type MatchedLyricsCandidate } from './LyricsMatchEngine';
@@ -205,6 +207,8 @@ const providerName = (value: string): LyricsSource => {
     value === 'lrclib' ||
     value === 'netease' ||
     value === 'qqmusic' ||
+    value === 'kugou' ||
+    value === 'kuwo' ||
     value === 'musixmatch' ||
     value === 'genius' ||
     value === 'manual' ||
@@ -221,6 +225,8 @@ const isSearchableLyricsProvider = (value: unknown): value is LyricsProviderId =
   value === 'lrclib' ||
   value === 'netease' ||
   value === 'qqmusic' ||
+  value === 'kugou' ||
+  value === 'kuwo' ||
   value === 'musixmatch' ||
   value === 'genius';
 
@@ -325,7 +331,7 @@ const legacyCacheKeyFor = (query: LyricsQuery, provider: LyricsSource): string =
   ].join('|');
 
 const allCacheKeysFor = (query: LyricsQuery): string[] =>
-  ['local', 'lrclib', 'manual', 'cached', 'netease', 'qqmusic', 'musixmatch', 'genius'].flatMap((provider) => [
+  ['local', 'lrclib', 'manual', 'cached', 'netease', 'qqmusic', 'kugou', 'kuwo', 'musixmatch', 'genius'].flatMap((provider) => [
     cacheKeyFor(query, provider as LyricsSource),
     legacyCacheKeyFor(query, provider as LyricsSource),
   ]);
@@ -558,7 +564,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
     const settings = readSettings();
     const enabledProviders = Array.isArray(settings.lyricsEnabledProviders) && settings.lyricsEnabledProviders.length
       ? settings.lyricsEnabledProviders
-      : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic']);
+      : (defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo']);
     const providerOrder = Array.isArray(settings.lyricsProviderOrder) && settings.lyricsProviderOrder.length
       ? settings.lyricsProviderOrder
       : enabledProviders;
@@ -595,7 +601,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
     return {
       lyricsNetworkEnabled: defaultSettings.lyricsNetworkEnabled,
       lyricsPreferredProvider: defaultSettings.lyricsPreferredProvider,
-      lyricsEnabledProviders: defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic'],
+      lyricsEnabledProviders: defaultSettings.lyricsEnabledProviders ?? ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'],
       lyricsProviderOrder: defaultSettings.lyricsProviderOrder,
       lyricsProviderTimeoutMs: defaultSettings.lyricsProviderTimeoutMs ?? 4500,
       lyricsTotalMatchTimeoutMs: defaultSettings.lyricsTotalMatchTimeoutMs ?? 6000,
@@ -651,6 +657,8 @@ export class LyricsService {
       adaptOnlineProvider(this.onlineProvider),
       new NeteaseLyricsProvider(),
       new QQMusicLyricsProvider(),
+      new KugouLyricsProvider(),
+      new KuwoLyricsProvider(),
       new StubLyricsProvider('musixmatch', 'Musixmatch', 500),
       new StubLyricsProvider('genius', 'Genius', 450),
     ] satisfies LyricsProvider[]);
