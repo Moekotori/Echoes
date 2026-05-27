@@ -39,6 +39,19 @@ describe('ArtistOnlineInfoService', () => {
           }),
         };
       }
+      if (url.includes('/w/api.php') && url.includes('action=parse')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            parse: {
+              text: {
+                '*': '<div class="mw-parser-output"><style>.hidden{}</style><table class="infobox"><tbody><tr><td>Ignore this table</td></tr></tbody></table><p><a href="/wiki/Echo_Unit">Echo Unit</a> is a fictional test artist.</p><h2>Career</h2><p>The group formed as a test fixture and built a richer biography for the artist detail page.</p></div>',
+              },
+            },
+          }),
+        };
+      }
       if (url.includes('/w/api.php')) {
         return {
           ok: true,
@@ -47,7 +60,7 @@ describe('ArtistOnlineInfoService', () => {
             query: {
               pages: {
                 1: {
-                  extract: 'Echo Unit is a fictional test artist.\n\nThe group formed as a test fixture and built a richer biography for the artist detail page.',
+                  extract: '<p>Echo Unit is a fictional test artist.</p><h2>Career</h2><p>The group formed as a test fixture and built a richer biography for the artist detail page.</p>',
                 },
               },
             },
@@ -89,6 +102,9 @@ describe('ArtistOnlineInfoService', () => {
     expect(result.status).toBe('ready');
     expect(result.bio?.title).toBe('Echo Unit');
     expect(result.bio?.extract).toContain('fictional test artist');
+    expect(result.bio?.extract).not.toContain('<p>');
+    expect(result.bio?.extractHtml).toContain('/wiki/Echo_Unit');
+    expect(result.bio?.extractHtml).toContain('mw-parser-output');
     expect(result.sourceLabels).toEqual(['en.wikipedia.org', 'MusicBrainz']);
     expect(result.externalLinks.map((link) => link.url)).toEqual([
       'https://example.wikipedia/Echo_Unit',

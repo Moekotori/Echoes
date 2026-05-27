@@ -276,13 +276,13 @@ describe('StreamingService playlist imports', () => {
     });
     const service = new StreamingService(registry, fakeCacheStore());
 
-    const result = await service.importPlaylistFromUrl('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
+    const result = await service.importPlaylistFromUrl('https://open.spotify.com/playlist/5MFN2Ep3ZU2FIQWIXNSLrT?si=866d26088e4a4a47');
 
-    expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: '37i9dQZF1DXcBWIGoYBM5M', page: 1, pageSize: 500 });
+    expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: '5MFN2Ep3ZU2FIQWIXNSLrT', page: 1, pageSize: 500 });
     expect(resolvePlayback).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       provider: 'spotify',
-      providerPlaylistId: '37i9dQZF1DXcBWIGoYBM5M',
+      providerPlaylistId: '5MFN2Ep3ZU2FIQWIXNSLrT',
       playlistName: 'Spotify Playlist',
     });
   });

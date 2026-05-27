@@ -462,6 +462,15 @@
   letter-spacing: 0;
 }
 
+.artist-overview-bio-heading {
+  margin: 8px 0 0;
+  color: #27364a;
+  font-size: 16px;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
 .artist-overview-copy p {
   max-width: 860px;
   margin: 0;
@@ -469,6 +478,18 @@
   font-size: 15px;
   font-weight: 640;
   line-height: 1.9;
+}
+
+.artist-overview-copy p a {
+  color: #4859ff;
+  font-weight: 760;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.artist-overview-copy p a:hover {
+  color: #2636d9;
 }
 
 .artist-overview-sidebar {
@@ -1255,6 +1276,7 @@ html[data-theme="dark"] .artist-track-header {
 
 html[data-theme="dark"] .artist-hero-copy h1,
 html[data-theme="dark"] .artist-overview-copy h2,
+html[data-theme="dark"] .artist-overview-bio-heading,
 html[data-theme="dark"] .artist-sidebar-facts strong,
 html[data-theme="dark"] .artist-section h2,
 html[data-theme="dark"] .artist-album-copy strong,
@@ -1276,6 +1298,14 @@ html[data-theme="dark"] .artist-detail-loading,
 html[data-theme="dark"] .artist-detail-status,
 html[data-theme="dark"] .artist-detail-missing p {
   color: var(--color-muted);
+}
+
+html[data-theme="dark"] .artist-overview-copy p a {
+  color: #8ea0ff;
+}
+
+html[data-theme="dark"] .artist-overview-copy p a:hover {
+  color: #c1ccff;
 }
 
 html[data-theme="dark"] .artist-hero-meta span:not(:last-child)::after {

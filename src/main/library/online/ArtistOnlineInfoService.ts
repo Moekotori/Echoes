@@ -304,7 +304,7 @@ const htmlText = (value: string): string =>
     .replace(/<script[\s\S]*?<\/script>/giu, ' ')
     .replace(/<style[\s\S]*?<\/style>/giu, ' ')
     .replace(/<br\s*\/?>/giu, '\n')
-    .replace(/<\/(p|div|section|li|dd|dt)>/giu, '\n')
+    .replace(/<\/(p|div|section|li|dd|dt|h[1-6])>/giu, '\n')
     .replace(/<[^>]+>/gu, ' ')
     .replace(/[ \t]+\n/gu, '\n')
     .replace(/[ \t]{2,}/gu, ' ')
@@ -346,6 +346,15 @@ const pageExtractFromQuery = (value: unknown): string | null => {
   return null;
 };
 
+const pageHtmlFromParse = (value: unknown): string | null => {
+  const parse = asRecord(asRecord(value).parse);
+  const parseText = parse.text;
+  if (typeof parseText === 'string' && parseText.trim()) {
+    return parseText.trim();
+  }
+  return text(asRecord(parseText)['*']);
+};
+
 const normalizeExtract = (value: string, maxLength: number): string => {
   const normalized = value
     .replace(/\r\n?/gu, '\n')
@@ -355,21 +364,53 @@ const normalizeExtract = (value: string, maxLength: number): string => {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trim()}...` : normalized;
 };
 
+const normalizeExtractHtml = (value: string, maxLength: number): string | null => {
+  const normalized = value
+    .replace(/\r\n?/gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trim()}...` : normalized;
+};
+
 const wikipediaExtractJson = (
   language: string,
   title: string,
   fetcher: FetchLike,
   headers: Record<string, string>,
   maxChars: number,
+  plainText = true,
 ): Promise<unknown> =>
   wikipediaLimiter.run(() => {
     const params = new URLSearchParams({
       action: 'query',
       prop: 'extracts',
-      explaintext: '1',
       exchars: String(maxChars),
       redirects: '1',
       titles: title,
+      format: 'json',
+    });
+    if (plainText) {
+      params.set('explaintext', '1');
+    }
+    return fetchJson(`https://${language}.wikipedia.org/w/api.php?${params.toString()}`, fetcher, headers);
+  });
+
+const wikipediaParseHtmlJson = (
+  language: string,
+  title: string,
+  fetcher: FetchLike,
+  headers: Record<string, string>,
+): Promise<unknown> =>
+  wikipediaLimiter.run(() => {
+    const params = new URLSearchParams({
+      action: 'parse',
+      prop: 'text',
+      redirects: '1',
+      disableeditsection: '1',
+      page: title,
       format: 'json',
     });
     return fetchJson(`https://${language}.wikipedia.org/w/api.php?${params.toString()}`, fetcher, headers);
@@ -423,14 +464,18 @@ export class ArtistOnlineInfoService {
     const cacheKey = cacheKeyFor(artist.id, artistName, language, region, sources);
     const now = options.now ?? new Date();
 
-    if (options.force !== true) {
-      const cached = this.readCache(cacheKey);
-      if (cached && Date.parse(cached.expiresAt ?? '') > now.getTime()) {
-        return cached;
-      }
+    const cached = options.force !== true ? this.readCache(cacheKey) : null;
+    const isCachedFresh = Boolean(cached && Date.parse(cached.expiresAt ?? '') > now.getTime());
+    const needsRichRefresh = Boolean(cached && isCachedFresh && this.needsRichWikipediaRefresh(cached, sources));
+
+    if (cached && isCachedFresh && !needsRichRefresh) {
+      return cached;
     }
 
     const payload = await this.fetchOnlineInfo(artistName, language, sources);
+    if (cached && needsRichRefresh && !payload.bio) {
+      return cached;
+    }
     const hasData = Boolean(payload.bio) || payload.externalLinks.length > 0 || payload.relatedArtists.length > 0;
     const status: ArtistOnlineInfo['status'] = hasData
       ? payload.errors.length > 0
@@ -462,6 +507,16 @@ export class ArtistOnlineInfoService {
   clearCache(): { removedRows: number } {
     const removedRows = Number(this.database.prepare('DELETE FROM artist_online_info_cache').run().changes ?? 0);
     return { removedRows };
+  }
+
+  private needsRichWikipediaRefresh(cached: CachedArtistOnlineInfo, sources: ArtistOnlineInfoSource[]): boolean {
+    if (!sources.includes('wikipedia')) {
+      return false;
+    }
+    const hasWikipediaBio =
+      cached.bio?.url?.includes('wikipedia.org') === true ||
+      cached.sourceLabels.some((label) => /wikipedia(?:\.org)?/iu.test(label));
+    return hasWikipediaBio && !cached.bio?.extractHtml;
   }
 
   private async fetchOnlineInfo(artistName: string, language: 'zh' | 'ja' | 'en', sources: ArtistOnlineInfoSource[]): Promise<OnlinePayload> {
@@ -764,8 +819,12 @@ export class ArtistOnlineInfoService {
           continue;
         }
         let richExtract = extract;
+        let richExtractHtml: string | null = null;
         try {
-          richExtract = pageExtractFromQuery(await wikipediaExtractJson(language, best.key, this.fetcher, defaultHeaders, 2800)) ?? extract;
+          const parsedHtml = pageHtmlFromParse(await wikipediaParseHtmlJson(language, best.key, this.fetcher, defaultHeaders));
+          const htmlExtract = parsedHtml ?? pageExtractFromQuery(await wikipediaExtractJson(language, best.key, this.fetcher, defaultHeaders, 2800, false));
+          richExtractHtml = htmlExtract ? normalizeExtractHtml(htmlExtract, 30000) : null;
+          richExtract = richExtractHtml ? normalizeExtract(htmlText(richExtractHtml), 2400) : extract;
         } catch {
           richExtract = extract;
         }
@@ -773,6 +832,7 @@ export class ArtistOnlineInfoService {
           title,
           description: text(data.description),
           extract: normalizeExtract(richExtract, 2400),
+          extractHtml: richExtractHtml,
           url: text(asRecord(asRecord(data.content_urls).desktop).page),
           language,
           thumbnailUrl: text(asRecord(data.thumbnail).source),

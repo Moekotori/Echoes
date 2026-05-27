@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { get as httpGet } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,7 +7,13 @@ import { AccountService } from './AccountService';
 import { SpotifyAuthService } from './SpotifyAuthService';
 
 const { openExternal } = vi.hoisted(() => ({
-  openExternal: vi.fn(async () => undefined),
+  openExternal: vi.fn<(url: string) => Promise<void>>(async () => undefined),
+}));
+const appSettingsMock = vi.hoisted(() => ({
+  current: {
+    spotifyClientId: null as string | null,
+    spotifyRedirectUri: null as string | null,
+  },
 }));
 const tempDirs: string[] = [];
 
@@ -20,13 +27,30 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('../app/appSettings', () => ({
+  getAppSettings: () => appSettingsMock.current,
+}));
+
 const jsonResponse = (body: unknown): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
 
+const requestLocalCallback = (url: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const request = httpGet(url, (response) => {
+      response.resume();
+      response.on('end', resolve);
+    });
+    request.on('error', reject);
+  });
+
 const createSpotifyService = (overrides: Partial<Parameters<AccountService['saveSpotifyTokens']>[0]> = {}): SpotifyAuthService => {
+  appSettingsMock.current = {
+    spotifyClientId: appSettingsMock.current.spotifyClientId ?? 'testSpotifyClient123',
+    spotifyRedirectUri: appSettingsMock.current.spotifyRedirectUri,
+  };
   const dir = mkdtempSync(join(tmpdir(), 'echo-spotify-auth-'));
   tempDirs.push(dir);
   const accountService = new AccountService(join(dir, 'accounts.json'));
@@ -47,6 +71,10 @@ const createSpotifyService = (overrides: Partial<Parameters<AccountService['save
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  appSettingsMock.current = {
+    spotifyClientId: null,
+    spotifyRedirectUri: null,
+  };
   openExternal.mockClear();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -161,6 +189,10 @@ describe('SpotifyAuthService ensureConnectDevice', () => {
 
 describe('SpotifyAuthService token refresh', () => {
   it('coalesces concurrent access-token refreshes', async () => {
+    appSettingsMock.current = {
+      spotifyClientId: 'customSpotifyClient123',
+      spotifyRedirectUri: null,
+    };
     const fetchMock = vi.fn(async () => jsonResponse({
       access_token: 'fresh-access-token',
       refresh_token: 'fresh-refresh-token',
@@ -179,5 +211,65 @@ describe('SpotifyAuthService token refresh', () => {
     expect(left).toBe('fresh-access-token');
     expect(right).toBe('fresh-access-token');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SpotifyAuthService login', () => {
+  it('requires a user-provided Spotify Client ID before login', async () => {
+    await expect(new SpotifyAuthService().startLoginWindow()).rejects.toThrow('Spotify Client ID');
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('opens OAuth in the system browser with the configured Spotify app', async () => {
+    appSettingsMock.current = {
+      spotifyClientId: 'customSpotifyClient123',
+      spotifyRedirectUri: 'http://127.0.0.1:43991/spotify/custom-callback',
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'echo-spotify-login-'));
+    tempDirs.push(dir);
+    const accountService = new AccountService(join(dir, 'accounts.json'));
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const target = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (target === 'https://accounts.spotify.com/api/token') {
+        const body = init?.body as URLSearchParams;
+        expect(body.get('client_id')).toBe('customSpotifyClient123');
+        expect(body.get('redirect_uri')).toBe('http://127.0.0.1:43991/spotify/custom-callback');
+        return jsonResponse({
+          access_token: 'login-access-token',
+          refresh_token: 'login-refresh-token',
+          token_type: 'Bearer',
+          scope: 'streaming',
+          expires_in: 3600,
+        });
+      }
+
+      if (target === 'https://api.spotify.com/v1/me') {
+        return jsonResponse({
+          id: 'spotify-user',
+          display_name: 'Spotify User',
+          product: 'premium',
+        });
+      }
+
+      return new Response('{}', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    openExternal.mockImplementationOnce(async (url: string) => {
+      const authUrl = new URL(url);
+      expect(authUrl.origin).toBe('https://accounts.spotify.com');
+      expect(authUrl.pathname).toBe('/authorize');
+      expect(authUrl.searchParams.get('client_id')).toBe('customSpotifyClient123');
+      expect(authUrl.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:43991/spotify/custom-callback');
+      expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
+      await requestLocalCallback(
+        `${authUrl.searchParams.get('redirect_uri')}?code=authorization-code&state=${authUrl.searchParams.get('state')}`,
+      );
+    });
+
+    const result = await new SpotifyAuthService(accountService).startLoginWindow();
+
+    expect(result.saved).toBe(true);
+    expect(result.status.connected).toBe(true);
+    expect(openExternal).toHaveBeenCalledTimes(1);
   });
 });

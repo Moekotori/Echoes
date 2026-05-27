@@ -189,6 +189,8 @@ export type AppSettings = {
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
+  spotifyClientId?: string | null;
+  spotifyRedirectUri?: string | null;
   downloadsFeatureUnlocked?: boolean;
   streamingDownloadActionsEnabled?: boolean;
   connectAutoStartReceiversEnabled?: boolean;

@@ -1,16 +1,18 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { BrowserWindow, shell } from 'electron';
+import { shell } from 'electron';
 import type { AccountLoginStartResult, AccountStatus } from '../../shared/types/accounts';
 import { getAccountService, type AccountService } from './AccountService';
 import { fetchWithNetworkProxy } from '../network/networkFetch';
+import { getAppSettings } from '../app/appSettings';
 
-const spotifyClientId = process.env.ECHO_SPOTIFY_CLIENT_ID?.trim() || '50e367c5148944a897a3af53a86422a9';
 const spotifyAccountsBaseUrl = 'https://accounts.spotify.com';
 const spotifyApiBaseUrl = 'https://api.spotify.com/v1';
-const spotifyRedirectCallbackPath = '/spotify/callback';
-const spotifyRedirectPort = Number.parseInt(process.env.ECHO_SPOTIFY_REDIRECT_PORT ?? '43879', 10);
-const spotifyRedirectUri = `http://127.0.0.1:${Number.isFinite(spotifyRedirectPort) ? spotifyRedirectPort : 43879}${spotifyRedirectCallbackPath}`;
+const defaultSpotifyRedirectCallbackPath = '/spotify/callback';
+const defaultSpotifyRedirectPort = Number.parseInt(process.env.ECHO_SPOTIFY_REDIRECT_PORT ?? '43879', 10);
+const envSpotifyRedirectUri = process.env.ECHO_SPOTIFY_REDIRECT_URI?.trim() || null;
+const fallbackSpotifyRedirectUri =
+  `http://127.0.0.1:${Number.isFinite(defaultSpotifyRedirectPort) ? defaultSpotifyRedirectPort : 43879}${defaultSpotifyRedirectCallbackPath}`;
 const spotifyScopes = [
   'streaming',
   'user-read-email',
@@ -114,6 +116,56 @@ const abortSignalForTimeout = (timeoutMs: number): AbortSignal | undefined => {
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+type SpotifyAuthConfig = {
+  clientId: string;
+  redirectUri: string;
+};
+
+const isValidSpotifyClientId = (value: string): boolean => /^[A-Za-z0-9]{8,128}$/u.test(value);
+
+const normalizeSpotifyRedirectUri = (value: string): string | null => {
+  try {
+    const url = new URL(value.trim());
+    const port = Number.parseInt(url.port, 10);
+    if (
+      url.protocol !== 'http:' ||
+      url.hostname !== '127.0.0.1' ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535 ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+
+    return `${url.origin}${url.pathname || '/'}`;
+  } catch {
+    return null;
+  }
+};
+
+const getSpotifyAuthConfig = (): SpotifyAuthConfig => {
+  const settings = getAppSettings();
+  const configuredClientId = settings.spotifyClientId?.trim();
+  if (!configuredClientId || !isValidSpotifyClientId(configuredClientId)) {
+    throw new Error('请先在设置 > 集成 > Spotify OAuth 配置中填写你自己的 Spotify Client ID，然后重新登录 Spotify。');
+  }
+
+  const redirectUri =
+    normalizeSpotifyRedirectUri(settings.spotifyRedirectUri ?? '') ??
+    normalizeSpotifyRedirectUri(envSpotifyRedirectUri ?? '') ??
+    normalizeSpotifyRedirectUri(fallbackSpotifyRedirectUri);
+
+  if (!redirectUri) {
+    throw new Error('Spotify redirect URI must be an http://127.0.0.1:PORT/... loopback URI.');
+  }
+
+  return { clientId: configuredClientId, redirectUri };
+};
+
 const isTimeoutLikeError = (error: unknown): boolean => {
   const name = typeof (error as { name?: unknown })?.name === 'string' ? (error as { name: string }).name : '';
   const message = errorMessage(error);
@@ -211,6 +263,9 @@ const spotifyHttpErrorMessage = (status: number, detail: string): string => {
     return `Spotify login expired. Please reconnect Spotify.${suffix}`;
   }
   if (status === 403) {
+    if (/not registered for this application|not registered/iu.test(detail)) {
+      return `This Spotify account is not added to the Spotify Developer App allowlist. Add the user in Spotify Dashboard > Users Management, or use the user's own Client ID.${suffix}`;
+    }
     return `Spotify Premium or regional permission is required for this Spotify action.${suffix}`;
   }
   if (status === 404) {
@@ -292,14 +347,15 @@ export class SpotifyAuthService {
     const verifier = createCodeVerifier();
     const challenge = createCodeChallenge(verifier);
     const state = base64Url(randomBytes(24));
-    const code = await this.requestAuthorizationCode(verifier, challenge, state);
+    const authConfig = getSpotifyAuthConfig();
+    const code = await this.requestAuthorizationCode(challenge, state, authConfig);
     const redirectUri = code.redirectUri;
     const token = await exchangeToken(
       new URLSearchParams({
         grant_type: 'authorization_code',
         code: code.code,
         redirect_uri: redirectUri,
-        client_id: spotifyClientId,
+        client_id: authConfig.clientId,
         code_verifier: verifier,
       }),
     );
@@ -327,6 +383,8 @@ export class SpotifyAuthService {
     if (!record?.accessToken && !record?.refreshToken) {
       throw new Error('Spotify is not signed in. Open Settings > Integrations and sign in first.');
     }
+
+    getSpotifyAuthConfig();
 
     if (record.accessToken && !tokenExpiredOrMissing(record.expiresAt)) {
       return record.accessToken;
@@ -528,11 +586,12 @@ export class SpotifyAuthService {
   }
 
   private async refreshAccessToken(record: { refreshToken?: string | null; scope?: string | null }): Promise<string> {
+    const authConfig = getSpotifyAuthConfig();
     const token = await exchangeToken(
       new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: record.refreshToken ?? '',
-        client_id: spotifyClientId,
+        client_id: authConfig.clientId,
       }),
     );
 
@@ -548,53 +607,41 @@ export class SpotifyAuthService {
   }
 
   private async requestAuthorizationCode(
-    _verifier: string,
     challenge: string,
     state: string,
+    authConfig: SpotifyAuthConfig,
   ): Promise<{ code: string; redirectUri: string }> {
     activeSpotifyLoginCleanup?.();
     activeSpotifyLoginCleanup = null;
 
     const server = createServer();
-    const redirectUri = spotifyRedirectUri;
+    const redirectUri = authConfig.redirectUri;
+    const redirectUrl = new URL(redirectUri);
+    const redirectPort = Number.parseInt(redirectUrl.port, 10);
+    const redirectPath = redirectUrl.pathname || '/';
     await new Promise<void>((resolve, reject) => {
       server.once('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'EADDRINUSE') {
-          reject(new Error(`Spotify callback port is already in use. Close the app using ${redirectUri}, or set ECHO_SPOTIFY_REDIRECT_PORT.`));
+          reject(new Error(`Spotify callback port is already in use. Close the app using ${redirectUri}, or set a different Spotify redirect URI.`));
           return;
         }
 
         reject(error);
       });
-      server.listen(Number(new URL(redirectUri).port), '127.0.0.1', () => {
+      server.listen(redirectPort, '127.0.0.1', () => {
         resolve();
       });
     });
     const authUrl = new URL(`${spotifyAccountsBaseUrl}/authorize`);
     authUrl.search = new URLSearchParams({
       response_type: 'code',
-      client_id: spotifyClientId,
+      client_id: authConfig.clientId,
       scope: spotifyScopes.join(' '),
       redirect_uri: redirectUri,
       state,
       code_challenge_method: 'S256',
       code_challenge: challenge,
     }).toString();
-
-    let loginWindow: BrowserWindow | null = new BrowserWindow({
-      width: 920,
-      height: 720,
-      minWidth: 760,
-      minHeight: 560,
-      title: 'Spotify Login',
-      show: true,
-      autoHideMenuBar: true,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
 
     const codePromise = new Promise<{ code: string; redirectUri: string }>((resolve, reject) => {
       let settled = false;
@@ -608,10 +655,6 @@ export class SpotifyAuthService {
           timeout = null;
         }
         server.close(() => undefined);
-        if (loginWindow && !loginWindow.isDestroyed()) {
-          loginWindow.close();
-        }
-        loginWindow = null;
       };
 
       const fail = (error: Error): void => {
@@ -628,7 +671,7 @@ export class SpotifyAuthService {
 
       server.on('request', (request, response) => {
         const requestUrl = new URL(request.url ?? '/', redirectUri);
-        if (requestUrl.pathname !== spotifyRedirectCallbackPath) {
+        if (requestUrl.pathname !== redirectPath) {
           response.writeHead(404);
           response.end();
           return;
@@ -662,22 +705,16 @@ export class SpotifyAuthService {
         resolve({ code: returnedCode, redirectUri });
       });
 
-      loginWindow?.once('closed', () => {
-        fail(new Error('Spotify sign-in window was closed before authorization completed.'));
+      void shell.openExternal(authUrl.toString()).catch((error) => {
+        fail(new Error(`Failed to open Spotify login in the system browser: ${errorMessage(error)}`));
       });
     });
-
-    loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-      void shell.openExternal(url);
-      return { action: 'deny' };
-    });
-    await loginWindow.loadURL(authUrl.toString());
 
     return codePromise;
   }
 }
 
-export const getSpotifyRedirectUri = (): string => spotifyRedirectUri;
+export const getSpotifyRedirectUri = (): string => getSpotifyAuthConfig().redirectUri;
 
 let spotifyAuthService: SpotifyAuthService | null = null;
 

@@ -275,6 +275,37 @@ describe('ArtistDetailView', () => {
     await waitFor(() => expect(document.querySelector('.artist-hero-backdrop')?.getAttribute('src')).toBe('echo-cover://original/cover%201'));
   });
 
+  it('renders legacy MediaWiki heading markers as headings instead of raw text', async () => {
+    installLibrary(
+      vi.fn().mockResolvedValue(artist()),
+      undefined,
+      vi.fn().mockResolvedValue(artistInsights({
+        onlineInfo: {
+          status: 'ready',
+          bio: {
+            title: 'Echo Unit',
+            description: 'Japanese band',
+            extract: 'Echo Unit is a band.\n\n== Career ==\nThe group built a richer biography.',
+            url: 'https://example.wikipedia/Echo_Unit',
+            language: 'en',
+            thumbnailUrl: null,
+          },
+          imageCredits: [],
+          externalLinks: [],
+          relatedArtists: [],
+          sourceLabels: ['en.wikipedia.org'],
+          fetchedAt: '2026-05-20T00:00:00.000Z',
+        },
+      })),
+    );
+
+    renderDetail(artist());
+
+    expect(await screen.findByText('The group built a richer biography.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Career' })).toBeTruthy();
+    expect(screen.queryByText(/== Career ==/)).toBeNull();
+  });
+
   it('falls back to the letter mark when the detail hero image fails', async () => {
     installLibrary(vi.fn().mockResolvedValue(artist({
       avatarUrl: 'echo-artist-image://large/echo-unit',
@@ -651,6 +682,7 @@ describe('ArtistDetailView', () => {
             title: 'Echo Unit',
             description: 'Japanese band',
             extract: 'Echo Unit is a fictional test artist with a very polished artist profile.',
+            extractHtml: '<p>Echo Unit is a <a href="/wiki/Fictional_artist">fictional test artist</a> with a very polished artist profile.</p><h2>Career</h2><p>The group built a richer biography.</p>',
             url: 'https://example.wikipedia/Echo_Unit',
             language: 'en',
             thumbnailUrl: 'https://img.example/echo.jpg',
@@ -697,6 +729,9 @@ describe('ArtistDetailView', () => {
     renderDetail(artist());
 
     expect(await screen.findByText(/fictional test artist/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Career' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'fictional test artist' }));
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://example.wikipedia/wiki/Fictional_artist'));
     expect(screen.getByText('en.wikipedia.org')).toBeTruthy();
     expect(screen.getByText('MusicBrainz')).toBeTruthy();
     expect(screen.queryByText('1 concerts found. Expand to view dates, venues, and ticket links.')).toBeNull();

@@ -323,6 +323,8 @@ export const defaultSettings: AppSettings = {
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: false,
   spotifyAutoLaunchOfficialPlayer: true,
+  spotifyClientId: null,
+  spotifyRedirectUri: null,
   downloadsFeatureUnlocked: false,
   streamingDownloadActionsEnabled: false,
   connectAutoStartReceiversEnabled: false,
@@ -506,6 +508,48 @@ const normalizeOptionalText = (value: unknown): string | null => {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeSpotifyClientId = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return /^[A-Za-z0-9]{8,128}$/u.test(normalized) ? normalized : null;
+};
+
+const normalizeSpotifyRedirectUri = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.replace(/[\r\n]/g, '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const url = new URL(normalized);
+    const port = Number.parseInt(url.port, 10);
+    if (
+      url.protocol !== 'http:' ||
+      url.hostname !== '127.0.0.1' ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535 ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+
+    return `${url.origin}${url.pathname || '/'}`;
+  } catch {
+    return null;
+  }
 };
 
 const normalizeRequiredText = (value: unknown, fallback: string): string => {
@@ -1320,6 +1364,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices === true,
     spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
+    spotifyClientId: normalizeSpotifyClientId(settings.spotifyClientId),
+    spotifyRedirectUri: normalizeSpotifyRedirectUri(settings.spotifyRedirectUri),
     downloadsFeatureUnlocked: settings.downloadsFeatureUnlocked === true,
     streamingDownloadActionsEnabled: settings.streamingDownloadActionsEnabled === true,
     connectAutoStartReceiversEnabled: settings.connectAutoStartReceiversEnabled === true,

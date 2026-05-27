@@ -1,7 +1,7 @@
 import { startTransition, type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Disc3, ExternalLink, ListPlus, Play, RefreshCw, Shuffle } from 'lucide-react';
 import type { AppSettings } from '../../../shared/types/appSettings';
-import type { ArtistInsights, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
+import type { ArtistInsights, ArtistOnlineInfoBio, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor, StreamingProviderName, StreamingTrack } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { useProgressiveRenderLimit } from '../../hooks/useProgressiveRenderLimit';
@@ -138,6 +138,232 @@ const richOverviewBioParagraphs = (value: string): string[] => {
   }
 
   return paragraphs.slice(0, 6);
+};
+
+type OverviewBioSegment =
+  | { type: 'text'; text: string }
+  | { type: 'link'; text: string; url: string };
+
+type OverviewBioBlock =
+  | { type: 'heading'; key: string; level: 2 | 3 | 4; text: string }
+  | { type: 'paragraph'; key: string; segments: OverviewBioSegment[] };
+
+const overviewBioFallbackBlocks = (text: string): OverviewBioBlock[] => [
+  { type: 'paragraph', key: 'fallback', segments: [{ type: 'text', text }] },
+];
+
+const trimBioSegments = (segments: OverviewBioSegment[]): OverviewBioSegment[] => {
+  const next = segments.map((segment) => ({ ...segment }));
+  for (const segment of next) {
+    if (segment.type === 'text') {
+      segment.text = segment.text.trimStart();
+      break;
+    }
+    if (segment.text.trim()) {
+      break;
+    }
+  }
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const segment = next[index];
+    if (segment.type === 'text') {
+      segment.text = segment.text.trimEnd();
+      break;
+    }
+    if (segment.text.trim()) {
+      break;
+    }
+  }
+  return next.filter((segment) => segment.text.trim());
+};
+
+const appendBioTextSegment = (segments: OverviewBioSegment[], value: string): void => {
+  const text = value.replace(/\s+/gu, ' ');
+  if (!text) {
+    return;
+  }
+  const last = segments[segments.length - 1];
+  if (last?.type === 'text') {
+    last.text += text;
+    return;
+  }
+  segments.push({ type: 'text', text });
+};
+
+const bioSegmentsText = (segments: OverviewBioSegment[]): string =>
+  segments.map((segment) => segment.text).join('').replace(/\s+/gu, ' ').trim();
+
+const safeBioLinkUrl = (href: string | null, baseUrl: string | null): string | null => {
+  if (!href || href.startsWith('#')) {
+    return null;
+  }
+  try {
+    const url = new URL(href, baseUrl ?? undefined);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+const collectBioSegments = (node: ChildNode, baseUrl: string | null, segments: OverviewBioSegment[]): void => {
+  if (node.nodeType === 3) {
+    appendBioTextSegment(segments, node.textContent ?? '');
+    return;
+  }
+  if (node.nodeType !== 1) {
+    return;
+  }
+
+  const element = node as Element;
+  const tagName = element.tagName.toLocaleLowerCase();
+  if (
+    tagName === 'script' ||
+    tagName === 'style' ||
+    tagName === 'table' ||
+    tagName === 'figure' ||
+    tagName === 'sup' ||
+    element.classList.contains('mw-editsection') ||
+    element.classList.contains('reference')
+  ) {
+    return;
+  }
+  if (tagName === 'br') {
+    appendBioTextSegment(segments, '\n');
+    return;
+  }
+  if (tagName === 'a') {
+    const childSegments: OverviewBioSegment[] = [];
+    element.childNodes.forEach((child) => collectBioSegments(child, baseUrl, childSegments));
+    const linkText = bioSegmentsText(trimBioSegments(childSegments));
+    const linkUrl = safeBioLinkUrl(element.getAttribute('href'), baseUrl);
+    if (linkText && linkUrl) {
+      segments.push({ type: 'link', text: linkText, url: linkUrl });
+    } else if (linkText) {
+      appendBioTextSegment(segments, linkText);
+    }
+    return;
+  }
+
+  element.childNodes.forEach((child) => collectBioSegments(child, baseUrl, segments));
+};
+
+const htmlOverviewBioBlocks = (html: string | null | undefined, baseUrl: string | null): OverviewBioBlock[] => {
+  if (!html?.trim() || typeof DOMParser === 'undefined') {
+    return [];
+  }
+
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  const blocks: OverviewBioBlock[] = [];
+  const shouldSkipElement = (element: Element): boolean => {
+    const tagName = element.tagName.toLocaleLowerCase();
+    return (
+      tagName === 'script' ||
+      tagName === 'style' ||
+      tagName === 'table' ||
+      tagName === 'figure' ||
+      tagName === 'sup' ||
+      element.classList.contains('infobox') ||
+      element.classList.contains('navbox') ||
+      element.classList.contains('metadata') ||
+      element.classList.contains('reference') ||
+      element.classList.contains('reflist') ||
+      element.classList.contains('mw-editsection')
+    );
+  };
+  const visitElement = (element: Element): void => {
+    if (blocks.length >= 10) {
+      return;
+    }
+    if (shouldSkipElement(element)) {
+      return;
+    }
+    const tagName = element.tagName.toLocaleLowerCase();
+    if (/^h[2-4]$/u.test(tagName)) {
+      const segments: OverviewBioSegment[] = [];
+      element.childNodes.forEach((child) => collectBioSegments(child, baseUrl, segments));
+      const text = bioSegmentsText(trimBioSegments(segments));
+      if (text) {
+        blocks.push({ type: 'heading', key: `h-${blocks.length}-${text}`, level: Number(tagName.slice(1)) as 2 | 3 | 4, text });
+      }
+      return;
+    }
+    if (tagName === 'p' || tagName === 'li' || tagName === 'dd' || tagName === 'dt') {
+      const segments: OverviewBioSegment[] = [];
+      element.childNodes.forEach((child) => collectBioSegments(child, baseUrl, segments));
+      const cleaned = trimBioSegments(segments);
+      if (cleaned.length > 0 && bioSegmentsText(cleaned)) {
+        blocks.push({ type: 'paragraph', key: `p-${blocks.length}-${bioSegmentsText(cleaned).slice(0, 32)}`, segments: cleaned });
+      }
+      return;
+    }
+    if (element.children.length > 0) {
+      Array.from(element.children).forEach(visitElement);
+      return;
+    }
+
+    const segments: OverviewBioSegment[] = [];
+    element.childNodes.forEach((child) => collectBioSegments(child, baseUrl, segments));
+    const cleaned = trimBioSegments(segments);
+    if (cleaned.length > 0 && bioSegmentsText(cleaned)) {
+      blocks.push({ type: 'paragraph', key: `text-${blocks.length}-${bioSegmentsText(cleaned).slice(0, 32)}`, segments: cleaned });
+    }
+  };
+
+  Array.from(document.body.children).forEach(visitElement);
+  return blocks.slice(0, 8);
+};
+
+const plainOverviewBioBlocks = (value: string): OverviewBioBlock[] => {
+  const normalized = value
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim();
+  const limited = normalized.length > maxOverviewBioLength ? `${normalized.slice(0, maxOverviewBioLength - 3).trim()}...` : normalized;
+  const blocks: OverviewBioBlock[] = [];
+  let paragraphLines: string[] = [];
+
+  const flushParagraph = (): void => {
+    const text = paragraphLines.join(' ').trim();
+    paragraphLines = [];
+    if (!text) {
+      return;
+    }
+    richOverviewBioParagraphs(text).forEach((paragraph) => {
+      blocks.push({
+        type: 'paragraph',
+        key: `plain-p-${blocks.length}-${paragraph.slice(0, 32)}`,
+        segments: [{ type: 'text', text: paragraph }],
+      });
+    });
+  };
+
+  for (const line of limited.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+    const heading = trimmed.match(/^(={2,6})\s*(.*?)\s*\1$/u);
+    if (heading?.[2]) {
+      flushParagraph();
+      blocks.push({
+        type: 'heading',
+        key: `plain-h-${blocks.length}-${heading[2]}`,
+        level: Math.min(4, Math.max(2, heading[1].length)) as 2 | 3 | 4,
+        text: heading[2].trim(),
+      });
+      continue;
+    }
+    paragraphLines.push(trimmed);
+  }
+  flushParagraph();
+  return blocks.slice(0, 8);
+};
+
+const overviewBioBlocksFor = (bio: ArtistOnlineInfoBio): OverviewBioBlock[] => {
+  const baseUrl = bio.url ?? (bio.language ? `https://${bio.language}.wikipedia.org/wiki/` : null);
+  const htmlBlocks = htmlOverviewBioBlocks(bio.extractHtml, baseUrl);
+  return htmlBlocks.length > 0 ? htmlBlocks : plainOverviewBioBlocks(bio.extract);
 };
 
 const formatTrackDuration = (duration: number): string => {
@@ -981,9 +1207,11 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
       ? concertInfo.message
       : (configuredConcertRegion ? t('artistDetail.events.noConcertsRegion', { region: configuredConcertRegion }) : t('artistDetail.events.noConcerts')))
     : t('artistDetail.events.configureProviders');
-  const overviewBio = onlineBio
-    ? richOverviewBioParagraphs(onlineBio.extract)
-    : [t('artistDetail.overview.bioFallback')];
+  const overviewBioFallback = t('artistDetail.overview.bioFallback');
+  const overviewBioBlocks = useMemo(
+    () => (onlineBio ? overviewBioBlocksFor(onlineBio) : overviewBioFallbackBlocks(overviewBioFallback)),
+    [onlineBio, overviewBioFallback],
+  );
   const overviewFacts = [
     { label: t('artistDetail.fact.tracks'), value: t('artistDetail.meta.tracks', { count: displayedTrackCount }) },
     { label: t('artistDetail.fact.albums'), value: t('artistDetail.meta.albums', { count: displayArtist.albumCount }) },
@@ -1189,9 +1417,23 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
             <article className="artist-overview-copy">
               <span>{t('artistDetail.label.overview')}</span>
               <h2>{t('artistDetail.overview.about', { artist: displayArtist.name })}</h2>
-              {overviewBio.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
+              {overviewBioBlocks.map((block) =>
+                block.type === 'heading' ? (
+                  <h3 className="artist-overview-bio-heading" data-level={block.level} key={block.key}>
+                    {block.text}
+                  </h3>
+                ) : (
+                  <p key={block.key}>
+                    {block.segments.map((segment, index) =>
+                      segment.type === 'link' ? (
+                        <a href={segment.url} key={`${segment.url}-${index}`} rel="noreferrer" target="_blank" onClick={(event) => handleExternalLinkClick(event, segment.url)}>
+                          {segment.text}
+                        </a>
+                      ) : segment.text,
+                    )}
+                  </p>
+                ),
+              )}
             </article>
             <aside className="artist-overview-sidebar" aria-label={t('artistDetail.aria.facts')}>
               <div className="artist-sidebar-facts">

@@ -599,6 +599,20 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ spotifyAutoLaunchOfficialPlayer: 'no' as never }).spotifyAutoLaunchOfficialPlayer).toBe(true);
   });
 
+  it('normalizes optional Spotify OAuth app settings', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).spotifyClientId).toBeNull();
+    expect(normalizeSettings({}).spotifyRedirectUri).toBeNull();
+    expect(normalizeSettings({ spotifyClientId: '  abcDEF1234567890  ' }).spotifyClientId).toBe('abcDEF1234567890');
+    expect(normalizeSettings({ spotifyClientId: 'bad id!' }).spotifyClientId).toBeNull();
+    expect(normalizeSettings({ spotifyRedirectUri: ' http://127.0.0.1:43901/custom/callback ' }).spotifyRedirectUri).toBe(
+      'http://127.0.0.1:43901/custom/callback',
+    );
+    expect(normalizeSettings({ spotifyRedirectUri: 'http://localhost:43901/custom/callback' }).spotifyRedirectUri).toBeNull();
+    expect(normalizeSettings({ spotifyRedirectUri: 'https://127.0.0.1:43901/custom/callback' }).spotifyRedirectUri).toBeNull();
+  });
+
   it('keeps Connect receiver autostart disabled until explicitly enabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

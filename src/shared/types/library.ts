@@ -574,6 +574,7 @@ export type ArtistOnlineInfoBio = {
   title: string;
   description: string | null;
   extract: string;
+  extractHtml?: string | null;
   url: string | null;
   language: string;
   thumbnailUrl: string | null;

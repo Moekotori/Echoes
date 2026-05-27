@@ -354,6 +354,34 @@ const mergeShortcutSettings = <T extends GlobalShortcutSettings | LocalShortcutS
 const normalizeSharedBackend = (value: unknown): AudioSharedBackend =>
   value === 'windows' || value === 'directsound' || value === 'alsa' ? value : 'auto';
 
+const defaultSpotifyRedirectUri = 'http://127.0.0.1:43879/spotify/callback';
+
+const isSpotifyClientIdInputValid = (value: string): boolean => {
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9]{8,128}$/u.test(trimmed);
+};
+
+const isSpotifyRedirectUriInputValid = (value: string): boolean => {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    const port = Number.parseInt(url.port, 10);
+    return (
+      url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      Number.isInteger(port) &&
+      port >= 1 &&
+      port <= 65535 &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+};
+
 const playbackOutputModes: AudioOutputMode[] = ['system', 'shared', 'exclusive', 'asio'];
 
 const detectSettingsPlatform = (): NodeJS.Platform | 'unknown' =>
@@ -3620,6 +3648,11 @@ export const SettingsPage = (): JSX.Element => {
   });
   const [networkProxyBusy, setNetworkProxyBusy] = useState<'save' | 'test' | null>(null);
   const [networkProxyTestResult, setNetworkProxyTestResult] = useState<NetworkProxyTestResult | null>(null);
+  const [spotifyAuthDraft, setSpotifyAuthDraft] = useState({
+    clientId: '',
+    redirectUri: '',
+  });
+  const [spotifyAuthMessage, setSpotifyAuthMessage] = useState<string | null>(null);
   const [onlineArtistInfoDraft, setOnlineArtistInfoDraft] = useState({
     bandsintownAppId: '',
     ticketmasterApiKey: '',
@@ -3791,6 +3824,14 @@ export const SettingsPage = (): JSX.Element => {
           'mv',
           'metadata',
         ],
+      },
+      {
+        id: 'row-spotify-auth-config',
+        sectionKey: 'integrations',
+        targetId: 'settings-row-spotify-auth-config',
+        title: 'Spotify OAuth 配置',
+        description: '必须使用用户自己的 Spotify Client ID 和本机回调地址登录。',
+        terms: ['Spotify OAuth 配置', 'Spotify Client ID', 'Spotify redirect URI', 'Spotify API', 'Spotify 登录', 'spotify client_id', 'redirect_uri'],
       },
       {
         id: 'row-online-artist-info',
@@ -5075,6 +5116,20 @@ export const SettingsPage = (): JSX.Element => {
       return;
     }
 
+    setSpotifyAuthDraft({
+      clientId: appSettings.spotifyClientId ?? '',
+      redirectUri: appSettings.spotifyRedirectUri ?? defaultSpotifyRedirectUri,
+    });
+  }, [
+    appSettings?.spotifyClientId,
+    appSettings?.spotifyRedirectUri,
+  ]);
+
+  useEffect(() => {
+    if (!appSettings) {
+      return;
+    }
+
     setOnlineArtistInfoDraft({
       bandsintownAppId: appSettings.onlineArtistInfoBandsintownAppId ?? '',
       ticketmasterApiKey: appSettings.onlineArtistInfoTicketmasterApiKey ?? '',
@@ -5752,6 +5807,42 @@ export const SettingsPage = (): JSX.Element => {
       setError(miniPlayerError instanceof Error ? miniPlayerError.message : String(miniPlayerError));
     }
   }, [applyMiniPlayerState]);
+
+  const handleSpotifyAuthConfigSave = useCallback((): void => {
+    const app = getAppBridge();
+
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save Spotify settings.');
+      return;
+    }
+
+    const clientId = spotifyAuthDraft.clientId.trim();
+    const redirectUri = spotifyAuthDraft.redirectUri.trim();
+    if (!isSpotifyClientIdInputValid(clientId)) {
+      setSpotifyAuthMessage('请填写你自己的 Spotify Developer App Client ID。');
+      return;
+    }
+
+    if (!isSpotifyRedirectUriInputValid(redirectUri)) {
+      setSpotifyAuthMessage('Redirect URI 必须是 http://127.0.0.1:端口/路径，且不能包含账号、密码、查询参数或 hash。');
+      return;
+    }
+
+    setSpotifyAuthMessage(null);
+    void app
+      .setSettings({
+        spotifyClientId: clientId,
+        spotifyRedirectUri: redirectUri,
+      })
+      .then((settings) => {
+        setAppSettings(settings);
+        dispatchSettingsChanged(settings);
+        setSpotifyAuthMessage('已保存。修改 Spotify OAuth 配置后，请重新登录 Spotify。');
+      })
+      .catch((settingsError) => {
+        setSpotifyAuthMessage(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
+  }, [dispatchSettingsChanged, spotifyAuthDraft]);
 
   const handleNetworkProxySave = useCallback((): void => {
     const app = getAppBridge();
@@ -9858,6 +9949,54 @@ export const SettingsPage = (): JSX.Element => {
                   disabled={!appSettings}
                   onClick={() => patchAppSettings({ spotifyAutoLaunchOfficialPlayer: !(appSettings?.spotifyAutoLaunchOfficialPlayer ?? true) })}
                 />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full"
+                id="settings-row-spotify-auth-config"
+                highlighted={highlightedSettingId === 'settings-row-spotify-auth-config'}
+                title="Spotify OAuth 配置"
+                description="必须使用用户自己的 Spotify Developer App；登录会打开系统默认浏览器，优先复用浏览器里的 Spotify 会话。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--spotify-auth">
+                  <div className="settings-proxy-grid">
+                    <label className="settings-proxy-field">
+                      <span>Client ID</span>
+                      <input
+                        type="text"
+                        value={spotifyAuthDraft.clientId}
+                        placeholder="必填：Spotify Developer App 的 Client ID"
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setSpotifyAuthDraft((current) => ({ ...current, clientId: event.target.value }));
+                          setSpotifyAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                    <label className="settings-proxy-field">
+                      <span>Redirect URI</span>
+                      <input
+                        type="text"
+                        value={spotifyAuthDraft.redirectUri}
+                        placeholder={defaultSpotifyRedirectUri}
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setSpotifyAuthDraft((current) => ({ ...current, redirectUri: event.target.value }));
+                          setSpotifyAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleSpotifyAuthConfigSave}>
+                      <Save size={15} />
+                      保存 Spotify 配置
+                    </button>
+                  </div>
+                  <p className="settings-inline-note">
+                    在 Spotify Developer Dashboard 中添加同一个 Redirect URI；建议使用本机回环地址，例如 {defaultSpotifyRedirectUri}。保存后重新登录 Spotify。
+                  </p>
+                  {spotifyAuthMessage ? <p className="settings-inline-note">{spotifyAuthMessage}</p> : null}
+                </div>
               </SettingRow>
               <div className="settings-account-panel">
                 <header className="settings-account-panel-header">

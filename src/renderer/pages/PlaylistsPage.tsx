@@ -1603,7 +1603,7 @@ export const PlaylistsPage = (): JSX.Element => {
             <input
               value={playlistUrl}
               onChange={(event) => setPlaylistUrl(event.target.value)}
-              placeholder="粘贴网易云 / QQ 音乐歌单链接"
+              placeholder="粘贴网易云 / QQ 音乐 / Spotify 歌单链接"
               disabled={isImportingPlaylist}
             />
           </label>
@@ -1622,6 +1622,10 @@ export const PlaylistsPage = (): JSX.Element => {
           <div>
             <span><WifiOff size={14} /> QQ 音乐</span>
             <em>未连接</em>
+          </div>
+          <div>
+            <span><WifiOff size={14} /> Spotify</span>
+            <em>需登录</em>
           </div>
         </div>
       </aside>

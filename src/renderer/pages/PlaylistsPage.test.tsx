@@ -646,6 +646,61 @@ describe('PlaylistsPage actions menu', () => {
     expect(await screen.findByText('已刷新歌单：QQ Mix，共 2 首')).toBeTruthy();
   });
 
+  it('imports Spotify playlist links from the sidebar form', async () => {
+    const spotifyUrl = 'https://open.spotify.com/playlist/5MFN2Ep3ZU2FIQWIXNSLrT?si=866d26088e4a4a47';
+    const importedPlaylist = playlist({
+      id: 'spotify-playlist',
+      sourceProvider: 'spotify',
+      sourcePlaylistId: '5MFN2Ep3ZU2FIQWIXNSLrT',
+      name: 'Spotify Mix',
+      itemCount: 1,
+    });
+    const importedItem = item({
+      id: 'spotify-item-1',
+      playlistId: 'spotify-playlist',
+      mediaType: 'stream_track',
+      mediaId: 'streaming:spotify:track-1',
+      sourceProvider: 'spotify',
+      sourceItemId: 'track-1',
+      titleSnapshot: 'Spotify Song',
+      artistSnapshot: 'Spotify Artist',
+      track: null,
+    });
+    const importPlaylistFromUrl = vi.fn().mockResolvedValue({
+      playlistId: 'spotify-playlist',
+      playlistName: 'Spotify Mix',
+      importedCount: 1,
+      provider: 'spotify',
+      providerPlaylistId: '5MFN2Ep3ZU2FIQWIXNSLrT',
+    });
+    const getPlaylistItems = vi.fn(async (playlistId: string) =>
+      page(playlistId === 'spotify-playlist' ? [importedItem] : []),
+    );
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValueOnce([playlist({ itemCount: 0 })]).mockResolvedValue([importedPlaylist]),
+        getPlaylistItems,
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+      },
+      streaming: {
+        importPlaylistFromUrl,
+      },
+    } as unknown as Window['echo'];
+
+    renderPlaylistsPage();
+
+    const input = await screen.findByPlaceholderText('粘贴网易云 / QQ 音乐 / Spotify 歌单链接');
+    fireEvent.change(input, { target: { value: spotifyUrl } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(importPlaylistFromUrl).toHaveBeenCalledWith(spotifyUrl));
+    expect(await screen.findByText('已添加歌单：Spotify Mix，共 1 首')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Spotify Song' })).toBeTruthy();
+  });
+
   it('queues a remote playlist download in playlist order and uses the playlist folder', async () => {
     const remotePlaylist = playlist({
       sourceProvider: 'netease',

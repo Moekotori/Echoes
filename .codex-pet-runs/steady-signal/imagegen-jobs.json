@@ -1,0 +1,372 @@
+﻿{
+    "schema_version":  1,
+    "created_at":  "2026-05-27T11:16:25.754409+00:00",
+    "run_dir":  "G:\\ECHO-main\\.codex-pet-runs\\steady-signal",
+    "primary_generation_skill":  "$imagegen",
+    "jobs":  [
+                 {
+                     "id":  "base",
+                     "kind":  "base-pet",
+                     "status":  "complete",
+                     "prompt_file":  "prompts/base-pet.md",
+                     "input_images":  [
+
+                                      ],
+                     "output_path":  "decoded/base.png",
+                     "depends_on":  [
+
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  false,
+                     "allow_prompt_only_generation":  true,
+                     "source_path":  "C:\\Users\\Moe\\.codex\\generated_images\\019e6925-002d-79e0-9113-36a3e02cfc05\\ig_0f8b8de4a597da59016a16d2b5ac448191a8f8782c2022c7d3.png",
+                     "completed_at":  "2026-05-27T11:18:48Z"
+                 },
+                 {
+                     "id":  "idle",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/idle.md",
+                     "retry_prompt_file":  "prompts/row-retries/idle.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/idle.png",
+                                              "role":  "layout guide for 6 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/idle.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "no deterministic derivation is configured for this state"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "running-right",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/running-right.md",
+                     "retry_prompt_file":  "prompts/row-retries/running-right.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/running-right.png",
+                                              "role":  "layout guide for 8 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/running-right.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "no deterministic derivation is configured for this state"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "running-left",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/running-left.md",
+                     "retry_prompt_file":  "prompts/row-retries/running-left.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/running-left.png",
+                                              "role":  "layout guide for 8 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          },
+                                          {
+                                              "path":  "decoded/running-right.png",
+                                              "role":  "rightward gait reference for leftward row decision"
+                                          }
+                                      ],
+                     "output_path":  "decoded/running-left.png",
+                     "depends_on":  [
+                                        "base",
+                                        "running-right"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base",
+                                                  "running-right"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  true,
+                                               "may_derive_from":  "running-right",
+                                               "derivation":  "framewise-horizontal-mirror-preserving-order",
+                                               "requires_explicit_approval":  true,
+                                               "fallback_generation_skill":  "$imagegen"
+                                           },
+                     "mirror_policy":  {
+                                           "may_derive":  true,
+                                           "may_derive_from":  "running-right",
+                                           "derivation":  "framewise-horizontal-mirror-preserving-order",
+                                           "requires_explicit_approval":  true,
+                                           "fallback_generation_skill":  "$imagegen"
+                                       }
+                 },
+                 {
+                     "id":  "waving",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/waving.md",
+                     "retry_prompt_file":  "prompts/row-retries/waving.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/waving.png",
+                                              "role":  "layout guide for 4 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/waving.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "jumping",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/jumping.md",
+                     "retry_prompt_file":  "prompts/row-retries/jumping.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/jumping.png",
+                                              "role":  "layout guide for 5 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/jumping.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "failed",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/failed.md",
+                     "retry_prompt_file":  "prompts/row-retries/failed.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/failed.png",
+                                              "role":  "layout guide for 8 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/failed.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "waiting",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/waiting.md",
+                     "retry_prompt_file":  "prompts/row-retries/waiting.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/waiting.png",
+                                              "role":  "layout guide for 6 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/waiting.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "running",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/running.md",
+                     "retry_prompt_file":  "prompts/row-retries/running.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/running.png",
+                                              "role":  "layout guide for 6 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/running.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 },
+                 {
+                     "id":  "review",
+                     "kind":  "row-strip",
+                     "status":  "pending",
+                     "prompt_file":  "prompts/rows/review.md",
+                     "retry_prompt_file":  "prompts/row-retries/review.md",
+                     "input_images":  [
+                                          {
+                                              "path":  "references/layout-guides/review.png",
+                                              "role":  "layout guide for 6 frame slots; use for spacing only, do not copy guide lines"
+                                          },
+                                          {
+                                              "path":  "references/canonical-base.png",
+                                              "role":  "canonical identity reference"
+                                          }
+                                      ],
+                     "output_path":  "decoded/review.png",
+                     "depends_on":  [
+                                        "base"
+                                    ],
+                     "generation_skill":  "$imagegen",
+                     "requires_grounded_generation":  true,
+                     "allow_prompt_only_generation":  false,
+                     "identity_reference_paths":  [
+                                                      "references/canonical-base.png"
+                                                  ],
+                     "parallelizable_after":  [
+                                                  "base"
+                                              ],
+                     "derivation_policy":  {
+                                               "may_derive":  false,
+                                               "reason":  "state requires its own generated animation semantics"
+                                           },
+                     "mirror_policy":  {
+
+                                       }
+                 }
+             ]
+}
