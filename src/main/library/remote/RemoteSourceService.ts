@@ -3,12 +3,15 @@ import { assertProtectedLibraryAvailable } from '../../app/dataProtection';
 import { createDatabase } from '../../database/createDatabase';
 import type { EchoDatabase } from '../../database/createDatabase';
 import { getLibraryDatabaseManager } from '../../database/LibraryDatabaseManager';
+import type { AppSettings, RemoteAlbumMergeStrategy } from '../../../shared/types/appSettings';
 import type { LibraryPage, LibraryTrack } from '../../../shared/types/library';
 import type {
+  RemoteAlbumGroupingPreview,
   RemoteDirectoryItem,
   RemoteBackgroundJobKind,
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobStatus,
+  RemoteCoverResult,
   RemoteDirectoryPreviewItem,
   RemoteDirectoryPreviewOptions,
   RemoteIndexedFolderStats,
@@ -19,6 +22,7 @@ import type {
   RemoteSourceIssueKind,
   RemoteSourceOverview,
   RemoteRuntimeLimits,
+  RemoteScanItem,
   RemoteSource,
   RemoteSourceInput,
   RemoteSourceProvider,
@@ -42,6 +46,7 @@ import { SubsonicRemoteSourceAdapter } from './adapters/SubsonicRemoteSourceAdap
 import { RemoteFileSystemAdapter } from './adapters/RemoteFileSystemAdapter';
 import { CoverService } from '../CoverService';
 import { resolveConfiguredCoverCacheDir } from '../CoverCacheManager';
+import { normalizeRemoteAlbumMergeStrategy } from './RemoteAlbumGrouping';
 
 const maxPreviewCoverBytes = 1536 * 1024;
 
@@ -86,7 +91,9 @@ export class RemoteSourceService {
     this.syncService = new RemoteLibrarySyncService(this.store, (provider) => this.getAdapter(provider), () => undefined, (sourceId, status, options) => {
       this.backgroundQueue.setSourceSyncActive(sourceId, false);
       if (status.status === 'completed') {
-        const kinds: RemoteBackgroundJobKind[] = options.includeCover === false
+        const source = this.store.getSource(sourceId);
+        const shouldDeferProviderCovers = source?.provider === 'subsonic';
+        const kinds: RemoteBackgroundJobKind[] = options.includeCover === false || shouldDeferProviderCovers
           ? ['metadata', 'duration-backfill']
           : ['metadata', 'duration-backfill', 'cover'];
         this.backgroundQueue.enqueueSource(sourceId, kinds, { priority: 3 });
@@ -100,6 +107,12 @@ export class RemoteSourceService {
 
   getOverview(sourceId?: string | null): RemoteSourceOverview {
     return this.store.getOverview(sourceId);
+  }
+
+  previewAlbumGrouping(targetStrategy?: RemoteAlbumMergeStrategy, sourceId?: string | null): RemoteAlbumGroupingPreview {
+    const currentStrategy = normalizeRemoteAlbumMergeStrategy(getAppSettingsSafe().remoteAlbumMergeStrategy);
+    const normalizedTarget = normalizeRemoteAlbumMergeStrategy(targetStrategy ?? currentStrategy);
+    return this.store.previewAlbumGrouping(currentStrategy, normalizedTarget, sourceId);
   }
 
   listIssues(sourceId: string, kind: RemoteSourceIssueKind, limit?: number): RemoteSourceIssueItem[] {
@@ -294,7 +307,7 @@ export class RemoteSourceService {
     return results.sort((left, right) => (order.get(left.remotePath) ?? 0) - (order.get(right.remotePath) ?? 0));
   }
 
-  hydrateVisibleTracks(trackIds: string[], options: RemoteVisibleHydrationOptions = {}): LibraryTrack[] {
+  async hydrateVisibleTracks(trackIds: string[], options: RemoteVisibleHydrationOptions = {}): Promise<LibraryTrack[]> {
     const uniqueTrackIds = Array.from(new Set(trackIds.filter((trackId) => typeof trackId === 'string' && trackId.length > 0))).slice(0, 40);
     const tracks = this.store.getTracksByIds(uniqueTrackIds);
     const kinds: RemoteBackgroundJobKind[] = [];
@@ -302,18 +315,71 @@ export class RemoteSourceService {
     if (options.metadata !== false) {
       kinds.push('metadata', 'duration-backfill');
     }
-    if (options.cover !== false) {
+    const shouldHydrateCoverImmediately = options.immediateCover === true && options.cover !== false;
+    if (options.cover !== false && !shouldHydrateCoverImmediately) {
       kinds.push('cover');
     }
 
     if (kinds.length > 0) {
       const priority = typeof options.priority === 'number' && Number.isFinite(options.priority) ? Math.round(options.priority) : 10;
       for (const track of tracks) {
-        this.backgroundQueue.enqueueTrack(track, kinds, priority);
+        const trackKinds = track.provider === 'subsonic' ? kinds.filter((kind) => kind !== 'cover') : kinds;
+        if (trackKinds.length > 0) {
+          this.backgroundQueue.enqueueTrack(track, trackKinds, priority);
+        }
       }
     }
 
-    return tracks.map((track) => this.store.toLibraryTrack(track));
+    return this.store.getTracksByIds(uniqueTrackIds).map((track) => this.store.toLibraryTrack(track));
+  }
+
+  async readRemoteCover(trackId: string, size = 512): Promise<RemoteCoverResult> {
+    const track = this.store.getTrack(trackId);
+    if (!track || track.provider !== 'subsonic') {
+      return this.emptyRemoteCover('cover_not_found');
+    }
+
+    const source = this.requireSource(track.sourceId);
+    const adapter = this.getAdapter(track.provider);
+    if (!adapter.readCover) {
+      return this.emptyRemoteCover('cover_not_found');
+    }
+
+    const item: RemoteScanItem = {
+      sourceId: track.sourceId,
+      provider: track.provider,
+      path: track.remotePath,
+      name: track.title,
+      kind: 'file',
+      sizeBytes: track.sizeBytes,
+      modifiedAt: track.modifiedAt,
+      etag: track.etag,
+      contentType: null,
+      audio: true,
+      remoteUrlHash: '',
+      stableKey: track.stableKey,
+      metadata: {
+        status: track.metadataStatus,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        trackNo: track.trackNo,
+        discNo: track.discNo,
+        year: track.year,
+        genre: track.genre,
+        duration: track.duration,
+        codec: track.codec,
+        sampleRate: track.sampleRate,
+        bitDepth: track.bitDepth,
+        bitrate: track.bitrate,
+        fieldSources: track.fieldSources,
+        warnings: [],
+        errors: [],
+      },
+    };
+
+    return adapter.readCover({ source, item, size });
   }
 
   toLibraryTrack(track: RemoteLibraryTrack): LibraryTrack {
@@ -365,6 +431,17 @@ export class RemoteSourceService {
       throw new Error(`Unknown remote source ${sourceId}`);
     }
     return source;
+  }
+
+  private emptyRemoteCover(reason: string): RemoteCoverResult {
+    return {
+      status: reason === 'cover_not_found' ? 'not_found' : 'partial',
+      data: null,
+      mimeType: null,
+      fieldSources: {},
+      warnings: [reason],
+      errors: [],
+    };
   }
 
   private getAdapter(provider: string): RemoteSourceAdapter {
@@ -421,7 +498,7 @@ export const createRemoteSourceService = (databasePath: string): RemoteSourceSer
   return new RemoteSourceService(database, () => database.close(), coverCacheDir);
 };
 
-const getAppSettingsSafe = () => {
+const getAppSettingsSafe = (): Pick<AppSettings, 'coverCacheDir'> & Partial<AppSettings> => {
   try {
     return getAppSettings();
   } catch {

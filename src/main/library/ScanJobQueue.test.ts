@@ -138,6 +138,7 @@ class FakeStore {
   readonly directorySnapshots: ScanDirectorySnapshot[] = [];
   readonly missingPaths: string[] = [];
   markMissingCalls = 0;
+  transactionCalls = 0;
   refreshAlbumsCalls = 0;
   refreshArtistsCalls = 0;
   finishFolderScanCalls = 0;
@@ -190,6 +191,7 @@ class FakeStore {
   }
 
   transaction<T>(work: () => T): T {
+    this.transactionCalls += 1;
     return work();
   }
 
@@ -857,6 +859,39 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(store.refreshArtistsCalls).toBe(0);
 
     deferGrouping = false;
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(store.refreshAlbumsCalls).toBe(1);
+    expect(store.refreshArtistsCalls).toBe(1);
+    expect(onDeferredGroupingRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('chunks large first imports and defers grouping refresh', async () => {
+    vi.useFakeTimers();
+    const root = makeTempRoot();
+    const files = makeFiles(root, 2001);
+    const store = new FakeStore();
+    const onDeferredGroupingRefresh = vi.fn();
+    const queue = new ScanJobQueue(
+      store as unknown as LibraryStore,
+      new FakeScanner(files),
+      new FakeMetadataReader(),
+      new CapturingCoverExtractor(),
+      {} as AlbumService,
+      {
+        coverCacheDir: join(root, 'custom-cache'),
+        onDeferredGroupingRefresh,
+      },
+    );
+
+    const job = queue.scanFolder(baseFolder(root));
+    await queue.waitForIdle(job.id);
+
+    expect(store.upsertedTracks).toHaveLength(2001);
+    expect(store.transactionCalls).toBeGreaterThan(10);
+    expect(store.refreshAlbumsCalls).toBe(0);
+    expect(store.refreshArtistsCalls).toBe(0);
+
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(store.refreshAlbumsCalls).toBe(1);

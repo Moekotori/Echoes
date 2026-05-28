@@ -1,6 +1,7 @@
 import type { Dirent, Stats } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import { SCANNABLE_AUDIO_EXTENSIONS } from '../../../shared/constants/audioExtensions';
 import type { ScannedFile, ScanDirectorySnapshot, ScanDirectorySnapshotEntry, ScanFileSystemError, ScanOptions } from '../libraryTypes';
 import type { FileScanner } from './FileScanner';
@@ -19,6 +20,8 @@ const nodeFileSystem: FileScannerFileSystem = {
   readdir,
   stat,
 };
+
+const defaultYieldEveryEntries = 64;
 
 export class TsFileScanner implements FileScanner {
   constructor(private readonly fileSystem: FileScannerFileSystem = nodeFileSystem) {}
@@ -65,7 +68,11 @@ export class TsFileScanner implements FileScanner {
 
     let entries;
     try {
-      entries = await this.fileSystem.readdir(directoryPath, { withFileTypes: true });
+      entries = await this.withTimeout(
+        this.fileSystem.readdir(directoryPath, { withFileTypes: true }),
+        options.fileSystemOperationTimeoutMs,
+        `directory read timed out after ${options.fileSystemOperationTimeoutMs}ms`,
+      );
     } catch (error) {
       this.reportFileSystemError(options, {
         kind: 'directory',
@@ -93,10 +100,12 @@ export class TsFileScanner implements FileScanner {
       entries: snapshotEntries,
     });
 
+    let scannedEntries = 0;
     for (const entry of snapshotEntries) {
       if (options.signal?.aborted) {
         return;
       }
+      scannedEntries += 1;
 
       const entryPath = join(directoryPath, entry.name);
 
@@ -115,6 +124,10 @@ export class TsFileScanner implements FileScanner {
         sizeBytes: fileStat.size,
         mtimeMs: Math.round(fileStat.mtimeMs),
       };
+
+      if (scannedEntries % (options.yieldEveryEntries ?? defaultYieldEveryEntries) === 0) {
+        await yieldToMainLoop();
+      }
     }
   }
 
@@ -139,7 +152,11 @@ export class TsFileScanner implements FileScanner {
       const entryPath = join(directoryPath, entry.name);
       let entryStat: Stats;
       try {
-        entryStat = await this.fileSystem.stat(entryPath);
+        entryStat = await this.withTimeout(
+          this.fileSystem.stat(entryPath),
+          options.fileSystemOperationTimeoutMs,
+          `file system stat timed out after ${options.fileSystemOperationTimeoutMs}ms`,
+        );
       } catch {
         return null;
       }
@@ -167,7 +184,11 @@ export class TsFileScanner implements FileScanner {
 
   private async safeStat(filePath: string, kind: ScanFileSystemError['kind'], options: ScanOptions): Promise<Stats | null> {
     try {
-      return await this.fileSystem.stat(filePath);
+      return await this.withTimeout(
+        this.fileSystem.stat(filePath),
+        options.fileSystemOperationTimeoutMs,
+        `file system stat timed out after ${options.fileSystemOperationTimeoutMs}ms`,
+      );
     } catch (error) {
       this.reportFileSystemError(options, {
         kind,
@@ -194,5 +215,26 @@ export class TsFileScanner implements FileScanner {
       !entry.name.includes('\\') &&
       (entry.kind === 'directory' || entry.kind === 'file'),
     );
+  }
+
+  private async withTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined, timeoutMessage: string): Promise<T> {
+    if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return operation;
+    }
+
+    let timeout: NodeJS.Timeout | null = null;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+          timeout.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   }
 }

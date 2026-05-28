@@ -175,7 +175,7 @@ export type CoverServiceOptions = {
   remoteCoverWorkerFactory?: RemoteCoverWorkerFactory;
 };
 
-const defaultRemoteCoverPoolSize = 4;
+const defaultRemoteCoverPoolSize = 16;
 const defaultRemoteCoverTaskTimeoutMs = 30_000;
 
 const normalizeRemoteCoverPoolSize = (value: unknown): number => {
@@ -183,7 +183,7 @@ const normalizeRemoteCoverPoolSize = (value: unknown): number => {
   if (!Number.isFinite(numeric)) {
     return defaultRemoteCoverPoolSize;
   }
-  return Math.max(1, Math.min(8, Math.round(numeric)));
+  return Math.max(1, Math.min(32, Math.round(numeric)));
 };
 
 class RemoteCoverWorkerPool {

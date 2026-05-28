@@ -29,6 +29,7 @@ export type RemoteReadMetadataInput = RemoteAdapterInput & {
 
 export type RemoteReadCoverInput = RemoteAdapterInput & {
   item: RemoteScanItem;
+  size?: number;
 };
 
 export type RemoteStreamInput = RemoteAdapterInput & {

@@ -129,6 +129,18 @@
   row-gap: 12px;
 }
 
+.songs-page .songs-control-row {
+  grid-template-columns: minmax(260px, 1fr) max-content;
+}
+
+.songs-control-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-self: end;
+  gap: 14px;
+}
+
 .songs-import-hint {
   display: inline-flex;
   max-width: 760px;
@@ -4050,11 +4062,13 @@ html[data-theme="dark"] .tag-editor-actions {
 
   .sort-select,
   .library-source-switch,
+  .songs-control-actions,
   .artist-control-actions,
   .sort-button {
     justify-self: start;
   }
 
+  .songs-control-actions,
   .artist-control-actions {
     flex-wrap: wrap;
   }

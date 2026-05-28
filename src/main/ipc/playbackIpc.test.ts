@@ -513,6 +513,7 @@ describe('playback media prepare IPC', () => {
       };
     });
     const prepareLocalFile = vi.fn().mockResolvedValue(undefined);
+    const setPlaybackActive = vi.fn();
     let resolveStreaming!: (source: {
       url: string;
       requiresProxy: boolean;
@@ -564,7 +565,7 @@ describe('playback media prepare IPC', () => {
     vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
     vi.doMock('../library/remote/RemoteSourceService', () => ({
       getRemoteSourceService: () => ({
-        setPlaybackActive: vi.fn(),
+        setPlaybackActive,
         refreshTrackMetadata: vi.fn(),
         createStreamUrl: vi.fn(),
         backfillDuration: vi.fn(),
@@ -624,6 +625,7 @@ describe('playback media prepare IPC', () => {
       filePath: 'D:\\Music\\local.flac',
       trackId: 'local-track',
     }));
+    expect(setPlaybackActive).toHaveBeenCalledWith(true);
   });
 
   it('falls back to a matching local track when QQ Music rejects a playable VIP stream', async () => {
@@ -976,6 +978,10 @@ describe('playback media prepare IPC', () => {
         artist: 'Echo Artist',
         album: 'Echo Album',
         duration: null,
+        codec: 'FLAC',
+        sampleRate: 96000,
+        bitDepth: 24,
+        bitrate: 4616000,
       },
     };
 
@@ -994,7 +1000,13 @@ describe('playback media prepare IPC', () => {
     expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({
       filePath: 'http://127.0.0.1:19000/remote-stream/token',
       trackId: 'remote-track',
-      probe: { durationSeconds: 188.5 },
+      probe: {
+        durationSeconds: 188.5,
+        fileSampleRate: 96000,
+        codec: 'FLAC',
+        bitDepth: 24,
+        bitrate: 4616000,
+      },
     }));
     await expect.poll(() => backfillDuration.mock.calls.length, { timeout: deferredPlaybackTaskWaitMs }).toBe(1);
     expect(backfillDuration).toHaveBeenCalledWith('remote-track', 188.5);

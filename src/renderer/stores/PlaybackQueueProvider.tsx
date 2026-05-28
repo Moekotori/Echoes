@@ -712,6 +712,10 @@ const toPlayableTrack = (track: LibraryTrack): PlayableTrack => {
       album: track.album,
       albumArtist: track.albumArtist,
       duration: track.duration,
+      codec: track.codec,
+      sampleRate: track.sampleRate,
+      bitDepth: track.bitDepth,
+      bitrate: track.bitrate,
       coverThumb: track.coverThumb,
       replayGain,
     };

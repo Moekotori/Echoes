@@ -6,10 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const handleMock = vi.fn();
 const registerSchemesAsPrivilegedMock = vi.fn();
 const getAppSettingsMock = vi.fn();
+const readRemoteCoverMock = vi.fn();
 let wallpaperDirectory = '';
+let coverCacheDirectory = '';
+let userDataPath = '';
 const tempRoots: string[] = [];
 
 vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => userDataPath),
+  },
   protocol: {
     registerSchemesAsPrivileged: registerSchemesAsPrivilegedMock,
     handle: handleMock,
@@ -24,7 +30,14 @@ vi.mock('../app/appSettings', () => ({
 
 vi.mock('../library/LibraryService', () => ({
   getLibraryService: () => ({
+    getCoverCacheDir: () => coverCacheDirectory,
     resolveCoverAsset: vi.fn(),
+  }),
+}));
+
+vi.mock('../library/remote/RemoteSourceService', () => ({
+  getRemoteSourceService: () => ({
+    readRemoteCover: readRemoteCoverMock,
   }),
 }));
 
@@ -87,7 +100,10 @@ describe('echo-wallpaper protocol', () => {
     vi.resetModules();
     handleMock.mockClear();
     getAppSettingsMock.mockReset();
+    readRemoteCoverMock.mockReset();
     wallpaperDirectory = makeTempRoot();
+    coverCacheDirectory = join(wallpaperDirectory, 'cover-cache');
+    userDataPath = join(wallpaperDirectory, 'user-data');
     const module = await import('./coverProtocol');
     module.registerCoverProtocolHandler();
   });
@@ -163,5 +179,48 @@ describe('echo-wallpaper protocol', () => {
         redirect: 'follow',
       }),
     );
+  });
+
+  it('proxies Subsonic covers by track id without exposing source credentials', async () => {
+    readRemoteCoverMock.mockResolvedValue({
+      status: 'ok',
+      data: new Uint8Array(Buffer.from('cover')),
+      mimeType: 'image/png',
+      fieldSources: { cover: 'subsonic' },
+      warnings: [],
+      errors: [],
+    });
+
+    const response = await getImageHandler()(new Request(`echo-image://subsonic-cover/${encodeURIComponent('track 1')}?size=9999`));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(await response.text()).toBe('cover');
+    expect(readRemoteCoverMock).toHaveBeenCalledWith('track 1', 1024);
+  });
+
+  it('serves Subsonic covers from the persistent local cache after the first load', async () => {
+    readRemoteCoverMock.mockResolvedValueOnce({
+      status: 'ok',
+      data: new Uint8Array(Buffer.from('cached-cover')),
+      mimeType: 'image/jpeg',
+      fieldSources: { cover: 'subsonic' },
+      warnings: [],
+      errors: [],
+    });
+    const request = new Request(`echo-image://subsonic-cover/${encodeURIComponent('remote-track-1')}?size=512`);
+
+    const first = await getImageHandler()(request);
+    expect(first.status).toBe(200);
+    expect(await first.text()).toBe('cached-cover');
+
+    readRemoteCoverMock.mockReset();
+    readRemoteCoverMock.mockRejectedValue(new Error('network should not be used'));
+    const second = await getImageHandler()(request);
+
+    expect(second.status).toBe(200);
+    expect(second.headers.get('Content-Type')).toBe('image/jpeg');
+    expect(await second.text()).toBe('cached-cover');
+    expect(readRemoteCoverMock).not.toHaveBeenCalled();
   });
 });

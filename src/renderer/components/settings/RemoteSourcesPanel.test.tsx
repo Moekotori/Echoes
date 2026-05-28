@@ -16,6 +16,7 @@ import type {
 const remoteApiMocks = vi.hoisted(() => ({
   list: vi.fn(),
   getOverview: vi.fn(),
+  previewAlbumGrouping: vi.fn(),
   listIssues: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -41,6 +42,8 @@ const remoteApiMocks = vi.hoisted(() => ({
 }));
 
 const appApiMocks = vi.hoisted(() => ({
+  getSettings: vi.fn(),
+  setSettings: vi.fn(),
   openExternalUrl: vi.fn(),
 }));
 
@@ -209,8 +212,20 @@ describe('RemoteSourcesPanel', () => {
     for (const mock of Object.values(playbackQueueMocks)) {
       mock.mockReset();
     }
+    for (const mock of Object.values(appApiMocks)) {
+      mock.mockReset();
+    }
     remoteApiMocks.list.mockImplementation(() => Promise.resolve(sources));
     remoteApiMocks.getOverview.mockImplementation(() => Promise.resolve(overviewFor(sources)));
+    remoteApiMocks.previewAlbumGrouping.mockResolvedValue({
+      sourceId: null,
+      sourceCount: 1,
+      trackCount: 18,
+      currentStrategy: 'conservative',
+      targetStrategy: 'standard',
+      currentAlbumCount: 3,
+      targetAlbumCount: 2,
+    });
     remoteApiMocks.listIssues.mockResolvedValue([]);
     remoteApiMocks.create.mockImplementation(async (input) => {
       const source = remoteSource({
@@ -230,7 +245,11 @@ describe('RemoteSourcesPanel', () => {
       return sources.find((source) => source.id === input.id) ?? remoteSource(input);
     });
     remoteApiMocks.delete.mockImplementation(async (sourceId) => {
-      sources = sources.filter((source) => source.id !== sourceId);
+      sources = sources.map((source) => (
+        source.id === sourceId
+          ? { ...source, status: 'disabled', indexedTrackCount: 0, lastError: null }
+          : source
+      ));
     });
     remoteApiMocks.test.mockResolvedValue({
       ok: true,
@@ -248,6 +267,7 @@ describe('RemoteSourcesPanel', () => {
     remoteApiMocks.pauseBackgroundJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.resumeBackgroundJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.retryFailedJobs.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
+    remoteApiMocks.updateRuntimeLimits.mockImplementation((sourceId) => Promise.resolve(jobStatus(sourceId)));
     remoteApiMocks.setBackgroundPaused.mockResolvedValue(globalStatus());
     remoteApiMocks.getBackgroundGlobalStatus.mockResolvedValue(globalStatus());
     remoteApiMocks.createBaiduAuthUrl.mockResolvedValue('https://openapi.baidu.com/oauth/2.0/authorize?response_type=code');
@@ -267,6 +287,8 @@ describe('RemoteSourcesPanel', () => {
       scope: 'basic netdisk',
       tokenSecret: '{"type":"baidu-oauth-token","accessToken":"login-access-token","refreshToken":"login-refresh-token"}',
     });
+    appApiMocks.getSettings.mockResolvedValue({ remoteCoverLoadPerformanceMode: 'balanced' });
+    appApiMocks.setSettings.mockImplementation(async (patch) => ({ remoteCoverLoadPerformanceMode: patch.remoteCoverLoadPerformanceMode }));
     appApiMocks.openExternalUrl.mockResolvedValue(undefined);
     playbackQueueMocks.playTrack.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -733,15 +755,15 @@ describe('RemoteSourcesPanel', () => {
     );
   });
 
-  it('confirms before deleting an existing source', async () => {
+  it('confirms before disconnecting an existing source', async () => {
     sources = [remoteSource()];
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<RemoteSourcesPanel />);
 
     await screen.findAllByText('Mock AList');
-    fireEvent.click(screen.getByRole('button', { name: /删除/u }));
+    fireEvent.click(screen.getByRole('button', { name: /断开/u }));
     expect(remoteApiMocks.delete).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /删除/u }));
+    fireEvent.click(screen.getByRole('button', { name: /断开/u }));
     await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
   });
 
@@ -754,9 +776,38 @@ describe('RemoteSourcesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /加载封面/u }));
 
+    await waitFor(() => expect(remoteApiMocks.updateRuntimeLimits).toHaveBeenCalledWith('source-1', { coverConcurrency: 2 }));
     await waitFor(() => expect(remoteApiMocks.startBackgroundJobs).toHaveBeenCalledWith('source-1', ['cover']));
+    expect(remoteApiMocks.startBackgroundJobs.mock.invocationCallOrder[0]).toBeGreaterThan(remoteApiMocks.updateRuntimeLimits.mock.invocationCallOrder[0]);
     await screen.findByText('\u5df2\u52a0\u5165\u4e00\u5c0f\u6279\u7f3a\u5931\u5c01\u9762\u626b\u63cf\u4efb\u52a1\u3002');
     expect(remoteApiMocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies the selected cover loading performance mode to manual cover jobs', async () => {
+    sources = [remoteSource()];
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /局域网极速/u }));
+    await waitFor(() => expect(appApiMocks.setSettings).toHaveBeenCalledWith({ remoteCoverLoadPerformanceMode: 'lan' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /加载封面/u }));
+
+    await waitFor(() => expect(remoteApiMocks.updateRuntimeLimits).toHaveBeenCalledWith('source-1', { coverConcurrency: 48 }));
+    await waitFor(() => expect(remoteApiMocks.startBackgroundJobs).toHaveBeenCalledWith('source-1', ['cover']));
+  });
+
+  it('previews and applies the selected remote album merge strategy', async () => {
+    appApiMocks.getSettings.mockResolvedValue({ remoteCoverLoadPerformanceMode: 'balanced', remoteAlbumMergeStrategy: 'conservative' });
+    appApiMocks.setSettings.mockImplementation(async (patch) => ({ remoteAlbumMergeStrategy: patch.remoteAlbumMergeStrategy }));
+    render(<RemoteSourcesPanel />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /普通合并/u }));
+    await waitFor(() => expect(remoteApiMocks.previewAlbumGrouping).toHaveBeenCalledWith('standard'));
+    fireEvent.click(screen.getByRole('button', { name: /应用并重新整理分组/u }));
+
+    await waitFor(() => expect(appApiMocks.setSettings).toHaveBeenCalledWith({ remoteAlbumMergeStrategy: 'standard' }));
+    await screen.findByText(/3 -> 2/);
   });
 
   it('shows playback low-load status while keeping manual background actions clear', async () => {
@@ -779,6 +830,7 @@ describe('RemoteSourcesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /\u52a0\u8f7d\u5c01\u9762/u }));
 
+    await waitFor(() => expect(remoteApiMocks.updateRuntimeLimits).toHaveBeenCalledWith('source-1', { coverConcurrency: 2 }));
     await waitFor(() => expect(remoteApiMocks.startBackgroundJobs).toHaveBeenCalledWith('source-1', ['cover']));
     await screen.findByText('\u5df2\u52a0\u5165\u7f3a\u5931\u5c01\u9762\u4efb\u52a1\uff1b\u64ad\u653e\u4e2d\u4f1a\u4fdd\u6301\u4f4e\u8d1f\u8f7d\uff0c\u7a7a\u95f2\u540e\u7ee7\u7eed\u5904\u7406\u3002');
   });
@@ -893,7 +945,7 @@ describe('RemoteSourcesPanel', () => {
     expect(enableButton.getAttribute('data-state')).toBe('off');
   });
 
-  it('removes a deleted source and clears the browser state even if the refresh fails', async () => {
+  it('disconnects a source and clears the browser state even if the refresh fails', async () => {
     sources = [remoteSource()];
     remoteApiMocks.lookupTracks.mockResolvedValue([lookupTrack()]);
     remoteApiMocks.list
@@ -908,10 +960,11 @@ describe('RemoteSourcesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
     await screen.findByText('Indexed Echo Song');
 
-    fireEvent.click(screen.getByRole('button', { name: /删除/u }));
+    fireEvent.click(screen.getByRole('button', { name: /断开/u }));
 
     await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
-    await waitFor(() => expect(screen.queryByText('Mock AList')).toBeNull());
+    await waitFor(() => expect(screen.getAllByText('Mock AList').length).toBeGreaterThan(0));
+    await screen.findByText('已禁用');
     expect(screen.queryByText('Indexed Echo Song')).toBeNull();
   });
 });

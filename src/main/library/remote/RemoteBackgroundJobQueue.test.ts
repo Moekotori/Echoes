@@ -653,7 +653,7 @@ describe('RemoteBackgroundJobQueue', () => {
     queue.enqueueSource(source.id, ['cover']);
 
     await waitFor(() => getTrackIdsForBackgroundJobs.mock.calls.length > 0);
-    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['cover'], { failedOnly: undefined, limit: 25 });
+    expect(getTrackIdsForBackgroundJobs).toHaveBeenCalledWith(source.id, ['cover'], { failedOnly: undefined, limit: 2400 });
   });
 
   it('uses a bounded source batch when enqueueing lyrics-only work', async () => {
@@ -759,5 +759,77 @@ describe('RemoteBackgroundJobQueue', () => {
     expect(status.pending.cover).toBe(0);
     expect(queue.getStatus(source.id).pending.cover).toBe(1);
     expect(queue.getStatus(source.id).skipped.cover).toBe(1);
+  });
+
+  it('reuses a persisted remote cover alias before reading the remote cover again', async () => {
+    const source = { ...makeSource(), provider: 'subsonic' as const };
+    const track = {
+      ...makeTrack(),
+      provider: 'subsonic' as const,
+      metadataStatus: 'ok' as const,
+      fieldSources: { coverArt: 'album-cover-1' },
+    };
+    const readCover = vi.fn();
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+      getCachedRemoteCoverIdForTrack: vi.fn(() => 'cached-cover-id'),
+      upsertRemoteCoverCacheForTrack: vi.fn(),
+      updateTrackJobStatus: vi.fn(),
+      updateTrackCover: vi.fn(),
+      updateTrackCoversByCoverArt: vi.fn((_sourceId: string, _coverArt: string, coverId: string) => {
+        (track as RemoteLibraryTrack).coverId = coverId;
+        (track as RemoteLibraryTrack).coverStatus = 'ok';
+        return 1;
+      }),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readCover } as never), {} as never);
+
+    queue.enqueueSource(source.id, ['cover']);
+    await waitFor(() => queue.getStatus(source.id).completed.cover === 1);
+
+    expect(store.getCachedRemoteCoverIdForTrack).toHaveBeenCalledWith(track);
+    expect(store.updateTrackCoversByCoverArt).toHaveBeenCalledWith(source.id, 'album-cover-1', 'cached-cover-id');
+    expect(readCover).not.toHaveBeenCalled();
+  });
+
+  it('aborts running cover work when a source is paused', async () => {
+    const source = { ...makeSource(), config: { coverConcurrency: 1 } };
+    const track = {
+      ...makeTrack(),
+      metadataStatus: 'ok' as const,
+    };
+    let capturedSignal: AbortSignal | null = null;
+    const readCover = vi.fn(({ signal }) => {
+      capturedSignal = signal ?? null;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          const error = new Error('Request aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    });
+    const store = {
+      getTracksForBackgroundJobs: vi.fn().mockReturnValue([track]),
+      getTrack: vi.fn(() => track),
+      getSource: vi.fn(() => source),
+      getSourceWithSecret: vi.fn(() => source),
+      updateTrackJobStatus: vi.fn(),
+    };
+    const coverService = {
+      ensureCover: vi.fn(),
+    };
+    const queue = new RemoteBackgroundJobQueue(store as never, () => ({ readCover } as never), coverService as never);
+
+    queue.enqueueSource(source.id, ['cover']);
+    await waitFor(() => queue.getStatus(source.id).running.cover === 1);
+
+    queue.pause(source.id);
+
+    await waitFor(() => capturedSignal?.aborted === true);
+    expect(queue.getStatus(source.id).paused).toBe(true);
   });
 });

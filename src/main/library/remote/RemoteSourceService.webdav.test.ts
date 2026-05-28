@@ -243,7 +243,7 @@ describe('RemoteSourceService WebDAV integration', () => {
       title: '会魔法的老人',
     }));
 
-    expect(service.hydrateVisibleTracks(['local-track-id', tracks.items[0].id], { metadata: false, cover: false })).toEqual([
+    await expect(service.hydrateVisibleTracks(['local-track-id', tracks.items[0].id], { metadata: false, cover: false })).resolves.toEqual([
       expect.objectContaining({ id: tracks.items[0].id, mediaType: 'remote' }),
     ]);
 
@@ -322,6 +322,15 @@ describe('RemoteSourceService WebDAV integration', () => {
 
     service.deleteSource(source.id);
     expect(libraryStore.getTracks({ search: 'mofa' }).total).toBe(0);
+    expect(service.listSources()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: source.id,
+        status: 'disabled',
+        baseUrl: source.baseUrl,
+        username,
+        indexedTrackCount: 0,
+      }),
+    ]));
     expect(await fetch(stream.url)).toMatchObject({ status: 401 });
   });
 

@@ -7,6 +7,7 @@ import type { GlobalShortcutSettings, LocalShortcutSettings } from './globalShor
 import type { HqPlayerSettings } from './hqplayer';
 
 export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
+export type RemoteCoverLoadPerformanceMode = 'low' | 'balanced' | 'aggressive' | 'lan';
 export type LyricsBackgroundMode = 'theme' | 'cover' | 'customWallpaper';
 export type LyricsMiniPlayerColorMode = 'default' | 'custom' | 'cover';
 export type AppWallpaperMediaType = 'image' | 'video';
@@ -149,6 +150,8 @@ export type RememberedWindowSize = {
   width: number;
   height: number;
 };
+
+export type RemoteAlbumMergeStrategy = 'conservative' | 'standard';
 
 export type AppSettings = {
   appMemoryVersion?: number;
@@ -345,6 +348,8 @@ export type AppSettings = {
   playbackSpeed: number;
   playbackSpeedMode: PlaybackSpeedMode;
   scanPerformanceMode: ScanPerformanceMode;
+  remoteCoverLoadPerformanceMode?: RemoteCoverLoadPerformanceMode;
+  remoteAlbumMergeStrategy?: RemoteAlbumMergeStrategy;
   duplicateTracksEnabled: boolean;
   duplicateTracksMode: DuplicateTrackMode;
   duplicateTracksAutoRebuildAfterScan: boolean;

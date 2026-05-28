@@ -84,6 +84,11 @@ const progressFlushIntervalMs = 300;
 const progressFlushFileDelta = 64;
 const cacheCheckYieldFileDelta = 256;
 const deferredGroupingRefreshDelayMs = 1000;
+const largeScanFileThreshold = 2000;
+const largeScanWriteBatchSize = 128;
+const normalScanWriteBatchSize = 512;
+const scanFileSystemOperationTimeoutMs = 10_000;
+const scanDiscoveryYieldEveryEntries = 32;
 const maxStoredScanErrors = 200;
 const scanErrorSummaryThreshold = 20;
 const maxScanErrorMessageLength = 512;
@@ -524,8 +529,10 @@ export class ScanJobQueue {
       const parsedItems: ParsedScanItem[] = [];
       const coverTimestamp = new Date().toISOString();
 
-      const metadataConcurrency = reducedScanPressure ? 1 : this.metadataConcurrency;
-      const coverConcurrency = reducedScanPressure ? 1 : this.coverConcurrency;
+      const largeScan = files.length >= largeScanFileThreshold;
+      const reducedOrLargeScanPressure = reducedScanPressure || largeScan;
+      const metadataConcurrency = reducedOrLargeScanPressure ? 1 : this.metadataConcurrency;
+      const coverConcurrency = reducedOrLargeScanPressure ? 1 : this.coverConcurrency;
 
       await this.processWithConcurrency(changedFiles, metadataConcurrency, async (item) => {
         this.throwIfCancelled(jobId);
@@ -535,13 +542,13 @@ export class ScanJobQueue {
 
         try {
           metadata = await this.metadataReader.read(item.file.path);
-          identity = reducedScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
+          identity = reducedOrLargeScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
           this.collectWorkerMessages(errors, item.file.path, 'metadata', metadata.warnings, metadata.errors);
         } catch (error) {
           const message = compactScanMessage(error instanceof Error ? error.message : String(error));
           errors.push(`${item.file.path}: metadata: ${message}`);
           metadata = this.createFallbackMetadata(item.file, message);
-          identity = reducedScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
+          identity = reducedOrLargeScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
         }
 
         try {
@@ -616,7 +623,7 @@ export class ScanJobQueue {
           errors.push(`${item.file.path}: cover: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
         }
 
-        if (!reducedScanPressure && !this.hasIdentityObservation(item.state)) {
+        if (!reducedOrLargeScanPressure && !this.hasIdentityObservation(item.state)) {
           item.identity = this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
         }
 
@@ -667,7 +674,20 @@ export class ScanJobQueue {
 
       this.throwIfCancelled(jobId);
       await yieldToMainLoop();
-      const deferGroupingForPressure = !deferGroupingRefresh && (await this.resolveBooleanOption(this.shouldDeferGroupingRefresh));
+      const deferGroupingForPressure =
+        !deferGroupingRefresh &&
+        (largeScan || (await this.resolveBooleanOption(this.shouldDeferGroupingRefresh)));
+
+      progress.flushNow({
+        phase: 'writing_database',
+        processedFiles,
+        skippedFiles,
+        addedTracks,
+        updatedTracks,
+        removedTracks,
+        coverCount,
+        errors,
+      });
 
       this.store.transaction(() => {
         this.store.upsertScanDirectorySnapshots(folder.id, directorySnapshots, timestamp);
@@ -700,32 +720,52 @@ export class ScanJobQueue {
             this.store.updateTrackIdentity(item.state.id, item.identity, timestamp);
           }
         }
+      });
 
-        for (const item of preparedParsedItems) {
-          const coverId = item.cover ? this.store.upsertCover(item.cover, timestamp) : null;
-          const result = this.store.upsertTrack({
-            ...item.file,
-            ...item.metadata.fields,
-            id: item.trackId,
-            coverId,
-            fieldSources: item.metadata.fieldSources,
-            embeddedMetadataStatus: item.metadata.embeddedMetadataStatus,
-            embeddedCoverStatus: item.metadata.embeddedCoverStatus,
-            metadataStatus: item.metadata.status,
-            warnings: item.metadata.warnings,
-            errors: item.metadata.errors,
-            updatedAt: timestamp,
-            ...this.toTrackIdentityWrite(item.identity),
-          }, item.searchTerms ?? undefined);
+      const writeBatchSize = reducedOrLargeScanPressure ? largeScanWriteBatchSize : normalScanWriteBatchSize;
+      for (let index = 0; index < preparedParsedItems.length; index += writeBatchSize) {
+        const batch = preparedParsedItems.slice(index, index + writeBatchSize);
+        this.store.transaction(() => {
+          for (const item of batch) {
+            const coverId = item.cover ? this.store.upsertCover(item.cover, timestamp) : null;
+            const result = this.store.upsertTrack({
+              ...item.file,
+              ...item.metadata.fields,
+              id: item.trackId,
+              coverId,
+              fieldSources: item.metadata.fieldSources,
+              embeddedMetadataStatus: item.metadata.embeddedMetadataStatus,
+              embeddedCoverStatus: item.metadata.embeddedCoverStatus,
+              metadataStatus: item.metadata.status,
+              warnings: item.metadata.warnings,
+              errors: item.metadata.errors,
+              updatedAt: timestamp,
+              ...this.toTrackIdentityWrite(item.identity),
+            }, item.searchTerms ?? undefined);
 
-          if (result === 'added') {
-            addedTracks += 1;
-            addedTrackIds.push(item.trackId);
-          } else {
-            updatedTracks += 1;
+            if (result === 'added') {
+              addedTracks += 1;
+              addedTrackIds.push(item.trackId);
+            } else {
+              updatedTracks += 1;
+            }
           }
-        }
+        });
 
+        progress.flushNow({
+          phase: 'writing_database',
+          processedFiles,
+          skippedFiles,
+          addedTracks,
+          updatedTracks,
+          removedTracks,
+          coverCount,
+          errors,
+        });
+        await yieldToMainLoop();
+      }
+
+      this.store.transaction(() => {
         progress.flushNow({
           phase: 'grouping_albums',
           processedFiles,
@@ -891,6 +931,8 @@ export class ScanJobQueue {
     try {
       for await (const file of this.fileScanner.scanFolder(folder.path, {
         audioExtensions: cueAwareScannableAudioExtensions,
+        fileSystemOperationTimeoutMs: scanFileSystemOperationTimeoutMs,
+        yieldEveryEntries: scanDiscoveryYieldEveryEntries,
         onFileSystemError,
         getDirectorySnapshot: (directoryPath) => directorySnapshots.get(this.pathCompareValue(resolve(directoryPath))) ?? null,
         onDirectorySnapshot: (snapshot) => {

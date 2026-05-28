@@ -9,6 +9,7 @@ import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
 import { TrackList } from '../components/library/TrackList';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
 import { likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
+import { useRemoteCoverPreloader } from '../hooks/useRemoteCoverPreloader';
 import {
   beginSongsStartupLoadDiagnostics,
   canUseSongsFirstPageSnapshot,
@@ -884,6 +885,52 @@ export const SongsPage = (): JSX.Element => {
     return () => window.clearTimeout(timer);
   }, [mergeHydratedRemoteTracks, sourceMode, tracks, visibleTrackIds, visibleTrackIdsKey]);
 
+  const hydrateRemoteMissingCovers = useCallback(
+    (trackIds: string[]): void => {
+      if (sourceMode !== 'remote') {
+        return;
+      }
+
+      const remoteApi = window.echo?.remoteSources;
+      if (!remoteApi?.hydrateVisibleTracks) {
+        return;
+      }
+
+      const tracksById = new Map(tracks.map((track) => [track.id, track]));
+      const now = Date.now();
+      const targetIds = uniqueIds(trackIds)
+        .map((trackId) => tracksById.get(trackId))
+        .filter((track): track is LibraryTrack => Boolean(
+          track &&
+            track.mediaType === 'remote' &&
+            !track.coverThumb &&
+            now - (visibleRemoteHydrationSeenAtRef.current[track.id] ?? 0) > 30_000,
+        ))
+        .map((track) => track.id);
+
+      if (targetIds.length === 0) {
+        return;
+      }
+
+      for (const trackId of targetIds) {
+        visibleRemoteHydrationSeenAtRef.current[trackId] = now;
+      }
+
+      void remoteApi
+        .hydrateVisibleTracks(targetIds, { metadata: false, cover: true, immediateCover: true, priority: 18 })
+        .then(mergeHydratedRemoteTracks)
+        .catch(() => undefined);
+    },
+    [mergeHydratedRemoteTracks, sourceMode, tracks],
+  );
+
+  useRemoteCoverPreloader({
+    active: sourceMode === 'remote',
+    tracks,
+    visibleTrackIds,
+    hydrateMissingCovers: hydrateRemoteMissingCovers,
+  });
+
   useEffect(() => {
     const loadLoadedTrackLikedStates = async (): Promise<void> => {
       const library = window.echo?.library;
@@ -1360,52 +1407,54 @@ export const SongsPage = (): JSX.Element => {
           />
         </label>
 
-        <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
-        {sourceMode === 'remote' ? <RemoteSourceFilter value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
+        <div className="songs-control-actions">
+          <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
+          {sourceMode === 'remote' ? <RemoteSourceFilter value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
 
-        <div className="sort-select" ref={sortMenuRef}>
-          <button
-            className="sort-button"
-            type="button"
-            aria-haspopup="listbox"
-            aria-expanded={isSortOpen}
-            onClick={() => setIsSortOpen((current) => !current)}
-          >
-            <ListFilter className="sort-button-icon" size={16} aria-hidden="true" />
-            <span className="sort-button-label">{showDuplicatesOnly ? '只看重复歌曲' : activeSortLabel}</span>
-            <ChevronDown className="sort-button-chevron" size={15} aria-hidden="true" />
-          </button>
-          {isSortOpen ? (
-            <div className="sort-menu" role="listbox" aria-label="歌曲排序">
-              <button
-                className="sort-option sort-option--filter"
-                type="button"
-                role="option"
-                aria-selected={showDuplicatesOnly}
-                onClick={handleToggleDuplicateFilter}
-              >
-                <span>只看重复歌曲</span>
-                {showDuplicatesOnly ? <Check size={14} /> : null}
-              </button>
-              <div className="sort-menu-divider" role="presentation" />
-              {sortOptions.map((option) => (
+          <div className="sort-select" ref={sortMenuRef}>
+            <button
+              className="sort-button"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={isSortOpen}
+              onClick={() => setIsSortOpen((current) => !current)}
+            >
+              <ListFilter className="sort-button-icon" size={16} aria-hidden="true" />
+              <span className="sort-button-label">{showDuplicatesOnly ? '只看重复歌曲' : activeSortLabel}</span>
+              <ChevronDown className="sort-button-chevron" size={15} aria-hidden="true" />
+            </button>
+            {isSortOpen ? (
+              <div className="sort-menu" role="listbox" aria-label="歌曲排序">
                 <button
-                  key={option.value}
-                  className="sort-option"
+                  className="sort-option sort-option--filter"
                   type="button"
                   role="option"
-                  aria-selected={sort === option.value}
-                  onClick={() => {
-                    setSort(option.value);
-                    setIsSortOpen(false);
-                  }}
+                  aria-selected={showDuplicatesOnly}
+                  onClick={handleToggleDuplicateFilter}
                 >
-                  <span>{option.label}</span>
-                  {sort === option.value ? <Check size={14} /> : null}
+                  <span>只看重复歌曲</span>
+                  {showDuplicatesOnly ? <Check size={14} /> : null}
                 </button>
-              ))}
-            </div>
-          ) : null}
+                <div className="sort-menu-divider" role="presentation" />
+                {sortOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className="sort-option"
+                    type="button"
+                    role="option"
+                    aria-selected={sort === option.value}
+                    onClick={() => {
+                      setSort(option.value);
+                      setIsSortOpen(false);
+                    }}
+                  >
+                    <span>{option.label}</span>
+                    {sort === option.value ? <Check size={14} /> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 

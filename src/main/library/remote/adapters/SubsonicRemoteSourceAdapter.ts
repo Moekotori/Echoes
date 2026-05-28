@@ -45,6 +45,7 @@ type SubsonicSong = {
   size?: number;
   created?: string;
   coverArt?: string;
+  albumId?: string;
   parent?: string;
 };
 
@@ -67,10 +68,11 @@ const nowIso = (): string => new Date().toISOString();
 const provider: RemoteSourceProvider = 'subsonic';
 const defaultApiVersion = '1.16.1';
 const defaultClientName = 'ECHO-Next';
+const maxCoverBytes = 4 * 1024 * 1024;
 const subsonicRequestLimiter = new class {
   private active = 0;
   private readonly queue: Array<QueuedRequest<unknown>> = [];
-  private readonly maxConcurrent = 6;
+  private readonly maxConcurrent = 64;
 
   run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (signal?.aborted) {
@@ -139,6 +141,10 @@ const cleanNumber = (value: unknown): number | null => {
 const clampInt = (value: unknown, fallback: number, min = 1, max = 8): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.round(parsed))) : fallback;
+};
+const clampCoverSize = (value: unknown, fallback = 512): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(80, Math.min(1024, Math.round(parsed))) : fallback;
 };
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -240,12 +246,13 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
           const details = await Promise.all(batch.map((album) => this.readAlbumDetail(input, album)));
 
           for (const detail of details) {
+            const albumId = cleanText(detail?.id);
             for (const song of detail?.song ?? []) {
               if (input.signal?.aborted) {
                 break;
               }
 
-              const scanItem = this.songToScanItem(input.source.id, song);
+              const scanItem = this.songToScanItem(input.source.id, albumId ? { ...song, albumId: cleanText(song.albumId) ?? albumId } : song);
               if (scanItem) {
                 input.onProgress?.(scanItem);
                 yield scanItem;
@@ -274,7 +281,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
 
   async readCover(input: RemoteReadCoverInput): Promise<RemoteCoverResult> {
     const id = input.item.metadata?.fieldSources.coverArt ?? parseSongId(input.item.path);
-    const url = this.buildUrl(input, '/rest/getCoverArt.view', { id, size: '512' });
+    const url = this.buildUrl(input, '/rest/getCoverArt.view', { id, size: String(clampCoverSize(input.size)) });
     const response = await this.fetch(input, url, 8000);
     if (response.status === 404) {
       return this.emptyCover('cover_not_found');
@@ -283,10 +290,20 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
       return { ...this.emptyCover('cover_read_failed'), errors: [`Subsonic 封面请求失败：HTTP ${response.status}`] };
     }
 
+    const mimeType = response.headers.get('content-type');
+    if (mimeType && !mimeType.toLocaleLowerCase().startsWith('image/')) {
+      return { ...this.emptyCover('cover_read_failed'), errors: ['Subsonic cover returned a non-image response.'] };
+    }
+
+    const data = new Uint8Array(await response.arrayBuffer());
+    if (data.byteLength > maxCoverBytes) {
+      return { ...this.emptyCover('cover_read_failed'), errors: ['Subsonic cover response is too large.'] };
+    }
+
     return {
       status: 'ok',
-      data: new Uint8Array(await response.arrayBuffer()),
-      mimeType: response.headers.get('content-type'),
+      data,
+      mimeType,
       fieldSources: { cover: 'subsonic' },
       warnings: [],
       errors: [],
@@ -317,7 +334,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const detail = await this.request<{ album?: SubsonicAlbum }>(input, '/rest/getAlbum.view', { id: albumId });
-        return detail.album ?? null;
+        return detail.album ? { ...detail.album, id: cleanText(detail.album.id) ?? albumId } : null;
       } catch (error) {
         if (input.signal?.aborted || attempt === 1) {
           input.onError?.(`subsonic:album:${albumId}`, error instanceof Error ? error : new Error(String(error)));
@@ -407,6 +424,8 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
         samplingRate: song.samplingRate,
         size: song.size,
         coverArt: song.coverArt,
+        albumId: song.albumId,
+        parent: song.parent,
       })),
       contentType: cleanText(song.contentType),
       audio: true,
@@ -420,6 +439,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
     const artist = cleanText(song.artist) ?? 'Unknown Artist';
     const albumArtist = cleanText(song.albumArtist) ?? artist;
     const duration = cleanNumber(song.duration);
+    const albumId = cleanText(song.albumId) ?? cleanText(song.parent);
     return {
       status: duration ? 'ok' : 'partial',
       title: cleanText(song.title) ?? cleanText(song.id) ?? 'Untitled',
@@ -444,6 +464,7 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
         sampleRate: cleanNumber(song.samplingRate) ? 'subsonic' : 'unknown',
         bitDepth: cleanNumber(song.bitDepth) ? 'subsonic' : 'unknown',
         bitrate: cleanNumber(song.bitRate) ? 'subsonic' : 'unknown',
+        ...(albumId ? { albumId } : {}),
         ...(song.coverArt ? { coverArt: song.coverArt } : {}),
       },
       warnings: duration ? [] : ['duration_unavailable'],

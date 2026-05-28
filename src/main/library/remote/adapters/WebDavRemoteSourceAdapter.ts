@@ -176,7 +176,7 @@ type QueuedRequest<T> = {
 const webDavRequestLimiter = new class {
   private active = 0;
   private readonly queue: Array<QueuedRequest<unknown>> = [];
-  private readonly maxConcurrent = 6;
+  private readonly maxConcurrent = 32;
 
   run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (signal?.aborted) {
@@ -647,7 +647,7 @@ export class WebDavRemoteSourceAdapter implements RemoteSourceAdapter {
         title: common.title ? 'embedded' : 'filename_fallback',
         artist: common.artist ? 'embedded' : 'filename_fallback',
         album: common.album ? 'embedded' : 'filename_fallback',
-        albumArtist: common.albumartist ? 'embedded' : common.artist ? 'embedded' : 'filename_fallback',
+        albumArtist: common.albumartist ? 'embedded' : common.artist ? 'artist_fallback' : 'filename_fallback',
         duration: duration ? 'technical' : 'unknown',
       },
       warnings: duration ? [] : ['duration_unavailable'],

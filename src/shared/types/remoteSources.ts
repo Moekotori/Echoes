@@ -1,6 +1,7 @@
 import type { StreamingAudioQuality, StreamingProviderName } from './streaming';
 import type { ReplayGainTrackData } from '../utils/replayGain';
 import type { LibraryPageQuery } from './library';
+import type { RemoteAlbumMergeStrategy } from './appSettings';
 
 export type RemoteSourceProvider = 'webdav' | 'baidu' | 'jellyfin' | 'emby' | 'smb' | 'sshfs' | 'subsonic';
 
@@ -43,6 +44,16 @@ export type RemoteIndexedFolderStats = {
   totalSizeBytes: number;
   albumCount: number;
   artistCount: number;
+};
+
+export type RemoteAlbumGroupingPreview = {
+  sourceId: string | null;
+  sourceCount: number;
+  trackCount: number;
+  currentStrategy: RemoteAlbumMergeStrategy;
+  targetStrategy: RemoteAlbumMergeStrategy;
+  currentAlbumCount: number;
+  targetAlbumCount: number;
 };
 
 export type RemoteSource = {
@@ -196,6 +207,10 @@ export type RemoteMediaItem = {
   album: string;
   albumArtist?: string | null;
   duration: number | null;
+  codec?: string | null;
+  sampleRate?: number | null;
+  bitDepth?: number | null;
+  bitrate?: number | null;
   coverThumb?: string | null;
 };
 

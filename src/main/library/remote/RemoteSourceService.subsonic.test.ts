@@ -75,18 +75,6 @@ const waitForSync = async (service: RemoteSourceService, sourceId: string): Prom
   throw new Error('Timed out waiting for Subsonic sync');
 };
 
-const waitForCoverJob = async (service: RemoteSourceService, sourceId: string): Promise<void> => {
-  for (let index = 0; index < 100; index += 1) {
-    const status = service.getJobStatus(sourceId);
-    if (status.completed.cover === 1) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-
-  throw new Error('Timed out waiting for Subsonic cover job');
-};
-
 const waitForMatchJobs = async (service: RemoteSourceService, sourceId: string): Promise<void> => {
   for (let index = 0; index < 100; index += 1) {
     const status = service.getJobStatus(sourceId);
@@ -122,6 +110,7 @@ describe('RemoteSourceService Subsonic integration', () => {
   it('indexes Subsonic tracks, exposes remote albums/artists, and keeps MV out of remote background matching', async () => {
     serviceMocks.getLyricsForTrack.mockResolvedValue({ id: 'lyrics-1' });
     serviceMocks.searchNetworkCandidates.mockResolvedValue([{ id: 'mv-1' }]);
+    let coverRequests = 0;
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const salt = url.searchParams.get('s') ?? '';
@@ -160,7 +149,9 @@ describe('RemoteSourceService Subsonic integration', () => {
         return;
       }
       if (url.pathname === '/rest/getCoverArt.view') {
+        coverRequests += 1;
         expect(url.searchParams.get('id')).toBe('cover-1');
+        expect(url.searchParams.get('size')).toBe('512');
         response.writeHead(200, {
           'Content-Type': 'image/png',
           'Content-Length': String(tinyPng.length),
@@ -195,8 +186,14 @@ describe('RemoteSourceService Subsonic integration', () => {
     await waitForSync(service, source.id);
 
     const trackId = remoteTrackIdFor(source.id, 'song-1');
-    service.hydrateVisibleTracks([trackId], { metadata: false, cover: true });
-    await waitForCoverJob(service, source.id);
+    expect(service.getJobStatus(source.id).completed.cover).toBe(0);
+
+    const hydrated = await service.hydrateVisibleTracks([trackId], { metadata: false, cover: true, immediateCover: true });
+    expect(hydrated[0]).toEqual(expect.objectContaining({
+      coverThumb: `echo-image://subsonic-cover/${encodeURIComponent(trackId)}?size=512`,
+      metadataStatus: 'ok',
+    }));
+    expect(coverRequests).toBe(0);
 
     const track = service.getTrackAsLibraryTrack(trackId);
     expect(track).toEqual(expect.objectContaining({
@@ -207,9 +204,17 @@ describe('RemoteSourceService Subsonic integration', () => {
       sampleRate: 96000,
       bitDepth: 24,
       bitrate: 900000,
-      coverThumb: expect.stringContaining('echo-cover://thumb/'),
+      coverThumb: `echo-image://subsonic-cover/${encodeURIComponent(trackId)}?size=512`,
       metadataStatus: 'ok',
     }));
+    expect(libraryStore.getTracks({ sourceProvider: 'remote', sourceId: source.id }).items[0]).toEqual(expect.objectContaining({
+      coverThumb: `echo-image://subsonic-cover/${encodeURIComponent(trackId)}?size=512`,
+    }));
+    const remoteCover = await service.readRemoteCover(trackId);
+    expect(remoteCover.status).toBe('ok');
+    expect(Array.from(remoteCover.data ?? [])).toEqual(Array.from(tinyPng));
+    expect(remoteCover.mimeType).toBe('image/png');
+    expect(coverRequests).toBe(1);
     const albums = libraryStore.getAlbums({ search: 'Echo Album' });
     expect(albums.items).toHaveLength(1);
     expect(albums.items[0]).toEqual(expect.objectContaining({
@@ -235,10 +240,10 @@ describe('RemoteSourceService Subsonic integration', () => {
     expect(libraryStore.getArtistTracks(artists.items[0].id).items.map((item) => item.id)).toEqual([trackId]);
     expect(libraryStore.getArtistAlbums(artists.items[0].id).items.map((item) => item.id)).toEqual([albums.items[0].id]);
 
-    const jobStatusAfterSync = service.getJobStatus(source.id);
-    expect(jobStatusAfterSync.completed.cover).toBe(1);
-    expect(jobStatusAfterSync.completed.lyrics).toBe(0);
-    expect(jobStatusAfterSync.completed.mv).toBe(0);
+    const jobStatusAfterVisibleHydration = service.getJobStatus(source.id);
+    expect(jobStatusAfterVisibleHydration.completed.cover).toBe(0);
+    expect(jobStatusAfterVisibleHydration.completed.lyrics).toBe(0);
+    expect(jobStatusAfterVisibleHydration.completed.mv).toBe(0);
     expect(serviceMocks.getLyricsForTrack).not.toHaveBeenCalled();
     expect(serviceMocks.searchNetworkCandidates).not.toHaveBeenCalled();
 

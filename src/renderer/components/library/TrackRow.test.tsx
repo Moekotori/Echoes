@@ -107,6 +107,32 @@ describe('TrackRow', () => {
     expect(container.querySelector('.track-cover img')).toBeNull();
   });
 
+  it('loads Subsonic proxy covers eagerly once the row is rendered', () => {
+    const coverThumb = 'echo-image://subsonic-cover/remote-track-1?size=512';
+    const { container } = render(<TrackRow isPlaying={false} track={track({ coverThumb, mediaType: 'remote', provider: 'subsonic' })} />);
+    const img = container.querySelector('.track-cover img') as HTMLImageElement | null;
+
+    expect(img?.getAttribute('src')).toBe(coverThumb);
+    expect(img?.getAttribute('loading')).toBe('eager');
+    expect(img?.getAttribute('decoding')).toBe('async');
+  });
+
+  it('hides Subsonic internal remote path tags', () => {
+    render(
+      <TrackRow
+        isPlaying={false}
+        track={track({
+          mediaType: 'remote',
+          provider: 'subsonic',
+          remotePath: 'subsonic:song:p5Bw9bP7actay9UXpwJ7xv',
+        })}
+      />,
+    );
+
+    expect(screen.queryByText('subsonic:song:p5Bw9bP7actay9UXpwJ7xv')).toBeNull();
+    expect(screen.getByText('subsonic')).toBeTruthy();
+  });
+
   it('calls onPlay once from row click without action button bubbling', () => {
     const onPlay = vi.fn();
     render(<TrackRow isPlaying={false} track={track()} onPlay={onPlay} />);

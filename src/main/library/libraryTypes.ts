@@ -346,6 +346,8 @@ export type ScanFileSystemError = {
 export type ScanOptions = {
   signal?: AbortSignal;
   audioExtensions?: readonly string[];
+  fileSystemOperationTimeoutMs?: number;
+  yieldEveryEntries?: number;
   onFileSystemError?: (error: ScanFileSystemError) => void;
   getDirectorySnapshot?: (directoryPath: string) => ScanDirectorySnapshot | null;
   onDirectorySnapshot?: (snapshot: ScanDirectorySnapshot) => void;

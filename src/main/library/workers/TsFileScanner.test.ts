@@ -146,6 +146,41 @@ describe('TsFileScanner', () => {
     expect(fileSystem.stat).toHaveBeenCalledWith(ok);
   });
 
+  it('reports a timed-out network stat without blocking the scan', async () => {
+    const root = resolve(makeTempRoot());
+    const slow = join(root, 'slow.flac');
+    const ok = join(root, 'ok.flac');
+    const errors: ScanFileSystemError[] = [];
+    const fileSystem = {
+      readdir: vi.fn(async () => [fakeDirent('slow.flac', 'file'), fakeDirent('ok.flac', 'file')]),
+      stat: vi.fn(async (filePath: string) => {
+        if (filePath === root) {
+          return fakeStats('directory');
+        }
+        if (filePath === slow) {
+          return new Promise<Stats>(() => undefined);
+        }
+        return fakeStats('file', 8, 12);
+      }),
+    };
+    const scanner = new TsFileScanner(fileSystem);
+    const names = [];
+
+    for await (const file of scanner.scanFolder(root, {
+      fileSystemOperationTimeoutMs: 1,
+      onFileSystemError: (error) => errors.push(error),
+    })) {
+      names.push(file.path.split(/[\\/]/).pop() ?? file.path);
+    }
+
+    expect(names).toEqual(['ok.flac']);
+    expect(errors).toEqual([expect.objectContaining({
+      kind: 'file_stat',
+      path: slow,
+      message: expect.stringContaining('timed out'),
+    })]);
+  });
+
   it('reuses a matching directory mtime snapshot without skipping file stat', async () => {
     const root = resolve(makeTempRoot());
     const cachedFile = join(root, 'cached.flac');

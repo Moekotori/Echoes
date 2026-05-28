@@ -665,6 +665,18 @@ CREATE TABLE IF NOT EXISTS remote_tracks (
   UNIQUE(source_id, stable_key)
 );
 
+CREATE TABLE IF NOT EXISTS remote_cover_cache (
+  cache_key TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  cover_id TEXT NOT NULL,
+  source_id TEXT,
+  cover_art TEXT,
+  remote_path TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (cover_id) REFERENCES covers(id) ON DELETE CASCADE
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS remote_tracks_fts USING fts5(
   title,
   artist,
@@ -795,6 +807,7 @@ CREATE INDEX IF NOT EXISTS idx_remote_tracks_album ON remote_tracks(album);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_stable_key ON remote_tracks(stable_key);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_remote_url_hash ON remote_tracks(remote_url_hash);
 CREATE INDEX IF NOT EXISTS idx_remote_tracks_cover_status ON remote_tracks(cover_status);
+CREATE INDEX IF NOT EXISTS idx_remote_cover_cache_cover_id ON remote_cover_cache(cover_id);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_provider ON streaming_tracks(provider);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_title ON streaming_tracks(title);
 CREATE INDEX IF NOT EXISTS idx_streaming_tracks_artist ON streaming_tracks(artist);

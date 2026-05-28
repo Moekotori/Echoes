@@ -109,6 +109,7 @@ export const TrackRow = memo(
     const remoteSourceLabel = track.mediaType === 'remote' ? track.sourceDisplayName ?? track.provider ?? t('library.source.remote') : null;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
     const shouldShowCover = Boolean(track.coverThumb && track.coverThumb !== failedCoverUrl);
+    const coverLoading = track.coverThumb?.startsWith('echo-image://subsonic-cover/') ? 'eager' : 'lazy';
     const canDownload = Boolean(onDownload) && track.provider !== 'spotify';
     const downloadPercent =
       typeof downloadProgress === 'number' && Number.isFinite(downloadProgress)
@@ -271,7 +272,7 @@ export const TrackRow = memo(
         ) : null}
         <div className="track-cover" data-empty={!shouldShowCover} aria-hidden="true">
           {shouldShowCover ? (
-            <img alt="" decoding="async" draggable={false} height={96} loading="lazy" src={track.coverThumb!} width={96} onError={handleCoverError} />
+            <img alt="" decoding="async" draggable={false} height={96} loading={coverLoading} src={track.coverThumb!} width={96} onError={handleCoverError} />
           ) : (
             <Music2 size={22} />
           )}
@@ -313,7 +314,7 @@ export const TrackRow = memo(
                 {tag.label}
               </span>
             ))}
-            {track.mediaType === 'remote' && track.remotePath ? <span className="hifi-tag tag-remote-path" title={track.remotePath}>{track.remotePath}</span> : null}
+            {track.mediaType === 'remote' && track.provider !== 'subsonic' && track.remotePath ? <span className="hifi-tag tag-remote-path" title={track.remotePath}>{track.remotePath}</span> : null}
           </div>
         </div>
 

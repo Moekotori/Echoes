@@ -5,6 +5,7 @@ import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import type { EchoDatabase } from '../database/createDatabase';
 import { BPM_ANALYSIS_VERSION } from '../../shared/constants/audioAnalysis';
 import { REPLAY_GAIN_ANALYSIS_VERSION } from '../../shared/constants/replayGain';
+import type { RemoteAlbumMergeStrategy } from '../../shared/types/appSettings';
 import { chineseSearchVariants } from './ChineseSearchVariants';
 import {
   buildTrackSearchTerms,
@@ -23,6 +24,12 @@ import {
 } from './ArtistMerge';
 import { updateCoverPathsInDatabase } from './CoverCacheManager';
 import { DuplicateTrackService } from './duplicates/DuplicateTrackService';
+import { subsonicDirectCoverUrlFor } from './remote/remoteCoverUrls';
+import {
+  normalizeRemoteAlbumMergeStrategy,
+  normalizeRemoteAlbumTitleForMerge,
+  remoteDirectoryName,
+} from './remote/RemoteAlbumGrouping';
 import {
   ARTIST_IMAGE_CACHE_SOURCE_HASH_PREFIX,
   ARTIST_IMAGE_CACHE_SOURCE_VERSION,
@@ -564,6 +571,7 @@ type SearchPredicate = (term: string) => { sql: string; params: string[] };
 type LibraryStoreSearchOptions = {
   chineseCrossScriptSearchEnabled?: boolean;
   artistMergeStrategy?: 'conservative' | 'standard';
+  remoteAlbumMergeStrategy?: RemoteAlbumMergeStrategy;
 };
 
 const likePredicate =
@@ -1014,6 +1022,8 @@ export class LibraryStore {
       const strategy = normalizeArtistMergeStrategy(this.readSearchOptions().artistMergeStrategy);
       return splitArtistNames(value).some((name) => artistNameMatchesMergeKey(name, targetKey, strategy)) ? 1 : 0;
     });
+    this.database.function('echo_remote_dirname', remoteDirectoryName);
+    this.database.function('echo_remote_album_merge_title', normalizeRemoteAlbumTitleForMerge);
     this.backfillSearchTerms();
   }
 
@@ -4683,11 +4693,41 @@ export class LibraryStore {
     }
   }
 
+  private remoteAlbumIdentitySql(tableName: string): string {
+    const mergeStrategy = normalizeRemoteAlbumMergeStrategy(this.readSearchOptions().remoteAlbumMergeStrategy);
+    const conservativeAlbumIdentity = `lower(trim(CASE WHEN TRIM(COALESCE(${tableName}.album, '')) = '' THEN ${tableName}.id ELSE ${tableName}.album END))`;
+    const standardAlbumIdentity = `COALESCE(
+      NULLIF(NULLIF(echo_remote_album_merge_title(${tableName}.album), ''), 'unknown album'),
+      ${tableName}.id
+    )`;
+    const albumIdentity = mergeStrategy === 'standard' ? standardAlbumIdentity : conservativeAlbumIdentity;
+    const albumArtistIdentity = `lower(trim(COALESCE(NULLIF(TRIM(${tableName}.album_artist), ''), NULLIF(TRIM(${tableName}.artist), ''), 'Unknown Artist')))`;
+    const yearIdentity = `COALESCE(CAST(${tableName}.year AS TEXT), '')`;
+    const coverArtIdentity = `NULLIF(TRIM(COALESCE(json_extract(${tableName}.field_sources_json, '$.coverArt'), '')), '')`;
+    const serverAlbumIdentity = `NULLIF(TRIM(COALESCE(json_extract(${tableName}.field_sources_json, '$.albumId'), json_extract(${tableName}.field_sources_json, '$.serverAlbumId'), '')), '')`;
+    const albumArtistSource = `lower(trim(COALESCE(json_extract(${tableName}.field_sources_json, '$.albumArtist'), '')))`;
+    const albumArtistLooksFallback = `(
+      ${albumArtistSource} IN ('artist_fallback', 'filename_fallback', 'unknown', 'missing')
+      OR lower(trim(COALESCE(${tableName}.album_artist, ''))) = lower(trim(COALESCE(${tableName}.artist, '')))
+    )`;
+
+    return `CASE
+      WHEN ${tableName}.provider IN ('subsonic', 'jellyfin', 'emby') AND ${serverAlbumIdentity} IS NOT NULL
+        THEN ${tableName}.source_id || char(31) || ${tableName}.provider || char(31) || 'server-album' || char(31) || ${serverAlbumIdentity}
+      WHEN ${tableName}.provider IN ('subsonic', 'jellyfin', 'emby') AND TRIM(COALESCE(${tableName}.album, '')) != ''
+        THEN ${tableName}.source_id || char(31) || ${tableName}.provider || char(31) || 'server-title' || char(31) ||
+          ${mergeStrategy === 'standard' ? `echo_remote_dirname(${tableName}.remote_path) || char(31) ||` : ''}
+          ${albumIdentity} || char(31) || ${yearIdentity}
+      WHEN ${tableName}.provider NOT IN ('subsonic', 'jellyfin', 'emby') AND ${albumArtistLooksFallback}
+        THEN ${tableName}.source_id || char(31) || ${tableName}.provider || char(31) || 'folder-album' || char(31) ||
+          echo_remote_dirname(${tableName}.remote_path) || char(31) || ${albumIdentity} || char(31) || ${yearIdentity} ||
+          ${mergeStrategy === 'standard' ? "''" : `char(31) || COALESCE(${coverArtIdentity}, '')`}
+      ELSE ${tableName}.source_id || char(31) || ${tableName}.provider || char(31) || ${albumArtistIdentity} || char(31) || ${albumIdentity} || char(31) || ${yearIdentity}
+    END`;
+  }
+
   private unifiedAlbumsSql(): string {
-    const remoteAlbumIdentity = `remote_tracks.source_id || char(31) ||
-      lower(trim(COALESCE(NULLIF(TRIM(remote_tracks.album_artist), ''), NULLIF(TRIM(remote_tracks.artist), ''), 'Unknown Artist'))) || char(31) ||
-      lower(trim(CASE WHEN TRIM(COALESCE(remote_tracks.album, '')) = '' THEN remote_tracks.id ELSE remote_tracks.album END)) || char(31) ||
-      COALESCE(CAST(remote_tracks.year AS TEXT), '')`;
+    const remoteAlbumIdentity = this.remoteAlbumIdentitySql('remote_tracks');
 
     return `WITH remote_album_rows AS (
       SELECT
@@ -4756,10 +4796,56 @@ export class LibraryStore {
       FROM remote_album_rows
       GROUP BY album_id, source_id, provider
     ),
+    remote_album_artist_counts AS (
+      SELECT
+        album_id,
+        echo_artist_merge_key(COALESCE(NULLIF(TRIM(artist), ''), 'Unknown Artist')) AS artist_key,
+        MIN(COALESCE(NULLIF(TRIM(artist), ''), 'Unknown Artist')) AS artist_name,
+        COUNT(*) AS artist_track_count
+      FROM remote_album_rows
+      GROUP BY album_id, artist_key
+    ),
+    remote_album_artist_ranked AS (
+      SELECT
+        album_id,
+        artist_name,
+        artist_track_count,
+        SUM(artist_track_count) OVER (PARTITION BY album_id) AS album_track_count,
+        COUNT(*) OVER (PARTITION BY album_id) AS artist_group_count,
+        LEAD(artist_track_count, 1, 0) OVER (PARTITION BY album_id ORDER BY artist_track_count DESC, artist_name COLLATE NOCASE) AS next_artist_track_count,
+        ROW_NUMBER() OVER (PARTITION BY album_id ORDER BY artist_track_count DESC, artist_name COLLATE NOCASE) AS artist_rank
+      FROM remote_album_artist_counts
+    ),
     library_albums AS (
       SELECT * FROM local_albums
       UNION ALL
-      SELECT * FROM remote_albums
+      SELECT
+        remote_albums.id,
+        remote_albums.media_type,
+        remote_albums.source_id,
+        remote_albums.source_display_name,
+        remote_albums.provider,
+        remote_albums.album_key,
+        remote_albums.title,
+        CASE
+          WHEN remote_album_artist_ranked.artist_group_count <= 1 THEN COALESCE(remote_album_artist_ranked.artist_name, remote_albums.album_artist)
+          WHEN remote_album_artist_ranked.artist_track_count >= CAST((remote_album_artist_ranked.album_track_count + 1) * 0.65 AS INTEGER)
+            AND remote_album_artist_ranked.artist_track_count > remote_album_artist_ranked.next_artist_track_count
+          THEN remote_album_artist_ranked.artist_name
+          ELSE ${sqlString(variousArtistsDisplayName)}
+        END AS album_artist,
+        remote_albums.year,
+        remote_albums.track_count,
+        remote_albums.duration,
+        remote_albums.cover_id,
+        remote_albums.created_at,
+        remote_albums.updated_at,
+        remote_albums.sort_mtime_ms,
+        remote_albums.search_blob
+      FROM remote_albums
+      LEFT JOIN remote_album_artist_ranked
+        ON remote_album_artist_ranked.album_id = remote_albums.id
+       AND remote_album_artist_ranked.artist_rank = 1
     )`;
   }
 
@@ -4798,10 +4884,7 @@ export class LibraryStore {
   }
 
   private unifiedArtistsSql(): string {
-    const remoteAlbumIdentity = `remote_tracks.source_id || char(31) ||
-      lower(trim(COALESCE(NULLIF(TRIM(remote_tracks.album_artist), ''), NULLIF(TRIM(remote_tracks.artist), ''), 'Unknown Artist'))) || char(31) ||
-      lower(trim(CASE WHEN TRIM(COALESCE(remote_tracks.album, '')) = '' THEN remote_tracks.id ELSE remote_tracks.album END)) || char(31) ||
-      COALESCE(CAST(remote_tracks.year AS TEXT), '')`;
+    const remoteAlbumIdentity = this.remoteAlbumIdentitySql('remote_tracks');
 
     return `WITH remote_artist_rows AS (
       SELECT
@@ -7724,6 +7807,7 @@ export class LibraryStore {
     const artist = sanitizeLibraryText(row.artist, filenameGuess.artist ?? unknownArtist);
     const album = sanitizeLibraryText(row.album, '');
     const albumArtist = sanitizeLibraryText(row.album_artist, artist);
+    const fieldSources = parseJsonObject(row.field_sources_json);
 
     return {
       id: String(row.id),
@@ -7761,12 +7845,13 @@ export class LibraryStore {
       replayGainStatus: this.mapReplayGainStatus(row.replay_gain_status),
       replayGainUpdatedAt: textOrNull(row.replay_gain_updated_at),
       coverId: textOrNull(row.cover_id),
-      coverThumb: this.toCoverUrl(row.cover_id, 'thumb'),
+      coverThumb: this.toCoverUrl(row.cover_id, 'thumb')
+        ?? subsonicDirectCoverUrlFor(row.id, row.provider, row.cover_id, fieldSources, row.remote_path, row.stable_key),
       metadataStatus: textOrNull(row.metadata_status) ?? 'ok',
       embeddedMetadataStatus: this.mapEmbeddedStatus(row.embedded_metadata_status),
       embeddedCoverStatus: this.mapEmbeddedStatus(row.embedded_cover_status),
       networkMetadataStatus: this.mapNetworkStatus(row.network_metadata_status),
-      fieldSources: parseJsonObject(row.field_sources_json),
+      fieldSources,
       unavailable: row.availability === 'missing',
     };
   }

@@ -2344,6 +2344,7 @@ export const createLibraryService = (
   const store = new LibraryStore(database, () => ({
     chineseCrossScriptSearchEnabled: readSettings().chineseCrossScriptSearchEnabled !== false,
     artistMergeStrategy: readSettings().artistMergeStrategy ?? 'standard',
+    remoteAlbumMergeStrategy: readSettings().remoteAlbumMergeStrategy ?? 'conservative',
   }));
   const fileScanner = dependencies.fileScanner ?? new TsFileScanner();
   const metadataReader =

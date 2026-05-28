@@ -1699,6 +1699,7 @@ const echoApi: EchoApi = {
   remoteSources: {
     list: () => ipcRenderer.invoke(IpcChannels.RemoteSourcesList),
     getOverview: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesGetOverview, sourceId),
+    previewAlbumGrouping: (strategy, sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesPreviewAlbumGrouping, strategy, sourceId),
     listIssues: (sourceId, kind, limit) => ipcRenderer.invoke(IpcChannels.RemoteSourcesListIssues, sourceId, kind, limit),
     create: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesCreate, input),
     update: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesUpdate, input),

@@ -191,7 +191,7 @@ describe('MediaServerRemoteSourceAdapter', () => {
     ));
 
     expect(authRequests).toBe(1);
-    expect(maxActiveCoverRequests).toBeLessThanOrEqual(6);
+    expect(maxActiveCoverRequests).toBeLessThanOrEqual(32);
   });
 
   it('supports API key authentication without username/password login', async () => {

@@ -27,6 +27,7 @@ import type {
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobKind,
   RemoteBackgroundJobStatus,
+  RemoteAlbumGroupingPreview,
   RemoteDirectoryItem,
   RemoteSourceIssueItem,
   RemoteSourceIssueKind,
@@ -41,6 +42,7 @@ import type {
   RemoteTrackStatus,
   TestRemoteSourceResult,
 } from '../../../shared/types/remoteSources';
+import type { AppSettings, RemoteAlbumMergeStrategy, RemoteCoverLoadPerformanceMode } from '../../../shared/types/appSettings';
 import type { LibraryTrack } from '../../../shared/types/library';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getAppBridge, getRemoteSourcesBridge } from '../../utils/echoBridge';
@@ -74,6 +76,31 @@ const syncModeLabels: Record<RemoteSourceSyncMode, string> = {
   index: '建立索引，播放时按需取流',
   mirror: '镜像缓存尚未开放，不会静默复制整库音频',
 };
+
+const remoteCoverLoadPerformanceOptions: Array<{ value: RemoteCoverLoadPerformanceMode; label: string; description: string }> = [
+  { value: 'low', label: '省流量', description: '只预热当前可见封面，适合公网或弱服务器。' },
+  { value: 'balanced', label: '均衡', description: '预热当前和后面约半屏到一屏，默认推荐。' },
+  { value: 'aggressive', label: '积极预热', description: '滚动停顿时提前拉取更多封面，适合局域网 Navidrome。' },
+  { value: 'lan', label: '局域网极速', description: '拉满远程封面预热和后台加载并发，适合本机、NAS 或稳定千兆局域网。' },
+];
+
+const remoteCoverBackgroundLimits: Record<RemoteCoverLoadPerformanceMode, Pick<RemoteBackgroundGlobalStatus['concurrency'], 'cover'>> = {
+  low: { cover: 1 },
+  balanced: { cover: 2 },
+  aggressive: { cover: 6 },
+  lan: { cover: 48 },
+};
+
+const remoteAlbumMergeOptions: Array<{ value: RemoteAlbumMergeStrategy; label: string; description: string }> = [
+  { value: 'conservative', label: '保守合并', description: '优先使用服务器专辑 ID；普通网盘只合并同来源、同文件夹、同专辑的曲目。' },
+  { value: 'standard', label: '普通合并', description: '在保守边界上放宽标题差异，会合并大小写、符号和 - Single 这类远程专辑拆分。' },
+];
+
+const normalizeRemoteCoverLoadPerformanceMode = (value: unknown): RemoteCoverLoadPerformanceMode =>
+  value === 'low' || value === 'aggressive' || value === 'lan' || value === 'balanced' ? value : 'balanced';
+
+const normalizeRemoteAlbumMergeStrategy = (value: unknown): RemoteAlbumMergeStrategy =>
+  value === 'standard' ? 'standard' : 'conservative';
 
 const jobKinds: RemoteBackgroundJobKind[] = ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill'];
 
@@ -291,6 +318,23 @@ const completionPercent = (counts: RemoteSourceOverviewItem['metadata']): number
 const completionPercentText = (counts: RemoteSourceOverviewItem['metadata']): string => {
   const percent = completionPercent(counts);
   return percent === null ? '暂无数据' : `${percent}%`;
+};
+
+const coverProgressFor = (
+  counts: RemoteSourceOverviewItem['cover'],
+  status: RemoteBackgroundJobStatus,
+): { processed: number; total: number; pending: number; running: number; percent: number; active: boolean; label: string } => {
+  const total = statusKindTotal(counts);
+  const processed = Math.min(total, Math.max(0, counts.ok + counts.not_found + counts.error));
+  const pending = Math.max(0, total - processed);
+  const running = status.running.cover;
+  const active = status.pending.cover + status.running.cover > 0 || counts.searching > 0;
+  const percent = total > 0 ? clampPercent(Math.round((processed / total) * 100)) : 0;
+  const label = total > 0
+    ? `已加载 ${formatCount(processed)} / ${formatCount(total)} · 还剩 ${formatCount(pending)} · 运行 ${formatCount(running)}`
+    : '暂无封面任务';
+
+  return { processed, total, pending, running, percent, active, label };
 };
 
 const recommendationText = (source: RemoteSourceOverviewItem): string | null => {
@@ -656,6 +700,13 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [remoteCoverLoadPerformanceMode, setRemoteCoverLoadPerformanceMode] = useState<RemoteCoverLoadPerformanceMode>('balanced');
+  const [remoteAlbumMergeStrategy, setRemoteAlbumMergeStrategy] = useState<RemoteAlbumMergeStrategy>('conservative');
+  const [pendingRemoteAlbumMergeStrategy, setPendingRemoteAlbumMergeStrategy] = useState<RemoteAlbumMergeStrategy>('conservative');
+  const [remoteAlbumGroupingPreview, setRemoteAlbumGroupingPreview] = useState<RemoteAlbumGroupingPreview | null>(null);
+  const [remoteAlbumGroupingBusy, setRemoteAlbumGroupingBusy] = useState(false);
+  const [remoteAlbumScanBusy, setRemoteAlbumScanBusy] = useState(false);
+  const [remoteAlbumGroupingMessage, setRemoteAlbumGroupingMessage] = useState<string | null>(null);
   const [baiduAuthFeedback, setBaiduAuthFeedback] = useState<string | null>(null);
   const [baiduAuthUrl, setBaiduAuthUrl] = useState<string | null>(null);
   const [showBaiduDeveloperFields, setShowBaiduDeveloperFields] = useState(false);
@@ -701,16 +752,144 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         ? '正在处理'
         : '空闲待命';
 
-  const refreshStatuses = useCallback(async (sourceIds: string[], replace = false): Promise<void> => {
+  useEffect(() => {
+    let disposed = false;
+
+    const loadSettings = (): void => {
+      void appApi?.getSettings?.()
+        .then((settings) => {
+          if (!disposed) {
+            setRemoteCoverLoadPerformanceMode(normalizeRemoteCoverLoadPerformanceMode(settings?.remoteCoverLoadPerformanceMode));
+            const nextRemoteAlbumMergeStrategy = normalizeRemoteAlbumMergeStrategy(settings?.remoteAlbumMergeStrategy);
+            setRemoteAlbumMergeStrategy(nextRemoteAlbumMergeStrategy);
+            setPendingRemoteAlbumMergeStrategy(nextRemoteAlbumMergeStrategy);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    const handleSettingsChanged = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? (event.detail as Partial<AppSettings> | null | undefined) : null;
+      if (detail && 'remoteCoverLoadPerformanceMode' in detail) {
+        setRemoteCoverLoadPerformanceMode(normalizeRemoteCoverLoadPerformanceMode(detail.remoteCoverLoadPerformanceMode));
+        return;
+      }
+      if (detail && 'remoteAlbumMergeStrategy' in detail) {
+        const nextRemoteAlbumMergeStrategy = normalizeRemoteAlbumMergeStrategy(detail.remoteAlbumMergeStrategy);
+        setRemoteAlbumMergeStrategy(nextRemoteAlbumMergeStrategy);
+        setPendingRemoteAlbumMergeStrategy(nextRemoteAlbumMergeStrategy);
+        return;
+      }
+      loadSettings();
+    };
+
+    loadSettings();
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      disposed = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, [appApi]);
+
+  const updateRemoteCoverLoadPerformanceMode = useCallback(
+    async (mode: RemoteCoverLoadPerformanceMode): Promise<void> => {
+      setRemoteCoverLoadPerformanceMode(mode);
+      try {
+        const settings = await appApi?.setSettings?.({ remoteCoverLoadPerformanceMode: mode });
+        const nextMode = normalizeRemoteCoverLoadPerformanceMode(settings?.remoteCoverLoadPerformanceMode ?? mode);
+        setRemoteCoverLoadPerformanceMode(nextMode);
+        window.dispatchEvent(new CustomEvent('settings:changed', { detail: { remoteCoverLoadPerformanceMode: nextMode } }));
+      } catch (settingsError) {
+        setMessage(settingsError instanceof Error ? settingsError.message : '保存远程封面加载设置失败。');
+      }
+    },
+    [appApi],
+  );
+
+  const refreshRemoteAlbumGroupingPreview = useCallback(
+    async (strategy = pendingRemoteAlbumMergeStrategy): Promise<RemoteAlbumGroupingPreview | null> => {
+      if (!remoteApi?.previewAlbumGrouping) {
+        return null;
+      }
+      const preview = await remoteApi.previewAlbumGrouping(strategy);
+      setRemoteAlbumGroupingPreview(preview);
+      return preview;
+    },
+    [pendingRemoteAlbumMergeStrategy, remoteApi],
+  );
+
+  const scanRemoteAlbumsForGrouping = useCallback(async (): Promise<void> => {
+    if (!remoteApi) {
+      return;
+    }
+    const enabledSources = sources.filter((source) => source.status === 'enabled');
+    if (enabledSources.length === 0) {
+      setRemoteAlbumGroupingMessage('没有可扫描的已启用远程来源。');
+      return;
+    }
+
+    try {
+      setRemoteAlbumScanBusy(true);
+      setRemoteAlbumGroupingMessage(null);
+      await Promise.all(enabledSources.map((source) => remoteApi.sync(source.id, { includeCover: false }).catch(() => null)));
+      const preview = await refreshRemoteAlbumGroupingPreview();
+      setRemoteAlbumGroupingMessage(
+        preview
+          ? `已开始扫描 ${enabledSources.length} 个远程来源。当前可见统计：${formatCount(preview.currentAlbumCount)} -> ${formatCount(preview.targetAlbumCount)} 张专辑。`
+          : `已开始扫描 ${enabledSources.length} 个远程来源。`,
+      );
+    } catch (scanError) {
+      setMessage(scanError instanceof Error ? scanError.message : '扫描远程曲库失败。');
+    } finally {
+      setRemoteAlbumScanBusy(false);
+    }
+  }, [refreshRemoteAlbumGroupingPreview, remoteApi, sources]);
+
+  const applyRemoteAlbumMergeStrategy = useCallback(
+    async (): Promise<void> => {
+      if (!appApi) {
+        setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to refresh remote album grouping.');
+        return;
+      }
+
+      try {
+        setRemoteAlbumGroupingBusy(true);
+        setRemoteAlbumGroupingMessage(null);
+        const preview = await refreshRemoteAlbumGroupingPreview(pendingRemoteAlbumMergeStrategy);
+        const settings = await appApi.setSettings?.({ remoteAlbumMergeStrategy: pendingRemoteAlbumMergeStrategy });
+        const nextStrategy = normalizeRemoteAlbumMergeStrategy(settings?.remoteAlbumMergeStrategy ?? pendingRemoteAlbumMergeStrategy);
+        setRemoteAlbumMergeStrategy(nextStrategy);
+        setPendingRemoteAlbumMergeStrategy(nextStrategy);
+        window.dispatchEvent(new CustomEvent('settings:changed', { detail: { remoteAlbumMergeStrategy: nextStrategy } }));
+        window.dispatchEvent(new Event('library:changed'));
+        const afterPreview = await refreshRemoteAlbumGroupingPreview(nextStrategy);
+        const beforeCount = preview?.currentAlbumCount ?? afterPreview?.currentAlbumCount ?? 0;
+        const afterCount = preview?.targetAlbumCount ?? afterPreview?.targetAlbumCount ?? 0;
+        const delta = beforeCount - afterCount;
+        const deltaText = delta > 0 ? `减少 ${formatCount(delta)} 张` : delta < 0 ? `增加 ${formatCount(Math.abs(delta))} 张` : '数量未变化';
+        setRemoteAlbumGroupingMessage(
+          `远程专辑分组已更新：${formatCount(beforeCount)} -> ${formatCount(afterCount)} 张专辑，${deltaText}。`,
+        );
+      } catch (settingsError) {
+        setMessage(settingsError instanceof Error ? settingsError.message : '保存远程专辑合并设置失败。');
+      } finally {
+        setRemoteAlbumGroupingBusy(false);
+      }
+    },
+    [appApi, pendingRemoteAlbumMergeStrategy, refreshRemoteAlbumGroupingPreview],
+  );
+
+  const refreshStatuses = useCallback(async (sourceIds: string[], replace = false, includeOverview = false): Promise<void> => {
     if (!remoteApi) {
       return;
     }
 
     const uniqueIds = Array.from(new Set(sourceIds.filter(Boolean)));
-    const [statuses, jobs, globalStatus] = await Promise.all([
+    const [statuses, jobs, globalStatus, nextOverview] = await Promise.all([
       Promise.all(uniqueIds.map((sourceId) => remoteApi.getSyncStatus(sourceId).catch(() => emptyStatus(sourceId)))),
       Promise.all(uniqueIds.map((sourceId) => remoteApi.getJobStatus(sourceId).catch(() => emptyJobStatus(sourceId)))),
       remoteApi.getBackgroundGlobalStatus().catch(() => emptyGlobalStatus()),
+      includeOverview ? remoteApi.getOverview().catch(() => null) : Promise.resolve(null),
     ]);
 
     const nextStatuses = Object.fromEntries(statuses.map((status) => [status.sourceId, status]));
@@ -718,6 +897,9 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     setSyncStatuses((current) => (replace ? nextStatuses : { ...current, ...nextStatuses }));
     setJobStatuses((current) => (replace ? nextJobs : { ...current, ...nextJobs }));
     setGlobalJobStatus(globalStatus);
+    if (nextOverview) {
+      setOverview(nextOverview);
+    }
   }, [remoteApi]);
 
   const refreshSources = useCallback(async (): Promise<void> => {
@@ -737,6 +919,10 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   useEffect(() => {
     void refreshSources();
   }, [refreshSources]);
+
+  useEffect(() => {
+    void refreshRemoteAlbumGroupingPreview(pendingRemoteAlbumMergeStrategy).catch(() => undefined);
+  }, [pendingRemoteAlbumMergeStrategy, refreshRemoteAlbumGroupingPreview, sources.length]);
 
   useEffect(() => {
     if (visibleSources.length === 0) {
@@ -760,7 +946,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     }
 
     const timer = window.setInterval(() => {
-      void refreshStatuses(visibleSourceIds);
+      void refreshStatuses(visibleSourceIds, false, true);
     }, 1500);
     return () => window.clearInterval(timer);
   }, [jobStatuses, refreshStatuses, remoteApi, syncStatuses, visibleSourceIds]);
@@ -1166,13 +1352,16 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         await remoteApi.startBackgroundJobs(source.id, ['metadata', 'duration-backfill']);
         setMessage('已加入元数据补齐任务。');
       } else if (action === 'cover') {
+        const limits = remoteCoverBackgroundLimits[remoteCoverLoadPerformanceMode];
+        const runtimeStatus = await remoteApi.updateRuntimeLimits(source.id, { coverConcurrency: limits.cover });
+        setJobStatuses((current) => ({ ...current, [source.id]: runtimeStatus }));
         await remoteApi.startBackgroundJobs(source.id, ['cover']);
         const latestGlobalStatus = await remoteApi.getBackgroundGlobalStatus().catch(() => globalJobStatus);
         setGlobalJobStatus(latestGlobalStatus);
         setMessage(latestGlobalStatus.playbackActive
           ? '\u5df2\u52a0\u5165\u7f3a\u5931\u5c01\u9762\u4efb\u52a1\uff1b\u64ad\u653e\u4e2d\u4f1a\u4fdd\u6301\u4f4e\u8d1f\u8f7d\uff0c\u7a7a\u95f2\u540e\u7ee7\u7eed\u5904\u7406\u3002'
           : '\u5df2\u52a0\u5165\u4e00\u5c0f\u6279\u7f3a\u5931\u5c01\u9762\u626b\u63cf\u4efb\u52a1\u3002');
-        await refreshStatuses([source.id]);
+        await refreshStatuses([source.id], false, true);
         return;
       } else if (action === 'match') {
         await remoteApi.startBackgroundJobs(source.id, ['lyrics']);
@@ -1192,24 +1381,33 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           ? await remoteApi.resumeBackgroundJobs(source.id)
           : await remoteApi.pauseBackgroundJobs(source.id);
         setJobStatuses((current) => ({ ...current, [source.id]: nextStatus }));
+        window.setTimeout(() => {
+          void refreshStatuses([source.id], false, true);
+        }, 150);
         setMessage(paused ? '\u5df2\u6062\u590d\u8be5\u6765\u6e90\u540e\u53f0\u4efb\u52a1\u3002' : '\u5df2\u6682\u505c\u8be5\u6765\u6e90\u540e\u53f0\u4efb\u52a1\u3002');
         return;
       } else if (action === 'toggle') {
         await remoteApi.update({ id: source.id, status: source.status === 'disabled' ? 'enabled' : 'disabled' });
       } else if (action === 'delete') {
-        if (!window.confirm(`删除远程来源“${source.displayName}”？本地远程索引也会一并移除。`)) {
+        if (!window.confirm(`断开远程来源“${source.displayName}”？本地远程索引会移除，但连接 URL、用户名和密钥会保留，之后可以直接启用并重新同步。`)) {
           return;
         }
         await remoteApi.delete(source.id);
-        setSources((current) => current.filter((item) => item.id !== source.id));
+        setSources((current) => current.map((item) => (
+          item.id === source.id
+            ? { ...item, status: 'disabled', indexedTrackCount: 0, lastError: null }
+            : item
+        )));
         setSyncStatuses((current) => withoutSourceKey(source.id, current));
         setJobStatuses((current) => withoutSourceKey(source.id, current));
         setBrowserStates((current) => withoutSourceKey(source.id, current));
-        setSelectedSourceId((current) => current === source.id ? null : current);
+        setSelectedSourceId(source.id);
         setIssuePreviews((current) => withoutSourceKey(source.id, current));
         setOverview((current) => removeOverviewSource(current, source.id));
         window.dispatchEvent(new Event('library:changed'));
-        setMessage('来源已删除，相关远程索引已移除。');
+        setMessage('来源已断开，连接信息已保留，本地远程索引已移除。');
+        await refreshSources().catch(() => undefined);
+        return;
       } else if (action === 'cancel') {
         await remoteApi.cancelSync(source.id);
       } else if (action === 'browse') {
@@ -1222,7 +1420,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     } finally {
       setBusy(null);
     }
-  }, [globalJobStatus, jobStatuses, loadBrowserDirectory, refreshSources, refreshStatuses, remoteApi]);
+  }, [globalJobStatus, jobStatuses, loadBrowserDirectory, refreshSources, refreshStatuses, remoteApi, remoteCoverLoadPerformanceMode]);
 
   const syncBrowserDirectory = useCallback(async (source: RemoteSource): Promise<void> => {
     if (!remoteApi) {
@@ -1803,6 +2001,17 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     </section>
   );
 
+  const setGlobalBackgroundPaused = useCallback(async (): Promise<void> => {
+    if (!remoteApi) {
+      return;
+    }
+    const nextStatus = await remoteApi.setBackgroundPaused(!globalJobStatus.paused);
+    setGlobalJobStatus(nextStatus);
+    window.setTimeout(() => {
+      void refreshStatuses(visibleSourceIds, false, true);
+    }, 150);
+  }, [globalJobStatus.paused, refreshStatuses, remoteApi, visibleSourceIds]);
+
   return (
     <div className="remote-sources-panel">
       <section className="remote-sources-hero">
@@ -1822,6 +2031,99 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         <span>
           远程同步和封面/元数据补齐都在后台限速执行；播放活跃时会降并发。当前离线边界是索引、封面和小型元数据缓存，不会静默镜像整库音乐文件。
         </span>
+      </section>
+
+      <section className="remote-source-card remote-cover-performance-card" aria-label="远程封面加载性能">
+        <div className="remote-source-card-head">
+          <div>
+            <h3>加载性能</h3>
+            <p>控制远程封面预热强度；只影响列表封面加载，不会改变播放取流。</p>
+          </div>
+          <span className="remote-source-status">
+            {remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)?.label ?? '均衡'}
+          </span>
+        </div>
+        <div className="remote-source-actions">
+          <div className="remote-source-action-group" aria-label="远程封面加载性能档位">
+            {remoteCoverLoadPerformanceOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                data-state={remoteCoverLoadPerformanceMode === option.value ? 'active' : undefined}
+                aria-pressed={remoteCoverLoadPerformanceMode === option.value}
+                title={option.description}
+                onClick={() => void updateRemoteCoverLoadPerformanceMode(option.value)}
+              >
+                <Gauge size={15} />
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="settings-inline-note">
+          {remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)?.description}
+        </p>
+      </section>
+
+      <section className="remote-source-card remote-cover-performance-card" aria-label="远程专辑合并策略">
+        <div className="remote-source-card-head">
+          <div>
+            <h3>专辑合并</h3>
+            <p>只影响网盘 / 远程专辑列表的展示分组；不改本地库、不改文件标签、不影响播放。</p>
+          </div>
+          <span className="remote-source-status">
+            {remoteAlbumMergeOptions.find((option) => option.value === remoteAlbumMergeStrategy)?.label ?? '保守合并'}
+          </span>
+        </div>
+        <div className="remote-source-actions">
+          <div className="remote-source-action-group" aria-label="远程专辑合并策略">
+            {remoteAlbumMergeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                data-state={pendingRemoteAlbumMergeStrategy === option.value ? 'active' : undefined}
+                aria-pressed={pendingRemoteAlbumMergeStrategy === option.value}
+                title={option.description}
+                onClick={() => {
+                  setPendingRemoteAlbumMergeStrategy(option.value);
+                  setRemoteAlbumGroupingMessage(null);
+                  void refreshRemoteAlbumGroupingPreview(option.value);
+                }}
+              >
+                <Database size={15} />
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-status-grid">
+          <span>
+            <em>原专辑数量</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.currentAlbumCount) : '待扫描'}</strong>
+          </span>
+          <span>
+            <em>合并后数量</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.targetAlbumCount) : '待扫描'}</strong>
+          </span>
+          <span>
+            <em>已索引远程歌曲</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.trackCount) : '待扫描'}</strong>
+          </span>
+        </div>
+        <div className="remote-source-actions">
+          <button type="button" onClick={() => void scanRemoteAlbumsForGrouping()} disabled={remoteAlbumScanBusy}>
+            <RefreshCw className={remoteAlbumScanBusy ? 'spinning-icon' : undefined} size={15} />
+            {remoteAlbumScanBusy ? '扫描中...' : '扫描远程曲库'}
+          </button>
+          <button type="button" onClick={() => void applyRemoteAlbumMergeStrategy()} disabled={remoteAlbumGroupingBusy}>
+            <Check size={15} />
+            {remoteAlbumGroupingBusy ? '重新整理中...' : '应用并重新整理分组'}
+          </button>
+        </div>
+        <p className="settings-inline-note">
+          {remoteAlbumMergeOptions.find((option) => option.value === pendingRemoteAlbumMergeStrategy)?.description}
+        </p>
+        {remoteAlbumGroupingMessage ? <p className="settings-inline-note">{remoteAlbumGroupingMessage}</p> : null}
       </section>
 
       {renderOverview()}
@@ -1888,6 +2190,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           const lyricsPercent = completionPercent(sourceOverview.lyrics);
           const mvPercent = completionPercent(sourceOverview.mv);
           const sourceIssues = sourceIssueTotal(sourceOverview);
+          const coverProgress = coverProgressFor(sourceOverview.cover, jobStatus);
 
           return (
             <article className="remote-source-card" key={source.id}>
@@ -1993,6 +2296,22 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                   <span style={{ width: `${syncProgress.total > 0 ? syncProgress.percent : syncProgress.active ? 18 : 0}%` }} />
                 </div>
               </div>
+              <div
+                className={`remote-scan-progress${coverProgress.active ? ' remote-scan-progress--active' : ''}`}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={coverProgress.total || 100}
+                aria-valuenow={coverProgress.total > 0 ? coverProgress.processed : undefined}
+                aria-label={`${source.displayName} 封面加载进度`}
+              >
+                <div className="remote-scan-progress-head">
+                  <span>封面加载进度</span>
+                  <strong>{coverProgress.label}</strong>
+                </div>
+                <div className="remote-scan-progress-track">
+                  <span style={{ width: `${coverProgress.total > 0 ? coverProgress.percent : coverProgress.active ? 18 : 0}%` }} />
+                </div>
+              </div>
               <div className="remote-job-grid">
                 {jobKinds.map((kind) => (
                   <span key={kind}>
@@ -2048,7 +2367,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                     <Check size={15} />{source.status === 'disabled' ? '启用' : '禁用'}
                   </button>
                   <button type="button" onClick={() => void runSourceAction(source, 'delete')}>
-                    <Trash2 size={15} />删除
+                    <Trash2 size={15} />断开
                   </button>
                 </div>
               </div>
@@ -2093,7 +2412,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           ))}
         </div>
         <div className="remote-source-actions">
-          <button type="button" data-state={globalJobStatus.paused ? 'paused' : undefined} aria-pressed={globalJobStatus.paused} onClick={() => remoteApi?.setBackgroundPaused(!globalJobStatus.paused).then(setGlobalJobStatus)}>
+          <button type="button" data-state={globalJobStatus.paused ? 'paused' : undefined} aria-pressed={globalJobStatus.paused} onClick={() => void setGlobalBackgroundPaused()}>
             {globalJobStatus.paused ? '恢复后台任务' : '全局暂停后台任务'}
           </button>
         </div>

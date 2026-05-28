@@ -47,6 +47,7 @@ type MediaServerItem = {
   Type?: string;
   CollectionType?: string;
   Album?: string;
+  AlbumId?: string;
   AlbumArtist?: string;
   Artists?: string[];
   RunTimeTicks?: number;
@@ -80,7 +81,7 @@ const authCacheTtlMs = 30 * 60 * 1000;
 const mediaServerRequestLimiter = new class {
   private active = 0;
   private readonly queue: Array<QueuedRequest<unknown>> = [];
-  private readonly maxConcurrent = 6;
+  private readonly maxConcurrent = 32;
 
   run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (signal?.aborted) {
@@ -454,7 +455,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
     url.searchParams.set('ParentId', parentId);
     url.searchParams.set('Recursive', 'true');
     url.searchParams.set('IncludeItemTypes', 'Audio');
-    url.searchParams.set('Fields', 'MediaSources,Genres,DateCreated,DateModified,ProviderIds,Path,ProductionYear,RunTimeTicks,IndexNumber,ParentIndexNumber,AlbumArtist,Artists,Album,Bitrate,MediaStreams,ImageTags');
+    url.searchParams.set('Fields', 'MediaSources,Genres,DateCreated,DateModified,ProviderIds,Path,ProductionYear,RunTimeTicks,IndexNumber,ParentIndexNumber,AlbumArtist,Artists,Album,AlbumId,Bitrate,MediaStreams,ImageTags');
     url.searchParams.set('StartIndex', String(startIndex));
     url.searchParams.set('Limit', String(limit));
 
@@ -491,6 +492,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
         id: item.Id,
         name: item.Name,
         album: item.Album,
+        albumId: item.AlbumId,
         albumArtist: item.AlbumArtist,
         artists: item.Artists,
         runtime: item.RunTimeTicks,
@@ -509,6 +511,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
     const audioStream = item.MediaSources?.[0]?.MediaStreams?.find((stream) => stream.Type === 'Audio');
     const artist = cleanText(item.Artists?.[0]) ?? 'Unknown Artist';
     const albumArtist = cleanText(item.AlbumArtist) ?? artist;
+    const albumId = cleanText(item.AlbumId);
     const duration = cleanNumber(item.RunTimeTicks) ? Number(item.RunTimeTicks) / 10_000_000 : null;
     const title = cleanText(item.Name) ?? cleanText(item.Id) ?? 'Untitled';
 
@@ -533,6 +536,7 @@ export class MediaServerRemoteSourceAdapter implements RemoteSourceAdapter {
         album: item.Album ? this.provider : 'missing',
         albumArtist: albumArtist === 'Unknown Artist' ? 'filename_fallback' : this.provider,
         duration: duration ? this.provider : 'unknown',
+        ...(albumId ? { albumId } : {}),
         ...(item.ImageTags?.Primary ? { coverArt: item.ImageTags.Primary } : {}),
       },
       warnings: duration ? [] : ['duration_unavailable'],

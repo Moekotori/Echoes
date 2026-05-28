@@ -13132,10 +13132,48 @@ html[data-theme="dark"] .history-play-count {
 }
 
 .remote-source-actions button[data-state="active"] {
-  border-color: rgba(59, 130, 246, 0.72);
-  background: rgba(59, 130, 246, 0.18);
-  color: #bfdbfe;
-  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.18);
+  border-color: color-mix(in srgb, var(--color-accent) 78%, #1d4ed8);
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-bg-elevated));
+  color: var(--color-accent-strong);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.remote-cover-performance-card {
+  border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  background: color-mix(in srgb, var(--color-bg-elevated) 94%, var(--color-accent) 6%);
+}
+
+.remote-cover-performance-card .remote-source-card-head h3 {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.remote-cover-performance-card .remote-source-card-head p,
+.remote-cover-performance-card .settings-inline-note {
+  color: color-mix(in srgb, var(--color-text) 78%, var(--color-muted));
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.remote-cover-performance-card .settings-inline-note {
+  color: var(--color-text);
+}
+
+.remote-cover-performance-card .remote-source-action-group {
+  border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
+  background: color-mix(in srgb, var(--color-bg) 88%, var(--color-accent) 12%);
+}
+
+.remote-cover-performance-card .remote-source-actions button {
+  color: color-mix(in srgb, var(--color-text) 82%, var(--color-accent));
+  font-weight: 700;
+}
+
+.remote-cover-performance-card .remote-source-actions button[data-state="active"] {
+  background: var(--color-accent);
+  color: #ffffff;
+  text-shadow: none;
 }
 
 .remote-source-actions button[data-state="paused"] {

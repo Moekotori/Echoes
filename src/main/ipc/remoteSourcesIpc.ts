@@ -1,5 +1,6 @@
 import { ipcMain, shell } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
+import type { RemoteAlbumMergeStrategy } from '../../shared/types/appSettings';
 import type {
   BaiduOAuthAuthorizeRequest,
   BaiduOAuthLoginRequest,
@@ -28,6 +29,7 @@ import {
 
 const providers = new Set<RemoteSourceProvider>(['webdav', 'baidu', 'jellyfin', 'emby', 'smb', 'sshfs', 'subsonic']);
 const syncModes = new Set<RemoteSourceSyncMode>(['browse', 'index', 'mirror']);
+const remoteAlbumMergeStrategies = new Set<RemoteAlbumMergeStrategy>(['conservative', 'standard']);
 const backgroundJobKinds = new Set<RemoteBackgroundJobKind>(['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill']);
 const issueKinds = new Set<RemoteSourceIssueKind>(['metadata', 'cover', 'lyrics', 'mv', 'missing']);
 const sortValues = new Set<LibrarySort>([
@@ -74,6 +76,9 @@ const normalizeJobKinds = (value: unknown): RemoteBackgroundJobKind[] | undefine
 };
 
 const normalizeBoolean = (value: unknown): boolean => value === true;
+
+const normalizeRemoteAlbumMergeStrategy = (value: unknown): RemoteAlbumMergeStrategy | undefined =>
+  remoteAlbumMergeStrategies.has(value as RemoteAlbumMergeStrategy) ? (value as RemoteAlbumMergeStrategy) : undefined;
 
 const normalizeTrackIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
@@ -340,6 +345,9 @@ export const registerRemoteSourcesIpc = (): void => {
   ipcMain.handle(IpcChannels.RemoteSourcesList, () => getRemoteSourceService().listSources());
   ipcMain.handle(IpcChannels.RemoteSourcesGetOverview, (_event, sourceId?: unknown) =>
     getRemoteSourceService().getOverview(optionalText(sourceId)),
+  );
+  ipcMain.handle(IpcChannels.RemoteSourcesPreviewAlbumGrouping, (_event, strategy?: unknown, sourceId?: unknown) =>
+    getRemoteSourceService().previewAlbumGrouping(normalizeRemoteAlbumMergeStrategy(strategy), optionalText(sourceId)),
   );
   ipcMain.handle(IpcChannels.RemoteSourcesListIssues, (_event, sourceId: unknown, kind: unknown, limit?: unknown) =>
     getRemoteSourceService().listIssues(requireText(sourceId, 'sourceId'), normalizeIssueKind(kind), normalizeIssueLimit(limit)),

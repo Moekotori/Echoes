@@ -860,6 +860,25 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ scanPerformanceMode: 'turbo' as never }).scanPerformanceMode).toBe('balanced');
   });
 
+  it('normalizes remote cover load performance mode', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).remoteCoverLoadPerformanceMode).toBe('balanced');
+    expect(normalizeSettings({ remoteCoverLoadPerformanceMode: 'low' }).remoteCoverLoadPerformanceMode).toBe('low');
+    expect(normalizeSettings({ remoteCoverLoadPerformanceMode: 'aggressive' }).remoteCoverLoadPerformanceMode).toBe('aggressive');
+    expect(normalizeSettings({ remoteCoverLoadPerformanceMode: 'lan' }).remoteCoverLoadPerformanceMode).toBe('lan');
+    expect(normalizeSettings({ remoteCoverLoadPerformanceMode: 'turbo' as never }).remoteCoverLoadPerformanceMode).toBe('balanced');
+  });
+
+  it('normalizes remote album merge strategy', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).remoteAlbumMergeStrategy).toBe('conservative');
+    expect(normalizeSettings({ remoteAlbumMergeStrategy: 'conservative' }).remoteAlbumMergeStrategy).toBe('conservative');
+    expect(normalizeSettings({ remoteAlbumMergeStrategy: 'standard' }).remoteAlbumMergeStrategy).toBe('standard');
+    expect(normalizeSettings({ remoteAlbumMergeStrategy: 'loose' as never }).remoteAlbumMergeStrategy).toBe('conservative');
+  });
+
   it('normalizes MV sync mode', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

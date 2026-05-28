@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { EchoDatabase } from '../../database/createDatabase';
+import type { RemoteAlbumMergeStrategy } from '../../../shared/types/appSettings';
 import type { LibraryPage, LibrarySort, LibraryTrack } from '../../../shared/types/library';
 import type {
+  RemoteAlbumGroupingPreview,
   RemoteBackgroundJobKind,
   RemoteIndexedFolderStats,
   RemoteIndexedTracksQuery,
@@ -23,6 +25,8 @@ import type { RemoteSourceSecret, RemoteTrackWrite } from './remoteTypes';
 import { RemoteSourceSecretStore } from './RemoteSourceSecretStore';
 import { normalizeRemoteDirectoryPath } from './remoteIdentity';
 import { buildTrackSearchTerms, buildTrackSearchTermsAsync } from '../SearchIndexTokens';
+import { remoteCoverCacheKeyFor, subsonicDirectCoverUrlFor } from './remoteCoverUrls';
+import { remoteAlbumGroupingKey, type RemoteAlbumGroupingTrack } from './RemoteAlbumGrouping';
 
 type DbRow = Record<string, unknown>;
 
@@ -174,6 +178,60 @@ export class RemoteLibraryStore {
     );
 
     return { ...summary, sources };
+  }
+
+  previewAlbumGrouping(
+    currentStrategy: RemoteAlbumMergeStrategy,
+    targetStrategy: RemoteAlbumMergeStrategy,
+    sourceId?: string | null,
+  ): RemoteAlbumGroupingPreview {
+    const sourceFilter = sourceId ? 'AND remote_tracks.source_id = ?' : '';
+    const params = sourceId ? [sourceId] : [];
+    const rows = this.database
+      .prepare<string[], DbRow>(
+        `SELECT
+           remote_tracks.id,
+           remote_tracks.source_id,
+           remote_tracks.provider,
+           remote_tracks.remote_path,
+           remote_tracks.album,
+           remote_tracks.album_artist,
+           remote_tracks.artist,
+           remote_tracks.year,
+           remote_tracks.field_sources_json
+         FROM remote_tracks
+         INNER JOIN remote_sources ON remote_sources.id = remote_tracks.source_id
+         WHERE remote_tracks.availability != 'missing'
+           AND remote_sources.status = 'enabled'
+           ${sourceFilter}`,
+      )
+      .all(...params)
+      .map((row): RemoteAlbumGroupingTrack => ({
+        id: String(row.id ?? ''),
+        sourceId: String(row.source_id ?? ''),
+        provider: String(row.provider ?? 'webdav'),
+        remotePath: String(row.remote_path ?? ''),
+        album: String(row.album ?? ''),
+        albumArtist: String(row.album_artist ?? ''),
+        artist: String(row.artist ?? ''),
+        year: numberOrNull(row.year),
+        fieldSources: Object.fromEntries(
+          Object.entries(parseJsonObject(row.field_sources_json)).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+        ),
+      }));
+    const currentAlbums = new Set(rows.map((row) => remoteAlbumGroupingKey(row, currentStrategy)));
+    const targetAlbums = new Set(rows.map((row) => remoteAlbumGroupingKey(row, targetStrategy)));
+    const sourceIds = new Set(rows.map((row) => row.sourceId).filter(Boolean));
+
+    return {
+      sourceId: sourceId ?? null,
+      sourceCount: sourceIds.size,
+      trackCount: rows.length,
+      currentStrategy,
+      targetStrategy,
+      currentAlbumCount: currentAlbums.size,
+      targetAlbumCount: targetAlbums.size,
+    };
   }
 
   listIssues(sourceId: string, kind: RemoteSourceIssueKind, limit = 50): RemoteSourceIssueItem[] {
@@ -332,9 +390,19 @@ export class RemoteLibraryStore {
   }
 
   deleteSource(id: string): void {
+    const timestamp = nowIso();
     this.database.transaction(() => {
+      this.preserveRemoteCoverAliasesForSource(id);
       this.database.prepare('DELETE FROM remote_tracks WHERE source_id = ?').run(id);
-      this.database.prepare('DELETE FROM remote_sources WHERE id = ?').run(id);
+      this.database
+        .prepare(
+          `UPDATE remote_sources
+           SET status = 'disabled',
+               last_error = NULL,
+               updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(timestamp, id);
     })();
   }
 
@@ -371,8 +439,8 @@ export class RemoteLibraryStore {
     const placeholders = paths.map(() => '?').join(', ');
     return this.database
       .prepare<unknown[], DbRow>(
-        `SELECT id, source_id, remote_path, title, artist, album, duration, codec, cover_id,
-          metadata_status, cover_status, lyrics_status, mv_status, availability
+        `SELECT id, source_id, remote_path, stable_key, title, artist, album, duration, codec, cover_id,
+          metadata_status, cover_status, lyrics_status, mv_status, availability, provider, field_sources_json
          FROM remote_tracks
          WHERE source_id = ? AND remote_path IN (${placeholders})`,
       )
@@ -730,6 +798,7 @@ export class RemoteLibraryStore {
 
     this.database.transaction(() => {
       for (const track of tracks) {
+        const cachedCoverId = track.coverId ?? this.getCachedRemoteCoverIdForTrack(track);
         const searchTerms = preparedSearchTerms.get(track.id) ?? buildTrackSearchTerms({
           title: track.title,
           artist: track.artist,
@@ -762,8 +831,8 @@ export class RemoteLibraryStore {
           track.sizeBytes,
           track.modifiedAt,
           track.etag,
-          track.coverId,
-          track.coverId ? 'ok' : track.coverStatus,
+          cachedCoverId,
+          cachedCoverId ? 'ok' : track.coverStatus,
           track.metadataStatus,
           track.lyricsStatus,
           track.mvStatus,
@@ -773,8 +842,111 @@ export class RemoteLibraryStore {
           track.createdAt ?? timestamp,
           track.updatedAt ?? timestamp,
         );
+        if (cachedCoverId) {
+          this.upsertRemoteCoverCacheForTrack(track, cachedCoverId, timestamp);
+        }
       }
     })();
+  }
+
+  getCachedRemoteCoverIdForTrack(track: {
+    provider: unknown;
+    remotePath: unknown;
+    stableKey: unknown;
+    fieldSources: Record<string, unknown>;
+  }): string | null {
+    const cacheKey = remoteCoverCacheKeyFor({
+      provider: track.provider,
+      fieldSources: track.fieldSources,
+      remotePath: track.remotePath,
+      stableKey: track.stableKey,
+    });
+    if (!cacheKey) {
+      return null;
+    }
+
+    const row = this.database
+      .prepare<[string], { cover_id: string }>(
+        `SELECT remote_cover_cache.cover_id
+         FROM remote_cover_cache
+         INNER JOIN covers ON covers.id = remote_cover_cache.cover_id
+         WHERE remote_cover_cache.cache_key = ?`,
+      )
+      .get(cacheKey);
+    return textOrNull(row?.cover_id);
+  }
+
+  upsertRemoteCoverCacheForTrack(
+    track: {
+      sourceId: string;
+      provider: unknown;
+      remotePath: string;
+      stableKey: unknown;
+      fieldSources: Record<string, unknown>;
+    },
+    coverId: string,
+    timestamp = nowIso(),
+  ): void {
+    const cacheKey = remoteCoverCacheKeyFor({
+      provider: track.provider,
+      fieldSources: track.fieldSources,
+      remotePath: track.remotePath,
+      stableKey: track.stableKey,
+    });
+    if (!cacheKey) {
+      return;
+    }
+
+    this.database
+      .prepare(
+        `INSERT INTO remote_cover_cache (
+          cache_key, provider, cover_id, source_id, cover_art, remote_path, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+          cover_id = excluded.cover_id,
+          source_id = excluded.source_id,
+          cover_art = excluded.cover_art,
+          remote_path = excluded.remote_path,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        cacheKey,
+        String(track.provider),
+        coverId,
+        track.sourceId,
+        textOrNull(track.fieldSources.coverArt),
+        track.remotePath,
+        timestamp,
+        timestamp,
+      );
+  }
+
+  private preserveRemoteCoverAliasesForSource(sourceId: string): void {
+    const rows = this.database
+      .prepare<[string], DbRow>(
+        `SELECT source_id, provider, remote_path, stable_key, cover_id, field_sources_json
+         FROM remote_tracks
+         WHERE source_id = ?
+           AND cover_id IS NOT NULL`,
+      )
+      .all(sourceId);
+
+    for (const row of rows) {
+      const coverId = textOrNull(row.cover_id);
+      if (!coverId) {
+        continue;
+      }
+      const fieldSources = Object.fromEntries(
+        Object.entries(parseJsonObject(row.field_sources_json)).flatMap(([key, value]) => (typeof value === 'string' ? [[key, value]] : [])),
+      );
+      this.upsertRemoteCoverCacheForTrack({
+        sourceId: String(row.source_id ?? ''),
+        provider: String(row.provider ?? ''),
+        remotePath: String(row.remote_path ?? ''),
+        stableKey: String(row.stable_key ?? ''),
+        fieldSources,
+      }, coverId);
+    }
   }
 
   updateTrackMetadata(trackId: string, update: {
@@ -1017,6 +1189,9 @@ export class RemoteLibraryStore {
 
   private mapTrackLookup(row: DbRow): RemoteTrackLookupItem {
     const coverId = textOrNull(row.cover_id);
+    const fieldSources = Object.fromEntries(
+      Object.entries(parseJsonObject(row.field_sources_json)).flatMap(([key, value]) => (typeof value === 'string' ? [[key, value]] : [])),
+    );
 
     return {
       trackId: String(row.id),
@@ -1027,7 +1202,9 @@ export class RemoteLibraryStore {
       album: String(row.album),
       duration: numberOrNull(row.duration),
       codec: textOrNull(row.codec),
-      coverThumb: coverId ? `echo-cover://thumb/${encodeURIComponent(coverId)}` : null,
+      coverThumb: coverId
+        ? `echo-cover://thumb/${encodeURIComponent(coverId)}`
+        : subsonicDirectCoverUrlFor(row.id, row.provider, coverId, fieldSources, row.remote_path, row.stable_key),
       metadataStatus: remoteTrackStatusOrPending(row.metadata_status),
       coverStatus: remoteTrackStatusOrPending(row.cover_status),
       lyricsStatus: remoteTrackStatusOrPending(row.lyrics_status),
@@ -1038,6 +1215,9 @@ export class RemoteLibraryStore {
 
   private mapTrack(row: DbRow): RemoteLibraryTrack {
     const coverId = textOrNull(row.cover_id);
+    const fieldSources = Object.fromEntries(
+      Object.entries(parseJsonObject(row.field_sources_json)).flatMap(([key, value]) => (typeof value === 'string' ? [[key, value]] : [])),
+    );
 
     return {
       id: String(row.id),
@@ -1062,15 +1242,15 @@ export class RemoteLibraryStore {
       modifiedAt: textOrNull(row.modified_at),
       etag: textOrNull(row.etag),
       coverId,
-      coverThumb: coverId ? `echo-cover://thumb/${encodeURIComponent(coverId)}` : null,
+      coverThumb: coverId
+        ? `echo-cover://thumb/${encodeURIComponent(coverId)}`
+        : subsonicDirectCoverUrlFor(row.id, row.provider, coverId, fieldSources, row.remote_path, row.stable_key),
       coverStatus: remoteTrackStatusOrPending(row.cover_status),
       metadataStatus: remoteTrackStatusOrPending(row.metadata_status),
       lyricsStatus: remoteTrackStatusOrPending(row.lyrics_status),
       mvStatus: remoteTrackStatusOrPending(row.mv_status),
       availability: row.availability === 'available' || row.availability === 'missing' ? row.availability : 'unknown',
-      fieldSources: Object.fromEntries(
-        Object.entries(parseJsonObject(row.field_sources_json)).flatMap(([key, value]) => (typeof value === 'string' ? [[key, value]] : [])),
-      ),
+      fieldSources,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };

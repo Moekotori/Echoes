@@ -261,6 +261,7 @@ export const IpcChannels = {
   LibraryGetReplayGainAnalysisStatus: 'library:get-replay-gain-analysis-status',
   RemoteSourcesList: 'remoteSources:list',
   RemoteSourcesGetOverview: 'remoteSources:getOverview',
+  RemoteSourcesPreviewAlbumGrouping: 'remoteSources:previewAlbumGrouping',
   RemoteSourcesListIssues: 'remoteSources:listIssues',
   RemoteSourcesCreate: 'remoteSources:create',
   RemoteSourcesUpdate: 'remoteSources:update',

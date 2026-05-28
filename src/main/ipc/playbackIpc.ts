@@ -17,7 +17,7 @@ import type {
 } from '../../shared/types/playback';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AirPlayReceiverState, AirPlayReceiverStatus } from '../../shared/types/connect';
-import type { PlayableTrack } from '../../shared/types/remoteSources';
+import type { PlayableTrack, RemoteLibraryTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import type { HqPlayerPlaybackHandoffRequest } from '../../shared/types/hqplayer';
 import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
@@ -70,8 +70,14 @@ const setRemotePlaybackActive = (active: boolean): void => {
     return;
   }
 
-  const settings = getAppSettings();
-  if (settings.lowLoadPlaybackModeEnabled === true && settings.lowLoadPlaybackEnhancementsEnabled === true) {
+  let lowLoadEnhanced = false;
+  try {
+    const settings = getAppSettings();
+    lowLoadEnhanced = settings.lowLoadPlaybackModeEnabled === true && settings.lowLoadPlaybackEnhancementsEnabled === true;
+  } catch {
+    lowLoadEnhanced = false;
+  }
+  if (lowLoadEnhanced) {
     getRemoteSourceService().setPlaybackActive(true, { lowLoadEnhanced: true });
     return;
   }
@@ -453,6 +459,20 @@ const normalizeProbeHint = (value: unknown): PlaybackProbeHint | undefined => {
   return Object.keys(output).length > 0 ? output : undefined;
 };
 
+const normalizeMediaTechnicalFields = (input: Record<string, unknown>) => {
+  const sampleRate = input.sampleRate === null ? null : optionalPositiveNumber(input.sampleRate);
+  const bitDepth = input.bitDepth === null ? null : optionalPositiveNumber(input.bitDepth);
+  const bitrate = input.bitrate === null ? null : optionalPositiveNumber(input.bitrate);
+  const codec = input.codec === null ? null : optionalText(input.codec);
+
+  return {
+    codec: codec === undefined ? undefined : codec,
+    sampleRate: sampleRate === undefined ? undefined : sampleRate === null ? null : Math.round(sampleRate),
+    bitDepth: bitDepth === undefined ? undefined : bitDepth === null ? null : Math.round(bitDepth),
+    bitrate: bitrate === undefined ? undefined : bitrate === null ? null : Math.round(bitrate),
+  };
+};
+
 const optionalFiniteNumberOrNull = (value: unknown): number | null | undefined => {
   if (value === null) {
     return null;
@@ -565,12 +585,14 @@ const normalizeMediaItem = (value: unknown): PlayableTrack => {
   };
 
   if (mediaType === 'remote') {
+    const technical = normalizeMediaTechnicalFields(input);
     return {
       ...base,
       mediaType,
       sourceId: optionalText(input.sourceId) ?? null,
       stableKey: optionalText(input.stableKey) ?? null,
       remotePath: optionalText(input.remotePath) ?? null,
+      ...technical,
     };
   }
 
@@ -671,14 +693,28 @@ const resolveMediaItemForPlayback = async (
 
   const item = request.item;
   let durationSeconds = item.duration && item.duration > 0 ? item.duration : null;
+  let refreshedRemoteTrack: RemoteLibraryTrack | null = null;
   if (item.mediaType === 'remote' && !durationSeconds) {
     setRemotePlaybackActive(true);
-    const refreshed = await getRemoteSourceService().refreshTrackMetadata(item.trackId);
-    durationSeconds = refreshed?.duration && refreshed.duration > 0 ? refreshed.duration : null;
+    refreshedRemoteTrack = await getRemoteSourceService().refreshTrackMetadata(item.trackId);
+    durationSeconds =
+      refreshedRemoteTrack?.duration && refreshedRemoteTrack.duration > 0 ? refreshedRemoteTrack.duration : null;
   }
 
   let filePath: string;
-  let probe: PlaybackProbeHint | undefined = durationSeconds ? { durationSeconds } : undefined;
+  let probe: PlaybackProbeHint | undefined = createProbeHintForMediaItem(
+    item,
+    durationSeconds ? { durationSeconds } : undefined,
+  );
+  if (item.mediaType === 'remote' && refreshedRemoteTrack) {
+    probe = {
+      ...(probe ?? {}),
+      fileSampleRate: probe?.fileSampleRate ?? refreshedRemoteTrack.sampleRate,
+      codec: probe?.codec ?? refreshedRemoteTrack.codec,
+      bitDepth: probe?.bitDepth ?? refreshedRemoteTrack.bitDepth,
+      bitrate: probe?.bitrate ?? refreshedRemoteTrack.bitrate,
+    };
+  }
 
   if (item.mediaType === 'remote') {
     filePath = (
@@ -782,9 +818,31 @@ const createProbeHintForMediaItem = (item: PlayableTrack, hint?: PlaybackProbeHi
   const probe: PlaybackProbeHint = {
     ...hint,
   };
+  const technical = item as Partial<{
+    sampleRate: number | null;
+    codec: string | null;
+    bitDepth: number | null;
+    bitrate: number | null;
+  }>;
 
   if (probe.durationSeconds === undefined && typeof item.duration === 'number' && Number.isFinite(item.duration)) {
     probe.durationSeconds = item.duration;
+  }
+
+  if (probe.fileSampleRate === undefined && technical.sampleRate !== undefined) {
+    probe.fileSampleRate = technical.sampleRate;
+  }
+
+  if (probe.codec === undefined && technical.codec !== undefined) {
+    probe.codec = technical.codec;
+  }
+
+  if (probe.bitDepth === undefined && technical.bitDepth !== undefined) {
+    probe.bitDepth = technical.bitDepth;
+  }
+
+  if (probe.bitrate === undefined && technical.bitrate !== undefined) {
+    probe.bitrate = technical.bitrate;
   }
 
   return Object.keys(probe).length > 0 ? probe : undefined;
@@ -1154,11 +1212,11 @@ const recoverActiveMediaPlaybackFromExpiredUrl = async (
       savePlaybackMemoryNow();
     });
     const recoveredStatus = toPlaybackStatus();
+    setRemotePlaybackActive(true);
     if (request.item.mediaType === 'remote' && recoveredStatus.durationMs > 0) {
       schedulePostPlaybackTask('remote duration backfill', postTaskGeneration, () => {
         getRemoteSourceService().backfillDuration(request.item.trackId, recoveredStatus.durationMs / 1000);
       });
-      setRemotePlaybackActive(true);
     }
     void syncSmtcStatus();
     reportPlaybackAudioRecovery(error, 'play-media-item-expired-url-retry', {
@@ -1420,6 +1478,7 @@ export const registerPlaybackIpc = (): void => {
       schedulePostPlaybackTask('savePlaybackMemoryNow', postTaskGeneration, () => {
         savePlaybackMemoryNow();
       });
+      setRemotePlaybackActive(true);
       void syncSmtcStatus();
       return toPlaybackStatus();
     } catch (error) {
@@ -1517,9 +1576,7 @@ export const registerPlaybackIpc = (): void => {
             getRemoteSourceService().backfillDuration(item.trackId, status.durationMs / 1000);
           });
         }
-        if (item.mediaType === 'remote') {
-          setRemotePlaybackActive(true);
-        }
+        setRemotePlaybackActive(true);
         setActiveMediaPlayback(request);
         void syncSmtcStatus();
         return status;
@@ -1581,9 +1638,7 @@ export const registerPlaybackIpc = (): void => {
               getRemoteSourceService().backfillDuration(item.trackId, status.durationMs / 1000);
             });
           }
-          if (item.mediaType === 'remote') {
-            setRemotePlaybackActive(true);
-          }
+          setRemotePlaybackActive(true);
           setActiveMediaPlayback(request);
           void syncSmtcStatus();
           return status;
@@ -1604,12 +1659,14 @@ export const registerPlaybackIpc = (): void => {
       if (airPlayReceiver) {
         const status = await airPlayReceiver.playPlayback();
         savePlaybackMemoryNow();
+        setRemotePlaybackActive(true);
         void syncSmtcStatus();
         return airPlayReceiverStatusToPlaybackStatus(status);
       }
 
       await getAudioSession().play();
       savePlaybackMemoryNow();
+      setRemotePlaybackActive(true);
       void syncSmtcStatus();
       return toPlaybackStatus();
     } catch (error) {
@@ -1627,12 +1684,14 @@ export const registerPlaybackIpc = (): void => {
     if (airPlayReceiver) {
       const status = await airPlayReceiver.pausePlayback();
       savePlaybackMemoryNow();
+      setRemotePlaybackActive(false);
       void syncSmtcStatus();
       return airPlayReceiverStatusToPlaybackStatus(status);
     }
 
     await getAudioSession().pause();
     savePlaybackMemoryNow();
+    setRemotePlaybackActive(false);
     void syncSmtcStatus();
     return toPlaybackStatus();
   }));

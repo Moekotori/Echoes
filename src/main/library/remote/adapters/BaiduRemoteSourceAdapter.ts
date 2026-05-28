@@ -325,7 +325,7 @@ export class BaiduRemoteSourceAdapter implements RemoteSourceAdapter {
           title: common.title ? 'embedded' : 'filename_fallback',
           artist: common.artist ? 'embedded' : 'filename_fallback',
           album: common.album ? 'embedded' : 'filename_fallback',
-          albumArtist: common.albumartist ? 'embedded' : common.artist ? 'embedded' : 'filename_fallback',
+          albumArtist: common.albumartist ? 'embedded' : common.artist ? 'artist_fallback' : 'filename_fallback',
           duration: duration ? 'technical' : 'unknown',
         },
         warnings: duration ? [] : ['duration_unavailable'],

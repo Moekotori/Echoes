@@ -519,6 +519,59 @@ describe('FoldersPage', () => {
     expect(remoteSourcesMock.previewDirectoryItems).not.toHaveBeenCalled();
   });
 
+  it('shows indexed Subsonic tracks even when directory browsing is unavailable', async () => {
+    const cachedTrack = track({
+      id: 'remote-subsonic-1',
+      mediaType: 'remote',
+      sourceId: 'remote-subsonic',
+      sourceDisplayName: 'Navidrome',
+      provider: 'subsonic',
+      remotePath: 'subsonic:song:song-1',
+      title: 'Subsonic Song',
+      artist: 'Subsonic Artist',
+      album: 'Subsonic Album',
+      duration: 188,
+      coverThumb: 'echo-image://subsonic-cover/remote-subsonic-1?size=512',
+    });
+    remoteSourcesMock.list.mockResolvedValue([
+      remoteSource({
+        id: 'remote-subsonic',
+        provider: 'subsonic',
+        displayName: 'Navidrome',
+        baseUrl: 'http://127.0.0.1:4533',
+        authType: 'basic',
+        config: {},
+        indexedTrackCount: 6114,
+      }),
+    ]);
+    remoteSourcesMock.browse.mockRejectedValue(new Error('Subsonic browse failed'));
+    remoteSourcesMock.getIndexedFolderStats.mockResolvedValue({
+      sourceId: 'remote-subsonic',
+      rootPath: '/',
+      trackCount: 6114,
+      totalSizeBytes: 1024,
+      albumCount: 100,
+      artistCount: 50,
+    });
+    remoteSourcesMock.listIndexedTracksPage.mockResolvedValue({
+      items: [cachedTrack],
+      page: 1,
+      pageSize: 100,
+      total: 6114,
+      hasMore: true,
+    });
+
+    renderFoldersPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '网盘' }));
+
+    expect(await screen.findByText('Subsonic Song')).toBeTruthy();
+    expect(await screen.findByText('Subsonic Artist')).toBeTruthy();
+    expect(remoteSourcesMock.getIndexedFolderStats).toHaveBeenCalledWith('remote-subsonic', '/');
+    expect(remoteSourcesMock.listIndexedTracksPage).toHaveBeenCalledWith('remote-subsonic', expect.objectContaining({ rootPath: '/', page: 1, pageSize: 100 }));
+    expect(remoteSourcesMock.previewDirectoryItems).not.toHaveBeenCalled();
+  });
+
   it('opens settings from the remote empty state', async () => {
     remoteSourcesMock.list.mockResolvedValue([]);
     const onNavigateSettings = vi.fn();

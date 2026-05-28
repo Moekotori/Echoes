@@ -1237,6 +1237,27 @@ export const migrations: Migration[] = [
       addColumnIfMissing(database, 'artist_event_cache', 'region', 'region TEXT');
     },
   },
+  {
+    id: 40,
+    apply: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS remote_cover_cache (
+          cache_key TEXT PRIMARY KEY,
+          provider TEXT NOT NULL,
+          cover_id TEXT NOT NULL,
+          source_id TEXT,
+          cover_art TEXT,
+          remote_path TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (cover_id) REFERENCES covers(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_remote_cover_cache_cover_id
+          ON remote_cover_cache(cover_id);
+      `);
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

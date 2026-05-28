@@ -198,6 +198,7 @@ import type {
   BaiduOAuthLoginRequest,
   BaiduOAuthTokenRequest,
   BaiduOAuthTokenResult,
+  RemoteAlbumGroupingPreview,
   RemoteDirectoryItem,
   RemoteDirectoryPreviewItem,
   RemoteDirectoryPreviewOptions,
@@ -507,6 +508,7 @@ export type EchoApi = {
   remoteSources: {
     list: () => Promise<RemoteSource[]>;
     getOverview: (sourceId?: string | null) => Promise<RemoteSourceOverview>;
+    previewAlbumGrouping: (strategy?: AppSettings['remoteAlbumMergeStrategy'], sourceId?: string | null) => Promise<RemoteAlbumGroupingPreview>;
     listIssues: (sourceId: string, kind: RemoteSourceIssueKind, limit?: number) => Promise<RemoteSourceIssueItem[]>;
     create: (input: RemoteSourceInput) => Promise<RemoteSource>;
     update: (input: RemoteSourceUpdate) => Promise<RemoteSource>;

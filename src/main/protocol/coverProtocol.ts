@@ -1,15 +1,19 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
-import { protocol } from 'electron';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { app, protocol } from 'electron';
 import type { CoverVariant } from '../library/libraryTypes';
 import { getAppSettings, getAppWallpaperDirectory, getLyricsWallpaperDirectory } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
 import { defaultCoverSvg } from '../library/workers/TsCoverExtractor';
 import { fetchWithNetworkProxy } from '../network/networkFetch';
+import { getRemoteSourceService } from '../library/remote/RemoteSourceService';
 
 const cacheControlHeader = 'public, max-age=31536000, immutable';
 const wallpaperCacheControlHeader = 'no-store';
 const remoteImageCacheControlHeader = 'public, max-age=86400';
+const subsonicCoverCacheControlHeader = 'public, max-age=31536000, immutable';
 const allowedRemoteImageHosts = new Set([
   'i0.hdslb.com',
   'i1.hdslb.com',
@@ -55,6 +59,87 @@ const contentTypeForPath = (filePath: string, fallback: string | null): string =
   }
 };
 
+const cachedRemoteCoverExtensions = ['avif', 'webp', 'png', 'jpg', 'jpeg', 'gif'] as const;
+
+const extensionForImageMimeType = (mimeType: string): string | null => {
+  switch (mimeType) {
+    case 'image/avif':
+      return 'avif';
+    case 'image/webp':
+      return 'webp';
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return null;
+  }
+};
+
+const subsonicCoverCacheKey = (identity: string, size: number): string =>
+  createHash('sha256').update('subsonic-cover').update('\0').update(identity).update('\0').update(String(size)).digest('hex');
+
+const getRemoteCoverCacheDirectory = (): string => {
+  try {
+    const service = getLibraryService() as { getCoverCacheDir?: () => string };
+    const coverCacheDir = service.getCoverCacheDir?.();
+    if (coverCacheDir) {
+      return join(coverCacheDir, 'remote-direct', 'subsonic');
+    }
+  } catch {
+    // Fall through to userData for early-start protocol tests or service unavailability.
+  }
+
+  return join(app.getPath('userData'), 'remote-cover-cache', 'subsonic');
+};
+
+const readSubsonicCoverCache = async (identity: string, size: number): Promise<Response | null> => {
+  const cacheKey = subsonicCoverCacheKey(identity, size);
+  const cacheDir = getRemoteCoverCacheDirectory();
+  for (const extension of cachedRemoteCoverExtensions) {
+    const filePath = join(cacheDir, `${cacheKey}.${extension}`);
+    try {
+      return new Response(await readFile(filePath), {
+        headers: {
+          'Content-Type': contentTypeForPath(filePath, null),
+          'Cache-Control': subsonicCoverCacheControlHeader,
+        },
+      });
+    } catch {
+      // Try the next possible extension.
+    }
+  }
+
+  return null;
+};
+
+const writeSubsonicCoverCache = async (
+  identity: string,
+  size: number,
+  mimeType: string,
+  data: Buffer,
+): Promise<void> => {
+  const extension = extensionForImageMimeType(mimeType);
+  if (!extension) {
+    return;
+  }
+
+  const cacheDir = getRemoteCoverCacheDirectory();
+  const cacheKey = subsonicCoverCacheKey(identity, size);
+  const targetPath = join(cacheDir, `${cacheKey}.${extension}`);
+  const tempPath = join(cacheDir, `${cacheKey}.${randomUUID()}.tmp`);
+  try {
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(tempPath, data);
+    await rename(tempPath, targetPath);
+  } catch {
+    await unlink(tempPath).catch(() => undefined);
+  }
+};
+
 const isPathInsideDirectory = (directory: string, filePath: string): boolean => {
   const relativePath = relative(resolve(directory), resolve(filePath));
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
@@ -79,6 +164,40 @@ const passthroughImageHeaders = (response: Response): Headers => {
   }
 
   return headers;
+};
+
+const clampRemoteCoverSize = (value: string | null): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(80, Math.min(1024, Math.round(parsed))) : 512;
+};
+
+const subsonicCoverResponse = async (url: URL): Promise<Response> => {
+  const trackId = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+  if (!trackId) {
+    return missingCoverResponse();
+  }
+
+  const size = clampRemoteCoverSize(url.searchParams.get('size'));
+  const cacheIdentity = url.searchParams.get('cacheKey') || trackId;
+  const cached = await readSubsonicCoverCache(cacheIdentity, size);
+  if (cached) {
+    return cached;
+  }
+
+  const result = await getRemoteSourceService().readRemoteCover(trackId, size);
+  const mimeType = result.mimeType?.split(';')[0]?.trim().toLocaleLowerCase();
+  if (result.status !== 'ok' || !result.data?.byteLength || !mimeType?.startsWith('image/')) {
+    return missingCoverResponse();
+  }
+  const data = Buffer.from(result.data);
+  await writeSubsonicCoverCache(cacheIdentity, size, mimeType, data);
+
+  return new Response(data, {
+    headers: {
+      'Content-Type': mimeType,
+      'Cache-Control': subsonicCoverCacheControlHeader,
+    },
+  });
 };
 
 export const registerCoverProtocolScheme = (): void => {
@@ -239,6 +358,10 @@ export const registerCoverProtocolHandler = (): void => {
   protocol.handle('echo-image', async (request) => {
     try {
       const url = new URL(request.url);
+      if (url.hostname === 'subsonic-cover') {
+        return subsonicCoverResponse(url);
+      }
+
       if (url.hostname !== 'remote') {
         return missingCoverResponse();
       }

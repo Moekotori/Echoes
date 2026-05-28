@@ -39,6 +39,7 @@ import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
 import { TrackList } from '../components/library/TrackList';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
 import { StyledSelect } from '../components/ui/StyledSelect';
+import { useRemoteCoverPreloader } from '../hooks/useRemoteCoverPreloader';
 import {
   forgetLibraryScanStatus,
   getLibraryScanStatuses,
@@ -120,6 +121,15 @@ const sortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
 const remoteIndexedRefreshMinIntervalMs = 15_000;
 const targetKey = (folderId: string, path: string): string => `${folderId}::${path}`;
 const remoteTreeKey = (sourceId: string, path: string): string => `${sourceId}::${normalizeRemoteFolderPath(path)}`;
+
+const mergeTracksById = (tracks: LibraryTrack[], updates: LibraryTrack[]): LibraryTrack[] => {
+  if (updates.length === 0) {
+    return tracks;
+  }
+
+  const updatesById = new Map(updates.map((track) => [track.id, track]));
+  return tracks.map((track) => updatesById.get(track.id) ?? track);
+};
 
 const trimLocalPathEnd = (value: string): string => value.replace(/[\\/]+$/u, '');
 
@@ -296,6 +306,9 @@ const remoteTargetFromItem = (source: RemoteSource, item: RemoteDirectoryItem): 
   name: item.name || item.path.split('/').filter(Boolean).at(-1) || source.displayName,
 });
 
+const remoteIndexedRootPath = (target: Pick<RemoteFolderTarget, 'provider' | 'path'>): string =>
+  target.provider === 'subsonic' ? '/' : target.path;
+
 const remoteParentPath = (source: RemoteSource, path: string): string | null => {
   const rootPath = remoteRootPathForSource(source);
   const currentPath = normalizeRemoteFolderPath(path);
@@ -461,6 +474,7 @@ export const FoldersPage = (): JSX.Element => {
   const [remoteHasMore, setRemoteHasMore] = useState(false);
   const [remoteIndexedTracks, setRemoteIndexedTracks] = useState<Record<string, RemoteTrackLookupItem>>({});
   const [remotePreviewTracks, setRemotePreviewTracks] = useState<Record<string, RemoteDirectoryPreviewItem>>({});
+  const [remoteVisibleTrackIds, setRemoteVisibleTrackIds] = useState<string[]>([]);
   const [remoteDirectoryChildrenByParent, setRemoteDirectoryChildrenByParent] = useState<Record<string, RemoteDirectoryItem[]>>({});
   const [remoteExpanded, setRemoteExpanded] = useState<Record<string, boolean>>({});
   const [remoteLoadingChildren, setRemoteLoadingChildren] = useState<Record<string, boolean>>({});
@@ -479,6 +493,7 @@ export const FoldersPage = (): JSX.Element => {
     refreshedAt: 0,
     syncStatus: null,
   });
+  const remoteVisibleHydrationInFlightRef = useRef<Set<string>>(new Set());
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
 
@@ -668,7 +683,7 @@ export const FoldersPage = (): JSX.Element => {
 
       try {
         const result = await remoteApi.listIndexedTracksPage(target.sourceId, {
-          rootPath: target.path,
+          rootPath: remoteIndexedRootPath(target),
           page: nextPage,
           pageSize,
           search,
@@ -717,13 +732,14 @@ export const FoldersPage = (): JSX.Element => {
       setError(null);
 
       try {
+        const indexedRootPath = remoteIndexedRootPath(target);
         const [items, stats, pageResult] = await Promise.all([
-          remoteApi.browse(target.sourceId, target.path),
+          remoteApi.browse(target.sourceId, target.path).catch(() => []),
           remoteApi.getIndexedFolderStats
-            ? remoteApi.getIndexedFolderStats(target.sourceId, target.path).catch(() => null)
+            ? remoteApi.getIndexedFolderStats(target.sourceId, indexedRootPath).catch(() => null)
             : Promise.resolve(null),
           remoteApi.listIndexedTracksPage
-            ? remoteApi.listIndexedTracksPage(target.sourceId, { rootPath: target.path, page: 1, pageSize, search, sort }).catch(() => null)
+            ? remoteApi.listIndexedTracksPage(target.sourceId, { rootPath: indexedRootPath, page: 1, pageSize, search, sort }).catch(() => null)
             : Promise.resolve(null),
         ]);
         const cachedTracks = pageResult?.items ?? [];
@@ -843,10 +859,10 @@ export const FoldersPage = (): JSX.Element => {
           if (shouldRefreshIndexedTracks) {
             const [stats, pageResult] = await Promise.all([
               remoteApi.getIndexedFolderStats
-                ? remoteApi.getIndexedFolderStats(selectedRemote.sourceId, selectedRemote.path).catch(() => null)
+                ? remoteApi.getIndexedFolderStats(selectedRemote.sourceId, remoteIndexedRootPath(selectedRemote)).catch(() => null)
                 : Promise.resolve(null),
               remoteApi.listIndexedTracksPage
-                ? remoteApi.listIndexedTracksPage(selectedRemote.sourceId, { rootPath: selectedRemote.path, page: 1, pageSize, search, sort }).catch(() => null)
+                ? remoteApi.listIndexedTracksPage(selectedRemote.sourceId, { rootPath: remoteIndexedRootPath(selectedRemote), page: 1, pageSize, search, sort }).catch(() => null)
                 : Promise.resolve(null),
             ]);
             if (!disposed) {
@@ -1030,7 +1046,7 @@ export const FoldersPage = (): JSX.Element => {
 
         do {
           result = await remoteApi.listIndexedTracksPage(selectedRemote.sourceId, {
-            rootPath: selectedRemote.path,
+            rootPath: remoteIndexedRootPath(selectedRemote),
             page: nextPage,
             pageSize: bulkPageSize,
             search,
@@ -1400,6 +1416,52 @@ export const FoldersPage = (): JSX.Element => {
       void loadTracks(page + 1, 'append');
     }
   }, [hasMore, isLoadingRemoteTracks, isLoadingTracks, loadRemoteTrackPage, loadTracks, mode, page, remoteHasMore, remotePage, selectedRemote]);
+
+  const hydrateRemoteMissingCovers = useCallback(
+    (trackIds: string[]): void => {
+      if (mode !== 'remote' || selectedRemoteSource?.provider !== 'subsonic' || !remoteApi?.hydrateVisibleTracks) {
+        return;
+      }
+
+      const visibleTracksById = new Map(remoteTracks.map((track) => [track.id, track]));
+      const pending = remoteVisibleHydrationInFlightRef.current;
+      const targetIds = trackIds
+        .map((trackId) => visibleTracksById.get(trackId))
+        .filter((track): track is LibraryTrack => Boolean(track && track.mediaType === 'remote' && !track.coverThumb && !pending.has(track.id)))
+        .map((track) => track.id);
+
+      if (targetIds.length === 0) {
+        return;
+      }
+
+      for (const trackId of targetIds) {
+        pending.add(trackId);
+      }
+
+      void remoteApi
+        .hydrateVisibleTracks(targetIds, { metadata: false, cover: true, immediateCover: true, priority: 20 })
+        .then((hydratedTracks) => {
+          setRemoteCachedTracks((current) => mergeTracksById(current, hydratedTracks));
+        })
+        .finally(() => {
+          for (const trackId of targetIds) {
+            pending.delete(trackId);
+          }
+        });
+    },
+    [mode, remoteApi, remoteTracks, selectedRemoteSource?.provider],
+  );
+
+  useRemoteCoverPreloader({
+    active: mode === 'remote',
+    tracks: remoteTracks,
+    visibleTrackIds: remoteVisibleTrackIds,
+    hydrateMissingCovers: hydrateRemoteMissingCovers,
+  });
+
+  const handleVisibleRemoteTrackIdsChange = useCallback((trackIds: string[]): void => {
+    setRemoteVisibleTrackIds(trackIds);
+  }, []);
 
   const handlePlayTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {
@@ -1977,6 +2039,7 @@ export const FoldersPage = (): JSX.Element => {
           onEndReached={handleLoadMore}
           onOpenTrackMenu={handleOpenTrackMenu}
           onPlay={(track) => void handlePlayTrack(track)}
+          onVisibleTrackIdsChange={mode === 'remote' ? handleVisibleRemoteTrackIdsChange : undefined}
         />
 
         {error || message || isLoadingTracks || isBulkLoading || isLoadingRemoteDirectory || isLoadingRemoteTracks ? (

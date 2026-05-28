@@ -23,6 +23,8 @@ import type {
   RememberedAudioOutput,
   DesktopLyricsBounds,
   RememberedWindowSize,
+  RemoteAlbumMergeStrategy,
+  RemoteCoverLoadPerformanceMode,
   ReplayGainMode,
 } from '../../shared/types/appSettings';
 import type { LyricsProviderId } from '../../shared/types/lyrics';
@@ -71,6 +73,8 @@ const appThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 const audioTransportFadeCurves: AudioTransportFadeCurve[] = ['linear', 'smooth', 'equalPower'];
 const defaultAudioTransportFadeDurationMs = 80;
 const defaultAudioTransportFadeCurve: AudioTransportFadeCurve = 'smooth';
+const remoteCoverLoadPerformanceModes: RemoteCoverLoadPerformanceMode[] = ['low', 'balanced', 'aggressive', 'lan'];
+const remoteAlbumMergeStrategies: RemoteAlbumMergeStrategy[] = ['conservative', 'standard'];
 const appThemePresets: AppThemePreset[] = [
   'classic',
   'echoTwilight',
@@ -483,6 +487,8 @@ export const defaultSettings: AppSettings = {
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
   scanPerformanceMode: 'balanced',
+  remoteCoverLoadPerformanceMode: 'balanced',
+  remoteAlbumMergeStrategy: 'conservative',
   duplicateTracksEnabled: true,
   duplicateTracksMode: 'strict',
   duplicateTracksAutoRebuildAfterScan: false,
@@ -1313,6 +1319,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     settings.scanPerformanceMode === 'performance'
       ? settings.scanPerformanceMode
       : defaultSettings.scanPerformanceMode;
+  const remoteCoverLoadPerformanceMode = remoteCoverLoadPerformanceModes.includes(settings.remoteCoverLoadPerformanceMode as RemoteCoverLoadPerformanceMode)
+    ? settings.remoteCoverLoadPerformanceMode
+    : defaultSettings.remoteCoverLoadPerformanceMode;
+  const remoteAlbumMergeStrategy = remoteAlbumMergeStrategies.includes(settings.remoteAlbumMergeStrategy as RemoteAlbumMergeStrategy)
+    ? settings.remoteAlbumMergeStrategy
+    : defaultSettings.remoteAlbumMergeStrategy;
   const duplicateTracksMode = settings.duplicateTracksMode === 'strict' ? settings.duplicateTracksMode : defaultSettings.duplicateTracksMode;
   const appWallpaperScalePercent = Number(settings.appWallpaperScalePercent);
   const appWallpaperBlurPx = Number(settings.appWallpaperBlurPx);
@@ -1648,6 +1660,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       : defaultSettings.playbackSpeed,
     playbackSpeedMode,
     scanPerformanceMode,
+    remoteCoverLoadPerformanceMode,
+    remoteAlbumMergeStrategy,
     duplicateTracksEnabled: settings.duplicateTracksEnabled !== false,
     duplicateTracksMode,
     duplicateTracksAutoRebuildAfterScan: settings.duplicateTracksAutoRebuildAfterScan === true,
