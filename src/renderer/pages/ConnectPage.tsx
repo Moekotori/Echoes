@@ -3,6 +3,9 @@ import {
   AlertTriangle,
   Cable,
   Cast,
+  ChevronDown,
+  Eye,
+  EyeOff,
   Loader2,
   Pause,
   Play,
@@ -141,6 +144,8 @@ const defaultHqPlayerSettings: HqPlayerSettings = {
 
 const hqPlayerLocalHost = '127.0.0.1';
 const hqPlayerDefaultPort = 4321;
+const hiddenConnectDevicesStorageKey = 'echo.connect.hiddenDevices.v1';
+const connectDeviceSectionCollapsedStorageKey = 'echo.connect.deviceSectionCollapsed.v1';
 
 const hqPlayerConnectionModes: HqPlayerConnectionMode[] = ['localDesktop', 'remote'];
 const hqPlayerDefaultBackends: HqPlayerDefaultPlaybackBackend[] = ['echoNative', 'ask', 'hqplayer'];
@@ -212,6 +217,44 @@ const formatTime = (seconds: number): string => {
   const minutes = Math.floor(safe / 60);
   const rest = String(safe % 60).padStart(2, '0');
   return `${minutes}:${rest}`;
+};
+
+const readStoredStringSet = (key: string): Set<string> => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.filter((item): item is string => typeof item === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+};
+
+const writeStoredStringSet = (key: string, values: Set<string>): void => {
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...values]));
+  } catch {
+    // Local UI preference only; ignore blocked storage.
+  }
+};
+
+const readStoredBoolean = (key: string, fallback: boolean): boolean => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw == null ? fallback : raw === 'true';
+  } catch {
+    return fallback;
+  }
+};
+
+const writeStoredBoolean = (key: string, value: boolean): void => {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Local UI preference only; ignore blocked storage.
+  }
 };
 
 const formatProtocol = (device: Pick<ConnectDevice, 'protocol'>): string =>
@@ -573,11 +616,27 @@ export const ConnectPage = (): JSX.Element => {
   const [hqPlayerLastControl, setHqPlayerLastControl] = useState<HqPlayerPlaybackControlPlan | null>(null);
   const [hqPlayerBusy, setHqPlayerBusy] = useState<'settings' | 'test' | null>(null);
   const [shouldRenderHqPlayerDetails, setShouldRenderHqPlayerDetails] = useState(defaultHqPlayerSettings.enabled);
+  const [hiddenDeviceIds, setHiddenDeviceIds] = useState<Set<string>>(() => readStoredStringSet(hiddenConnectDevicesStorageKey));
+  const [isDeviceSectionCollapsed, setIsDeviceSectionCollapsed] = useState(() =>
+    readStoredBoolean(connectDeviceSectionCollapsedStorageKey, false),
+  );
 
   const activeDevice = useMemo(
     () => devices.find((device) => device.id === status.deviceId) ?? null,
     [devices, status.deviceId],
   );
+  const visibleDevices = useMemo(
+    () => devices.filter((device) => !hiddenDeviceIds.has(device.id)),
+    [devices, hiddenDeviceIds],
+  );
+  const hiddenDeviceEntries = useMemo(
+    () => [...hiddenDeviceIds].map((deviceId) => ({
+      id: deviceId,
+      name: devices.find((device) => device.id === deviceId)?.name ?? deviceId,
+    })),
+    [devices, hiddenDeviceIds],
+  );
+  const hiddenDeviceCount = hiddenDeviceIds.size;
   const currentTrack = queue.currentTrack ?? queue.lastPlayedTrack ?? null;
   const currentFilePath =
     currentTrack?.path ??
@@ -1009,12 +1068,44 @@ export const ConnectPage = (): JSX.Element => {
     }
   }, []);
 
+  const hideDevice = useCallback((device: ConnectDevice): void => {
+    setHiddenDeviceIds((current) => {
+      const next = new Set(current);
+      next.add(device.id);
+      writeStoredStringSet(hiddenConnectDevicesStorageKey, next);
+      return next;
+    });
+  }, []);
+
+  const restoreDevice = useCallback((deviceId: string): void => {
+    setHiddenDeviceIds((current) => {
+      const next = new Set(current);
+      next.delete(deviceId);
+      writeStoredStringSet(hiddenConnectDevicesStorageKey, next);
+      return next;
+    });
+  }, []);
+
+  const restoreAllDevices = useCallback((): void => {
+    const next = new Set<string>();
+    writeStoredStringSet(hiddenConnectDevicesStorageKey, next);
+    setHiddenDeviceIds(next);
+  }, []);
+
+  const toggleDeviceSectionCollapsed = useCallback((): void => {
+    setIsDeviceSectionCollapsed((current) => {
+      const next = !current;
+      writeStoredBoolean(connectDeviceSectionCollapsedStorageKey, next);
+      return next;
+    });
+  }, []);
+
   return (
     <div className="connect-page">
       <header className="connect-header">
         <div>
           <p className="section-kicker">Wireless Playback</p>
-          <h1>Connect</h1>
+          <h1>连接</h1>
           <p>DLNA / AirPlay / HQPlayer 外部播放集中管理；HQPlayer 当前以安全交接预演为主。</p>
         </div>
         <div className="connect-header-actions">
@@ -1124,55 +1215,102 @@ export const ConnectPage = (): JSX.Element => {
               <span>Network Streamers</span>
               <h2>局域网数播</h2>
             </div>
-            <small>{devices.filter((device) => device.protocol === 'dlna').length} 台数播 · {devices.length} 个入口</small>
+            <div className="connect-section-actions">
+              <small>
+                {visibleDevices.filter((device) => device.protocol === 'dlna').length} 台数播 · {visibleDevices.length} 个入口
+                {hiddenDeviceCount > 0 ? ` · 已隐藏 ${hiddenDeviceCount}` : ''}
+              </small>
+              <button
+                className="icon-button connect-collapse-button"
+                type="button"
+                aria-label={isDeviceSectionCollapsed ? '展开局域网数播' : '折叠局域网数播'}
+                title={isDeviceSectionCollapsed ? '展开局域网数播' : '折叠局域网数播'}
+                aria-expanded={!isDeviceSectionCollapsed}
+                onClick={toggleDeviceSectionCollapsed}
+              >
+                <ChevronDown size={16} />
+              </button>
+            </div>
           </div>
-          <div className="connect-device-list">
-            {devices.length === 0 ? (
-              <div className="connect-device-empty">
-                <StreamerGlyph />
-                <strong>未发现局域网设备</strong>
-                <span>刷新后会在这里显示数播、TV、HQPlayer 和 AirPlay 入口。</span>
+          {!isDeviceSectionCollapsed ? (
+            <>
+              {hiddenDeviceCount > 0 ? (
+                <div className="connect-hidden-devices" aria-label="隐藏的局域网设备">
+                  <div>
+                    <EyeOff size={15} />
+                    <span>已隐藏设备</span>
+                  </div>
+                  <div className="connect-hidden-device-actions">
+                    {hiddenDeviceEntries.map((device) => (
+                      <button key={device.id} className="settings-action-button" type="button" onClick={() => restoreDevice(device.id)}>
+                        <Eye size={14} />
+                        {device.name}
+                      </button>
+                    ))}
+                    <button className="settings-action-button" type="button" onClick={restoreAllDevices}>
+                      全部恢复
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="connect-device-list">
+                {visibleDevices.length === 0 ? (
+                  <div className="connect-device-empty">
+                    <StreamerGlyph />
+                    <strong>{devices.length > 0 ? '当前设备都已隐藏' : '未发现局域网设备'}</strong>
+                    <span>{devices.length > 0 ? '可在上方恢复隐藏设备。' : '刷新后会在这里显示数播、TV、HQPlayer 和 AirPlay 入口。'}</span>
+                  </div>
+                ) : visibleDevices.map((device) => {
+                  const isActive = device.id === status.deviceId;
+                  const isBusy = busyDeviceId === device.id;
+                  const disabled = device.state === 'unsupported' || device.state === 'unavailable' || isBusy || (!currentTrack && !currentFilePath);
+                  const deviceProduct = formatDeviceProduct(device);
+                  const deviceAddress = formatDeviceAddress(device);
+                  const deviceSupport = formatDeviceSupport(device);
+                  const visual = deviceVisual(device);
+                  return (
+                    <article
+                      className="connect-device-row"
+                      data-active={isActive ? 'true' : undefined}
+                      key={device.id}
+                      title="右键隐藏此设备"
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        hideDevice(device);
+                      }}
+                    >
+                      <div className="connect-device-icon" data-protocol={device.protocol} data-tone={visual.tone}>
+                        {visual.icon}
+                      </div>
+                      <div className="connect-device-copy">
+                        <strong>{device.name}</strong>
+                        <span>{formatProtocol(device)} · {deviceProduct}</span>
+                        <div className="connect-device-facts" aria-label={`${device.name} 设备信息`}>
+                          <small>{deviceAddress}</small>
+                          <small>{deviceSupport}</small>
+                          <small>{device.lastSeenAt ? `最后发现 ${formatTimestamp(device.lastSeenAt)}` : '尚未完成发现'}</small>
+                        </div>
+                        {device.unsupportedReason ? <small>{device.unsupportedReason}</small> : null}
+                      </div>
+                      <div className="connect-device-meta">
+                        <span data-state={device.state}>{isActive ? stateLabel[status.state] : deviceStateLabel[device.state]}</span>
+                        <small>{visual.label}</small>
+                      </div>
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => void connectDevice(device)}
+                      >
+                        {isBusy ? <Loader2 className="spinning-icon" size={15} /> : device.protocol === 'hqplayer' ? <Cable size={15} /> : <Cast size={15} />}
+                        {isActive ? '重新投送' : '连接'}
+                      </button>
+                    </article>
+                  );
+                })}
               </div>
-            ) : devices.map((device) => {
-              const isActive = device.id === status.deviceId;
-              const isBusy = busyDeviceId === device.id;
-              const disabled = device.state === 'unsupported' || device.state === 'unavailable' || isBusy || (!currentTrack && !currentFilePath);
-              const deviceProduct = formatDeviceProduct(device);
-              const deviceAddress = formatDeviceAddress(device);
-              const deviceSupport = formatDeviceSupport(device);
-              const visual = deviceVisual(device);
-              return (
-                <article className="connect-device-row" data-active={isActive ? 'true' : undefined} key={device.id}>
-                  <div className="connect-device-icon" data-protocol={device.protocol} data-tone={visual.tone}>
-                    {visual.icon}
-                  </div>
-                  <div className="connect-device-copy">
-                    <strong>{device.name}</strong>
-                    <span>{formatProtocol(device)} · {deviceProduct}</span>
-                    <div className="connect-device-facts" aria-label={`${device.name} 设备信息`}>
-                      <small>{deviceAddress}</small>
-                      <small>{deviceSupport}</small>
-                      <small>{device.lastSeenAt ? `最后发现 ${formatTimestamp(device.lastSeenAt)}` : '尚未完成发现'}</small>
-                    </div>
-                    {device.unsupportedReason ? <small>{device.unsupportedReason}</small> : null}
-                  </div>
-                  <div className="connect-device-meta">
-                    <span data-state={device.state}>{isActive ? stateLabel[status.state] : deviceStateLabel[device.state]}</span>
-                    <small>{visual.label}</small>
-                  </div>
-                  <button
-                    className="settings-action-button"
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => void connectDevice(device)}
-                  >
-                    {isBusy ? <Loader2 className="spinning-icon" size={15} /> : device.protocol === 'hqplayer' ? <Cable size={15} /> : <Cast size={15} />}
-                    {isActive ? '重新投送' : '连接'}
-                  </button>
-                </article>
-              );
-            })}
-          </div>
+            </>
+          ) : null}
         </section>
       </section>
 

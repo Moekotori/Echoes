@@ -375,6 +375,24 @@ export class StreamingFavoritesStore {
     return { collection, snapshot };
   }
 
+  deleteCollection(collectionId: string): { collectionId: string; snapshot: StreamingFavoritesSnapshot } {
+    const trimmedCollectionId = collectionId.trim();
+    if (!trimmedCollectionId) {
+      throw new Error('Favorite collection id is required.');
+    }
+
+    const snapshot = this.getSnapshot();
+    const nextCollections = snapshot.collections.filter((collection) => collection.id !== trimmedCollectionId);
+    if (nextCollections.length === snapshot.collections.length) {
+      throw new Error('Favorite collection was not found.');
+    }
+
+    snapshot.collections = nextCollections;
+    snapshot.updatedAt = new Date().toISOString();
+    this.writeSnapshot(snapshot);
+    return { collectionId: trimmedCollectionId, snapshot };
+  }
+
   getExportContent(): string {
     return `${JSON.stringify(this.getSnapshot(), null, 2)}\n`;
   }

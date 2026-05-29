@@ -409,7 +409,7 @@ export const defaultSettings: AppSettings = {
   lyricsMvAutoShowTrackInfoDisabled: true,
   lyricsCandidatePanelAutoOpenEnabled: false,
   lyricsEmptyStateHidden: true,
-  lyricsPlayerBarDrawerEnabled: false,
+  lyricsPlayerBarDrawerEnabled: true,
   lyricsPlayerBarDrawerAutoEnableForMv: true,
   lyricsPlayerBarDrawerOpacityPercent: 78,
   lyricsPlayerBarDrawerColorMode: 'default',
@@ -1567,7 +1567,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
     lyricsCandidatePanelAutoOpenEnabled: settings.lyricsCandidatePanelAutoOpenEnabled === true,
     lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden !== false,
-    lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
+    lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled !== false,
     lyricsPlayerBarDrawerAutoEnableForMv: settings.lyricsPlayerBarDrawerAutoEnableForMv !== false,
     lyricsPlayerBarDrawerOpacityPercent: Number.isFinite(lyricsPlayerBarDrawerOpacityPercent)
       ? Math.round(clamp(lyricsPlayerBarDrawerOpacityPercent, 20, 100))

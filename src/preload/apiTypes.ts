@@ -236,6 +236,7 @@ import type {
   StreamingLyricsResult,
   StreamingAlbumDetail,
   StreamingArtistDetail,
+  StreamingFavoriteCollectionDeleteResult,
   StreamingFavoriteCollectionRenameResult,
   StreamingFavoritesImportResult,
   StreamingFavoriteSetResult,
@@ -594,6 +595,8 @@ export type EchoApi = {
     getFavorites: () => Promise<StreamingFavoritesSnapshot>;
     setFavorite: (request: { track: StreamingTrack; favorite: boolean }) => Promise<StreamingFavoriteSetResult>;
     renameFavoriteCollection: (request: { collectionId: string; name: string }) => Promise<StreamingFavoriteCollectionRenameResult>;
+    syncFavoriteCollection: (request: { collectionId: string }) => Promise<StreamingFavoritesImportResult>;
+    deleteFavoriteCollection: (request: { collectionId: string }) => Promise<StreamingFavoriteCollectionDeleteResult>;
     refreshNeteaseDailyRecommend: () => Promise<StreamingPlaylistImportResult>;
   };
   lyrics: {

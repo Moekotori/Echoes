@@ -345,6 +345,8 @@ export const PlaylistsPage = (): JSX.Element => {
   const [favoriteImportUrl, setFavoriteImportUrl] = useState('');
   const [isImportingFavorites, setIsImportingFavorites] = useState(false);
   const [isExportingFavorites, setIsExportingFavorites] = useState(false);
+  const [syncingFavoriteCollectionId, setSyncingFavoriteCollectionId] = useState<string | null>(null);
+  const [deletingFavoriteCollectionId, setDeletingFavoriteCollectionId] = useState<string | null>(null);
   const [isImportingPlaylistFile, setIsImportingPlaylistFile] = useState(false);
   const [isAddingLocalFiles, setIsAddingLocalFiles] = useState(false);
   const [isRefreshingStreamingPlaylist, setIsRefreshingStreamingPlaylist] = useState(false);
@@ -1306,6 +1308,58 @@ export const PlaylistsPage = (): JSX.Element => {
     }
   };
 
+  const handleSyncFavoriteCollection = async (): Promise<void> => {
+    const streaming = window.echo?.streaming;
+    const collection = selectedFavoriteCollection;
+    if (!streaming?.syncFavoriteCollection || !collection) {
+      return;
+    }
+
+    setSyncingFavoriteCollectionId(collection.id);
+    setError(null);
+    setStatusMessage(`正在同步收藏表：${collection.name}`);
+    try {
+      const result = await streaming.syncFavoriteCollection({ collectionId: collection.id });
+      setStreamingFavorites(result.snapshot);
+      setSelectedFavoriteListId(favoriteCollectionSelectionId(result.collectionId));
+      setStatusMessage(`已同步收藏表：${result.playlistName}，新增 ${result.addedCount} / 读取 ${result.importedCount} 首`);
+      window.dispatchEvent(new CustomEvent('streaming:favorites-changed', { detail: result.snapshot }));
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : String(syncError));
+      setStatusMessage(null);
+    } finally {
+      setSyncingFavoriteCollectionId((current) => (current === collection.id ? null : current));
+    }
+  };
+
+  const handleDeleteFavoriteCollection = async (): Promise<void> => {
+    const streaming = window.echo?.streaming;
+    const collection = selectedFavoriteCollection;
+    if (!streaming?.deleteFavoriteCollection || !collection) {
+      return;
+    }
+
+    const confirmed = window.confirm(`删除流媒体收藏表“${collection.name}”？默认的 Bilibili / YouTube / SoundCloud 收藏不会受影响。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingFavoriteCollectionId(collection.id);
+    setError(null);
+    try {
+      const result = await streaming.deleteFavoriteCollection({ collectionId: collection.id });
+      setStreamingFavorites(result.snapshot);
+      setSelectedFavoriteListId(favoriteProviderSelectionId(collection.provider));
+      setStatusMessage(`已删除收藏表：${collection.name}`);
+      window.dispatchEvent(new CustomEvent('streaming:favorites-changed', { detail: result.snapshot }));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+      setStatusMessage(null);
+    } finally {
+      setDeletingFavoriteCollectionId((current) => (current === collection.id ? null : current));
+    }
+  };
+
   const handleOpenSpotifyPlaylistForCopy = async (): Promise<void> => {
     const url = spotifyPlaylistHelpUrl ?? playlistUrl.trim();
     if (!url) {
@@ -2073,9 +2127,21 @@ export const PlaylistsPage = (): JSX.Element => {
                   <span>添加到队列</span>
                 </button>
                 {selectedFavoriteCollection ? (
+                  <button className="secondary-action" type="button" disabled={syncingFavoriteCollectionId === selectedFavoriteCollection.id} onClick={() => void handleSyncFavoriteCollection()}>
+                    {syncingFavoriteCollectionId === selectedFavoriteCollection.id ? <Loader2 className="spinning-icon" size={16} /> : <RefreshCw size={16} />}
+                    <span>{syncingFavoriteCollectionId === selectedFavoriteCollection.id ? '同步中' : '同步'}</span>
+                  </button>
+                ) : null}
+                {selectedFavoriteCollection ? (
                   <button className="secondary-action" type="button" onClick={() => void handleRenameFavoriteCollection()}>
                     <Pencil size={16} />
                     <span>重命名</span>
+                  </button>
+                ) : null}
+                {selectedFavoriteCollection ? (
+                  <button className="secondary-action danger" type="button" disabled={deletingFavoriteCollectionId === selectedFavoriteCollection.id} onClick={() => void handleDeleteFavoriteCollection()}>
+                    {deletingFavoriteCollectionId === selectedFavoriteCollection.id ? <Loader2 className="spinning-icon" size={16} /> : <Trash2 size={16} />}
+                    <span>{deletingFavoriteCollectionId === selectedFavoriteCollection.id ? '删除中' : '删除'}</span>
                   </button>
                 ) : null}
                 <button className="secondary-action" type="button" disabled={isExportingFavorites} onClick={() => void handleExportStreamingFavorites()}>

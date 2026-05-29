@@ -1894,6 +1894,74 @@
   background: #fff1f4;
 }
 
+.editable-menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  background: transparent;
+}
+
+.editable-context-menu {
+  position: fixed;
+  display: grid;
+  width: 228px;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(27, 39, 55, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 14px 38px rgba(20, 30, 43, 0.16),
+    inset 0 1px 0 var(--theme-panel-bg-strong);
+  backdrop-filter: blur(18px);
+}
+
+.editable-menu-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 35px;
+  padding: 0 9px;
+  color: #1c2a3d;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.editable-menu-item[data-section-break="true"] {
+  margin-top: 7px;
+  box-shadow: 0 -7px 0 -6px var(--theme-panel-border);
+}
+
+.editable-menu-item svg {
+  color: currentColor;
+}
+
+.editable-menu-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editable-menu-item:hover {
+  background: var(--theme-accent-bg);
+}
+
+.editable-menu-item:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.editable-menu-item:disabled:hover {
+  background: transparent;
+}
+
 .album-menu-layer {
   position: fixed;
   inset: 0;
@@ -3733,6 +3801,10 @@ html[data-theme="dark"] .tag-editor-actions {
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 24px;
   overflow: hidden;
+}
+
+.albums-page[data-detail-open='true'] {
+  display: none;
 }
 
 .page-surface:has(.albums-page) {

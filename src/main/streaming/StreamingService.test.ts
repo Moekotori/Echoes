@@ -2,10 +2,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { StreamingAlbumDetail, StreamingPlaybackSource, StreamingPlaylistDetail, StreamingSearchResult, StreamingTrack } from '../../shared/types/streaming';
+import {
+  streamingProviderNames,
+  type StreamingAlbumDetail,
+  type StreamingPlaybackSource,
+  type StreamingPlaylistDetail,
+  type StreamingSearchResult,
+  type StreamingTrack,
+} from '../../shared/types/streaming';
 import type { StreamingProvider } from './StreamingProvider';
 import { StreamingProviderRegistry } from './StreamingProviderRegistry';
-import { StreamingService } from './StreamingService';
+import { getStreamingProviderDescriptors, StreamingService } from './StreamingService';
 import { StreamingFavoritesStore } from './StreamingFavoritesStore';
 import { verifyDownloadAuthorizationToken } from '../downloads/DownloadAuthorization';
 
@@ -172,6 +179,17 @@ describe('StreamingService playlist imports', () => {
     vi.useRealTimers();
     accountState.connected = true;
     accountState.cookie = 'MUSIC_U=secret; csrf=hidden';
+  });
+
+  it('returns provider descriptors from a lightweight registry', () => {
+    const descriptors = getStreamingProviderDescriptors();
+
+    expect(descriptors.map((provider) => provider.name)).toEqual(streamingProviderNames);
+    expect(descriptors.find((provider) => provider.name === 'netease')).toMatchObject({
+      enabled: true,
+      supportsSearch: true,
+      supportsPlayback: true,
+    });
   });
 
   it('resolves QQ Music c6 share links before importing playlists', async () => {
@@ -419,6 +437,53 @@ describe('StreamingService playlist imports', () => {
     }
   });
 
+  it('syncs imported streaming favorite collections from the stored source id', async () => {
+    const registry = new StreamingProviderRegistry();
+    const getPlaylist = vi.fn(async (input: { providerPlaylistId: string; page?: number; pageSize?: number }): Promise<StreamingPlaylistDetail> => ({
+      id: `streaming:youtube:playlist:${input.providerPlaylistId}`,
+      provider: 'youtube',
+      providerPlaylistId: input.providerPlaylistId,
+      title: 'YouTube Favorites',
+      description: null,
+      creator: null,
+      coverUrl: null,
+      coverThumb: null,
+      trackCount: 2,
+      tracks: [favoriteTrack('video-1'), favoriteTrack('video-2')],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+      hasMore: false,
+    }));
+    registry.register({
+      name: 'youtube',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      getPlaylist,
+      resolvePlayback: vi.fn(),
+    });
+    const tempRoot = mkdtempSync(join(tmpdir(), 'echo-streaming-favorites-service-'));
+    try {
+      const favoritesStore = new StreamingFavoritesStore(join(tempRoot, 'streaming-favorites.json'));
+      favoritesStore.importCollection('youtube', 'PL123', 'YouTube Favorites', [favoriteTrack('video-1')]);
+      const service = new StreamingService(registry, fakeCacheStore(), undefined, undefined, undefined, favoritesStore);
+
+      const result = await service.syncFavoriteCollection('streaming-favorites:youtube:PL123');
+
+      expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: 'PL123', page: 1, pageSize: 100 });
+      expect(result).toMatchObject({
+        provider: 'youtube',
+        providerPlaylistId: 'PL123',
+        collectionId: 'streaming-favorites:youtube:PL123',
+        importedCount: 2,
+        addedCount: 1,
+      });
+      expect(result.snapshot.collections[0].tracks.map((item) => item.providerTrackId)).toEqual(['video-1', 'video-2']);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('keeps Bilibili favlist URLs intact for provider requests and stores the canonical media id', async () => {
     const favlistUrl = 'https://space.bilibili.com/25265128/favlist?fid=2433003328&ftype=create';
     const registry = new StreamingProviderRegistry();
@@ -512,7 +577,9 @@ describe('StreamingService playlist imports', () => {
     });
     const service = new StreamingService(registry, cacheStore, undefined, undefined, () => false);
 
-    const result = await service.getAlbum('netease', 'album-1');
+    const albumPromise = service.getAlbum('netease', 'album-1');
+    await vi.advanceTimersByTimeAsync(150);
+    const result = await albumPromise;
 
     expect(result.title).toBe('Album One');
     expect(cacheStore.upsertTracks).not.toHaveBeenCalled();
@@ -537,7 +604,9 @@ describe('StreamingService playlist imports', () => {
     });
     const service = new StreamingService(registry, cacheStore, undefined, undefined, () => true);
 
-    await service.getAlbum('netease', 'album-1');
+    const albumPromise = service.getAlbum('netease', 'album-1');
+    await vi.advanceTimersByTimeAsync(150);
+    await albumPromise;
     await vi.advanceTimersByTimeAsync(250);
     await vi.advanceTimersByTimeAsync(1499);
 

@@ -1054,6 +1054,49 @@ describe('PlayerBar', () => {
     expect(pause).not.toHaveBeenCalled();
   });
 
+  it('does not handle local shortcuts while an IME composition key is active', async () => {
+    const track = makeTrack(1);
+    const pause = vi.fn();
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <PlaybackCommandController />
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, code: 'Space', key: 'Process' });
+    Object.defineProperty(event, 'isComposing', { value: true });
+    Object.defineProperty(event, 'keyCode', { value: 229 });
+    window.dispatchEvent(event);
+
+    expect(pause).not.toHaveBeenCalled();
+  });
+
   it('uses the main process playback state before toggling from the space shortcut', async () => {
     const track = makeTrack(1);
     const play = vi.fn();

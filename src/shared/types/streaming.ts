@@ -293,6 +293,11 @@ export type StreamingFavoriteCollectionRenameResult = {
   snapshot: StreamingFavoritesSnapshot;
 };
 
+export type StreamingFavoriteCollectionDeleteResult = {
+  collectionId: string;
+  snapshot: StreamingFavoritesSnapshot;
+};
+
 export type StreamingFavoriteSetRequest = {
   track: StreamingTrack;
   favorite: boolean;

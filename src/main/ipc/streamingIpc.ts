@@ -12,7 +12,11 @@ import type {
   StreamingSearchRequest,
 } from '../../shared/types/streaming';
 import { streamingProviderNames, streamingStableKey, type StreamingTrack } from '../../shared/types/streaming';
-import { getStreamingService } from '../streaming/StreamingService';
+import {
+  getStreamingProviderDescriptors,
+  getStreamingService,
+  readDefaultStreamingFavoritesSnapshot,
+} from '../streaming/StreamingService';
 
 const providerNames = new Set<StreamingProviderName>(streamingProviderNames);
 const likedProviderNames = new Set<Extract<StreamingProviderName, 'netease' | 'qqmusic'>>(['netease', 'qqmusic']);
@@ -199,6 +203,13 @@ const normalizeFavoriteCollectionRenameRequest = (value: unknown): { collectionI
   };
 };
 
+const normalizeFavoriteCollectionRequest = (value: unknown, label: string): { collectionId: string } => {
+  const input = requireObject(value, label);
+  return {
+    collectionId: requireText(input.collectionId, 'collectionId'),
+  };
+};
+
 const normalizePlaybackRequest = (value: unknown): StreamingPlaybackRequest => {
   const input = requireObject(value, 'streaming playback request');
   const quality = input.quality;
@@ -217,7 +228,7 @@ const sanitizePlaybackSource = (source: StreamingPlaybackSource): StreamingPlayb
 });
 
 export const registerStreamingIpc = (): void => {
-  ipcMain.handle(IpcChannels.StreamingGetProviders, () => getStreamingService().getProviders());
+  ipcMain.handle(IpcChannels.StreamingGetProviders, () => getStreamingProviderDescriptors());
   ipcMain.handle(IpcChannels.StreamingImportPlaylistFromUrl, async (_event, url: unknown) => {
     try {
       return await getStreamingService().importPlaylistFromUrl(requireText(url, 'playlist URL'));
@@ -273,7 +284,7 @@ export const registerStreamingIpc = (): void => {
   });
   ipcMain.handle(IpcChannels.StreamingGetFavorites, async () => {
     try {
-      return getStreamingService().getFavorites();
+      return readDefaultStreamingFavoritesSnapshot();
     } catch (error) {
       throw friendlyError(error, 'Streaming favorites could not be read.');
     }
@@ -292,6 +303,22 @@ export const registerStreamingIpc = (): void => {
       return getStreamingService().renameFavoriteCollection(input.collectionId, input.name);
     } catch (error) {
       throw friendlyError(error, 'Streaming favorite collection rename failed.');
+    }
+  });
+  ipcMain.handle(IpcChannels.StreamingSyncFavoriteCollection, async (_event, request: unknown) => {
+    try {
+      const input = normalizeFavoriteCollectionRequest(request, 'streaming favorite collection sync request');
+      return await getStreamingService().syncFavoriteCollection(input.collectionId);
+    } catch (error) {
+      throw friendlyError(error, 'Streaming favorite collection sync failed.');
+    }
+  });
+  ipcMain.handle(IpcChannels.StreamingDeleteFavoriteCollection, async (_event, request: unknown) => {
+    try {
+      const input = normalizeFavoriteCollectionRequest(request, 'streaming favorite collection delete request');
+      return getStreamingService().deleteFavoriteCollection(input.collectionId);
+    } catch (error) {
+      throw friendlyError(error, 'Streaming favorite collection delete failed.');
     }
   });
   ipcMain.handle(IpcChannels.StreamingSearch, async (_event, request: unknown) => {

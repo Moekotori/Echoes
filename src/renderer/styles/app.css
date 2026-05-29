@@ -14481,6 +14481,49 @@ html[data-theme="dark"] .history-play-count {
   font-weight: 720;
 }
 
+.connect-section-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.connect-collapse-button {
+  width: 32px;
+  height: 32px;
+}
+
+.connect-collapse-button[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.connect-hidden-devices {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed #dfe3e8;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.connect-hidden-devices > div:first-child,
+.connect-hidden-device-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.connect-hidden-devices > div:first-child {
+  color: var(--theme-subtle-text);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.connect-hidden-device-actions .settings-action-button {
+  min-height: 30px;
+}
+
 .connect-device-list {
   display: grid;
   gap: 10px;
@@ -14927,6 +14970,11 @@ html[data-theme="dark"] .history-play-count {
   .connect-device-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .connect-section-actions {
+    align-items: stretch;
+    justify-content: stretch;
   }
 
   .connect-hqplayer-header {

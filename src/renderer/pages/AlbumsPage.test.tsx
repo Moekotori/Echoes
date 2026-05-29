@@ -637,13 +637,15 @@ describe('AlbumsPage', () => {
 
     await screen.findByText('Album 1');
     const pageSurface = container.querySelector('.media-wall-scroll-shell') as HTMLElement;
+    const wallImage = container.querySelector('.album-cover img') as HTMLImageElement;
     setScrollablePageSurface(pageSurface);
     pageSurface.scrollTop = 640;
     fireEvent.click(screen.getByText('Album 1'));
 
     await screen.findByLabelText('Album 1 album details');
+    expect(container.querySelector('.album-cover img')).toBe(wallImage);
     expect(getAlbumTracks).toHaveBeenCalledWith('1', { page: 1, pageSize: 100 });
-    expect(container.querySelector('.album-detail-cover img')?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    expect(container.querySelector('.album-detail-cover img')?.getAttribute('src')).toBe('echo-cover://original/cover-1');
 
     fireEvent.click(screen.getByRole('listitem'));
     await waitFor(() => expect(window.echo.playback.playLocalFile).toHaveBeenCalledWith(
@@ -654,16 +656,19 @@ describe('AlbumsPage', () => {
     ));
 
     fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    await waitFor(() => expect(screen.queryByLabelText('Album 1 album details')).toBeNull());
     expect(pageSurface.scrollTop).toBe(640);
+    expect(container.querySelector('.album-cover img')).toBe(wallImage);
+    expect(getAlbums).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Album 1')).toBeTruthy();
   });
 
   it('loads large cover for the album detail hero without changing the album wall thumbnail', async () => {
     const getAlbums = vi.fn().mockResolvedValue(
-      page([album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+      page([album('1', { coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
     );
     const getAlbum = vi.fn().mockResolvedValue({
-      ...album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' }),
+      ...album('1', { coverThumb: 'echo-cover://album/cover-1' }),
       coverLarge: 'echo-cover://large/cover-1',
     });
     installLibrary(getAlbums, vi.fn(), vi.fn().mockResolvedValue(trackPage([])), getAlbum);
@@ -690,10 +695,10 @@ describe('AlbumsPage', () => {
 
   it('falls back from a failed large cover to the album thumbnail in the detail hero', async () => {
     const getAlbums = vi.fn().mockResolvedValue(
-      page([album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+      page([album('1', { coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
     );
     const getAlbum = vi.fn().mockResolvedValue({
-      ...album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' }),
+      ...album('1', { coverThumb: 'echo-cover://album/cover-1' }),
       coverLarge: 'echo-cover://large/cover-1',
     });
     installLibrary(getAlbums, vi.fn(), vi.fn().mockResolvedValue(trackPage([])), getAlbum);
@@ -732,7 +737,7 @@ describe('AlbumsPage', () => {
     unmount();
 
     const getAlbumsWithThumb = vi.fn().mockResolvedValue(
-      page([album('thumb', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
+      page([album('thumb', { coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),
     );
     installLibrary(getAlbumsWithThumb);
     const rendered = renderAlbumsPage();

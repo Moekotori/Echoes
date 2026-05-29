@@ -41,6 +41,8 @@ const defaultOptions: LyricsMatchEngineOptions = {
   preferredSecondaryFields: [],
 };
 
+const quickAutoAcceptScore = 0.85;
+
 const providerPriorityBonus = (priority: number): number => Math.min(0.01, Math.max(0, priority / 100000));
 const providerOrderPriority = (order: LyricsProviderId[], provider: LyricsProvider): number => {
   const index = order.indexOf(provider.id);
@@ -67,6 +69,9 @@ const candidateHasPreferredSecondary = (
   settings: LyricsMatchEngineOptions,
 ): boolean =>
   settings.preferredSecondaryFields.some((field) => (field === 'translation' ? candidate.hasTranslation : candidate.hasRomanization));
+
+const isQuickAutoAcceptCandidate = (candidate: MatchedLyricsCandidate | null): boolean =>
+  Boolean(candidate?.decision.autoAccept && candidate.decision.risk === 'low' && candidate.score >= quickAutoAcceptScore);
 
 const sanitizeQueryForProvider = (query: LyricsQuery, provider: LyricsProvider): LyricsQuery =>
   provider.id === 'local'
@@ -177,7 +182,12 @@ export class LyricsMatchEngine {
             const provider = networkProviderById.get(id);
             return provider ? providerCanSupplyPreferredSecondary(provider, settings) : false;
           });
-        if (accepted && !settings.collectAllCandidates && !shouldWaitForPreferredSecondary && (accepted.providerPriority ?? 0) >= strongestPendingPriority) {
+        if (
+          accepted &&
+          !settings.collectAllCandidates &&
+          !shouldWaitForPreferredSecondary &&
+          (isQuickAutoAcceptCandidate(accepted) || (accepted.providerPriority ?? 0) >= strongestPendingPriority)
+        ) {
           totalController.abort();
           break;
         }

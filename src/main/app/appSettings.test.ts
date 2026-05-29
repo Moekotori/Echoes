@@ -112,7 +112,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsHeaderHidden).toBe(false);
     expect(settings.lyricsMvAutoShowTrackInfoDisabled).toBe(true);
     expect(settings.lyricsEmptyStateHidden).toBe(true);
-    expect(settings.lyricsPlayerBarDrawerEnabled).toBe(false);
+    expect(settings.lyricsPlayerBarDrawerEnabled).toBe(true);
     expect(settings.lyricsPlayerBarDrawerAutoEnableForMv).toBe(true);
     expect(settings.lyricsPlayerBarDrawerOpacityPercent).toBe(78);
     expect(settings.lyricsPlayerBarDrawerColorMode).toBe('default');

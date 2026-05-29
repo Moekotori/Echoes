@@ -200,7 +200,7 @@ describe('LyricsMatchEngine', () => {
 
   it('keeps higher-priority providers eligible during deep search', async () => {
     const first = provider('netease', [result({ provider: 'netease', providerLyricsId: 'first' })], 20);
-    const second = provider('lrclib', [result({ providerLyricsId: 'second' })], 0);
+    const second = provider('lrclib', [result({ providerLyricsId: 'second', durationSeconds: 135 })], 0);
     const engine = new LyricsMatchEngine([second, first]);
 
     const matched = await engine.match(query, {
@@ -213,6 +213,27 @@ describe('LyricsMatchEngine', () => {
     expect(matched.accepted?.provider).toBe('netease');
     expect(matched.accepted?.providerLyricsId).toBe('first');
     expect(second.search).toHaveBeenCalled();
+  });
+
+  it('quickly accepts a high-confidence deep search result without waiting for slower providers', async () => {
+    const slow = provider('netease', [result({ provider: 'netease', providerLyricsId: 'slow-priority-hit' })], 120);
+    const fast = provider('lrclib', [result({ providerLyricsId: 'fast-high-confidence-hit', durationSeconds: 128 })], 0);
+    const engine = new LyricsMatchEngine([fast, slow]);
+    const startedAt = Date.now();
+
+    const matched = await engine.match(query, {
+      enabledProviders: ['netease', 'lrclib'],
+      deepSearchEnabled: true,
+      providerTimeoutMs: 500,
+      totalMatchTimeoutMs: 800,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(100);
+    expect(matched.accepted?.providerLyricsId).toBe('fast-high-confidence-hit');
+    expect(matched.accepted?.score).toBeGreaterThanOrEqual(0.85);
+    expect(matched.accepted?.score).toBeLessThan(0.92);
+    expect(fast.search).toHaveBeenCalled();
+    expect(slow.search).toHaveBeenCalled();
   });
 
   it('waits for translation-capable providers when translations are preferred', async () => {

@@ -6,6 +6,7 @@ import { BPM_CONFIDENCE_THRESHOLD } from '../../shared/constants/audioAnalysis';
 import type { BpmAnalysisResult } from '../../shared/types/library';
 import type {
   StreamingLyricsResult,
+  StreamingFavoriteCollectionDeleteResult,
   StreamingFavoriteCollectionRenameResult,
   StreamingFavoritesImportResult,
   StreamingFavoriteProviderName,
@@ -518,16 +519,36 @@ export class StreamingService {
     return this.favoritesStore.renameCollection(collectionId, name);
   }
 
+  deleteFavoriteCollection(collectionId: string): StreamingFavoriteCollectionDeleteResult {
+    return this.favoritesStore.deleteCollection(collectionId);
+  }
+
+  async syncFavoriteCollection(collectionId: string): Promise<StreamingFavoritesImportResult> {
+    const collection = this.favoritesStore.getSnapshot().collections.find((item) => item.id === collectionId.trim());
+    if (!collection) {
+      throw new Error('Favorite collection was not found.');
+    }
+
+    return this.importFavoriteCollection(collection.provider, collection.providerPlaylistId);
+  }
+
   async importFavoritesFromUrl(url: string): Promise<StreamingFavoritesImportResult> {
     const target = resolveFavoritePlaylistIdFromUrl(url);
-    const provider = this.registry.get(target.provider);
+    return this.importFavoriteCollection(target.provider, target.providerPlaylistId);
+  }
+
+  private async importFavoriteCollection(
+    targetProvider: StreamingFavoriteProviderName,
+    targetProviderPlaylistId: string,
+  ): Promise<StreamingFavoritesImportResult> {
+    const provider = this.registry.get(targetProvider);
     if (!provider.getPlaylist) {
       throw new Error('This streaming provider does not support favorites import.');
     }
 
     let page = 1;
     let playlistName = 'Streaming Favorites';
-    let providerPlaylistId = target.providerPlaylistId;
+    let providerPlaylistId = targetProviderPlaylistId;
     const importedTracks: StreamingTrack[] = [];
 
     while (importedTracks.length < maxFavoritesImportTracks) {
@@ -535,7 +556,7 @@ export class StreamingService {
         provider,
         () =>
           provider.getPlaylist!({
-            providerPlaylistId: target.providerPlaylistId,
+            providerPlaylistId: targetProviderPlaylistId,
             page,
             pageSize: favoritesImportPageSize,
           }),
@@ -553,10 +574,10 @@ export class StreamingService {
 
       page += 1;
     }
-    const result = this.favoritesStore.importCollection(target.provider, providerPlaylistId, playlistName, importedTracks);
+    const result = this.favoritesStore.importCollection(targetProvider, providerPlaylistId, playlistName, importedTracks);
 
     return {
-      provider: target.provider,
+      provider: targetProvider,
       providerPlaylistId,
       collectionId: result.collection.id,
       playlistName,
@@ -1099,7 +1120,7 @@ export class StreamingService {
   }
 }
 
-export const createStreamingService = (database: EchoDatabase): StreamingService => {
+export const createStreamingProviderRegistry = (): StreamingProviderRegistry => {
   const registry = new StreamingProviderRegistry();
   registry.register(new MockStreamingProvider());
   registry.register(new NeteaseStreamingProvider());
@@ -1111,6 +1132,17 @@ export const createStreamingService = (database: EchoDatabase): StreamingService
   registry.register(new TidalStreamingProvider());
   registry.register(new M3u8StreamingProvider());
   registry.register(new PluginStreamingProvider());
+  return registry;
+};
+
+export const getStreamingProviderDescriptors = (): StreamingProviderDescriptor[] =>
+  createStreamingProviderRegistry().list();
+
+export const readDefaultStreamingFavoritesSnapshot = (): StreamingFavoritesSnapshot =>
+  new StreamingFavoritesStore().getSnapshot();
+
+export const createStreamingService = (database: EchoDatabase): StreamingService => {
+  const registry = createStreamingProviderRegistry();
   return new StreamingService(
     registry,
     new StreamingCacheStore(database, (playlistId) => backupPlaylistIfEnabled(database, playlistId, 'streaming-refresh', getAppSettings)),

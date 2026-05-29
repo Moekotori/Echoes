@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Check, ChevronDown, Disc3, ListFilter, RefreshCw, Search } from 'lucide-react';
 import type { EditableAlbumTags, LibraryAlbum, LibraryPlaylist, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import type { RemoteSource } from '../../shared/types/remoteSources';
 import { AlbumContextMenu } from '../components/album/AlbumContextMenu';
 import type { AlbumMenuAction } from '../components/album/AlbumContextMenu';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
@@ -15,6 +16,7 @@ import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { albumDetailNavigationEvent, consumePendingAlbumDetailNavigation, type DetailReturnTarget } from '../utils/albumNavigation';
+import { getRemoteSourcesBridge } from '../utils/echoBridge';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
@@ -61,6 +63,7 @@ export const AlbumsPage = (): JSX.Element => {
   const [sort, setSort] = useState<LibrarySort>('default');
   const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => readStoredLibrarySourceMode());
   const [remoteSourceId, setRemoteSourceId] = useState<string | null>(null);
+  const [remoteSources, setRemoteSources] = useState<RemoteSource[]>([]);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -173,9 +176,35 @@ export const AlbumsPage = (): JSX.Element => {
     writeStoredLibrarySourceMode(mode);
   }, []);
 
+  const refreshRemoteSources = useCallback(async (): Promise<void> => {
+    const remoteApi = getRemoteSourcesBridge();
+    if (!remoteApi?.list) {
+      setRemoteSources([]);
+      return;
+    }
+
+    try {
+      const sources = await remoteApi.list();
+      setRemoteSources(sources.filter((source) => source.status !== 'disabled'));
+    } catch {
+      setRemoteSources([]);
+    }
+  }, []);
+
   useEffect(() => {
     void loadAlbums(1, 'replace');
   }, [loadAlbums]);
+
+  useEffect(() => {
+    void refreshRemoteSources();
+
+    const handleRemoteSourcesChanged = (): void => {
+      void refreshRemoteSources();
+    };
+
+    window.addEventListener('library:changed', handleRemoteSourcesChanged);
+    return () => window.removeEventListener('library:changed', handleRemoteSourcesChanged);
+  }, [refreshRemoteSources]);
 
   useEffect(() => {
     const handleLibraryChanged = (event: Event): void => {
@@ -575,21 +604,19 @@ export const AlbumsPage = (): JSX.Element => {
     );
   }, []);
 
-  if (selectedAlbum) {
-    return <AlbumDetailView album={selectedAlbum} onBack={handleBackFromAlbumDetail} />;
-  }
-
   return (
-    <div className="albums-page">
-      <header className="songs-header">
-        <div className="songs-title-group">
-          <h1>{t('library.albums.title')}</h1>
-          <span>{t('library.count.total', { count: total })}</span>
-        </div>
-        <button className="tool-button album-refresh" type="button" aria-label={t('library.action.refresh')} title={t('library.action.refresh')} onClick={handleRefresh}>
-          <RefreshCw size={17} />
-        </button>
-      </header>
+    <>
+      {selectedAlbum ? <AlbumDetailView album={selectedAlbum} onBack={handleBackFromAlbumDetail} /> : null}
+      <div className="albums-page" data-detail-open={selectedAlbum ? 'true' : 'false'} aria-hidden={selectedAlbum ? 'true' : undefined}>
+        <header className="songs-header">
+          <div className="songs-title-group">
+            <h1>{t('library.albums.title')}</h1>
+            <span>{t('library.count.total', { count: total })}</span>
+          </div>
+          <button className="tool-button album-refresh" type="button" aria-label={t('library.action.refresh')} title={t('library.action.refresh')} onClick={handleRefresh}>
+            <RefreshCw size={17} />
+          </button>
+        </header>
 
       <div className="songs-control-row">
         <label className="search-box">
@@ -602,7 +629,7 @@ export const AlbumsPage = (): JSX.Element => {
         </label>
 
         <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
-        {sourceMode === 'remote' ? <RemoteSourceFilter value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
+        {sourceMode === 'remote' ? <RemoteSourceFilter sources={remoteSources} value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
 
         <div className="sort-select" ref={sortMenuRef}>
           <button
@@ -712,6 +739,7 @@ export const AlbumsPage = (): JSX.Element => {
         onOpenInFolder={openAlbumInFolder}
         onSave={(album, tags, coverPath, coverUrl, coverMimeType) => void handleSaveAlbumTags(album, tags, coverPath, coverUrl, coverMimeType)}
       />
-    </div>
+      </div>
+    </>
   );
 };

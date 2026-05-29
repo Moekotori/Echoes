@@ -1,41 +1,15 @@
-import { useEffect, useState } from 'react';
 import { Cloud } from 'lucide-react';
 import type { RemoteSource } from '../../../shared/types/remoteSources';
 import { useI18n } from '../../i18n/I18nProvider';
-import { getRemoteSourcesBridge } from '../../utils/echoBridge';
 
 type RemoteSourceFilterProps = {
+  sources: RemoteSource[];
   value: string | null;
   onChange: (sourceId: string | null) => void;
 };
 
-export const RemoteSourceFilter = ({ value, onChange }: RemoteSourceFilterProps): JSX.Element | null => {
+export const RemoteSourceFilter = ({ sources, value, onChange }: RemoteSourceFilterProps): JSX.Element | null => {
   const { t } = useI18n();
-  const [sources, setSources] = useState<RemoteSource[]>([]);
-
-  useEffect(() => {
-    const remoteApi = getRemoteSourcesBridge();
-    if (!remoteApi?.list) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    void remoteApi.list()
-      .then((items) => {
-        if (!cancelled) {
-          setSources(items.filter((source) => source.status !== 'disabled'));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSources([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (sources.length === 0) {
     return null;

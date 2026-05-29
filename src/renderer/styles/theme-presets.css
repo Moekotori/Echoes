@@ -1646,8 +1646,143 @@ html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="
   color: var(--theme-page-text);
 }
 
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-header h1,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-page .section-title h2,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-page .setting-info h3,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-nav-label {
+  color: var(--theme-heading-text);
+}
+
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-header-context,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-page .section-title,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-page .setting-info p,
+html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-nav-desc {
+  color: color-mix(in srgb, var(--theme-muted-text) 86%, var(--theme-heading-text) 14%);
+}
+
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-nav-item:hover {
   background: var(--theme-list-row-bg-hover);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .page-surface:has(.connect-page),
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .page-surface:has(.plugins-page) {
+  background: var(--echo-polish-page-bg, var(--theme-page-bg)), var(--theme-app-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-page,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugins-page {
+  color: var(--theme-page-text);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plain-page-header h1,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-header h1,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-copy strong,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-empty strong,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-example-card strong,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-list-item strong,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-detail-head h2,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-security-panel header,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-panel header,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-command-list header,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-panel-preview header,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-log-list header,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-grid strong,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-command-row strong {
+  color: var(--theme-heading-text);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plain-page-header p,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugins-header small,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-header p:last-child,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-empty,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-facts small,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-example-card span,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-list-item em,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-command-row em,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-detail p,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-setting-row em,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-grid em,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-log-list time,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-log-list strong {
+  color: var(--theme-muted-text);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-now--stage,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-section--stage,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-hqplayer-panel,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-receiver-panel,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-outgoing-debug,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugins-list,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-detail,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-example-card {
+  border-color: var(--theme-panel-border);
+  background: var(--theme-panel-bg);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-empty,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-row,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-meta span,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-list-item,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-command-row,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-setting-row,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-security-grid span:not([data-risk]),
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-grid span:not([data-risk]),
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-status-pill:not([data-status="running"]):not([data-status="error"]):not([data-status="isolated"]),
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-permissions span:not([data-risk]),
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-log-list p {
+  color: var(--theme-page-text);
+  border-color: var(--theme-list-row-border);
+  background: var(--theme-list-row-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-row:hover,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-list-item:hover,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-list-item[data-active="true"] {
+  border-color: var(--theme-panel-border-strong);
+  background: var(--theme-list-row-bg-hover);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-icon,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-icon[data-tone],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-artwork {
+  color: var(--theme-accent-text);
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-meta span[data-state="available"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-meta span[data-state="connected"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-status-pill[data-status="running"] {
+  color: var(--theme-success-text);
+  border-color: var(--theme-success-border);
+  background: var(--theme-success-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-meta span[data-state="unsupported"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .connect-device-meta span[data-state="unavailable"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-status-pill[data-status="error"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-permissions span[data-risk="high"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-security-grid span[data-risk="high"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-grid span[data-risk="high"] {
+  color: var(--theme-danger-text);
+  border-color: var(--theme-danger-border);
+  background: var(--theme-danger-panel-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-status-pill[data-status="isolated"],
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-permissions span[data-risk="medium"] {
+  color: var(--theme-warning-text);
+  border-color: var(--theme-warning-border);
+  background: var(--theme-warning-bg);
+}
+
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-security-panel,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-activity-panel,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-command-list,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-panel-preview,
+html:is([data-theme="dark"], [data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .plugin-log-list {
+  border-top-color: var(--theme-panel-border);
 }
 
 html:is([data-theme-custom="true"], [data-theme-preset]:not([data-theme-preset="classic"])) .settings-nav-item.active,

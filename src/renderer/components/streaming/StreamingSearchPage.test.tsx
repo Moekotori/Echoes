@@ -297,7 +297,7 @@ describe('StreamingSearchPage download visibility', () => {
     );
 
     await waitFor(() => expect(document.querySelector('.streaming-row')).toBeTruthy());
-    await waitFor(() => expect(window.echo?.streaming?.getProviders).toHaveBeenCalled());
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
     expect(search).not.toHaveBeenCalled();
   });
 

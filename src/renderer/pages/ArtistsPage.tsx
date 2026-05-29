@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { Check, ChevronDown, Image as ImageIcon, ListFilter, Play, RefreshCw, Search } from 'lucide-react';
 import type { LibraryArtist, LibrarySort } from '../../shared/types/library';
+import type { RemoteSource } from '../../shared/types/remoteSources';
 import { ArtistDetailView } from '../components/artist/ArtistDetailView';
 import { artistMark } from '../components/artist/artistVisual';
 import { LibrarySourceSwitch } from '../components/library/LibrarySourceSwitch';
@@ -13,6 +14,7 @@ import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import type { DetailReturnTarget } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent, consumePendingArtistDetailNavigation } from '../utils/artistNavigation';
+import { getRemoteSourcesBridge } from '../utils/echoBridge';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
@@ -59,6 +61,7 @@ export const ArtistsPage = (): JSX.Element => {
   const [sort, setSort] = useState<LibrarySort>('default');
   const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => readStoredLibrarySourceMode());
   const [remoteSourceId, setRemoteSourceId] = useState<string | null>(null);
+  const [remoteSources, setRemoteSources] = useState<RemoteSource[]>([]);
   const [prioritizeArtistAvatars, setPrioritizeArtistAvatars] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -179,9 +182,35 @@ export const ArtistsPage = (): JSX.Element => {
     writeStoredLibrarySourceMode(mode);
   }, []);
 
+  const refreshRemoteSources = useCallback(async (): Promise<void> => {
+    const remoteApi = getRemoteSourcesBridge();
+    if (!remoteApi?.list) {
+      setRemoteSources([]);
+      return;
+    }
+
+    try {
+      const sources = await remoteApi.list();
+      setRemoteSources(sources.filter((source) => source.status !== 'disabled'));
+    } catch {
+      setRemoteSources([]);
+    }
+  }, []);
+
   useEffect(() => {
     void loadArtists(1, 'replace');
   }, [loadArtists]);
+
+  useEffect(() => {
+    void refreshRemoteSources();
+
+    const handleRemoteSourcesChanged = (): void => {
+      void refreshRemoteSources();
+    };
+
+    window.addEventListener('library:changed', handleRemoteSourcesChanged);
+    return () => window.removeEventListener('library:changed', handleRemoteSourcesChanged);
+  }, [refreshRemoteSources]);
 
   useEffect(() => {
     const handleLibraryChanged = (event: Event): void => {
@@ -486,7 +515,7 @@ export const ArtistsPage = (): JSX.Element => {
           </button>
 
           <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
-          {sourceMode === 'remote' ? <RemoteSourceFilter value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
+          {sourceMode === 'remote' ? <RemoteSourceFilter sources={remoteSources} value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
 
           <div className="sort-select" ref={sortMenuRef}>
             <button

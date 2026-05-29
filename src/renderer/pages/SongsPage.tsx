@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Download, FolderPlus, ListFilter, Play, RotateCw, Search, Trash2, X } from 'lucide-react';
 import type { DuplicateTrackIndexSummary, DuplicateTrackMember, EditableTrackTags, LibraryPlaylist, LibraryScanStatus, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import type { RemoteSource } from '../../shared/types/remoteSources';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { LibrarySourceSwitch } from '../components/library/LibrarySourceSwitch';
@@ -31,6 +32,7 @@ import {
 } from '../utils/databaseRecovery';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
+import { getRemoteSourcesBridge } from '../utils/echoBridge';
 
 const pageSize = 100;
 const maxPreservedRefreshPageSize = 500;
@@ -185,6 +187,8 @@ export const SongsPage = (): JSX.Element => {
   const [sort, setSort] = useState<LibrarySort>(() => initialSongsState.sort);
   const [sourceMode, setSourceModeState] = useState<LibrarySourceMode>(() => initialSongsState.sourceMode);
   const [remoteSourceId, setRemoteSourceId] = useState<string | null>(null);
+  const [remoteSources, setRemoteSources] = useState<RemoteSource[]>([]);
+  const [remoteSourcesLoaded, setRemoteSourcesLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isMaintainingLibrary, setIsMaintainingLibrary] = useState(false);
   const [hideDuplicates, setHideDuplicates] = useState(() => initialSongsState.hideDuplicates);
@@ -228,6 +232,8 @@ export const SongsPage = (): JSX.Element => {
   const loadedTrackIdsKey = useMemo(() => uniqueIds(tracks.map((track) => track.id)).join('\0'), [tracks]);
   const activeSortLabel = sortOptions.find((option) => option.value === sort)?.label ?? '默认排序';
   const effectiveHideDuplicates = showDuplicatesOnly ? false : hideDuplicates;
+  const hasRemoteSources = remoteSources.length > 0;
+  const sourceLoadGate = sourceMode === 'remote' ? `${remoteSourcesLoaded}:${hasRemoteSources}` : 'local';
   const queueSource = useMemo(
     () => ({
       type: 'songs' as const,
@@ -287,6 +293,24 @@ export const SongsPage = (): JSX.Element => {
     setTracks((current) => current.map((track) => updates.get(track.id) ?? track));
   }, []);
 
+  const refreshRemoteSources = useCallback(async (): Promise<void> => {
+    const remoteApi = getRemoteSourcesBridge();
+    if (!remoteApi?.list) {
+      setRemoteSources([]);
+      setRemoteSourcesLoaded(true);
+      return;
+    }
+
+    try {
+      const sources = await remoteApi.list();
+      setRemoteSources(sources.filter((source) => source.status !== 'disabled'));
+    } catch {
+      setRemoteSources([]);
+    } finally {
+      setRemoteSourcesLoaded(true);
+    }
+  }, []);
+
   const setSourceMode = useCallback((mode: LibrarySourceMode): void => {
     setSourceModeState(mode);
     if (mode !== 'remote') {
@@ -300,6 +324,25 @@ export const SongsPage = (): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    void refreshRemoteSources();
+
+    const handleRemoteSourcesChanged = (): void => {
+      void refreshRemoteSources();
+    };
+
+    window.addEventListener('library:changed', handleRemoteSourcesChanged);
+    return () => {
+      window.removeEventListener('library:changed', handleRemoteSourcesChanged);
+    };
+  }, [refreshRemoteSources]);
+
+  useEffect(() => {
+    if (remoteSourcesLoaded && !hasRemoteSources && sourceMode === 'remote') {
+      setSourceMode('local');
+    }
+  }, [hasRemoteSources, remoteSourcesLoaded, setSourceMode, sourceMode]);
+
+  useEffect(() => {
     const handleShowRemoteSource = (event: Event): void => {
       const detail = event instanceof CustomEvent ? event.detail : null;
       const sourceId = detail && typeof detail.sourceId === 'string' ? detail.sourceId.trim() : '';
@@ -311,13 +354,14 @@ export const SongsPage = (): JSX.Element => {
       setRemoteSourceId(sourceId);
       setShowDuplicatesOnly(false);
       setSelectedTrackIds({});
+      void refreshRemoteSources();
     };
 
     window.addEventListener('library:show-remote-source', handleShowRemoteSource);
     return () => {
       window.removeEventListener('library:show-remote-source', handleShowRemoteSource);
     };
-  }, [setSourceMode]);
+  }, [refreshRemoteSources, setSourceMode]);
 
   useEffect(() => {
     beginSongsStartupLoadDiagnostics({
@@ -505,8 +549,12 @@ export const SongsPage = (): JSX.Element => {
   );
 
   useEffect(() => {
+    if (sourceMode === 'remote' && (!remoteSourcesLoaded || !hasRemoteSources)) {
+      return;
+    }
+
     void loadTracks(1, 'replace');
-  }, [loadTracks]);
+  }, [loadTracks, sourceLoadGate, sourceMode]);
 
   useEffect(() => {
     return () => {
@@ -1399,8 +1447,10 @@ export const SongsPage = (): JSX.Element => {
         </label>
 
         <div className="songs-control-actions">
-          <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} />
-          {sourceMode === 'remote' ? <RemoteSourceFilter value={remoteSourceId} onChange={setRemoteSourceId} /> : null}
+          {hasRemoteSources ? <LibrarySourceSwitch value={sourceMode} onChange={setSourceMode} /> : null}
+          {sourceMode === 'remote' ? (
+            <RemoteSourceFilter sources={remoteSources} value={remoteSourceId} onChange={setRemoteSourceId} />
+          ) : null}
 
           <div className="sort-select" ref={sortMenuRef}>
             <button

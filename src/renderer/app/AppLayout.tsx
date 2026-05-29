@@ -13,6 +13,7 @@ import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
 import { loadPersistedRememberedAudioOutput } from '../components/player/audioOutputMemory';
 import { Sidebar } from '../components/layout/Sidebar';
 import { AppTitleBar } from '../components/layout/AppTitleBar';
+import { EditableContextMenu } from '../components/ui/EditableContextMenu';
 import { formatAudioHostError } from '../components/player/audioErrorFormat';
 import type { AppRoute, AppRouteId } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
@@ -97,7 +98,7 @@ const defaultAppWallpaperSettings: AppWallpaperSettings = {
 };
 
 const defaultLyricsMiniPlayerSettings: LyricsMiniPlayerSettings = {
-  lyricsPlayerBarDrawerEnabled: false,
+  lyricsPlayerBarDrawerEnabled: true,
   lyricsPlayerBarDrawerAutoEnableForMv: true,
   lyricsPlayerBarDrawerOpacityPercent: 78,
   lyricsPlayerBarDrawerColorMode: 'default',
@@ -140,7 +141,7 @@ const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings
 });
 
 const selectLyricsMiniPlayerSettings = (settings: Partial<AppSettings>): LyricsMiniPlayerSettings => ({
-  lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
+  lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled !== false,
   lyricsPlayerBarDrawerAutoEnableForMv: settings.lyricsPlayerBarDrawerAutoEnableForMv !== false,
   lyricsPlayerBarDrawerOpacityPercent: Number.isFinite(settings.lyricsPlayerBarDrawerOpacityPercent)
     ? Math.max(20, Math.min(100, Math.round(Number(settings.lyricsPlayerBarDrawerOpacityPercent))))
@@ -1540,6 +1541,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           </main>
         );
       })}
+
+      <EditableContextMenu />
 
       {isStandaloneRoute ? null : <DragDropImportOverlay onNotice={setChromeNotice} />}
 

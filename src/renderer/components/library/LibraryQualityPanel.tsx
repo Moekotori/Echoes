@@ -10,6 +10,7 @@ import type {
 import { getLibraryBridge } from '../../utils/echoBridge';
 
 type LibraryQualityPanelProps = {
+  autoRefresh?: boolean;
   networkMetadataEnabled?: boolean;
 };
 
@@ -53,7 +54,7 @@ const formatReason = (reason: LibraryQualityIssueReason): string => reasonLabels
 const overviewTotal = (overview: LibraryQualityOverviewItem[]): number =>
   overview.reduce((total, item) => total + item.count, 0);
 
-export const LibraryQualityPanel = ({ networkMetadataEnabled = false }: LibraryQualityPanelProps): JSX.Element => {
+export const LibraryQualityPanel = ({ autoRefresh = true, networkMetadataEnabled = false }: LibraryQualityPanelProps): JSX.Element => {
   const [expanded, setExpanded] = useState(false);
   const [overview, setOverview] = useState<LibraryQualityOverviewItem[]>([]);
   const [overviewBusy, setOverviewBusy] = useState(false);
@@ -117,6 +118,10 @@ export const LibraryQualityPanel = ({ networkMetadataEnabled = false }: LibraryQ
   );
 
   useEffect(() => {
+    if (!autoRefresh) {
+      return undefined;
+    }
+
     let cancelled = false;
     let idleId: number | null = null;
     let timeoutId: number | null = null;
@@ -145,7 +150,7 @@ export const LibraryQualityPanel = ({ networkMetadataEnabled = false }: LibraryQ
       }
       unsubscribe?.();
     };
-  }, [refreshOverview]);
+  }, [autoRefresh, refreshOverview]);
 
   const handleSelectKind = useCallback(
     (kind: LibraryQualityIssueKind): void => {

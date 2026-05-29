@@ -1824,6 +1824,8 @@ const echoApi: EchoApi = {
     getFavorites: () => ipcRenderer.invoke(IpcChannels.StreamingGetFavorites),
     setFavorite: (request) => ipcRenderer.invoke(IpcChannels.StreamingSetFavorite, request),
     renameFavoriteCollection: (request) => ipcRenderer.invoke(IpcChannels.StreamingRenameFavoriteCollection, request),
+    syncFavoriteCollection: (request) => ipcRenderer.invoke(IpcChannels.StreamingSyncFavoriteCollection, request),
+    deleteFavoriteCollection: (request) => ipcRenderer.invoke(IpcChannels.StreamingDeleteFavoriteCollection, request),
     refreshNeteaseDailyRecommend: () => ipcRenderer.invoke(IpcChannels.StreamingRefreshNeteaseDailyRecommend),
   },
   lyrics: {

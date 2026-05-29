@@ -694,6 +694,25 @@ describe('SongsPage', () => {
     expect(screen.getByTestId('track-list').getAttribute('data-loaded-count')).toBe('100');
   });
 
+  it('hides the local and cloud source switch when no remote source is connected', async () => {
+    installEcho([makeTrack()]);
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+
+    expect(screen.queryByRole('group', { name: /Library source|曲库来源/u })).toBeNull();
+  });
+
+  it('shows the source switch after a remote source is connected', async () => {
+    installEcho([makeTrack()]);
+    vi.mocked(window.echo.remoteSources.list).mockResolvedValue([makeRemoteSource('source-1', 'AList One')]);
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+
+    expect(await screen.findByRole('group', { name: /Library source|曲库来源/u })).toBeTruthy();
+  });
+
   it('loads duplicate badges only for visible song rows', async () => {
     const tracks = Array.from({ length: 5 }, (_, index) => makeTrack({ id: `track-${index + 1}`, title: `Song ${index + 1}` }));
     installEcho(tracks);
@@ -731,6 +750,7 @@ describe('SongsPage', () => {
       }),
     ];
     installEcho(tracks);
+    vi.mocked(window.echo.remoteSources.list).mockResolvedValue([makeRemoteSource('source-1', 'AList One')]);
     vi.mocked(window.echo.remoteSources.hydrateVisibleTracks).mockResolvedValue([
       { ...tracks[0], coverId: 'cover-1', coverThumb: 'echo-cover://thumb/cover-1' },
     ]);

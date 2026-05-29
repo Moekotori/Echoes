@@ -177,7 +177,7 @@ export const appRoutes: AppRoute[] = [
   },
   {
     id: 'connect',
-    label: 'Connect',
+    label: '连接',
     labelKey: 'route.connect.label',
     description: 'DLNA and AirPlay wireless playback.',
     descriptionKey: 'route.connect.description',

@@ -761,6 +761,16 @@ describe('PlaylistsPage actions menu', () => {
         },
       ],
     });
+    const syncedTrack = streamingFavoriteTrack({ providerTrackId: 'video-2', stableKey: 'streaming:youtube:video-2', title: 'Video Two' });
+    const syncedSnapshot = streamingFavoritesSnapshot({
+      collections: [
+        {
+          ...renamedSnapshot.collections[0],
+          tracks: [importedTrack, syncedTrack],
+        },
+      ],
+    });
+    const deletedSnapshot = streamingFavoritesSnapshot();
     const importFavoritesFromUrl = vi.fn().mockResolvedValue({
       provider: 'youtube',
       providerPlaylistId: 'PL123',
@@ -774,7 +784,21 @@ describe('PlaylistsPage actions menu', () => {
       collection: renamedSnapshot.collections[0],
       snapshot: renamedSnapshot,
     });
+    const syncFavoriteCollection = vi.fn().mockResolvedValue({
+      provider: 'youtube',
+      providerPlaylistId: 'PL123',
+      collectionId: 'streaming-favorites:youtube:PL123',
+      playlistName: 'Night Picks',
+      importedCount: 2,
+      addedCount: 1,
+      snapshot: syncedSnapshot,
+    });
+    const deleteFavoriteCollection = vi.fn().mockResolvedValue({
+      collectionId: 'streaming-favorites:youtube:PL123',
+      snapshot: deletedSnapshot,
+    });
     window.prompt = vi.fn(() => 'Night Picks');
+    window.confirm = vi.fn(() => true);
     window.echo = {
       library: {
         getPlaylists: vi.fn().mockResolvedValue([playlist({ itemCount: 0 })]),
@@ -788,6 +812,8 @@ describe('PlaylistsPage actions menu', () => {
         getFavorites: vi.fn().mockResolvedValue(streamingFavoritesSnapshot()),
         importFavoritesFromUrl,
         renameFavoriteCollection,
+        syncFavoriteCollection,
+        deleteFavoriteCollection,
       },
     } as unknown as Window['echo'];
 
@@ -808,6 +834,18 @@ describe('PlaylistsPage actions menu', () => {
     );
     expect(await screen.findByText('收藏表已重命名')).toBeTruthy();
     expect(await screen.findAllByText('Night Picks')).toHaveLength(2);
+
+    fireEvent.click(await screen.findByRole('button', { name: '同步' }));
+    await waitFor(() =>
+      expect(syncFavoriteCollection).toHaveBeenCalledWith({ collectionId: 'streaming-favorites:youtube:PL123' }),
+    );
+    expect(await screen.findByRole('button', { name: 'Video Two' })).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }));
+    await waitFor(() =>
+      expect(deleteFavoriteCollection).toHaveBeenCalledWith({ collectionId: 'streaming-favorites:youtube:PL123' }),
+    );
+    expect(screen.queryByRole('button', { name: 'Video Song' })).toBeNull();
   });
 
   it('guides Spotify owner-restricted playlist imports through the system browser', async () => {

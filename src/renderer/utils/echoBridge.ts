@@ -35,7 +35,13 @@ import {
   eqMinPreampDb,
   eqMinQ,
 } from '../../shared/types/eq';
-import type { StreamingFavoriteCollectionRenameResult, StreamingFavoritesImportResult, StreamingLikedSongsSyncResult, StreamingPlaylistImportResult } from '../../shared/types/streaming';
+import type {
+  StreamingFavoriteCollectionDeleteResult,
+  StreamingFavoriteCollectionRenameResult,
+  StreamingFavoritesImportResult,
+  StreamingLikedSongsSyncResult,
+  StreamingPlaylistImportResult,
+} from '../../shared/types/streaming';
 
 export const getEchoBridge = (): Window['echo'] | null => window.echo ?? null;
 
@@ -880,6 +886,12 @@ const browserStreamingBridge: StreamingBridgeApi = {
   }),
   renameFavoriteCollection: async (): Promise<StreamingFavoriteCollectionRenameResult> => {
     throw new Error('Desktop bridge unavailable. Open ECHO Next in Electron to rename streaming favorite lists.');
+  },
+  syncFavoriteCollection: async (): Promise<StreamingFavoritesImportResult> => {
+    throw new Error('Desktop bridge unavailable. Open ECHO Next in Electron to sync streaming favorite lists.');
+  },
+  deleteFavoriteCollection: async (): Promise<StreamingFavoriteCollectionDeleteResult> => {
+    throw new Error('Desktop bridge unavailable. Open ECHO Next in Electron to delete streaming favorite lists.');
   },
   refreshNeteaseDailyRecommend: refreshNeteaseDailyRecommendFromDevApi,
 };

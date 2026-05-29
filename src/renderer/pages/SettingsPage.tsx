@@ -1260,14 +1260,15 @@ const renderReleaseNotesHtmlBlock = (node: ChildNode, keyPrefix: string): ReactN
 };
 
 const ReleaseNotesMarkdown = ({ markdown }: { markdown: string }): JSX.Element => {
-  if (looksLikeReleaseNotesHtml(markdown) && typeof DOMParser !== 'undefined') {
-    const document = new DOMParser().parseFromString(markdown, 'text/html');
-    const blocks = Array.from(document.body.childNodes)
-      .map((child, childIndex) => renderReleaseNotesHtmlBlock(child, `html-${childIndex}`))
-      .filter(Boolean);
+  const rendered = useMemo(() => {
+    if (looksLikeReleaseNotesHtml(markdown) && typeof DOMParser !== 'undefined') {
+      const document = new DOMParser().parseFromString(markdown, 'text/html');
+      const blocks = Array.from(document.body.childNodes)
+        .map((child, childIndex) => renderReleaseNotesHtmlBlock(child, `html-${childIndex}`))
+        .filter(Boolean);
 
-    return <div className="settings-update-markdown settings-update-markdown--html">{blocks}</div>;
-  }
+      return { blocks, isHtml: true };
+    }
 
   const lines = markdown.replace(/\r\n?/gu, '\n').split('\n');
   const blocks: ReactNode[] = [];
@@ -1371,7 +1372,10 @@ const ReleaseNotesMarkdown = ({ markdown }: { markdown: string }): JSX.Element =
     pushParagraph(paragraphLines, paragraphKey);
   }
 
-  return <div className="settings-update-markdown">{blocks}</div>;
+    return { blocks, isHtml: false };
+  }, [markdown]);
+
+  return <div className={`settings-update-markdown${rendered.isHtml ? ' settings-update-markdown--html' : ''}`}>{rendered.blocks}</div>;
 };
 
 const formatRate = (value: number | null): string => {
@@ -3706,6 +3710,7 @@ export const SettingsPage = (): JSX.Element => {
   const [lastFmAuthToken, setLastFmAuthToken] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [deferredAboutReleaseNotes, setDeferredAboutReleaseNotes] = useState<string | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [lastCrashSummary, setLastCrashSummary] = useState<LastCrashSummary | null>(null);
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
@@ -3730,6 +3735,7 @@ export const SettingsPage = (): JSX.Element => {
   const [libraryScanBusy, setLibraryScanBusy] = useState(false);
   const [libraryScanMessage, setLibraryScanMessage] = useState<string | null>(null);
   const [libraryScanStatuses, setLibraryScanStatuses] = useState<ScanStatusByFolder>(getLibraryScanStatuses);
+  const [libraryDeferredRefreshReady, setLibraryDeferredRefreshReady] = useState(false);
   const [artistImageBusyAction, setArtistImageBusyAction] = useState<'refresh' | 'clear' | null>(null);
   const [artistImageMessage, setArtistImageMessage] = useState<string | null>(null);
   const [artistImageProgress, setArtistImageProgress] = useState<ArtistImageProgress | null>(null);
@@ -4822,6 +4828,39 @@ export const SettingsPage = (): JSX.Element => {
 
   useEffect(() => {
     if (activeSection !== 'library') {
+      setLibraryDeferredRefreshReady(false);
+      return undefined;
+    }
+
+    setLibraryDeferredRefreshReady(false);
+    let timeoutId: number | null = null;
+    const cancelIdleTask = scheduleSettingsIdleTask(() => {
+      timeoutId = window.setTimeout(() => {
+        setLibraryDeferredRefreshReady(true);
+      }, 1200);
+    });
+
+    return () => {
+      cancelIdleTask();
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== 'library' || !libraryDeferredRefreshReady) {
+      return undefined;
+    }
+
+    return scheduleSettingsIdleTask(() => {
+      void refreshCacheInventory();
+      void refreshDuplicateSummary();
+    });
+  }, [activeSection, libraryDeferredRefreshReady, refreshCacheInventory, refreshDuplicateSummary]);
+
+  useEffect(() => {
+    if (activeSection !== 'library') {
       return undefined;
     }
 
@@ -4829,11 +4868,9 @@ export const SettingsPage = (): JSX.Element => {
       const app = getAppBridge();
       const downloads = getDownloadsBridge();
       void app?.getDefaultCacheDirectory().then(setDefaultCacheDirectory).catch(() => undefined);
-      void refreshCacheInventory();
       void downloads?.getSettings().then(setDownloadSettings).catch(() => undefined);
-      void refreshDuplicateSummary();
     });
-  }, [activeSection, refreshCacheInventory, refreshDuplicateSummary]);
+  }, [activeSection]);
 
   useEffect(() => {
     if (activeSection !== 'library') {
@@ -4879,6 +4916,23 @@ export const SettingsPage = (): JSX.Element => {
       void getDiagnosticsBridge()?.getLastCrashSummary().then(setLastCrashSummary).catch(() => undefined);
     });
   }, [activeSection]);
+
+  useEffect(() => {
+    const releaseNotes = updateStatus?.releaseNotes ?? null;
+    if (activeSection !== 'about' || !releaseNotes) {
+      setDeferredAboutReleaseNotes(null);
+      return undefined;
+    }
+
+    if (deferredAboutReleaseNotes === releaseNotes) {
+      return undefined;
+    }
+
+    setDeferredAboutReleaseNotes(null);
+    return scheduleSettingsIdleTask(() => {
+      setDeferredAboutReleaseNotes(releaseNotes);
+    });
+  }, [activeSection, deferredAboutReleaseNotes, updateStatus?.releaseNotes]);
 
   useEffect(() => {
     if (activeSection !== 'library') {
@@ -7539,6 +7593,7 @@ export const SettingsPage = (): JSX.Element => {
 
       const scans = await Promise.all(foldersToScan.map((folder) => library.scanFolder(folder.id)));
       scans.forEach(rememberLibraryScanStatus);
+      setLibraryScanStatuses(getLibraryScanStatuses());
       setLibraryScanMessage(
         runningFolderIds.size > 0
           ? `已加入 ${scans.length} 个曲库文件夹到扫描队列，已有 ${runningFolderIds.size} 个正在排队/运行。`
@@ -11321,7 +11376,7 @@ export const SettingsPage = (): JSX.Element => {
                 title={'\u8d44\u6599\u8d28\u91cf\u6574\u7406'}
                 description={'\u7edf\u8ba1\u7f3a\u5c01\u9762\u3001\u56de\u9000\u5143\u6570\u636e\u548c\u7f51\u7edc\u5019\u9009\uff0c\u53ea\u505a\u5b9a\u5411\u67e5\u770b\u548c\u624b\u52a8\u8865\u5168\u5165\u53e3\u3002'}
               >
-                <LibraryQualityPanel networkMetadataEnabled={appSettings?.networkMetadataEnabled ?? false} />
+                <LibraryQualityPanel autoRefresh={libraryDeferredRefreshReady} networkMetadataEnabled={appSettings?.networkMetadataEnabled ?? false} />
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
@@ -11972,7 +12027,11 @@ export const SettingsPage = (): JSX.Element => {
                   {updateStatus?.releaseNotes ? (
                     <div className="settings-update-notes">
                       <em>更新日志</em>
-                      <ReleaseNotesMarkdown markdown={updateStatus.releaseNotes} />
+                      {deferredAboutReleaseNotes === updateStatus.releaseNotes ? (
+                        <ReleaseNotesMarkdown markdown={updateStatus.releaseNotes} />
+                      ) : (
+                        <p className="settings-inline-note">更新日志稍后显示...</p>
+                      )}
                     </div>
                   ) : (
                     <p className="settings-inline-note">更新日志会在 GitHub Release 返回 release notes 后显示。</p>

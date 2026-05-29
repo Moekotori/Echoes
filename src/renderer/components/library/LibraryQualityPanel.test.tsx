@@ -107,6 +107,24 @@ afterEach(() => {
 });
 
 describe('LibraryQualityPanel', () => {
+  it('can skip mount-time overview refresh until the panel is opened', async () => {
+    const getLibraryQualityOverview = vi.fn().mockResolvedValue(overview);
+    const getLibraryQualityIssues = vi.fn().mockResolvedValue(issuePage());
+    libraryBridge = {
+      getLibraryQualityOverview,
+      getLibraryQualityIssues,
+      onLibraryChanged: vi.fn(),
+    };
+
+    render(<LibraryQualityPanel autoRefresh={false} networkMetadataEnabled={false} />);
+
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(getLibraryQualityOverview).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /资料质量整理/ }));
+    await waitFor(() => expect(getLibraryQualityOverview).toHaveBeenCalledTimes(1));
+  });
+
   it('shows overview totals and loads issue rows by category', async () => {
     const getLibraryQualityOverview = vi.fn().mockResolvedValue(overview);
     const getLibraryQualityIssues = vi.fn().mockResolvedValue(issuePage());

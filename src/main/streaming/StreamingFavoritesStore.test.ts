@@ -138,6 +138,18 @@ describe('StreamingFavoritesStore', () => {
     expect(refreshed.collection.tracks[0].title).toBe('Updated Song');
   });
 
+  it('deletes imported favorite collections without touching default provider favorites', () => {
+    const store = makeStore();
+    store.setFavorite(makeTrack({ providerTrackId: 'default-video', stableKey: 'streaming:youtube:default-video' }), true);
+    const imported = store.importCollection('youtube', 'PL123', 'YouTube Favorites', [makeTrack()]);
+
+    const deleted = store.deleteCollection(imported.collection.id);
+
+    expect(deleted.collectionId).toBe('streaming-favorites:youtube:PL123');
+    expect(deleted.snapshot.collections).toEqual([]);
+    expect(deleted.snapshot.providers.youtube.map((item) => item.providerTrackId)).toEqual(['default-video']);
+  });
+
   it('rejects providers outside local streaming favorites', () => {
     const store = makeStore();
 

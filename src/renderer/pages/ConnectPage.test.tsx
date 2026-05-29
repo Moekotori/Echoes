@@ -364,6 +364,7 @@ const installEchoBridge = (
 describe('ConnectPage HQPlayer controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -403,6 +404,45 @@ describe('ConnectPage HQPlayer controls', () => {
     expect(screen.getByText('局域网 192.168.1.42')).toBeTruthy();
     expect(screen.getByText('可定位 · 可调音量 · 封面/元数据 · 可直连 · FLAC / WAV / MP3')).toBeTruthy();
     expect(screen.getByText('1 台数播 · 2 个入口')).toBeTruthy();
+  });
+
+  it('hides a noisy LAN device from the list and restores it locally', async () => {
+    installEchoBridge(hqStatus('available'), hqSettings, connectStatus, [dlnaDevice, hqPlayerDevice]);
+    render(<ConnectPage />);
+
+    await screen.findByText('Living Room Streamer');
+    const row = screen.getByText('Living Room Streamer').closest('article');
+    expect(row).toBeTruthy();
+
+    fireEvent.contextMenu(row as HTMLElement);
+
+    await waitFor(() => expect(screen.queryByText('DLNA / UPnP · Silent Angel · N130 · v2')).toBeNull());
+    expect(screen.getByText('已隐藏设备')).toBeTruthy();
+    expect(screen.getAllByText((_, node) => node?.textContent?.trim() === '0 台数播 · 1 个入口 · 已隐藏 1').length).toBeGreaterThan(0);
+    expect(JSON.parse(window.localStorage.getItem('echo.connect.hiddenDevices.v1') ?? '[]')).toContain(dlnaDevice.id);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Living Room Streamer' }));
+
+    await screen.findByText('Living Room Streamer');
+    expect(screen.queryByText('已隐藏设备')).toBeNull();
+  });
+
+  it('remembers the LAN streamer section collapsed state', async () => {
+    installEchoBridge(hqStatus('available'));
+    const { unmount } = render(<ConnectPage />);
+
+    await screen.findByText('HQPlayer Desktop');
+    fireEvent.click(screen.getByRole('button', { name: '折叠局域网数播' }));
+
+    await waitFor(() => expect(screen.queryByText('HQPlayer Desktop')).toBeNull());
+    expect(window.localStorage.getItem('echo.connect.deviceSectionCollapsed.v1')).toBe('true');
+
+    unmount();
+    render(<ConnectPage />);
+
+    expect(screen.queryByText('HQPlayer Desktop')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开局域网数播' }));
+    await screen.findByText('HQPlayer Desktop');
   });
 
   it('shows wildcard DLNA format support without hiding the device capability', async () => {
