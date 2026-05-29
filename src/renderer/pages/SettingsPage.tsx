@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Captions,
   Check,
   Clapperboard,
   Code2,
   Clipboard,
   Download,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -49,10 +53,18 @@ import type {
 } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
 import { isDownloadFeatureUnlockCode } from '../../shared/constants/featureUnlocks';
-import { defaultArtistOnlineInfoSources } from '../../shared/types/appSettings';
+import { defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider } from '../../shared/types/appSettings';
+import {
+  defaultSidebarRouteOrder,
+  lockedVisibleSidebarRouteIds,
+  normalizeSidebarHiddenRouteIds,
+  normalizeSidebarRouteOrder,
+  type SidebarRouteId,
+} from '../../shared/types/sidebar';
 import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../shared/types/accounts';
 import type {
   ArtistOnlineInfoSource,
+  ArtistStreamingAlbumsProvider,
   AppSettings,
   AppThemeCustomTheme,
   AppThemeMode,
@@ -465,6 +477,10 @@ const artistOnlineInfoSourceOptions: Array<{ source: ArtistOnlineInfoSource; lab
   { source: 'baidu-baike', label: '百度百科', description: '中文艺人和大众歌手优先' },
   { source: 'wikipedia', label: 'Wikipedia', description: '国际艺人兜底' },
 ];
+const artistStreamingAlbumProviderOptions: Array<{ provider: ArtistStreamingAlbumsProvider; label: string; description: string }> = [
+  { provider: 'netease', label: '网易云', description: '默认来源，优先减少额外搜索压力' },
+  { provider: 'qqmusic', label: 'QQ音乐', description: '艺人详情专辑页改用 QQ 音乐搜索' },
+];
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const mvProviderLabels: Record<NetworkMvProviderId, string> = {
   bilibili: 'Bilibili',
@@ -817,6 +833,50 @@ const settingsNavItems: SettingsNavItem[] = [
   { key: 'danger', labelKey: 'settings.nav.danger.label', descriptionKey: 'settings.nav.danger.description', icon: Trash2 },
 ];
 
+type SidebarSettingsRouteItem = {
+  id: SidebarRouteId;
+  labelKey: TranslationKey;
+  placement: 'main' | 'utility';
+};
+
+const sidebarSettingsCopy = {
+  title: '\u5de6\u4fa7\u680f',
+  description: '\u8c03\u6574\u5de6\u4fa7\u5165\u53e3\u7684\u987a\u5e8f\u548c\u663e\u793a\u72b6\u6001\uff0c\u4e0d\u4f1a\u6539\u52a8\u9875\u9762\u6216\u64ad\u653e\u94fe\u8def\u3002',
+  mainGroup: '\u4e3b\u5bfc\u822a',
+  utilityGroup: '\u5e95\u90e8\u5165\u53e3',
+  reset: '\u6062\u590d\u9ed8\u8ba4',
+  visible: '\u663e\u793a',
+  hidden: '\u9690\u85cf',
+  fixed: '\u56fa\u5b9a\u663e\u793a',
+  noItems: '\u8fd9\u4e00\u7ec4\u6ca1\u6709\u53ef\u8c03\u6574\u7684\u5165\u53e3\u3002',
+};
+
+const sidebarSettingsRouteItems: SidebarSettingsRouteItem[] = [
+  { id: 'home', labelKey: 'route.home.label', placement: 'main' },
+  { id: 'songs', labelKey: 'route.songs.label', placement: 'main' },
+  { id: 'downloads', labelKey: 'route.downloads.label', placement: 'main' },
+  { id: 'albums', labelKey: 'route.albums.label', placement: 'main' },
+  { id: 'artists', labelKey: 'route.artists.label', placement: 'main' },
+  { id: 'folders', labelKey: 'route.folders.label', placement: 'main' },
+  { id: 'remote', labelKey: 'route.remote.label', placement: 'main' },
+  { id: 'connect', labelKey: 'route.connect.label', placement: 'main' },
+  { id: 'streaming', labelKey: 'route.streaming.label', placement: 'main' },
+  { id: 'queue', labelKey: 'route.queue.label', placement: 'main' },
+  { id: 'history', labelKey: 'route.history.label', placement: 'main' },
+  { id: 'playlists', labelKey: 'route.playlists.label', placement: 'main' },
+  { id: 'inbox', labelKey: 'route.inbox.label', placement: 'main' },
+  { id: 'plugins', labelKey: 'route.plugins.label', placement: 'main' },
+  { id: 'liked', labelKey: 'route.liked.label', placement: 'utility' },
+  { id: 'settings', labelKey: 'route.settings.label', placement: 'utility' },
+  { id: 'audio-settings', labelKey: 'route.audioSettings.label', placement: 'utility' },
+  { id: 'lyrics-settings', labelKey: 'route.lyricsSettings.label', placement: 'utility' },
+  { id: 'import-folder', labelKey: 'route.importFolder.label', placement: 'utility' },
+  { id: 'import-file', labelKey: 'route.importFile.label', placement: 'utility' },
+];
+
+const sidebarSettingsRouteItemById = new Map(sidebarSettingsRouteItems.map((item) => [item.id, item]));
+const lockedVisibleSidebarRouteIdSet = new Set<SidebarRouteId>(lockedVisibleSidebarRouteIds);
+
 const pendingSettingsSectionStorageKey = 'echo-next.settings.pending-section';
 const pendingRouteStorageKey = 'echo-next.pending-route';
 const pluginsDocumentationUrl = 'https://github.com/moekotori/echo/blob/main/docs/ECHO_NEXT_PLUGINS.md';
@@ -945,10 +1005,19 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     'wallpaper',
     'font',
     'density',
+    'sidebar',
+    'side bar',
+    'left sidebar',
+    'navigation order',
+    'hide navigation',
     'artist avatar',
     'artist image',
     'cover',
     'transparent',
+    '\u5de6\u4fa7\u680f',
+    '\u4fa7\u680f',
+    '\u5bfc\u822a\u6392\u5e8f',
+    '\u9690\u85cf\u680f\u76ee',
     '外观',
     '主题',
     '深色',
@@ -3670,6 +3739,29 @@ export const SettingsPage = (): JSX.Element => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [appearancePreferences, setAppearancePreferences] = useState<AppearancePreferences>(() => readAppearancePreferences());
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const sidebarRouteOrder = useMemo(() => normalizeSidebarRouteOrder(appSettings?.sidebarRouteOrder), [appSettings?.sidebarRouteOrder]);
+  const sidebarHiddenRouteIds = useMemo(() => normalizeSidebarHiddenRouteIds(appSettings?.sidebarHiddenRouteIds), [appSettings?.sidebarHiddenRouteIds]);
+  const sidebarHiddenRouteIdSet = useMemo(() => new Set(sidebarHiddenRouteIds), [sidebarHiddenRouteIds]);
+  const sidebarSettingsGroups = useMemo(() => {
+    const groups: Record<SidebarSettingsRouteItem['placement'], SidebarSettingsRouteItem[]> = {
+      main: [],
+      utility: [],
+    };
+    const includeDownloads = appSettings?.downloadsFeatureUnlocked === true;
+
+    for (const routeId of sidebarRouteOrder) {
+      if (routeId === 'downloads' && !includeDownloads) {
+        continue;
+      }
+
+      const item = sidebarSettingsRouteItemById.get(routeId);
+      if (item) {
+        groups[item.placement].push(item);
+      }
+    }
+
+    return groups;
+  }, [appSettings?.downloadsFeatureUnlocked, sidebarRouteOrder]);
   const [selectedThemePreset, setSelectedThemePreset] = useState<AppThemePreset>(() => readThemePreset());
   const [themeCustomThemes, setThemeCustomThemes] = useState<AppThemeCustomTheme[]>(() => readThemeCustomThemes());
   const [activeThemeCustomId, setActiveThemeCustomId] = useState<string | null>(() => readThemeCustomId());
@@ -3871,6 +3963,25 @@ export const SettingsPage = (): JSX.Element => {
         terms: ['关闭 data-protection', '关闭数据保护', 'data protection', 'database snapshot', '数据保护', '快照', '播放卡顿'],
       },
       {
+        id: 'row-sidebar-layout',
+        sectionKey: 'appearance',
+        targetId: 'settings-row-sidebar-layout',
+        title: sidebarSettingsCopy.title,
+        description: sidebarSettingsCopy.description,
+        terms: [
+          sidebarSettingsCopy.title,
+          sidebarSettingsCopy.description,
+          'sidebar',
+          'left sidebar',
+          'navigation order',
+          'hide navigation',
+          '\u5de6\u4fa7\u680f',
+          '\u4fa7\u680f',
+          '\u5bfc\u822a\u6392\u5e8f',
+          '\u9690\u85cf\u680f\u76ee',
+        ],
+      },
+      {
         id: 'row-player-waveform-progress',
         sectionKey: 'general',
         targetId: 'settings-row-player-waveform-progress',
@@ -3929,7 +4040,7 @@ export const SettingsPage = (): JSX.Element => {
         targetId: 'settings-row-artist-streaming-albums',
         title: t('settings.general.artistStreamingAlbums.title'),
         description: t('settings.general.artistStreamingAlbums.description'),
-        terms: [t('settings.general.artistStreamingAlbums.title'), t('settings.general.artistStreamingAlbums.description'), '流媒体专辑', '串流專輯', 'ストリーミングアルバム', '艺人流媒体专辑', '在线专辑', '专辑页', 'streaming albums', 'artist streaming albums'],
+        terms: [t('settings.general.artistStreamingAlbums.title'), t('settings.general.artistStreamingAlbums.description'), '流媒体专辑', '串流專輯', 'ストリーミングアルバム', '艺人流媒体专辑', '在线专辑', '专辑页', '网易云', 'QQ音乐', 'NetEase', 'QQ Music', 'streaming albums', 'artist streaming albums'],
       },
       {
         id: 'row-artist-online-info-sources',
@@ -6079,6 +6190,65 @@ export const SettingsPage = (): JSX.Element => {
         setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
       });
   }, [dispatchSettingsChanged, refreshDataBackupStatus, refreshTaskbarPlaybackStatus]);
+
+  const handleSidebarRouteMove = useCallback(
+    (routeId: SidebarRouteId, direction: -1 | 1): void => {
+      const item = sidebarSettingsRouteItemById.get(routeId);
+      if (!item) {
+        return;
+      }
+
+      const groupItems = sidebarSettingsGroups[item.placement];
+      const currentGroupIndex = groupItems.findIndex((groupItem) => groupItem.id === routeId);
+      const target = groupItems[currentGroupIndex + direction];
+      if (!target) {
+        return;
+      }
+
+      const nextOrder = [...sidebarRouteOrder];
+      const currentIndex = nextOrder.indexOf(routeId);
+      const targetIndex = nextOrder.indexOf(target.id);
+      if (currentIndex < 0 || targetIndex < 0) {
+        return;
+      }
+
+      nextOrder[currentIndex] = target.id;
+      nextOrder[targetIndex] = routeId;
+      patchAppSettings({
+        sidebarRouteOrder: nextOrder,
+        sidebarHiddenRouteIds,
+      });
+    },
+    [patchAppSettings, sidebarHiddenRouteIds, sidebarRouteOrder, sidebarSettingsGroups],
+  );
+
+  const handleSidebarRouteVisibilityToggle = useCallback(
+    (routeId: SidebarRouteId): void => {
+      if (lockedVisibleSidebarRouteIdSet.has(routeId)) {
+        return;
+      }
+
+      const hiddenSet = new Set(sidebarHiddenRouteIds);
+      if (hiddenSet.has(routeId)) {
+        hiddenSet.delete(routeId);
+      } else {
+        hiddenSet.add(routeId);
+      }
+
+      patchAppSettings({
+        sidebarRouteOrder,
+        sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds([...hiddenSet]),
+      });
+    },
+    [patchAppSettings, sidebarHiddenRouteIds, sidebarRouteOrder],
+  );
+
+  const handleSidebarRoutesReset = useCallback((): void => {
+    patchAppSettings({
+      sidebarRouteOrder: [...defaultSidebarRouteOrder],
+      sidebarHiddenRouteIds: [],
+    });
+  }, [patchAppSettings]);
 
   const applyMiniPlayerState = useCallback(
     (state: MiniPlayerState): void => {
@@ -9022,15 +9192,30 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('settings.general.artistStreamingAlbums.title')}
                 description={t('settings.general.artistStreamingAlbums.description')}
               >
-                <ToggleButton
-                  active={appSettings?.artistStreamingAlbumsEnabled === true}
-                  disabled={!appSettings}
-                  onClick={() =>
-                    patchAppSettings({
-                      artistStreamingAlbumsEnabled: !(appSettings?.artistStreamingAlbumsEnabled ?? false),
-                    })
-                  }
-                />
+                <div className="artist-streaming-albums-setting-control">
+                  <div className="settings-chip-row" aria-label="流媒体专辑来源">
+                    {artistStreamingAlbumProviderOptions.map((option) => (
+                      <ChipButton
+                        active={(appSettings?.artistStreamingAlbumsProvider ?? defaultArtistStreamingAlbumsProvider) === option.provider}
+                        disabled={!appSettings}
+                        key={option.provider}
+                        title={option.description}
+                        onClick={() => patchAppSettings({ artistStreamingAlbumsProvider: option.provider })}
+                      >
+                        {option.label}
+                      </ChipButton>
+                    ))}
+                  </div>
+                  <ToggleButton
+                    active={appSettings?.artistStreamingAlbumsEnabled === true}
+                    disabled={!appSettings}
+                    onClick={() =>
+                      patchAppSettings({
+                        artistStreamingAlbumsEnabled: !(appSettings?.artistStreamingAlbumsEnabled ?? false),
+                      })
+                    }
+                  />
+                </div>
               </SettingRow>
               <SettingRow
                 id="settings-row-artist-online-info-sources"
@@ -10743,6 +10928,88 @@ export const SettingsPage = (): JSX.Element => {
                     />
                   </label>
                   <p className="settings-inline-note">{themeScheduleStatus}</p>
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full"
+                id="settings-row-sidebar-layout"
+                highlighted={highlightedSettingId === 'settings-row-sidebar-layout'}
+                title={sidebarSettingsCopy.title}
+                description={sidebarSettingsCopy.description}
+              >
+                <div className="settings-sidebar-layout-panel">
+                  <div className="settings-sidebar-layout-toolbar">
+                    <span>{sidebarHiddenRouteIds.length > 0 ? `\u5df2\u9690\u85cf ${sidebarHiddenRouteIds.length} \u4e2a\u5165\u53e3` : '\u5168\u90e8\u663e\u793a'}</span>
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleSidebarRoutesReset}>
+                      <RotateCcw size={15} />
+                      {sidebarSettingsCopy.reset}
+                    </button>
+                  </div>
+                  {(['main', 'utility'] as const).map((placement) => {
+                    const groupItems = sidebarSettingsGroups[placement];
+
+                    return (
+                      <section className="settings-sidebar-layout-group" key={placement}>
+                        <div className="settings-sidebar-layout-group-title">
+                          <strong>{placement === 'main' ? sidebarSettingsCopy.mainGroup : sidebarSettingsCopy.utilityGroup}</strong>
+                          <span>{`${groupItems.length} \u9879`}</span>
+                        </div>
+                        <div className="settings-sidebar-route-list">
+                          {groupItems.length > 0 ? (
+                            groupItems.map((item, index) => {
+                              const label = t(item.labelKey);
+                              const isLockedVisible = lockedVisibleSidebarRouteIdSet.has(item.id);
+                              const isVisible = isLockedVisible || !sidebarHiddenRouteIdSet.has(item.id);
+
+                              return (
+                                <div className="settings-sidebar-route-item" data-hidden={isVisible ? undefined : 'true'} key={item.id}>
+                                  <span className="settings-sidebar-route-copy">
+                                    <strong>{label}</strong>
+                                    <em>{isLockedVisible ? sidebarSettingsCopy.fixed : isVisible ? sidebarSettingsCopy.visible : sidebarSettingsCopy.hidden}</em>
+                                  </span>
+                                  <span className="settings-sidebar-route-actions">
+                                    <button
+                                      aria-label={`Move up ${label}`}
+                                      className="settings-icon-button"
+                                      disabled={!appSettings || index === 0}
+                                      title="Move up"
+                                      type="button"
+                                      onClick={() => handleSidebarRouteMove(item.id, -1)}
+                                    >
+                                      <ArrowUp size={15} />
+                                    </button>
+                                    <button
+                                      aria-label={`Move down ${label}`}
+                                      className="settings-icon-button"
+                                      disabled={!appSettings || index === groupItems.length - 1}
+                                      title="Move down"
+                                      type="button"
+                                      onClick={() => handleSidebarRouteMove(item.id, 1)}
+                                    >
+                                      <ArrowDown size={15} />
+                                    </button>
+                                    <button
+                                      aria-label={`${isVisible ? 'Hide' : 'Show'} ${label}`}
+                                      aria-pressed={isVisible}
+                                      className="settings-icon-button settings-sidebar-visibility-button"
+                                      disabled={!appSettings || isLockedVisible}
+                                      title={isVisible ? sidebarSettingsCopy.visible : sidebarSettingsCopy.hidden}
+                                      type="button"
+                                      onClick={() => handleSidebarRouteVisibilityToggle(item.id)}
+                                    >
+                                      {isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+                                    </button>
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="settings-sidebar-layout-empty">{sidebarSettingsCopy.noItems}</p>
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
               </SettingRow>
               <SettingRow

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { SettingsPage } from './SettingsPage';
 import type { AppSettings } from '../../shared/types/appSettings';
+import { defaultSidebarRouteOrder } from '../../shared/types/sidebar';
 import type { DownloadSettings } from '../../shared/types/downloads';
 import {
   createDefaultGlobalShortcuts,
@@ -728,6 +729,48 @@ describe('SettingsPage', () => {
     expect(settingsChanged).toHaveBeenCalledWith(expect.objectContaining({ detail: nextSettings }));
   });
 
+  it('saves sidebar visibility and order from appearance controls', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    let currentSettings: AppSettings = {
+      ...settings,
+      downloadsFeatureUnlocked: true,
+      sidebarRouteOrder: [...defaultSidebarRouteOrder],
+      sidebarHiddenRouteIds: [],
+    };
+    getSettingsMock.mockResolvedValue(currentSettings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => {
+      currentSettings = { ...currentSettings, ...patch };
+      return currentSettings;
+    });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
+    const row = screen.getByText('\u5de6\u4fa7\u680f').closest('.setting-row') as HTMLElement;
+    const streamingItem = within(row).getByText('route.streaming.label').closest('.settings-sidebar-route-item') as HTMLElement;
+    fireEvent.click(within(streamingItem).getByRole('button', { name: /Hide route\.streaming\.label/ }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          sidebarHiddenRouteIds: ['streaming'],
+        }),
+      ),
+    );
+
+    const homeItem = within(row).getByText('route.home.label').closest('.settings-sidebar-route-item') as HTMLElement;
+    fireEvent.click(within(homeItem).getByRole('button', { name: /Move down route\.home\.label/ }));
+
+    await waitFor(() => {
+      const lastPatch = setSettingsMock.mock.calls.at(-1)?.[0] as Partial<AppSettings>;
+      expect(lastPatch.sidebarRouteOrder?.slice(0, 2)).toEqual(['songs', 'home']);
+      expect(lastPatch.sidebarHiddenRouteIds).toEqual(['streaming']);
+    });
+  });
+
   it('opens community links through the desktop external-url bridge', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -856,6 +899,26 @@ describe('SettingsPage', () => {
     await waitFor(() =>
       expect(setSettingsMock).toHaveBeenCalledWith({
         onlineArtistInfoSources: ['baidu-baike'],
+      }),
+    );
+  });
+
+  it('saves artist streaming album source choices from general settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, artistStreamingAlbumsProvider: 'netease' });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    const row = document.querySelector('#settings-row-artist-streaming-albums') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /QQ/ }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        artistStreamingAlbumsProvider: 'qqmusic',
       }),
     );
   });

@@ -1200,6 +1200,7 @@ export type AlbumSourceLink = {
     | 'wikidata'
     | 'vgmdb'
     | 'discogs'
+    | 'rateYourMusic'
     | 'spotify'
     | 'appleMusic'
     | 'youtubeMusic'
@@ -1209,6 +1210,18 @@ export type AlbumSourceLink = {
   label: string;
   url: string;
   kind: 'database' | 'streaming' | 'official' | 'reference' | 'other';
+};
+
+export type AlbumExternalRating = {
+  provider: 'rateYourMusic';
+  score: number;
+  maxScore: number;
+  ratingCount: number | null;
+  rankText: string | null;
+  url: string | null;
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  confidence: number;
 };
 
 export type AlbumOnlineInfoMatch = {
@@ -1288,6 +1301,7 @@ export type AlbumOnlineInfo = {
   sources: AlbumOnlineInfoSource[];
   match: AlbumOnlineInfoMatch | null;
   sourceLinks: AlbumSourceLink[];
+  externalRatings: AlbumExternalRating[];
   releaseDetails: AlbumReleaseDetails | null;
   releaseVersions: AlbumReleaseVersion[];
   credits: AlbumCreditGroup[];

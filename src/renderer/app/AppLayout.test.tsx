@@ -182,6 +182,65 @@ describe('AppLayout standalone routes', () => {
     expect(container.querySelector('[data-route-id="history"]')).toBeNull();
   });
 
+  it('keeps the playlists route mounted so browse position survives page switches', async () => {
+    window.localStorage.clear();
+    const onPlaylistsMount = vi.fn();
+    const onPlaylistsUnmount = vi.fn();
+    const PlaylistsProbe = (): JSX.Element => {
+      useEffect(() => {
+        onPlaylistsMount();
+        return () => onPlaylistsUnmount();
+      }, []);
+
+      return (
+        <div data-testid="playlist-scroll-probe">
+          <div>Playlists persistent probe</div>
+        </div>
+      );
+    };
+    const localRoutes: AppRoute[] = [
+      routesWithHome[0],
+      routes[0],
+      {
+        id: 'playlists',
+        label: 'Playlists',
+        labelKey: 'route.playlists.label',
+        description: 'Playlists',
+        icon: ListMusic,
+        placement: 'main',
+        element: <PlaylistsProbe />,
+      },
+      routes[1],
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Home shell')).toBeTruthy());
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Playlists' }));
+
+    const scrollProbe = await screen.findByTestId('playlist-scroll-probe');
+    scrollProbe.scrollTop = 480;
+    expect(onPlaylistsMount).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Songs' }));
+
+    await waitFor(() => expect(container.querySelector('[data-route-id="playlists"]')?.hasAttribute('hidden')).toBe(true));
+    expect(onPlaylistsUnmount).not.toHaveBeenCalled();
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Playlists' }));
+
+    await waitFor(() => expect(container.querySelector('[data-route-id="playlists"]')?.hasAttribute('hidden')).toBe(false));
+    expect(screen.getByTestId('playlist-scroll-probe').scrollTop).toBe(480);
+    expect(onPlaylistsMount).toHaveBeenCalledTimes(1);
+    expect(onPlaylistsUnmount).not.toHaveBeenCalled();
+  });
+
   it('lets upper-left chrome notices be closed manually', async () => {
     (window as unknown as { echo?: Window['echo'] }).echo = undefined;
 
@@ -419,6 +478,46 @@ describe('AppLayout standalone routes', () => {
     });
 
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+  });
+
+  it('applies saved sidebar visibility and order from settings', async () => {
+    window.localStorage.clear();
+    const getSettings = vi.fn().mockResolvedValue({
+      downloadsFeatureUnlocked: true,
+      sidebarRouteOrder: ['queue', 'home', 'songs', 'settings'],
+      sidebarHiddenRouteIds: ['songs'],
+    });
+    window.echo = {
+      app: {
+        getSettings,
+      },
+    } as unknown as Window['echo'];
+
+    const localRoutes: AppRoute[] = [
+      routesWithHome[0],
+      routes[0],
+      {
+        id: 'queue',
+        label: 'Queue',
+        labelKey: 'route.queue.label',
+        description: 'Queue',
+        icon: ListMusic,
+        placement: 'main',
+        element: <div>Queue page</div>,
+      },
+    ];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    await waitFor(() => {
+      expect(within(sidebar).queryByRole('button', { name: 'Songs' })).toBeNull();
+      expect(within(sidebar).getAllByRole('button').map((button) => button.textContent?.trim())).toEqual(['Queue', 'Home']);
+    });
   });
 
   it('notifies the library views when a download is imported', async () => {

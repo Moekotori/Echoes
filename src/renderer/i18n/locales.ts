@@ -74,6 +74,8 @@ type AlbumDetailTranslationKey =
   | 'albumDetail.online.reading'
   | 'albumDetail.online.sources'
   | 'albumDetail.online.unavailable'
+  | 'albumDetail.ratings.count'
+  | 'albumDetail.ratings.overviewAria'
   | 'albumDetail.releases.count'
   | 'albumDetail.releases.current'
   | 'albumDetail.releases.currentHint'
@@ -2577,6 +2579,8 @@ const zhCN: TranslationMap = {
   'albumDetail.online.reading': '正在读取在线专辑信息...',
   'albumDetail.online.sources': '在线来源',
   'albumDetail.online.unavailable': '在线信息不可用',
+  'albumDetail.ratings.count': '{count} 个评分',
+  'albumDetail.ratings.overviewAria': '外部专辑评分',
   'albumDetail.releases.count': '{count} 个发行版本',
   'albumDetail.releases.current': '当前匹配',
   'albumDetail.releases.currentHint': '标记当前本地专辑匹配到的 MusicBrainz 版本',
@@ -4747,6 +4751,8 @@ const zhTW: TranslationMap = {
   'albumDetail.online.reading': '正在讀取線上專輯資訊...',
   'albumDetail.online.sources': '線上來源',
   'albumDetail.online.unavailable': '線上資訊不可用',
+  'albumDetail.ratings.count': '{count} 個評分',
+  'albumDetail.ratings.overviewAria': '外部專輯評分',
   'albumDetail.releases.count': '{count} 個發行版本',
   'albumDetail.releases.current': '目前匹配',
   'albumDetail.releases.currentHint': '標記目前本地專輯匹配到的 MusicBrainz 版本',
@@ -6772,6 +6778,8 @@ const jaJP: TranslationMap = {
   'albumDetail.online.reading': 'オンラインのアルバム情報を読み込み中...',
   'albumDetail.online.sources': 'オンラインソース',
   'albumDetail.online.unavailable': 'オンライン情報を利用できません',
+  'albumDetail.ratings.count': '{count} 件の評価',
+  'albumDetail.ratings.overviewAria': '外部アルバム評価',
   'albumDetail.releases.count': '{count} 件のリリース',
   'albumDetail.releases.current': '現在の一致',
   'albumDetail.releases.currentHint': 'ローカルアルバムが一致した MusicBrainz リリースを示します',
@@ -8704,6 +8712,8 @@ const enUS: TranslationMap = {
   'albumDetail.online.reading': 'Reading online album info...',
   'albumDetail.online.sources': 'Online sources',
   'albumDetail.online.unavailable': 'Online info unavailable',
+  'albumDetail.ratings.count': '{count} ratings',
+  'albumDetail.ratings.overviewAria': 'External album ratings',
   'albumDetail.releases.count': '{count} release versions',
   'albumDetail.releases.current': 'Current match',
   'albumDetail.releases.currentHint': 'Shows the MusicBrainz release matched to this local album',

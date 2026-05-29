@@ -24,6 +24,8 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.online.match': 'MusicBrainz match',
     'albumDetail.information.artistProfile': 'Artist profile',
     'albumDetail.information.externalLinks': 'External links',
+    'albumDetail.ratings.count': '{count} ratings',
+    'albumDetail.ratings.overviewAria': 'External album ratings',
     'albumDetail.releases.count': '{count} release versions',
     'albumDetail.releases.current': 'Current match',
     'albumDetail.releases.currentHint': 'Shows the matched release',
@@ -138,7 +140,21 @@ const onlineInfo = (): AlbumOnlineInfo => ({
   },
   sourceLinks: [
     { provider: 'musicbrainz', label: 'MusicBrainz', url: 'https://musicbrainz.org/release/mb-release-1', kind: 'database' },
+    { provider: 'rateYourMusic', label: 'Rate Your Music', url: 'https://rateyourmusic.com/release/album/echo_unit/mock_album/', kind: 'database' },
     { provider: 'spotify', label: 'Spotify', url: 'https://open.spotify.com/album/mock', kind: 'streaming' },
+  ],
+  externalRatings: [
+    {
+      provider: 'rateYourMusic',
+      score: 3.82,
+      maxScore: 5,
+      ratingCount: 12431,
+      rankText: '#24 in 2024',
+      url: 'https://rateyourmusic.com/release/album/echo_unit/mock_album/',
+      fetchedAt: '2026-05-21T00:00:00.000Z',
+      expiresAt: '2026-06-21T00:00:00.000Z',
+      confidence: 0.95,
+    },
   ],
   releaseDetails: {
     title: 'Mock Album',
@@ -307,7 +323,22 @@ describe('AlbumDetailView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
     expect(await screen.findByText('1234567890123')).toBeTruthy();
+    expect(screen.getByText('3.82 / 5')).toBeTruthy();
+    expect(screen.getByText('12,431 ratings - #24 in 2024')).toBeTruthy();
+    expect(screen.getAllByText('Rate Your Music').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Spotify').length).toBeGreaterThan(0);
+  });
+
+  it('hides the external rating panel when rating data is absent', async () => {
+    const { getAlbumOnlineInfo } = installLibrary();
+    getAlbumOnlineInfo.mockResolvedValueOnce({ ...onlineInfo(), externalRatings: [] });
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
+
+    expect(await screen.findByText('1234567890123')).toBeTruthy();
+    expect(screen.queryByText('3.82 / 5')).toBeNull();
   });
 
   it('shows MusicBrainz release versions and marks the current match', async () => {

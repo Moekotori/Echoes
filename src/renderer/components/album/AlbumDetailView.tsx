@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { ArrowLeft, Disc3, ExternalLink, Heart, Info, Loader2, MoreHorizontal, Play, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Disc3, ExternalLink, Heart, Info, Loader2, MoreHorizontal, Play, RefreshCw, Star } from 'lucide-react';
 import type { AlbumOnlineInfo, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../../hooks/useLikedMedia';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
@@ -93,6 +93,8 @@ type OnlineInfoState = {
   error: string | null;
   loadedForAlbumId: string | null;
 };
+
+type ExternalRating = AlbumOnlineInfo['externalRatings'][number];
 
 type RelatedAlbumsState = {
   loading: boolean;
@@ -274,6 +276,8 @@ const sourceProviderLabel = (provider: string): string => {
       return 'VGMdb';
     case 'discogs':
       return 'Discogs';
+    case 'rateYourMusic':
+      return 'Rate Your Music';
     case 'spotify':
       return 'Spotify';
     case 'appleMusic':
@@ -289,6 +293,23 @@ const sourceProviderLabel = (provider: string): string => {
   }
 };
 
+const ratingProviderLabel = (provider: ExternalRating['provider']): string => {
+  switch (provider) {
+    case 'rateYourMusic':
+      return 'Rate Your Music';
+    default:
+      return 'Community';
+  }
+};
+
+const formatRatingNumber = (value: number, locale: string, maxFractionDigits = 2): string =>
+  new Intl.NumberFormat(locale, {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : maxFractionDigits,
+  }).format(value);
+
+const formatRatingScore = (rating: ExternalRating, locale: string): string =>
+  `${formatRatingNumber(rating.score, locale)} / ${formatRatingNumber(rating.maxScore, locale)}`;
+
 const formatReleaseVersionMeta = (version: NonNullable<AlbumOnlineInfo['releaseVersions'][number]>): string =>
   [
     version.year ? String(version.year) : null,
@@ -301,7 +322,7 @@ const formatReleaseVersionMeta = (version: NonNullable<AlbumOnlineInfo['releaseV
     .join(' - ');
 
 export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.Element => {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const { appendToQueue, currentTrackId, playTrack, playTrackNext, removeTrackFromQueue, replaceQueue, updateTrackSnapshot } = usePlaybackQueue();
   const { isReturning, returnBack } = useAnimatedBackNavigation(onBack);
   const [firstTrack, setFirstTrack] = useState<LibraryTrack | null>(null);
@@ -1071,6 +1092,51 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     );
   };
 
+  const renderExternalRatings = (): JSX.Element | null => {
+    const ratings = onlineInfoState.info?.externalRatings ?? [];
+    if (!ratings.length) {
+      return null;
+    }
+
+    return (
+      <section className="album-external-rating-grid" aria-label={t('albumDetail.ratings.overviewAria')}>
+        {ratings.map((rating) => {
+          const providerLabel = ratingProviderLabel(rating.provider);
+          const meta = [
+            rating.ratingCount !== null ? t('albumDetail.ratings.count', { count: formatRatingNumber(rating.ratingCount, locale, 0) }) : null,
+            rating.rankText,
+          ].filter(Boolean).join(' - ');
+          const content = (
+            <>
+              <Star size={16} />
+              <span>{providerLabel}</span>
+              <strong>{formatRatingScore(rating, locale)}</strong>
+              {meta ? <small>{meta}</small> : null}
+            </>
+          );
+
+          return rating.url ? (
+            <a
+              className="album-external-rating-card"
+              href={rating.url}
+              key={`${rating.provider}:${rating.url}`}
+              rel="noreferrer"
+              target="_blank"
+              title={rating.url}
+              onClick={(event) => handleExternalLinkClick(event, rating.url ?? '')}
+            >
+              {content}
+            </a>
+          ) : (
+            <article className="album-external-rating-card" key={`${rating.provider}:${rating.score}:${rating.maxScore}`}>
+              {content}
+            </article>
+          );
+        })}
+      </section>
+    );
+  };
+
   const renderSources = (): JSX.Element => {
     const state = renderOnlineState('sources');
     if (state) {
@@ -1082,6 +1148,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     return (
       <div className="album-online-panel album-sources-panel">
         {renderOnlineHeader()}
+        {renderExternalRatings()}
         {details ? (
           <section className="album-release-detail-card" aria-label={t('albumDetail.sources.releaseAria')}>
             <div>

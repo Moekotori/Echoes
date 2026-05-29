@@ -1810,6 +1810,19 @@
   flex-wrap: wrap;
 }
 
+.artist-streaming-albums-setting-control {
+  display: flex;
+  max-width: min(460px, 100%);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.artist-streaming-albums-setting-control .settings-chip-row {
+  max-width: none;
+}
+
 .list-filter-chip,
 .network-missing-filter-chip,
 .settings-action-button,
@@ -2302,6 +2315,102 @@
 .toggle-btn.active span {
   left: 25px;
   background: #839bb8;
+}
+
+.settings-sidebar-layout-panel {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+}
+
+.settings-sidebar-layout-toolbar,
+.settings-sidebar-layout-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.settings-sidebar-layout-toolbar {
+  justify-content: space-between;
+  padding-bottom: 2px;
+}
+
+.settings-sidebar-layout-toolbar span,
+.settings-sidebar-layout-group-title span,
+.settings-sidebar-route-copy em {
+  color: var(--theme-muted-text);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 720;
+}
+
+.settings-sidebar-layout-group {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-sidebar-layout-group-title strong {
+  color: var(--theme-heading-text);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.settings-sidebar-route-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 7px;
+}
+
+.settings-sidebar-route-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--theme-panel-border);
+  border-radius: 8px;
+  background: var(--theme-list-row-bg);
+}
+
+.settings-sidebar-route-item[data-hidden="true"] {
+  opacity: 0.62;
+}
+
+.settings-sidebar-route-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-sidebar-route-copy strong {
+  overflow: hidden;
+  color: var(--theme-heading-text);
+  font-size: 13px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-sidebar-route-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-sidebar-route-actions .settings-icon-button {
+  width: 30px;
+  min-height: 30px;
+}
+
+.settings-sidebar-layout-empty {
+  margin: 0;
+  color: var(--theme-muted-text);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .settings-status-grid {
@@ -8656,6 +8765,26 @@
 
 .settings-page .setting-row--full > :not(.setting-info),
 .settings-page .setting-row--compact-panel > :not(.setting-info) {
+  justify-self: stretch;
+}
+
+.settings-page #settings-row-sidebar-layout {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  min-height: 0;
+  padding: 14px 0;
+}
+
+.settings-page #settings-row-sidebar-layout .setting-info {
+  max-width: none;
+}
+
+.settings-page #settings-row-sidebar-layout .setting-info p {
+  max-width: none;
+}
+
+.settings-page #settings-row-sidebar-layout > :not(.setting-info) {
   justify-self: stretch;
 }
 
@@ -15429,6 +15558,10 @@ html[data-theme="dark"] .history-play-count {
 
   .settings-chip-row,
   .settings-chip-row--actions {
+    justify-content: flex-start;
+  }
+
+  .artist-streaming-albums-setting-control {
     justify-content: flex-start;
   }
 

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
-import { parseFile, type ILyricsTag } from 'music-metadata';
+import { parseFile, type IAudioMetadata, type ILyricsTag } from 'music-metadata';
 import type { LyricsQuery, LyricsSearchCandidate, TrackLyrics } from '../../shared/types/lyrics';
 import { decodeTextFileBytes } from '../../shared/utils/decodeTextFile';
 import type { LyricsProvider, LyricsProviderCapability, LyricsProviderResult, LyricsProviderSearchRequest } from './LyricsProvider';
@@ -26,7 +26,17 @@ const readTextFile = (filePath: string): string | null => {
 };
 
 const timestampPattern = /\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/u;
+const asfLyricsExtensions = new Set(['.asf', '.wma', '.wmv']);
 type LyricsSyncText = ILyricsTag['syncText'];
+
+const cleanText = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
 
 const lrcTime = (timestamp: number): string => {
   const safeTimestamp = Math.max(0, Math.round(timestamp));
@@ -54,6 +64,36 @@ const lyricsTextToProviderText = (value: string | null): { syncedLyrics: string 
     ? { syncedLyrics: value, plainLyrics: null }
     : { syncedLyrics: null, plainLyrics: value };
 };
+
+const nativeValues = (metadata: IAudioMetadata, keys: string[]): unknown[] => {
+  const normalizedKeys = new Set(keys.map((key) => key.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const values: unknown[] = [];
+
+  for (const entries of Object.values(metadata.native ?? {})) {
+    for (const entry of entries) {
+      const id = typeof entry.id === 'string' ? entry.id.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+      if (normalizedKeys.has(id)) {
+        values.push(entry.value);
+      }
+    }
+  }
+
+  return values;
+};
+
+const firstNativeText = (metadata: IAudioMetadata, keys: string[]): string | null => {
+  for (const value of nativeValues(metadata, keys)) {
+    const text = cleanText(value);
+    if (text) {
+      return text;
+    }
+  }
+
+  return null;
+};
+
+const firstAsfNativeLyricsText = (filePath: string, metadata: IAudioMetadata): string | null =>
+  asfLyricsExtensions.has(extname(filePath).toLowerCase()) ? firstNativeText(metadata, ['WM/Lyrics']) : null;
 
 const candidatePaths = (audioPath: string): Array<{ filePath: string; extension: LocalLyricsCandidate['extension'] }> => {
   const folder = dirname(audioPath);
@@ -172,7 +212,7 @@ export class LocalLyricsProvider implements LyricsProvider {
       const syncedTag = lyricsTags.find((tag) => Array.isArray(tag.syncText) && tag.syncText.length > 0);
       const syncedLyrics = syncedTag ? syncTextToLrc(syncedTag.syncText) : null;
       const plainTag = lyricsTags.find((tag) => typeof tag.text === 'string' && tag.text.trim());
-      const plainText = typeof plainTag?.text === 'string' ? plainTag.text.trim() : null;
+      const plainText = cleanText(plainTag?.text) ?? firstAsfNativeLyricsText(query.filePath, metadata);
       const providerText = syncedLyrics ? { syncedLyrics, plainLyrics: null } : lyricsTextToProviderText(plainText);
       const rawText = providerText.syncedLyrics ?? providerText.plainLyrics;
 

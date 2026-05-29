@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
-import { artistOnlineInfoSources, defaultArtistOnlineInfoSources } from '../../shared/types/appSettings';
+import { artistOnlineInfoSources, artistStreamingAlbumProviders, defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider } from '../../shared/types/appSettings';
+import { defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
 import type {
   ArtistOnlineInfoSource,
+  ArtistStreamingAlbumsProvider,
   AppThemeCustomTheme,
   AppLocale,
   AppThemeMode,
@@ -316,6 +318,8 @@ export const defaultSettings: AppSettings = {
   appearanceThemeCustomId: null,
   appearanceThemePresetsExpanded: false,
   appearancePreferences: { ...defaultAppearancePreferences },
+  sidebarRouteOrder: [...defaultSidebarRouteOrder],
+  sidebarHiddenRouteIds: [],
   songsSort: 'default',
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
@@ -335,6 +339,7 @@ export const defaultSettings: AppSettings = {
   artistWallAlbumArtwork: false,
   artistWallAlbumFallbackForMissingAvatars: false,
   artistStreamingAlbumsEnabled: false,
+  artistStreamingAlbumsProvider: defaultArtistStreamingAlbumsProvider,
   autoFetchArtistImages: false,
   artistImageFetchPaused: false,
   liveLibraryUpdatesEnabled: false,
@@ -1189,6 +1194,11 @@ const normalizeArtistOnlineInfoSources = (value: unknown): ArtistOnlineInfoSourc
   return source ? [source] : [...defaultArtistOnlineInfoSources];
 };
 
+const normalizeArtistStreamingAlbumsProvider = (value: unknown): ArtistStreamingAlbumsProvider =>
+  artistStreamingAlbumProviders.includes(value as ArtistStreamingAlbumsProvider)
+    ? (value as ArtistStreamingAlbumsProvider)
+    : defaultArtistStreamingAlbumsProvider;
+
 const normalizeMvMaxQuality = (value: unknown): MvSettings['maxQuality'] =>
   value === '720p' || value === '1080p' || value === '1440p' || value === '2160p' || value === 'max' ? value : defaultSettings.mvMaxQuality;
 
@@ -1448,6 +1458,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     appearanceThemeCustomId,
     appearanceThemePresetsExpanded: settings.appearanceThemePresetsExpanded === true,
     appearancePreferences: normalizeAppearancePreferences(settings.appearancePreferences),
+    sidebarRouteOrder: normalizeSidebarRouteOrder(settings.sidebarRouteOrder),
+    sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds(settings.sidebarHiddenRouteIds),
     songsSort: normalizeSongsSort(settings.songsSort),
     rememberedAudioOutput: migrateRememberedAudioOutput(
       normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
@@ -1470,6 +1482,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     artistWallAlbumFallbackForMissingAvatars: settings.artistWallAlbumFallbackForMissingAvatars === true,
     artistStreamingAlbumsEnabled: settings.artistStreamingAlbumsEnabled === true,
+    artistStreamingAlbumsProvider: normalizeArtistStreamingAlbumsProvider(settings.artistStreamingAlbumsProvider),
     autoFetchArtistImages: settings.autoFetchArtistImages === true,
     artistImageFetchPaused: settings.artistImageFetchPaused === true,
     liveLibraryUpdatesEnabled: settings.liveLibraryUpdatesEnabled === true,

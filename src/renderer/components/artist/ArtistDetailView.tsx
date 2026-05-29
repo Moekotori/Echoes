@@ -1,6 +1,6 @@
 import { startTransition, type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Disc3, ExternalLink, ListPlus, Play, RefreshCw, Shuffle } from 'lucide-react';
-import type { AppSettings } from '../../../shared/types/appSettings';
+import { defaultArtistStreamingAlbumsProvider, type AppSettings, type ArtistStreamingAlbumsProvider } from '../../../shared/types/appSettings';
 import type { ArtistInsights, ArtistOnlineInfoBio, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor, StreamingProviderName, StreamingTrack } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
@@ -20,8 +20,6 @@ type ArtistDetailViewProps = {
 type Translate = ReturnType<typeof useI18n>['t'];
 type ArtistDetailTab = 'overview' | 'albums';
 
-const streamingAlbumProviderPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'tidal', 'spotify', 'mock'];
-const maxStreamingAlbumProviders = 3;
 const streamingAlbumPageSize = 20;
 const streamingAlbumDetailFetchDelayMs = 220;
 const streamingAlbumInitialTrackRenderCount = 24;
@@ -438,19 +436,25 @@ const streamingAlbumMatchesArtist = (album: StreamingAlbum, artistName: string):
   return candidates.has(expected);
 };
 
-const streamingAlbumProvidersFrom = (providers: StreamingProviderDescriptor[]): StreamingProviderName[] =>
-  streamingAlbumProviderPriority.filter((providerName) => {
-    const descriptor = providers.find((provider) => provider.name === providerName);
-    if (!descriptor) {
-      return providerName === 'netease' || providerName === 'qqmusic';
-    }
-    return (
-      descriptor.enabled &&
-      descriptor.supportsSearch &&
-      descriptor.status !== 'disabled' &&
-      (descriptor.requiresAccount !== true || descriptor.accountConnected === true)
-    );
-  }).slice(0, maxStreamingAlbumProviders);
+const normalizeStreamingAlbumProvider = (value: unknown): ArtistStreamingAlbumsProvider =>
+  value === 'qqmusic' ? 'qqmusic' : defaultArtistStreamingAlbumsProvider;
+
+const isStreamingAlbumProviderAvailable = (
+  providerName: ArtistStreamingAlbumsProvider,
+  providers: StreamingProviderDescriptor[],
+): boolean => {
+  const descriptor = providers.find((provider) => provider.name === providerName);
+  if (!descriptor) {
+    return true;
+  }
+
+  return (
+    descriptor.enabled &&
+    descriptor.supportsSearch &&
+    descriptor.status !== 'disabled' &&
+    (descriptor.requiresAccount !== true || descriptor.accountConnected === true)
+  );
+};
 
 const streamingAlbumMeta = (album: StreamingAlbum): string =>
   [
@@ -570,6 +574,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [configuredConcertRegion, setConfiguredConcertRegion] = useState<string | null>(null);
   const [onlineArtistInfoSourcesKey, setOnlineArtistInfoSourcesKey] = useState('');
   const [streamingAlbumsEnabled, setStreamingAlbumsEnabled] = useState(false);
+  const [streamingAlbumProvider, setStreamingAlbumProvider] = useState<ArtistStreamingAlbumsProvider>(defaultArtistStreamingAlbumsProvider);
   const [streamingAlbums, setStreamingAlbums] = useState<StreamingAlbum[]>([]);
   const [streamingAlbumVisibleCount, setStreamingAlbumVisibleCount] = useState(streamingAlbumPageSize);
   const [streamingAlbumProviderPages, setStreamingAlbumProviderPages] = useState<Record<string, StreamingAlbumProviderPageState>>({});
@@ -754,6 +759,9 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
       if (!settings || Object.prototype.hasOwnProperty.call(settings, 'artistStreamingAlbumsEnabled')) {
         setStreamingAlbumsEnabled(settings?.artistStreamingAlbumsEnabled === true);
       }
+      if (!settings || Object.prototype.hasOwnProperty.call(settings, 'artistStreamingAlbumsProvider')) {
+        setStreamingAlbumProvider(normalizeStreamingAlbumProvider(settings?.artistStreamingAlbumsProvider));
+      }
     };
 
     void window.echo?.app?.getSettings?.().then(applySettings).catch(() => applySettings(null));
@@ -768,7 +776,8 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoSeatGeekClientId') ||
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoRegion') ||
           Object.prototype.hasOwnProperty.call(detail, 'onlineArtistInfoSources') ||
-          Object.prototype.hasOwnProperty.call(detail, 'artistStreamingAlbumsEnabled')
+          Object.prototype.hasOwnProperty.call(detail, 'artistStreamingAlbumsEnabled') ||
+          Object.prototype.hasOwnProperty.call(detail, 'artistStreamingAlbumsProvider')
         )
       ) {
         applySettings(detail);
@@ -860,10 +869,8 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
       setStreamingAlbumsError(null);
 
       try {
-        const providers = streaming.getProviders
-          ? streamingAlbumProvidersFrom(await streaming.getProviders())
-          : streamingAlbumProvidersFrom([]);
-        if (providers.length === 0) {
+        const providers = streaming.getProviders ? await streaming.getProviders() : [];
+        if (!isStreamingAlbumProviderAvailable(streamingAlbumProvider, providers)) {
           if (!isCancelled) {
             setStreamingAlbums([]);
             setStreamingAlbumProviderPages({});
@@ -871,34 +878,27 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
           }
           return;
         }
-        const results = await Promise.allSettled(providers.map((provider) =>
-          streaming.search({
-            provider,
-            query: displayArtist.name,
-            mediaTypes: ['album'],
-            page: 1,
-            pageSize: streamingAlbumPageSize,
-          }),
-        ));
-        const albums = results
-          .flatMap((result) => result.status === 'fulfilled' ? result.value.albums : [])
+        const result = await streaming.search({
+          provider: streamingAlbumProvider,
+          query: displayArtist.name,
+          mediaTypes: ['album'],
+          page: 1,
+          pageSize: streamingAlbumPageSize,
+        });
+        const albums = result.albums
           .filter((album) => streamingAlbumMatchesArtist(album, displayArtist.name));
-        const nextProviderPages = Object.fromEntries(providers.map((provider, index) => {
-          const result = results[index];
-          return [
-            provider,
-            {
-              nextPage: result?.status === 'fulfilled' ? result.value.page + 1 : 2,
-              hasMore: result?.status === 'fulfilled' ? result.value.hasMore : false,
-            },
-          ];
-        }));
+        const nextProviderPages = {
+          [streamingAlbumProvider]: {
+            nextPage: result.page + 1,
+            hasMore: result.hasMore,
+          },
+        };
         const uniqueAlbums = mergeUniqueStreamingAlbums([], albums);
 
         if (!isCancelled) {
           setStreamingAlbums(uniqueAlbums);
           setStreamingAlbumProviderPages(nextProviderPages);
-          setStreamingAlbumsError(results.some((result) => result.status === 'fulfilled') ? null : '暂时无法读取流媒体专辑。');
+          setStreamingAlbumsError(null);
         }
       } catch (error) {
         if (!isCancelled) {
@@ -918,7 +918,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     return () => {
       isCancelled = true;
     };
-  }, [activeTab, displayArtist.name, streamingAlbumsEnabled]);
+  }, [activeTab, displayArtist.name, streamingAlbumProvider, streamingAlbumsEnabled]);
 
   useEffect(() => {
     let isCancelled = false;

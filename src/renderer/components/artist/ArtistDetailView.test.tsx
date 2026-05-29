@@ -532,17 +532,17 @@ describe('ArtistDetailView', () => {
   });
 
   it('shows 20 streaming albums first and reveals the rest from Load More', async () => {
-    const neteaseAlbums = Array.from({ length: 15 }, (_, index) => streamingAlbum(index + 1, 'netease'));
-    const qqAlbums = Array.from({ length: 15 }, (_, index) => streamingAlbum(index + 16, 'qqmusic'));
-    const search = vi.fn().mockImplementation(({ provider }: { provider: 'netease' | 'qqmusic' }) => Promise.resolve({
-      provider,
+    const pageOneAlbums = Array.from({ length: 20 }, (_, index) => streamingAlbum(index + 1, 'netease'));
+    const pageTwoAlbums = Array.from({ length: 10 }, (_, index) => streamingAlbum(index + 21, 'netease'));
+    const search = vi.fn().mockImplementation(({ page }: { page: number }) => Promise.resolve({
+      provider: 'netease',
       query: 'Echo Unit',
-      page: 1,
+      page,
       pageSize: 20,
-      total: 15,
-      hasMore: false,
+      total: 30,
+      hasMore: page === 1,
       tracks: [],
-      albums: provider === 'netease' ? neteaseAlbums : qqAlbums,
+      albums: page === 1 ? pageOneAlbums : pageTwoAlbums,
       artists: [],
       playlists: [],
       mvs: [],
@@ -584,6 +584,68 @@ describe('ArtistDetailView', () => {
 
     expect(await screen.findByText('Online Echo 30')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
+    expect(search).toHaveBeenCalledWith({
+      provider: 'netease',
+      query: 'Echo Unit',
+      mediaTypes: ['album'],
+      page: 2,
+      pageSize: 20,
+    });
+  });
+
+  it('uses the configured streaming album source for artist albums', async () => {
+    const search = vi.fn().mockResolvedValue({
+      provider: 'qqmusic',
+      query: 'Echo Unit',
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      hasMore: false,
+      tracks: [],
+      albums: [streamingAlbum(1, 'qqmusic')],
+      artists: [],
+      playlists: [],
+      mvs: [],
+    });
+
+    installLibrary(vi.fn().mockResolvedValue(artist()), { artistStreamingAlbumsEnabled: true, artistStreamingAlbumsProvider: 'qqmusic' }, undefined, {
+      getProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'netease',
+          displayName: 'NetEase',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+        {
+          name: 'qqmusic',
+          displayName: 'QQ Music',
+          enabled: true,
+          supportsSearch: true,
+          supportsLyrics: true,
+          supportsMv: true,
+          requiresAccount: false,
+          status: 'ready',
+        },
+      ]),
+      search,
+    });
+
+    renderDetail(artist());
+    fireEvent.click(await screen.findByRole('button', { name: 'Albums' }));
+
+    expect(await screen.findByText('Online Echo 1')).toBeTruthy();
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith({
+      provider: 'qqmusic',
+      query: 'Echo Unit',
+      mediaTypes: ['album'],
+      page: 1,
+      pageSize: 20,
+    });
   });
 
   it('returns from a streaming album detail back to the artist detail', async () => {

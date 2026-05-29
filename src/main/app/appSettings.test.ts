@@ -1262,7 +1262,10 @@ describe('app settings normalization', () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({}).artistStreamingAlbumsEnabled).toBe(false);
+    expect(normalizeSettings({}).artistStreamingAlbumsProvider).toBe('netease');
     expect(normalizeSettings({ artistStreamingAlbumsEnabled: true }).artistStreamingAlbumsEnabled).toBe(true);
+    expect(normalizeSettings({ artistStreamingAlbumsProvider: 'qqmusic' }).artistStreamingAlbumsProvider).toBe('qqmusic');
+    expect(normalizeSettings({ artistStreamingAlbumsProvider: 'spotify' as never }).artistStreamingAlbumsProvider).toBe('netease');
     expect(normalizeSettings({ artistStreamingAlbumsEnabled: 'yes' as never }).artistStreamingAlbumsEnabled).toBe(false);
   });
 

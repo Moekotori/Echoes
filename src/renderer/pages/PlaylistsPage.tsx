@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { CalendarDays, Check, ChevronDown, Download, ExternalLink, FilePlus2, Heart, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Trash2, Upload, WifiOff, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, Download, ExternalLink, FilePlus2, GripVertical, Heart, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Trash2, Upload, WifiOff, X } from 'lucide-react';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadJob, DownloadJobStatus } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack, PlaylistExportFormat, PlaylistSortMode } from '../../shared/types/library';
@@ -49,6 +49,8 @@ const emptyStreamingFavoritesSnapshot = (): StreamingFavoritesSnapshot => ({
 });
 const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
 const playlistItemDragMime = 'application/x-echo-playlist-item-id';
+const playlistListDragMime = 'application/x-echo-playlist-id';
+const playlistListOrderMemoryKey = 'echo-next.playlist-list-order.v1';
 const runningDownloadStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 const failedDownloadStatuses = new Set<DownloadJobStatus>(['failed', 'cancelled']);
 const qualitySwitchPlaybackStates = new Set(['loading', 'playing']);
@@ -140,6 +142,92 @@ const writePlaylistDownloadMemory = (memory: PlaylistDownloadMemory): void => {
   } catch {
     // The download service is the source of truth; this only keeps the playlist page UI warm across navigation.
   }
+};
+
+const uniquePlaylistIds = (ids: unknown): string[] => {
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (typeof id !== 'string' || !id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    result.push(id);
+  }
+
+  return result;
+};
+
+const readPlaylistListOrderMemory = (): string[] => {
+  try {
+    const raw = window.localStorage.getItem(playlistListOrderMemoryKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as { orderedIds?: unknown } | unknown[];
+    return Array.isArray(parsed) ? uniquePlaylistIds(parsed) : uniquePlaylistIds(parsed.orderedIds);
+  } catch {
+    return [];
+  }
+};
+
+const writePlaylistListOrderMemory = (orderedIds: string[]): void => {
+  try {
+    window.localStorage.setItem(
+      playlistListOrderMemoryKey,
+      JSON.stringify({
+        version: 1,
+        orderedIds: uniquePlaylistIds(orderedIds),
+      }),
+    );
+  } catch {
+    // Playlist order memory is a UI convenience; database order remains the fallback.
+  }
+};
+
+const orderPlaylists = (items: LibraryPlaylist[], orderedIds: string[]): LibraryPlaylist[] => {
+  if (items.length <= 1 || orderedIds.length === 0) {
+    return items;
+  }
+
+  const orderById = new Map(orderedIds.map((id, index) => [id, index] as const));
+  return [...items].sort((left, right) => {
+    const leftOrder = orderById.get(left.id);
+    const rightOrder = orderById.get(right.id);
+    if (leftOrder === undefined && rightOrder === undefined) {
+      return 0;
+    }
+    if (leftOrder === undefined) {
+      return 1;
+    }
+    if (rightOrder === undefined) {
+      return -1;
+    }
+    return leftOrder - rightOrder;
+  });
+};
+
+const movePlaylistId = (items: LibraryPlaylist[], sourceId: string, targetId: string): string[] | null => {
+  const fromIndex = items.findIndex((playlist) => playlist.id === sourceId);
+  const toIndex = items.findIndex((playlist) => playlist.id === targetId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return null;
+  }
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  if (!movedItem) {
+    return null;
+  }
+
+  nextItems.splice(Math.max(0, Math.min(toIndex, nextItems.length)), 0, movedItem);
+  return nextItems.map((playlist) => playlist.id);
 };
 
 const isLikedStreamingProvider = (provider: string | null | undefined): provider is Extract<StreamingProviderName, 'netease' | 'qqmusic'> =>
@@ -331,6 +419,7 @@ const favoriteToTrack = (item: StreamingFavoriteTrack, streamingQuality: Streami
 export const PlaylistsPage = (): JSX.Element => {
   const [playlistPanelView, setPlaylistPanelView] = useState<'local' | 'streamingFavorites'>('local');
   const [playlists, setPlaylists] = useState<LibraryPlaylist[]>([]);
+  const [playlistOrderIds, setPlaylistOrderIds] = useState<string[]>(() => readPlaylistListOrderMemory());
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [streamingFavorites, setStreamingFavorites] = useState<StreamingFavoritesSnapshot>(() => emptyStreamingFavoritesSnapshot());
   const [selectedFavoriteListId, setSelectedFavoriteListId] = useState<string>(defaultFavoriteSelectionId);
@@ -362,6 +451,8 @@ export const PlaylistsPage = (): JSX.Element => {
   const [error, setError] = useState<string | null>(null);
   const [spotifyPlaylistHelpUrl, setSpotifyPlaylistHelpUrl] = useState<string | null>(null);
   const [trackMenu, setTrackMenu] = useState<{ track: LibraryTrack; position: { x: number; y: number } } | null>(null);
+  const [draggedPlaylistId, setDraggedPlaylistId] = useState<string | null>(null);
+  const [dropTargetPlaylistId, setDropTargetPlaylistId] = useState<string | null>(null);
   const [draggedPlaylistItemId, setDraggedPlaylistItemId] = useState<string | null>(null);
   const [dropTargetPlaylistItemId, setDropTargetPlaylistItemId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -371,10 +462,12 @@ export const PlaylistsPage = (): JSX.Element => {
   const qualityMenuRef = useRef<HTMLDivElement | null>(null);
   const playlistMenuRef = useRef<HTMLDivElement | null>(null);
   const { currentTrack, currentTrackId, playlistPlayback, playPlaylistSequence, exitPlaylistSequence, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
+  const orderedPlaylists = useMemo(() => orderPlaylists(playlists, playlistOrderIds), [playlistOrderIds, playlists]);
   const selectedPlaylist = useMemo(
-    () => playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? playlists[0] ?? null,
-    [playlists, selectedPlaylistId],
+    () => orderedPlaylists.find((playlist) => playlist.id === selectedPlaylistId) ?? orderedPlaylists[0] ?? null,
+    [orderedPlaylists, selectedPlaylistId],
   );
+  const canReorderPlaylistList = playlistPanelView === 'local' && orderedPlaylists.length > 1;
   const isSelectedPlaylistNeteaseDailyRecommend =
     selectedPlaylist?.sourceProvider === 'netease' && selectedPlaylist.sourcePlaylistId === neteaseDailyRecommendSourcePlaylistId;
   const isSelectedPlaylistProtected = selectedPlaylist?.kind === 'system';
@@ -543,7 +636,7 @@ export const PlaylistsPage = (): JSX.Element => {
     try {
       const result = await library.getPlaylists();
       setPlaylists(result);
-      setSelectedPlaylistId((current) => current ?? result[0]?.id ?? null);
+      setSelectedPlaylistId((current) => current ?? orderPlaylists(result, readPlaylistListOrderMemory())[0]?.id ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     }
@@ -1503,6 +1596,67 @@ export const PlaylistsPage = (): JSX.Element => {
     }
   };
 
+  const handlePlaylistListDragStart = useCallback(
+    (event: DragEvent<HTMLButtonElement>, playlist: LibraryPlaylist): void => {
+      if (!canReorderPlaylistList) {
+        event.preventDefault();
+        return;
+      }
+
+      setDraggedPlaylistId(playlist.id);
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData(playlistListDragMime, playlist.id);
+      event.dataTransfer.setData('text/plain', playlist.id);
+    },
+    [canReorderPlaylistList],
+  );
+
+  const handlePlaylistListDragOver = useCallback(
+    (event: DragEvent<HTMLButtonElement>, playlist: LibraryPlaylist): void => {
+      if (!canReorderPlaylistList || !draggedPlaylistId || draggedPlaylistId === playlist.id) {
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setDropTargetPlaylistId((current) => (current === playlist.id ? current : playlist.id));
+    },
+    [canReorderPlaylistList, draggedPlaylistId],
+  );
+
+  const handlePlaylistListDrop = useCallback(
+    (event: DragEvent<HTMLButtonElement>, targetPlaylist: LibraryPlaylist): void => {
+      event.preventDefault();
+      const sourcePlaylistId =
+        draggedPlaylistId ||
+        event.dataTransfer.getData(playlistListDragMime) ||
+        event.dataTransfer.getData('text/plain');
+
+      setDraggedPlaylistId(null);
+      setDropTargetPlaylistId(null);
+
+      if (!canReorderPlaylistList || !sourcePlaylistId || sourcePlaylistId === targetPlaylist.id) {
+        return;
+      }
+
+      const nextOrderIds = movePlaylistId(orderedPlaylists, sourcePlaylistId, targetPlaylist.id);
+      if (!nextOrderIds) {
+        return;
+      }
+
+      setPlaylistOrderIds(nextOrderIds);
+      writePlaylistListOrderMemory(nextOrderIds);
+      setError(null);
+      setStatusMessage('歌单顺序已保存');
+    },
+    [canReorderPlaylistList, draggedPlaylistId, orderedPlaylists],
+  );
+
+  const handlePlaylistListDragEnd = useCallback((): void => {
+    setDraggedPlaylistId(null);
+    setDropTargetPlaylistId(null);
+  }, []);
+
   const isTrackReorderable = useCallback(
     (track: LibraryTrack): boolean => canReorderSelectedPlaylist && Boolean(track.playlistItemId),
     [canReorderSelectedPlaylist],
@@ -1935,17 +2089,26 @@ export const PlaylistsPage = (): JSX.Element => {
             </button>
 
             <div className="playlist-list">
-              {playlists.map((playlist) => {
+              {orderedPlaylists.map((playlist) => {
                 const sourceLabel = playlistSourceProviderLabel(playlist);
 
                 return (
                   <button
                     className="playlist-list-item"
                     data-active={playlist.id === selectedPlaylist?.id ? 'true' : undefined}
+                    data-dragging={draggedPlaylistId === playlist.id ? 'true' : undefined}
+                    data-drop-target={dropTargetPlaylistId === playlist.id ? 'true' : undefined}
+                    data-reorderable={canReorderPlaylistList ? 'true' : undefined}
+                    draggable={canReorderPlaylistList}
                     key={playlist.id}
                     type="button"
+                    onDragEnd={handlePlaylistListDragEnd}
+                    onDragOver={(event) => handlePlaylistListDragOver(event, playlist)}
+                    onDragStart={(event) => handlePlaylistListDragStart(event, playlist)}
+                    onDrop={(event) => handlePlaylistListDrop(event, playlist)}
                     onClick={() => setSelectedPlaylistId(playlist.id)}
                   >
+                    <GripVertical className="playlist-list-drag-handle" size={15} aria-hidden="true" />
                     <span>
                       <strong>
                         <span>{playlist.name}</span>
@@ -1956,7 +2119,7 @@ export const PlaylistsPage = (): JSX.Element => {
                   </button>
                 );
               })}
-              {playlists.length === 0 ? <p className="playlist-empty">还没有本地歌单。</p> : null}
+              {orderedPlaylists.length === 0 ? <p className="playlist-empty">还没有本地歌单。</p> : null}
             </div>
 
             <form

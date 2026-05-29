@@ -1131,7 +1131,7 @@
 
 .playlist-list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-height: 58px;
@@ -1141,6 +1141,33 @@
   border-radius: 8px;
   background: transparent;
   text-align: left;
+}
+
+.playlist-list-item[data-reorderable="true"] {
+  cursor: grab;
+}
+
+.playlist-list-item[data-dragging="true"] {
+  cursor: grabbing;
+  opacity: 0.56;
+}
+
+.playlist-list-item[data-drop-target="true"] {
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-bg);
+}
+
+.playlist-list-drag-handle {
+  justify-self: center;
+  color: var(--theme-muted-text);
+  opacity: 0.42;
+}
+
+.playlist-list-item:hover .playlist-list-drag-handle,
+.playlist-list-item[data-active="true"] .playlist-list-drag-handle,
+.playlist-list-item[data-drop-target="true"] .playlist-list-drag-handle {
+  color: var(--theme-accent-text);
+  opacity: 0.82;
 }
 
 .playlist-list-item:hover,

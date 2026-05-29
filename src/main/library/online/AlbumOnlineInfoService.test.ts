@@ -63,7 +63,7 @@ describe('AlbumOnlineInfoService', () => {
       status: 'ready',
       credits_json: JSON.stringify([{ role: 'Composer', people: [{ name: 'Cached Person', detail: null, trackTitle: null, source: 'release' }] }]),
       information_json: JSON.stringify({
-        version: 2,
+        version: 4,
         album: null,
         artist: {
           title: 'Cached Artist',
@@ -73,6 +73,19 @@ describe('AlbumOnlineInfoService', () => {
           language: 'en',
           thumbnailUrl: null,
         },
+        externalRatings: [
+          {
+            provider: 'rateYourMusic',
+            score: 3.82,
+            maxScore: 5,
+            ratingCount: 12431,
+            rankText: '#24 in 2024',
+            url: 'https://rateyourmusic.com/release/album/cache_artist/cache_album/',
+            fetchedAt: now,
+            expiresAt: '2999-01-01T00:00:00.000Z',
+            confidence: 0.96,
+          },
+        ],
       }),
       match_json: JSON.stringify(null),
       sources_json: JSON.stringify([{ provider: 'musicbrainz', label: 'MusicBrainz' }]),
@@ -91,6 +104,13 @@ describe('AlbumOnlineInfoService', () => {
     expect(result.fromCache).toBe(true);
     expect(result.credits[0]?.people[0]?.name).toBe('Cached Person');
     expect(result.artistInformation?.title).toBe('Cached Artist');
+    expect(result.externalRatings[0]).toMatchObject({
+      provider: 'rateYourMusic',
+      score: 3.82,
+      maxScore: 5,
+      ratingCount: 12431,
+      rankText: '#24 in 2024',
+    });
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -126,7 +146,73 @@ describe('AlbumOnlineInfoService', () => {
     const insertSql = String((database.prepare as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] ?? '');
     expect(insertSql).toContain('related_json');
     expect(run.mock.calls[0]).toContain(JSON.stringify({}));
-    expect(run.mock.calls[0]).toContain(JSON.stringify({ version: 3, album: null, artist: null, sourceLinks: [], releaseDetails: null, releaseVersions: [] }));
+    expect(run.mock.calls[0]).toContain(JSON.stringify({ version: 4, album: null, artist: null, sourceLinks: [], externalRatings: [], releaseDetails: null, releaseVersions: [] }));
+    vi.unstubAllGlobals();
+  });
+
+  it('classifies Rate Your Music release links from MusicBrainz relations', async () => {
+    const run = vi.fn();
+    const database = {
+      prepare: vi.fn((sql: string) => {
+        if (sql.startsWith('SELECT *')) {
+          return { get: vi.fn(() => null) };
+        }
+        if (sql.startsWith('PRAGMA')) {
+          return { all: vi.fn(() => [{ name: 'cache_key' }, { name: 'information_json' }]) };
+        }
+        return { run };
+      }),
+    } as unknown as EchoDatabase;
+    const rymUrl = 'https://rateyourmusic.com/release/album/cache_artist/cache_album/';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(input.toString());
+      if (url.hostname === 'musicbrainz.org' && url.pathname === '/ws/2/release/') {
+        return {
+          ok: true,
+          json: async () => ({
+            releases: [
+              {
+                id: 'mb-release-1',
+                title: 'Cache Album',
+                date: '2026-05-01',
+                'artist-credit': [{ artist: { id: 'mb-artist-1', name: 'Cache Artist' } }],
+                media: [{ format: 'Digital Media', 'track-count': 1 }],
+              },
+            ],
+          }),
+        };
+      }
+      if (url.hostname === 'musicbrainz.org' && url.pathname === '/ws/2/release/mb-release-1') {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'mb-release-1',
+            title: 'Cache Album',
+            date: '2026-05-01',
+            status: 'Official',
+            'artist-credit': [{ artist: { id: 'mb-artist-1', name: 'Cache Artist' } }],
+            media: [{ format: 'Digital Media', 'track-count': 1 }],
+            relations: [{ type: 'review', url: { resource: rymUrl } }],
+          }),
+        };
+      }
+      if (url.pathname.includes('/w/rest.php/v1/search/page')) {
+        return {
+          ok: true,
+          json: async () => ({ pages: [] }),
+        };
+      }
+      throw new Error(`unexpected_url:${url.toString()}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await new AlbumOnlineInfoService(database).getAlbumOnlineInfo({ album: album(), tracks: [track()] }, { locale: 'en-US' });
+
+    expect(result.sourceLinks).toEqual(
+      expect.arrayContaining([
+        { provider: 'rateYourMusic', label: 'Rate Your Music', url: rymUrl, kind: 'database' },
+      ]),
+    );
     vi.unstubAllGlobals();
   });
 

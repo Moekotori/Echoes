@@ -374,6 +374,7 @@
 
 .album-release-detail-card,
 .album-release-version-card,
+.album-external-rating-card,
 .album-source-link-grid a {
   min-width: 0;
   border: 1px solid var(--theme-panel-border);
@@ -398,6 +399,8 @@
 
 .album-release-detail-card span,
 .album-release-version-card span,
+.album-external-rating-card span,
+.album-external-rating-card small,
 .album-source-link-grid span,
 .album-source-link-grid small {
   color: var(--theme-muted-text);
@@ -425,6 +428,45 @@
   font-size: 12px;
   font-weight: 700;
   line-height: 1.5;
+}
+
+.album-external-rating-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.album-external-rating-card {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 11px;
+  min-height: 82px;
+  padding: 15px;
+  color: var(--theme-page-text);
+  text-decoration: none;
+}
+
+.album-external-rating-card svg {
+  grid-row: span 3;
+  color: var(--theme-accent-text-strong);
+}
+
+.album-external-rating-card strong {
+  overflow: hidden;
+  color: var(--theme-heading-text);
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-external-rating-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
 }
 
 .album-release-facts,
@@ -477,6 +519,7 @@
 }
 
 .album-source-link-grid a:hover,
+.album-external-rating-card:hover,
 .album-release-version-card a:hover {
   border-color: var(--theme-accent-border);
   background: color-mix(in srgb, var(--theme-button-bg-hover) 62%, transparent);
@@ -1322,6 +1365,8 @@ html[data-theme="dark"] .album-track-like {
 html[data-theme="dark"] .album-online-header span,
 html[data-theme="dark"] .album-online-header small,
 html[data-theme="dark"] .album-online-state,
+html[data-theme="dark"] .album-external-rating-card span,
+html[data-theme="dark"] .album-external-rating-card small,
 html[data-theme="dark"] .album-credit-overview span,
 html[data-theme="dark"] .album-information-overview span,
 html[data-theme="dark"] .album-information-overview small,
@@ -1337,6 +1382,7 @@ html[data-theme="dark"] .album-related-artist small {
 
 html[data-theme="dark"] .album-online-header strong,
 html[data-theme="dark"] .album-online-state strong,
+html[data-theme="dark"] .album-external-rating-card strong,
 html[data-theme="dark"] .album-credit-overview strong,
 html[data-theme="dark"] .album-information-overview strong,
 html[data-theme="dark"] .album-credit-group h3,
@@ -1349,6 +1395,7 @@ html[data-theme="dark"] .album-related-artist strong {
 
 html[data-theme="dark"] .album-online-header button,
 html[data-theme="dark"] .album-online-state button,
+html[data-theme="dark"] .album-external-rating-card,
 html[data-theme="dark"] .album-information-article a,
 html[data-theme="dark"] .album-credit-overview,
 html[data-theme="dark"] .album-information-overview,
@@ -1444,6 +1491,7 @@ html[data-theme="dark"] .album-detail-error {
     grid-template-columns: 1fr;
   }
 
+  .album-external-rating-grid,
   .album-source-link-grid {
     grid-template-columns: 1fr;
   }

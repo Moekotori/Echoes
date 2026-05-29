@@ -30,6 +30,8 @@ import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import { albumDetailNavigationEvent } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent } from '../utils/artistNavigation';
+import { applySidebarPreferences } from './sidebarPreferences';
+import { defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
 
 type AppLayoutProps = {
   routes: AppRoute[];
@@ -118,6 +120,8 @@ type LyricsMiniPlayerSettings = Pick<
   | 'lyricsPlayerBarDrawerColor'
 >;
 
+type SidebarLayoutSettings = Pick<AppSettings, 'sidebarHiddenRouteIds' | 'sidebarRouteOrder'>;
+
 const defaultAppWallpaperSettings: AppWallpaperSettings = {
   appCustomWallpaperPath: null,
   appWallpaperMediaType: 'image',
@@ -138,7 +142,12 @@ const defaultLyricsMiniPlayerSettings: LyricsMiniPlayerSettings = {
   lyricsPlayerBarDrawerColor: '#232120',
 };
 
-const persistentRouteIds = new Set<AppRouteId>(['songs', 'streaming']);
+const defaultSidebarLayoutSettings: SidebarLayoutSettings = {
+  sidebarRouteOrder: [...defaultSidebarRouteOrder],
+  sidebarHiddenRouteIds: [],
+};
+
+const persistentRouteIds = new Set<AppRouteId>(['songs', 'streaming', 'playlists']);
 const readSongsNavigationRemoteSourceId = (event: Event): string | null => {
   if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) {
     return null;
@@ -263,6 +272,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [audioDrawerStatus, setAudioDrawerStatus] = useState<AudioStatus | null>(null);
   const [audioIssueDiagnosticsWindowEnabled, setAudioIssueDiagnosticsWindowEnabled] = useState(false);
   const [lyricsMiniPlayerSettings, setLyricsMiniPlayerSettings] = useState<LyricsMiniPlayerSettings>(defaultLyricsMiniPlayerSettings);
+  const [sidebarLayoutSettings, setSidebarLayoutSettings] = useState<SidebarLayoutSettings>(defaultSidebarLayoutSettings);
   const [lyricsMiniPlayerCoverSample, setLyricsMiniPlayerCoverSample] = useState<ReadableColorSample | null>(null);
   const [activeLyricsViewMode, setActiveLyricsViewMode] = useState<LyricsViewMode>(() => readRememberedLyricsViewMode());
   const [appWallpaperSettings, setAppWallpaperSettings] = useState<AppWallpaperSettings>(defaultAppWallpaperSettings);
@@ -281,8 +291,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
   const notifiedUpdateKeysRef = useRef<Set<string>>(new Set());
   const visibleRoutes = useMemo(
-    () => routes.map((route) => (route.id === 'downloads' && !downloadsFeatureUnlocked ? { ...route, hideFromSidebar: true } : route)),
-    [downloadsFeatureUnlocked, routes],
+    () =>
+      applySidebarPreferences(
+        routes.map((route) => (route.id === 'downloads' && !downloadsFeatureUnlocked ? { ...route, hideFromSidebar: true } : route)),
+        sidebarLayoutSettings,
+      ),
+    [downloadsFeatureUnlocked, routes, sidebarLayoutSettings],
   );
   const navigableRoutes = useMemo(
     () => routes.filter((route) => route.id !== 'downloads' || downloadsFeatureUnlocked),
@@ -479,11 +493,22 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     let cancelled = false;
 
     const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
-      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'downloadsFeatureUnlocked')) {
+      if (!settings) {
         return;
       }
 
-      setDownloadsFeatureUnlocked(settings.downloadsFeatureUnlocked === true);
+      if (Object.prototype.hasOwnProperty.call(settings, 'downloadsFeatureUnlocked')) {
+        setDownloadsFeatureUnlocked(settings.downloadsFeatureUnlocked === true);
+      }
+
+      const hasSidebarRouteOrder = Object.prototype.hasOwnProperty.call(settings, 'sidebarRouteOrder');
+      const hasSidebarHiddenRouteIds = Object.prototype.hasOwnProperty.call(settings, 'sidebarHiddenRouteIds');
+      if (hasSidebarRouteOrder || hasSidebarHiddenRouteIds) {
+        setSidebarLayoutSettings((current) => ({
+          sidebarRouteOrder: hasSidebarRouteOrder ? normalizeSidebarRouteOrder(settings.sidebarRouteOrder) : current.sidebarRouteOrder,
+          sidebarHiddenRouteIds: hasSidebarHiddenRouteIds ? normalizeSidebarHiddenRouteIds(settings.sidebarHiddenRouteIds) : current.sidebarHiddenRouteIds,
+        }));
+      }
     };
 
     const refreshSettings = (): void => {

@@ -363,6 +363,41 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(readTagLibPicturesMock).not.toHaveBeenCalled();
   });
 
+  it('uses ASF native WM/Picture as embedded cover when common picture is missing', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      common: {
+        title: 'WMA Title',
+        artist: 'WMA Artist',
+      },
+      format: {
+        duration: 180,
+        codec: 'Windows Media Audio',
+        sampleRate: 44100,
+        bitsPerSample: 16,
+        bitrate: 192000,
+      },
+      native: {
+        asf: [
+          {
+            id: 'WM/Picture',
+            value: {
+              format: 'image/jpeg',
+              data: new Uint8Array([4, 5, 6]),
+            },
+          },
+        ],
+      },
+    }));
+
+    const result = await new TsMetadataReader().read('D:\\Music\\WMA Title.wma');
+
+    expect(result.embeddedCoverStatus).toBe('present');
+    expect(result.embeddedCover?.mimeType).toBe('image/jpeg');
+    expect(Array.from(result.embeddedCover?.data ?? [])).toEqual([4, 5, 6]);
+    expect(readTagLibMetadataMock).not.toHaveBeenCalled();
+    expect(readTagLibPicturesMock).not.toHaveBeenCalled();
+  });
+
   it('repairs mojibake returned by embedded tag parsers', async () => {
     parseFileMock.mockResolvedValue(emptyMetadata({
       common: {

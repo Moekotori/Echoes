@@ -5,6 +5,7 @@ import type { LyricsProviderId } from './lyrics';
 import type { MvMaxQuality, MvSyncMode, NetworkMvProviderId } from './mv';
 import type { GlobalShortcutSettings, LocalShortcutSettings } from './globalShortcuts';
 import type { HqPlayerSettings } from './hqplayer';
+import type { SidebarRouteId } from './sidebar';
 
 export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
 export type RemoteCoverLoadPerformanceMode = 'low' | 'balanced' | 'aggressive' | 'lan';
@@ -22,6 +23,9 @@ export type ArtistMergeStrategy = 'conservative' | 'standard';
 export const artistOnlineInfoSources = ['baidu-baike', 'moegirl', 'wikipedia'] as const;
 export type ArtistOnlineInfoSource = typeof artistOnlineInfoSources[number];
 export const defaultArtistOnlineInfoSources: ArtistOnlineInfoSource[] = ['wikipedia'];
+export const artistStreamingAlbumProviders = ['netease', 'qqmusic'] as const;
+export type ArtistStreamingAlbumsProvider = typeof artistStreamingAlbumProviders[number];
+export const defaultArtistStreamingAlbumsProvider: ArtistStreamingAlbumsProvider = 'netease';
 
 export type DesktopLyricsBounds = {
   x: number;
@@ -175,6 +179,8 @@ export type AppSettings = {
   appearanceThemeCustomId?: string | null;
   appearanceThemePresetsExpanded?: boolean;
   appearancePreferences?: AppearancePreferences;
+  sidebarRouteOrder?: SidebarRouteId[];
+  sidebarHiddenRouteIds?: SidebarRouteId[];
   songsSort?: LibrarySort;
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];
@@ -194,6 +200,7 @@ export type AppSettings = {
   artistWallAlbumArtwork: boolean;
   artistWallAlbumFallbackForMissingAvatars?: boolean;
   artistStreamingAlbumsEnabled?: boolean;
+  artistStreamingAlbumsProvider?: ArtistStreamingAlbumsProvider;
   autoFetchArtistImages?: boolean;
   artistImageFetchPaused?: boolean;
   liveLibraryUpdatesEnabled?: boolean;

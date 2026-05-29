@@ -48,7 +48,8 @@ const binaryMetadataTextPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF
 const japaneseKanaPattern = /[\u3040-\u30ff]/u;
 const unsafeEmbeddedMetadataWarning = 'embedded_metadata_skipped_unsafe_text';
 const commonTextMetadataKeys = new Set(['title', 'artist', 'artists', 'album', 'albumartist', 'genre', 'date']);
-const nativeArtworkTagIds = ['apic', 'pic', 'covr', 'coverart', 'metadata_block_picture', 'metadatablockpicture'];
+const nativeArtworkTagIds = ['apic', 'pic', 'covr', 'coverart', 'metadata_block_picture', 'metadatablockpicture', 'wmpicture'];
+const asfMetadataExtensions = new Set(['.asf', '.wma', '.wmv']);
 const mojibakeFragments = [
   '\u00c3',
   '\u00c2',
@@ -781,6 +782,52 @@ const nativeValues = (metadata: IAudioMetadata, keys: string[]): unknown[] => {
 const firstNativeText = (metadata: IAudioMetadata, keys: string[]): string | null =>
   firstText(nativeValues(metadata, keys));
 
+const isAsfMetadataFile = (filePath: string): boolean =>
+  asfMetadataExtensions.has(extname(filePath).toLowerCase());
+
+const cleanPictureMimeType = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim().toLowerCase();
+  return trimmed && trimmed.length <= 128 && countHardControlCharacters(trimmed) === 0 ? trimmed : null;
+};
+
+const embeddedCoverFromPicture = (
+  picture: unknown,
+  normalizeMimeType: (value: unknown) => string | null = cleanText,
+): EmbeddedCoverData | undefined => {
+  if (!picture || typeof picture !== 'object') {
+    return undefined;
+  }
+
+  const candidate = picture as { data?: unknown; format?: unknown };
+  if (!(candidate.data instanceof Uint8Array) || candidate.data.byteLength === 0) {
+    return undefined;
+  }
+
+  return {
+    data: candidate.data,
+    mimeType: normalizeMimeType(candidate.format),
+  };
+};
+
+const firstAsfNativePicture = (filePath: string, metadata: IAudioMetadata): EmbeddedCoverData | undefined => {
+  if (!isAsfMetadataFile(filePath)) {
+    return undefined;
+  }
+
+  for (const value of nativeValues(metadata, ['WM/Picture'])) {
+    const picture = embeddedCoverFromPicture(value, cleanPictureMimeType);
+    if (picture) {
+      return picture;
+    }
+  }
+
+  return undefined;
+};
+
 const preferHigherQualityText = (primary: string | null, candidate: string | null): string | null => {
   if (!candidate) {
     return primary;
@@ -1309,7 +1356,9 @@ export class TsMetadataReader implements MetadataReader {
     fieldSources.replayGainTrackPeak = replayGainTrackPeak !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainAlbumPeak = replayGainAlbumPeak !== null ? 'embedded' : 'unknown';
     fieldSources.replayGainIntegratedLufs = replayGainIntegratedLufs !== null ? 'embedded' : 'unknown';
-    const picture = skipEmbeddedMetadata ? undefined : common.picture?.[0];
+    const picture = skipEmbeddedMetadata
+      ? undefined
+      : (embeddedCoverFromPicture(common.picture?.[0]) ?? firstAsfNativePicture(filePath, metadata));
     const hasEmbeddedMetadata = [
       embeddedTitle,
       embeddedArtist,
@@ -1346,12 +1395,7 @@ export class TsMetadataReader implements MetadataReader {
     return {
       fields,
       fieldSources,
-      embeddedCover: picture
-        ? {
-            data: picture.data,
-            mimeType: cleanText(picture.format),
-          }
-        : undefined,
+      embeddedCover: picture,
       embeddedMetadataStatus: hasEmbeddedMetadata ? 'present' : 'missing',
       embeddedCoverStatus: picture ? 'present' : 'missing',
       warnings: skipEmbeddedMetadata ? [unsafeEmbeddedMetadataWarning] : [],

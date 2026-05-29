@@ -40,29 +40,9 @@ import {
 } from '../components/layout/NavIcons';
 import { EmptyState } from '../components/ui/EmptyState';
 import type { TranslationKey } from '../i18n/locales';
+import type { SidebarRouteId } from '../../shared/types/sidebar';
 
-export type AppRouteId =
-  | 'home'
-  | 'songs'
-  | 'inbox'
-  | 'downloads'
-  | 'lyrics'
-  | 'albums'
-  | 'artists'
-  | 'folders'
-  | 'remote'
-  | 'connect'
-  | 'streaming'
-  | 'queue'
-  | 'history'
-  | 'playlists'
-  | 'plugins'
-  | 'liked'
-  | 'audio-settings'
-  | 'lyrics-settings'
-  | 'import-folder'
-  | 'import-file'
-  | 'settings';
+export type AppRouteId = SidebarRouteId | 'lyrics';
 
 export type AppRoute = {
   id: AppRouteId;

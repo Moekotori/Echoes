@@ -114,6 +114,31 @@ describe('LocalLyricsProvider', () => {
     expect(candidate.plainLyrics).toBeNull();
   });
 
+  it('uses ASF native WM/Lyrics when common lyrics are missing', async () => {
+    const root = makeTempRoot();
+    const filePath = join(root, 'Echo Song.wma');
+    writeFileSync(filePath, 'audio');
+    parseFileMock.mockResolvedValue({
+      common: {
+        lyrics: [],
+      },
+      native: {
+        asf: [
+          {
+            id: 'WM/Lyrics',
+            value: '[00:01.00]Embedded WMA',
+          },
+        ],
+      },
+    } as unknown as Awaited<ReturnType<typeof parseFile>>);
+
+    const [candidate] = await new LocalLyricsProvider().search(request(query(filePath)));
+
+    expect(candidate.sourceLabel).toBe('Embedded tag');
+    expect(candidate.syncedLyrics).toBe('[00:01.00]Embedded WMA');
+    expect(candidate.plainLyrics).toBeNull();
+  });
+
   it('falls back to sidecar lyrics when embedded lyrics are empty', async () => {
     const root = makeTempRoot();
     const filePath = join(root, 'Echo Song.flac');

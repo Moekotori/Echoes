@@ -8,6 +8,7 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {};
 const handleMock = vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
   handlers[channel] = handler;
 });
+const onMock = vi.fn();
 const showOpenDialogMock = vi.fn();
 const showSaveDialogMock = vi.fn();
 const openExternalMock = vi.fn();
@@ -15,6 +16,8 @@ const setAppSettingsMock = vi.fn((patch: Record<string, unknown>) => ({ coverCac
 const getAppSettingsMock = vi.fn<() => Record<string, unknown>>(() => ({ coverCacheDir: null, hideToTrayOnClose: false }));
 const getLibraryServiceMock = vi.fn();
 const ensureCoverCacheDirectoryMock = vi.fn();
+const ensureTrayMock = vi.fn();
+const destroyTrayMock = vi.fn();
 const fromWebContentsMock = vi.fn();
 const refreshGlobalShortcutRegistrationMock = vi.fn(() => null);
 const refreshDataBackupSchedulerMock = vi.fn();
@@ -70,6 +73,7 @@ vi.mock('electron', () => ({
   },
   ipcMain: {
     handle: handleMock,
+    on: onMock,
   },
   shell: {
     openExternal: openExternalMock,
@@ -126,8 +130,8 @@ vi.mock('../app/appSettings', () => ({
 }));
 
 vi.mock('../app/tray', () => ({
-  destroyTray: vi.fn(),
-  ensureTray: vi.fn(),
+  destroyTray: destroyTrayMock,
+  ensureTray: ensureTrayMock,
 }));
 
 vi.mock('../app/autoUpdater', () => ({
@@ -183,6 +187,10 @@ vi.mock('./lyricsIpc', () => ({
 
 vi.mock('./mvIpc', () => ({
   registerMvIpc: vi.fn(),
+}));
+
+vi.mock('./hqPlayerIpc', () => ({
+  registerHqPlayerIpc: vi.fn(),
 }));
 
 vi.mock('./playbackIpc', () => ({
@@ -249,6 +257,7 @@ describe('app IPC cover cache directory', () => {
   beforeEach(async () => {
     resetHandlers();
     handleMock.mockClear();
+    onMock.mockClear();
     showOpenDialogMock.mockReset();
     showSaveDialogMock.mockReset();
     openExternalMock.mockReset();
@@ -256,6 +265,8 @@ describe('app IPC cover cache directory', () => {
     getAppSettingsMock.mockClear();
     getLibraryServiceMock.mockReset();
     ensureCoverCacheDirectoryMock.mockReset();
+    ensureTrayMock.mockClear();
+    destroyTrayMock.mockClear();
     fromWebContentsMock.mockReset();
     refreshGlobalShortcutRegistrationMock.mockClear();
     refreshDataBackupSchedulerMock.mockClear();
@@ -358,6 +369,18 @@ describe('app IPC cover cache directory', () => {
     expect(ensureCoverCacheDirectoryMock).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
     expect(setAppSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ coverCacheDir: null, hideToTrayOnClose: false }));
     expect(service.setCoverCacheDir).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
+    expect(ensureTrayMock).toHaveBeenCalledTimes(1);
+    expect(destroyTrayMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the tray icon resident when close-to-tray is disabled', async () => {
+    setAppSettingsMock.mockReturnValue({ coverCacheDir: null, hideToTrayOnClose: false });
+
+    await handlers[IpcChannels.AppSetSettings]!(null, { hideToTrayOnClose: false });
+
+    expect(setAppSettingsMock).toHaveBeenCalledWith({ hideToTrayOnClose: false });
+    expect(ensureTrayMock).toHaveBeenCalledTimes(1);
+    expect(destroyTrayMock).not.toHaveBeenCalled();
   });
 
   it('uses an image-only picker for lyrics wallpaper selection', async () => {

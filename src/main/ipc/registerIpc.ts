@@ -29,7 +29,7 @@ import {
 } from '../app/dataBackup';
 import { exportEchoDataPackage } from '../app/dataPackage';
 import { getTaskbarPlaybackStatus, refreshTaskbarPlaybackIntegration } from '../app/taskbarPlaybackIntegration';
-import { destroyTray, ensureTray } from '../app/tray';
+import { ensureTray } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
 import { setDiscordPresenceEnabled } from '../integrations/discord/getDiscordPresenceService';
@@ -245,12 +245,7 @@ const applyAppSettingsPatch = async (
   }
 
   let settings = setAppSettings(settingsPatch);
-
-  if (settings.hideToTrayOnClose) {
-    ensureTray();
-  } else {
-    destroyTray();
-  }
+  ensureTray();
 
   if (typeof settingsPatch.autoUpdateEnabled === 'boolean') {
     const autoUpdateEnabled = settings.autoUpdateEnabled !== false;
@@ -454,8 +449,8 @@ export const registerIpc = (): void => {
 
     await ensureCoverCacheDirectory(defaultCoverCacheDir);
     libraryService.setCoverCacheDir(defaultCoverCacheDir);
-    destroyTray();
     const settings = setAppSettings({ ...defaultSettings });
+    ensureTray();
     refreshBackgroundSpaceRegistration();
     refreshTaskbarPlaybackIntegration();
     libraryService.syncLiveLibraryWatcherFromSettings();

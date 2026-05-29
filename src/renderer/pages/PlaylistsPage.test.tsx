@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { DragEvent } from 'react';
 import type { DownloadJob } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack } from '../../shared/types/library';
@@ -491,6 +491,48 @@ describe('PlaylistsPage actions menu', () => {
 
     await waitFor(() => expect(movePlaylistItem).toHaveBeenCalledWith('playlist-1', 'item-1', 1));
     expect(await screen.findByText('歌单顺序已保存')).toBeTruthy();
+  });
+
+  it('remembers sidebar playlist order after dragging playlists', async () => {
+    const firstPlaylist = playlist({ id: 'playlist-1', name: 'Road Mix', itemCount: 1 });
+    const secondPlaylist = playlist({ id: 'playlist-2', name: 'Night Mix', itemCount: 2 });
+    const thirdPlaylist = playlist({ id: 'playlist-3', name: 'Morning Mix', itemCount: 3 });
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValue([firstPlaylist, secondPlaylist, thirdPlaylist]),
+        getPlaylistItems: vi.fn().mockResolvedValue(page([item()])),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+      },
+    } as unknown as Window['echo'];
+
+    const firstRender = renderPlaylistsPage();
+    const sidebar = await screen.findByLabelText('Playlists');
+    const getPlaylistNames = (): string[] =>
+      Array.from(sidebar.querySelectorAll('.playlist-list-item strong span')).map((element) => element.textContent ?? '');
+
+    await waitFor(() => expect(getPlaylistNames()).toEqual(['Road Mix', 'Night Mix', 'Morning Mix']));
+
+    const dataTransfer = dragDataTransfer();
+    fireEvent.dragStart(within(sidebar).getByRole('button', { name: /Road Mix/u }), { dataTransfer });
+    fireEvent.dragOver(within(sidebar).getByRole('button', { name: /Night Mix/u }), { dataTransfer });
+    fireEvent.drop(within(sidebar).getByRole('button', { name: /Night Mix/u }), { dataTransfer });
+
+    await waitFor(() => expect(getPlaylistNames()).toEqual(['Night Mix', 'Road Mix', 'Morning Mix']));
+    expect(window.localStorage.getItem('echo-next.playlist-list-order.v1')).toContain('playlist-2');
+
+    firstRender.unmount();
+    renderPlaylistsPage();
+    const restoredSidebar = await screen.findByLabelText('Playlists');
+    await waitFor(() =>
+      expect(Array.from(restoredSidebar.querySelectorAll('.playlist-list-item strong span')).map((element) => element.textContent ?? '')).toEqual([
+        'Night Mix',
+        'Road Mix',
+        'Morning Mix',
+      ]),
+    );
   });
 
   it('keeps remote playlists out of manual drag sorting', async () => {

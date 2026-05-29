@@ -2,6 +2,7 @@ import type { EchoDatabase } from '../../database/createDatabase';
 import type {
   AlbumCreditGroup,
   AlbumCreditPerson,
+  AlbumExternalRating,
   AlbumInformationSummary,
   AlbumOnlineInfo,
   AlbumOnlineInfoMatch,
@@ -30,6 +31,7 @@ type OnlinePayload = {
   match: AlbumOnlineInfoMatch | null;
   sources: AlbumOnlineInfoSource[];
   sourceLinks: AlbumSourceLink[];
+  externalRatings: AlbumExternalRating[];
   releaseDetails: AlbumReleaseDetails | null;
   releaseVersions: AlbumReleaseVersion[];
   errors: string[];
@@ -44,6 +46,7 @@ type ParsedInformationCache = {
   information: AlbumInformationSummary | null;
   artistInformation: AlbumInformationSummary | null;
   sourceLinks: AlbumSourceLink[];
+  externalRatings: AlbumExternalRating[];
   releaseDetails: AlbumReleaseDetails | null;
   releaseVersions: AlbumReleaseVersion[];
 };
@@ -118,6 +121,22 @@ const maxReleaseVersions = 8;
 
 const asRecord = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
+const numericValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizedConfidence = (value: unknown): number => {
+  const parsed = numericValue(value);
+  return parsed === null ? 0 : Math.max(0, Math.min(1, parsed));
+};
+
 const yearFromDate = (value: string | null): number | null => {
   const year = value?.slice(0, 4);
   return year && /^\d{4}$/u.test(year) ? Number(year) : null;
@@ -315,6 +334,7 @@ const normalizeSourceLink = (value: unknown): AlbumSourceLink | null => {
     provider === 'wikidata' ||
     provider === 'vgmdb' ||
     provider === 'discogs' ||
+    provider === 'rateYourMusic' ||
     provider === 'spotify' ||
     provider === 'appleMusic' ||
     provider === 'youtubeMusic' ||
@@ -326,6 +346,31 @@ const normalizeSourceLink = (value: unknown): AlbumSourceLink | null => {
   const normalizedKind: AlbumSourceLink['kind'] =
     kind === 'database' || kind === 'streaming' || kind === 'official' || kind === 'reference' || kind === 'other' ? kind : 'other';
   return { provider: normalizedProvider, label, url, kind: normalizedKind };
+};
+
+const normalizeExternalRating = (value: unknown): AlbumExternalRating | null => {
+  const record = asRecord(value);
+  const provider = text(record.provider);
+  if (provider !== 'rateYourMusic') {
+    return null;
+  }
+  const score = numericValue(record.score);
+  const maxScore = numericValue(record.maxScore);
+  if (score === null || maxScore === null || score < 0 || maxScore <= 0 || score > maxScore) {
+    return null;
+  }
+  const ratingCount = numericValue(record.ratingCount);
+  return {
+    provider,
+    score,
+    maxScore,
+    ratingCount: ratingCount === null || ratingCount < 0 ? null : Math.floor(ratingCount),
+    rankText: text(record.rankText),
+    url: text(record.url),
+    fetchedAt: text(record.fetchedAt),
+    expiresAt: text(record.expiresAt),
+    confidence: normalizedConfidence(record.confidence),
+  };
 };
 
 const normalizeReleaseLabel = (value: unknown): AlbumReleaseLabel | null => {
@@ -447,20 +492,23 @@ const normalizeExtract = (value: string, maxLength: number): string => {
 const parseInformationCache = (value: unknown): ParsedInformationCache => {
   const parsed = parseJson<unknown>(value, null);
   if (!parsed) {
-    return { version: 1, information: null, artistInformation: null, sourceLinks: [], releaseDetails: null, releaseVersions: [] };
+    return { version: 1, information: null, artistInformation: null, sourceLinks: [], externalRatings: [], releaseDetails: null, releaseVersions: [] };
   }
 
   const legacyInformation = normalizeInformationSummary(parsed);
   if (legacyInformation) {
-    return { version: 1, information: legacyInformation, artistInformation: null, sourceLinks: [], releaseDetails: null, releaseVersions: [] };
+    return { version: 1, information: legacyInformation, artistInformation: null, sourceLinks: [], externalRatings: [], releaseDetails: null, releaseVersions: [] };
   }
 
   const record = asRecord(parsed);
   return {
-    version: Number(record.version) >= 3 ? 3 : Number(record.version) === 2 ? 2 : 1,
+    version: Number(record.version) >= 4 ? 4 : Number(record.version) === 3 ? 3 : Number(record.version) === 2 ? 2 : 1,
     information: normalizeInformationSummary(record.album),
     artistInformation: normalizeInformationSummary(record.artist),
     sourceLinks: Array.isArray(record.sourceLinks) ? record.sourceLinks.map(normalizeSourceLink).filter((link): link is AlbumSourceLink => Boolean(link)) : [],
+    externalRatings: Array.isArray(record.externalRatings)
+      ? record.externalRatings.map(normalizeExternalRating).filter((rating): rating is AlbumExternalRating => Boolean(rating))
+      : [],
     releaseDetails: normalizeReleaseDetails(record.releaseDetails),
     releaseVersions: Array.isArray(record.releaseVersions)
       ? record.releaseVersions.map(normalizeReleaseVersion).filter((version): version is AlbumReleaseVersion => Boolean(version))
@@ -470,10 +518,11 @@ const parseInformationCache = (value: unknown): ParsedInformationCache => {
 
 const serializeInformationCache = (info: AlbumOnlineInfo): string =>
   JSON.stringify({
-    version: 3,
+    version: 4,
     album: info.information,
     artist: info.artistInformation,
     sourceLinks: info.sourceLinks,
+    externalRatings: info.externalRatings,
     releaseDetails: info.releaseDetails,
     releaseVersions: info.releaseVersions,
   });
@@ -621,6 +670,7 @@ export class AlbumOnlineInfoService {
             match: fetchedPayload.match ?? legacyCache.match,
             sources: mergeSources(fetchedPayload.sources, cachedSources),
             sourceLinks: mergeSourceLinks(fetchedPayload.sourceLinks, legacyCache.sourceLinks),
+            externalRatings: fetchedPayload.externalRatings.length > 0 ? fetchedPayload.externalRatings : legacyCache.externalRatings,
             releaseDetails: fetchedPayload.releaseDetails ?? legacyCache.releaseDetails,
             releaseVersions: fetchedPayload.releaseVersions.length > 0 ? fetchedPayload.releaseVersions : legacyCache.releaseVersions,
           };
@@ -629,6 +679,7 @@ export class AlbumOnlineInfoService {
     const hasData =
       payload.credits.length > 0 ||
       payload.sourceLinks.length > 0 ||
+      payload.externalRatings.length > 0 ||
       payload.releaseVersions.length > 0 ||
       Boolean(payload.releaseDetails) ||
       Boolean(payload.information) ||
@@ -642,6 +693,7 @@ export class AlbumOnlineInfoService {
       sources: payload.sources,
       match: payload.match,
       sourceLinks: payload.sourceLinks,
+      externalRatings: payload.externalRatings,
       releaseDetails: payload.releaseDetails,
       releaseVersions: payload.releaseVersions,
       credits: payload.credits,
@@ -680,6 +732,7 @@ export class AlbumOnlineInfoService {
     const releaseDetails = musicBrainz ? this.extractReleaseDetails(musicBrainz.release) : null;
     const releaseVersions = musicBrainz ? this.toReleaseVersions(musicBrainz.versions, musicBrainz.search.id) : [];
     const sourceLinks = this.collectSourceLinks(musicBrainz?.release ?? null, match, information, artistInformation);
+    const externalRatings: AlbumExternalRating[] = [];
     const sources: AlbumOnlineInfoSource[] = [];
     if (musicBrainz) {
       sources.push({ provider: 'musicbrainz', label: 'MusicBrainz' });
@@ -695,6 +748,7 @@ export class AlbumOnlineInfoService {
       match,
       sources,
       sourceLinks,
+      externalRatings,
       releaseDetails,
       releaseVersions,
       errors,
@@ -906,6 +960,9 @@ export class AlbumOnlineInfoService {
     if (host.includes('discogs.com')) {
       return { provider: 'discogs', label: 'Discogs', url, kind: 'database' };
     }
+    if (host === 'rateyourmusic.com' || host.endsWith('.rateyourmusic.com')) {
+      return { provider: 'rateYourMusic', label: 'Rate Your Music', url, kind: 'database' };
+    }
     if (host.includes('spotify.com')) {
       return { provider: 'spotify', label: 'Spotify', url, kind: 'streaming' };
     }
@@ -1091,6 +1148,7 @@ export class AlbumOnlineInfoService {
       sources: parseJson<AlbumOnlineInfoSource[]>(row.sources_json, []),
       match: parseJson<AlbumOnlineInfoMatch | null>(row.match_json, null),
       sourceLinks: cachedInformation.sourceLinks,
+      externalRatings: cachedInformation.externalRatings,
       releaseDetails: cachedInformation.releaseDetails,
       releaseVersions: cachedInformation.releaseVersions,
       credits: parseJson<AlbumCreditGroup[]>(row.credits_json, []),

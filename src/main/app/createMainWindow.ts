@@ -128,7 +128,6 @@ export const createMainWindow = (): BrowserWindow => {
   window.once('ready-to-show', () => {
     const settings = getAppSettings();
     if (settings.miniPlayerEnabled === true && settings.miniPlayerAutoHideMainWindow === true) {
-      ensureTray();
       window.hide();
     } else {
       window.show();
@@ -176,6 +175,7 @@ export const createMainWindow = (): BrowserWindow => {
   }
 
   setMainWindow(window);
+  ensureTray();
   bindBackgroundPlaybackShortcutsToWindow();
   bindTaskbarPlaybackIntegration(window);
   markStartupStage('main-window:create:complete', initialSize);
