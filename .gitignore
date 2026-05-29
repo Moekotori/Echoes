@@ -8,6 +8,7 @@ dist/
 
 # Local Codex workspace state
 /.codex/
+/.codex-pet-runs/
 /.codex-tmp/
 /.codex-backups/
 
