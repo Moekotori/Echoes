@@ -20,6 +20,7 @@ const remoteApiMocks = vi.hoisted(() => ({
   listIssues: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  disconnect: vi.fn(),
   delete: vi.fn(),
   test: vi.fn(),
   browse: vi.fn(),
@@ -244,12 +245,15 @@ describe('RemoteSourcesPanel', () => {
       sources = sources.map((source) => (source.id === input.id ? { ...source, ...input } : source));
       return sources.find((source) => source.id === input.id) ?? remoteSource(input);
     });
-    remoteApiMocks.delete.mockImplementation(async (sourceId) => {
+    remoteApiMocks.disconnect.mockImplementation(async (sourceId) => {
       sources = sources.map((source) => (
         source.id === sourceId
           ? { ...source, status: 'disabled', indexedTrackCount: 0, lastError: null }
           : source
       ));
+    });
+    remoteApiMocks.delete.mockImplementation(async (sourceId) => {
+      sources = sources.filter((source) => source.id !== sourceId);
     });
     remoteApiMocks.test.mockResolvedValue({
       ok: true,
@@ -755,6 +759,18 @@ describe('RemoteSourcesPanel', () => {
     );
   });
 
+  it('confirms before deleting an existing source', async () => {
+    sources = [remoteSource()];
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    expect(remoteApiMocks.delete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+    await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
+  });
+
   it('confirms before disconnecting an existing source', async () => {
     sources = [remoteSource()];
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
@@ -762,9 +778,9 @@ describe('RemoteSourcesPanel', () => {
 
     await screen.findAllByText('Mock AList');
     fireEvent.click(screen.getByRole('button', { name: /断开/u }));
-    expect(remoteApiMocks.delete).not.toHaveBeenCalled();
+    expect(remoteApiMocks.disconnect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /断开/u }));
-    await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
+    await waitFor(() => expect(remoteApiMocks.disconnect).toHaveBeenCalledWith('source-1'));
   });
 
   it('starts a cover scan for missing remote covers', async () => {
@@ -1041,7 +1057,7 @@ describe('RemoteSourcesPanel', () => {
     remoteApiMocks.list
       .mockImplementationOnce(() => Promise.resolve(sources))
       .mockImplementation(() => Promise.reject(new Error('refresh failed')));
-    remoteApiMocks.delete.mockResolvedValue(undefined);
+    remoteApiMocks.disconnect.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     render(<RemoteSourcesPanel />);
@@ -1052,9 +1068,27 @@ describe('RemoteSourcesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /断开/u }));
 
-    await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
+    await waitFor(() => expect(remoteApiMocks.disconnect).toHaveBeenCalledWith('source-1'));
     await waitFor(() => expect(screen.getAllByText('Mock AList').length).toBeGreaterThan(0));
     await screen.findByText('已禁用');
+    expect(screen.queryByText('Indexed Echo Song')).toBeNull();
+  });
+
+  it('deletes a source from the browser source list', async () => {
+    sources = [remoteSource()];
+    remoteApiMocks.lookupTracks.mockResolvedValue([lookupTrack()]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<RemoteSourcesPanel />);
+
+    await screen.findAllByText('Mock AList');
+    fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
+    await screen.findByText('Indexed Echo Song');
+
+    fireEvent.click(screen.getByRole('button', { name: '删除来源 Mock AList' }));
+
+    await waitFor(() => expect(remoteApiMocks.delete).toHaveBeenCalledWith('source-1'));
+    await screen.findByText('还没有 网盘 / WebDAV 来源');
     expect(screen.queryByText('Indexed Echo Song')).toBeNull();
   });
 });

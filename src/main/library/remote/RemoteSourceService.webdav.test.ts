@@ -322,14 +322,8 @@ describe('RemoteSourceService WebDAV integration', () => {
 
     service.deleteSource(source.id);
     expect(libraryStore.getTracks({ search: 'mofa' }).total).toBe(0);
-    expect(service.listSources()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: source.id,
-        status: 'disabled',
-        baseUrl: source.baseUrl,
-        username,
-        indexedTrackCount: 0,
-      }),
+    expect(service.listSources()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: source.id }),
     ]));
     expect(await fetch(stream.url)).toMatchObject({ status: 401 });
   });

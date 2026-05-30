@@ -675,6 +675,64 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
   }
 }
 
+@media (orientation: portrait) and (min-width: 641px) and (max-width: 1400px) {
+  .app-shell {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .app-titlebar {
+    grid-template-columns: 86px minmax(0, 1fr) auto;
+    padding-left: 12px;
+  }
+
+  .brand-block > div:last-child,
+  .nav-item-label,
+  .sidebar-meta,
+  .topbar-description,
+  .sidebar-section-label,
+  .output-status span {
+    display: none;
+  }
+
+  .nav-item {
+    justify-content: center;
+    grid-template-columns: 1fr;
+    padding-inline: 7px;
+  }
+
+  .nav-icon-shell {
+    justify-self: center;
+  }
+
+  .page-surface {
+    padding: 30px 30px 24px;
+  }
+
+  .page-surface:has(.liked-page),
+  .page-surface:has(.queue-page) {
+    padding: 22px 24px 24px;
+  }
+
+  .page-surface:has(.album-detail-page),
+  .page-surface:has(.artist-detail-page) {
+    padding: 0;
+  }
+
+  .player-bar {
+    grid-template-columns: minmax(0, 0.86fr) minmax(340px, 1.14fr);
+    gap: 14px;
+    padding-inline: 20px;
+  }
+
+  .output-status {
+    display: none;
+  }
+
+  .lyrics-player-drawer-host {
+    width: min(760px, calc(100vw - 56px));
+  }
+}
+
 @media (max-width: 640px) {
   .app-shell {
     --mobile-nav-height: 66px;

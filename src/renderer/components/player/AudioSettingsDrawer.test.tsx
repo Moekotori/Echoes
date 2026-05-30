@@ -447,6 +447,29 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('checkbox', { name: /JUCE Main Output/ })).toBeTruthy();
   });
 
+  it('remembers the HiFi engine meter collapse state', () => {
+    renderDrawer(baseStatus);
+
+    const engineToggle = screen.getByRole('button', { name: /HiFi Engine/ });
+    expect(engineToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('.audio-engine-meter__grid')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Refresh status' }).some((button) =>
+      button.className.includes('audio-engine-meter__refresh'),
+    )).toBe(true);
+
+    fireEvent.click(engineToggle);
+
+    expect(engineToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.audio-engine-meter__grid')).toBeNull();
+    expect(window.localStorage.getItem('echo-next.audio-engine-meter-open')).toBe('false');
+
+    cleanup();
+    renderDrawer(baseStatus);
+
+    expect(screen.getByRole('button', { name: /HiFi Engine/ }).getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.audio-engine-meter__grid')).toBeNull();
+  });
+
   it('shows professional playback status badges without opening advanced output', () => {
     renderDrawer({
       ...soxrResamplingStatus,

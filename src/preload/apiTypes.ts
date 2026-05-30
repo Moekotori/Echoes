@@ -534,6 +534,7 @@ export type EchoApi = {
     listIssues: (sourceId: string, kind: RemoteSourceIssueKind, limit?: number) => Promise<RemoteSourceIssueItem[]>;
     create: (input: RemoteSourceInput) => Promise<RemoteSource>;
     update: (input: RemoteSourceUpdate) => Promise<RemoteSource>;
+    disconnect: (sourceId: string) => Promise<void>;
     delete: (sourceId: string) => Promise<void>;
     test: (sourceIdOrInput: string | RemoteSourceInput) => Promise<TestRemoteSourceResult>;
     browse: (sourceId: string, path?: string | null) => Promise<RemoteDirectoryItem[]>;

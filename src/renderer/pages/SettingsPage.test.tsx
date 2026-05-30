@@ -266,6 +266,10 @@ const playbackStatus = {
 };
 
 vi.mock('../i18n/I18nProvider', () => ({
+  useOptionalI18n: () => ({
+    locale: 'zh-CN',
+    t: (key: string) => key,
+  }),
   useI18n: () => ({
     locale: 'zh-CN',
     localeOptions: [{ label: '简体中文', value: 'zh-CN' }],
@@ -1866,17 +1870,18 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
 
-    const gaplessRow = screen.getByText('专辑无缝播放').closest('.setting-row') as HTMLElement;
+    const gaplessRow = document.querySelector('#settings-row-gapless-playback') as HTMLElement;
     fireEvent.click(within(gaplessRow).getByRole('button'));
 
-    const row = screen.getByText('音量标准化').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByText('未开启').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
-    fireEvent.click(within(row).getByRole('button', { name: '高级' }));
-    fireEvent.click(within(row).getByText('播放时分析').closest('.settings-inline-toggle')?.querySelector('button') as HTMLButtonElement);
-    fireEvent.click(within(row).getByRole('button', { name: '专辑' }));
-    fireEvent.click(within(row).getByRole('button', { name: '分析缺失音量' }));
-    fireEvent.click(screen.getByText('单声道音频').closest('.setting-row')?.querySelector('button') as HTMLButtonElement);
+    const row = document.querySelector('#settings-row-volume-balance') as HTMLElement;
+    fireEvent.click(row.querySelector('.settings-replay-gain-toggle button') as HTMLButtonElement);
+    fireEvent.click(row.querySelector('.settings-replay-gain-simple > button') as HTMLButtonElement);
+    fireEvent.click(row.querySelectorAll('.settings-replay-gain-toggles .settings-inline-toggle button')[1] as HTMLButtonElement);
+    fireEvent.click(row.querySelectorAll('.settings-replay-gain-mode button')[1] as HTMLButtonElement);
+    fireEvent.click(row.querySelector('.settings-replay-gain-toggles > button') as HTMLButtonElement);
+    fireEvent.click(document.querySelector('#settings-row-mono-audio button') as HTMLButtonElement);
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ gaplessPlaybackEnabled: true }));
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ replayGainEnabled: true }));
@@ -2229,13 +2234,39 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
 
     fireEvent.click(screen.getByRole('button', { name: 'audioProfessional.action.showDetails' }));
 
     expect(await screen.findByText('audioProfessional.title')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'audioProfessional.action.showDetails' }));
     expect(screen.getByText('audioProfessional.group.playbackChain')).toBeTruthy();
     expect(screen.getByText('audioProfessional.group.sampleRate')).toBeTruthy();
     expect(screen.queryByText(/^fileSampleRate$/u)).toBeNull();
+  });
+
+  it('keeps advanced playback settings collapsed by default and remembers expansion', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+
+    expect(screen.queryByText('settings.playback.troubleshooting.title')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
+
+    expect(window.localStorage.getItem('echo:settings:playback:advanced-panel-expanded')).toBe('true');
+    expect(screen.getByText('settings.playback.troubleshooting.title')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.collapse/u }));
+
+    expect(window.localStorage.getItem('echo:settings:playback:advanced-panel-expanded')).toBe('false');
+    expect(screen.queryByText('settings.playback.troubleshooting.title')).toBeNull();
   });
 
   it('copies audio diagnostics from playback settings', async () => {
@@ -2248,6 +2279,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
     fireEvent.click(screen.getByRole('button', { name: 'audioProfessional.action.showDetails' }));
     fireEvent.click(await screen.findByRole('button', { name: /audioDrawer\.action\.copyDiagnostics/ }));
 
@@ -2265,6 +2297,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
     const resetButton = await screen.findByRole('button', { name: 'settings.playback.troubleshooting.softAction' });
     fireEvent.click(resetButton);
 
@@ -2283,6 +2316,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /settings\.playback\.advancedPanel\.action\.expand/u }));
     const restartButton = await screen.findByRole('button', { name: 'settings.playback.troubleshooting.hardAction' });
     fireEvent.click(restartButton);
 

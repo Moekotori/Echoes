@@ -22,6 +22,7 @@ import type {
 import { streamingStableKey } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { useProgressiveRenderLimit } from '../../hooks/useProgressiveRenderLimit';
+import { translateCurrentLocale, useI18n } from '../../i18n/I18nProvider';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getAccountsBridge, getAppBridge, getDownloadsBridge, getStreamingBridge } from '../../utils/echoBridge';
 import { useImeAwareDebouncedSearch } from '../../utils/imeInput';
@@ -35,20 +36,20 @@ const pageSize = 30;
 const streamingAlbumInitialTrackRenderCount = 24;
 const streamingAlbumTrackRenderStep = 48;
 const streamingAlbumTrackRenderDelayMs = 80;
-const tabs: Array<{ key: StreamingMediaType; label: string }> = [
-  { key: 'track', label: '单曲' },
-  { key: 'album', label: '专辑' },
-  { key: 'artist', label: '歌手' },
-  { key: 'playlist', label: '歌单' },
+const tabs: Array<{ key: StreamingMediaType; labelKey: Parameters<typeof translateCurrentLocale>[0] }> = [
+  { key: 'track', labelKey: 'streaming.tab.track' },
+  { key: 'album', labelKey: 'streaming.tab.album' },
+  { key: 'artist', labelKey: 'streaming.tab.artist' },
+  { key: 'playlist', labelKey: 'streaming.tab.playlist' },
 ];
 type QualityPreference = StreamingQualityPreference;
 
-const qualities: Array<{ key: QualityPreference; label: string; description: string }> = [
-  { key: 'max', label: 'Max', description: '默认最高音质' },
-  { key: 'high', label: '高音质', description: '320kbps 优先' },
-  { key: 'standard', label: '标准', description: '兼容更好' },
-  { key: 'lossless', label: '无损', description: '优先 FLAC' },
-  { key: 'hires', label: 'Hi-Res', description: '平台可用时启用' },
+const qualities: Array<{ key: QualityPreference; labelKey: Parameters<typeof translateCurrentLocale>[0]; descriptionKey: Parameters<typeof translateCurrentLocale>[0] }> = [
+  { key: 'max', labelKey: 'streaming.quality.max', descriptionKey: 'streaming.quality.maxDescription' },
+  { key: 'high', labelKey: 'streaming.quality.high', descriptionKey: 'streaming.quality.highDescription' },
+  { key: 'standard', labelKey: 'streaming.quality.standard', descriptionKey: 'streaming.quality.standardDescription' },
+  { key: 'lossless', labelKey: 'streaming.quality.lossless', descriptionKey: 'streaming.quality.losslessDescription' },
+  { key: 'hires', labelKey: 'streaming.quality.hires', descriptionKey: 'streaming.quality.hiresDescription' },
 ];
 
 const defaultCover = `data:image/svg+xml;utf8,${encodeURIComponent(
@@ -122,12 +123,14 @@ const formatDuration = (duration: number | null): string => {
 
 const statusText = (provider: StreamingProviderDescriptor): string => {
   if (!provider.enabled) {
-    return '未启用';
+    return translateCurrentLocale('streaming.provider.disabled');
   }
   if (provider.requiresAccount && !provider.accountConnected) {
-    return '未登录';
+    return translateCurrentLocale('streaming.provider.notLoggedIn');
   }
-  return provider.accountDisplayName ? `已登录 ${provider.accountDisplayName}` : '可用';
+  return provider.accountDisplayName
+    ? translateCurrentLocale('streaming.provider.loggedIn', { name: provider.accountDisplayName })
+    : translateCurrentLocale('streaming.provider.available');
 };
 
 const qualityToPlaybackQuality = (quality: QualityPreference): StreamingAudioQuality =>
@@ -275,6 +278,7 @@ const streamingTrackToLibraryTrack = (track: StreamingTrack, quality: QualityPre
 });
 
 export const StreamingSearchPage = (): JSX.Element => {
+  const { t } = useI18n();
   const queue = usePlaybackQueue();
   const initialMemory = readStreamingSearchMemory();
   const [providers, setProviders] = useState<StreamingProviderDescriptor[]>(() => readCachedProviders() ?? []);
@@ -350,19 +354,27 @@ export const StreamingSearchPage = (): JSX.Element => {
   const artists = result?.artists ?? emptyArtists;
   const playlists = result?.playlists ?? emptyPlaylists;
   const resultCount = activeTab === 'album' ? albums.length : activeTab === 'artist' ? artists.length : activeTab === 'playlist' ? playlists.length : tracks.length;
-  const activeTabLabel = tabs.find((tab) => tab.key === activeTab)?.label ?? '结果';
+  const activeTabLabel = t(tabs.find((tab) => tab.key === activeTab)?.labelKey ?? 'streaming.tab.track');
   const resultSummary = query
     ? isLoading && resultCount === 0
-      ? '正在搜索'
-      : `${resultCount} 项结果`
-    : '准备搜索';
+      ? t('streaming.result.searching')
+      : t('streaming.result.count', { count: resultCount })
+    : t('streaming.hero.preparingSearch');
   const searchStateMessage =
     isLoading && resultCount === 0
-      ? '正在搜索...'
+      ? t('streaming.result.searchingEllipsis')
       : !isLoading && query && resultCount === 0 && !error
-        ? `没有找到匹配的${activeTab === 'album' ? '专辑' : activeTab === 'artist' ? '歌手' : activeTab === 'playlist' ? '歌单' : '流媒体歌曲'}。`
+        ? t(
+            activeTab === 'album'
+              ? 'streaming.empty.notFoundAlbum'
+              : activeTab === 'artist'
+                ? 'streaming.empty.notFoundArtist'
+                : activeTab === 'playlist'
+                  ? 'streaming.empty.notFoundPlaylist'
+                  : 'streaming.empty.notFoundTrack',
+          )
         : !query && activeTab !== 'playlist'
-          ? '输入关键词开始搜索。播放时才会解析真实地址，队列不会保存临时 URL。'
+          ? t('streaming.empty.searchHint')
           : null;
   const currentStableKey = queue.currentTrack?.mediaType === 'streaming' ? queue.currentTrack.stableKey ?? queue.currentTrack.id : null;
   const selectedAlbumTrackRenderLimit = useProgressiveRenderLimit({
@@ -782,17 +794,17 @@ export const StreamingSearchPage = (): JSX.Element => {
           },
         );
         setActionError(null);
-        setActionMessage(`已切换音质：${qualities.find((item) => item.key === nextQuality)?.label ?? playbackQuality}`);
+        setActionMessage(t('streaming.quality.switched', { quality: t(qualities.find((item) => item.key === nextQuality)?.labelKey ?? 'streaming.quality.max') }));
       })().catch((qualityError) => {
         if (isPlaybackCancellationError(qualityError)) {
           return;
         }
 
-        setActionError(qualityError instanceof Error ? qualityError.message : '切换音质失败');
+        setActionError(qualityError instanceof Error ? qualityError.message : t('streaming.quality.switchFailed'));
         setActionMessage(null);
       });
     },
-    [provider, queue, source],
+    [provider, queue, source, t],
   );
 
   const handlePlay = useCallback(
@@ -1575,13 +1587,13 @@ export const StreamingSearchPage = (): JSX.Element => {
         <div className="streaming-hero-copy">
           <span className="streaming-kicker">
             <Radio size={16} />
-            Streaming
+            {t('route.streaming.label')}
           </span>
-          <h1>流媒体音乐</h1>
-          <p>搜索在线曲库，播放前临时解析音频地址。</p>
+          <h1>{t('streaming.hero.title')}</h1>
+          <p>{t('streaming.hero.description')}</p>
         </div>
-        <div className="streaming-hero-meter" aria-label="当前流媒体状态">
-          <span>当前来源</span>
+        <div className="streaming-hero-meter" aria-label={t('streaming.hero.meterAria')}>
+          <span>{t('streaming.hero.currentProvider')}</span>
           <strong>{currentProvider?.displayName ?? provider}</strong>
           <small>{activeTabLabel} · {resultSummary}</small>
         </div>
@@ -1590,9 +1602,9 @@ export const StreamingSearchPage = (): JSX.Element => {
       <section className="streaming-command-panel">
         <label className="search-box streaming-search-box">
           <Search size={19} />
-          <input {...searchInputProps} placeholder="搜索歌曲、歌手、专辑" />
+          <input {...searchInputProps} placeholder={t('streaming.search.placeholder')} />
         </label>
-        <div className="streaming-provider-tabs" aria-label="流媒体平台">
+        <div className="streaming-provider-tabs" aria-label={t('streaming.providers.aria')}>
           {providerOptions.map((item) => (
             <button key={item.name} type="button" data-active={item.name === provider} disabled={!item.enabled} onClick={() => setProvider(item.name)}>
               <span>{item.displayName}</span>
@@ -1603,21 +1615,21 @@ export const StreamingSearchPage = (): JSX.Element => {
       </section>
 
       <section className="streaming-toolbar">
-        <nav className="streaming-result-tabs" aria-label="结果类型">
+        <nav className="streaming-result-tabs" aria-label={t('streaming.tabs.aria')}>
           {tabs.map((tab) => (
             <button key={tab.key} type="button" data-active={tab.key === activeTab} onClick={() => setActiveTab(tab.key)}>
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </nav>
         <div className="streaming-quality-select">
           <button type="button" aria-expanded={qualityMenuOpen} onClick={() => setQualityMenuOpen((open) => !open)}>
-            <span>音质</span>
-            <strong>{currentQuality.label}</strong>
+            <span>{t('streaming.quality.label')}</span>
+            <strong>{t(currentQuality.labelKey)}</strong>
             <ChevronDown size={15} />
           </button>
           {qualityMenuOpen ? (
-            <div className="streaming-quality-menu" role="listbox" aria-label="音质">
+            <div className="streaming-quality-menu" role="listbox" aria-label={t('streaming.quality.menuAria')}>
               {qualities.map((item) => (
                 <button
                   key={item.key}
@@ -1627,8 +1639,8 @@ export const StreamingSearchPage = (): JSX.Element => {
                   onClick={() => handleQualityChange(item.key)}
                 >
                   <span>
-                    <strong>{item.label}</strong>
-                    <small>{item.description}</small>
+                    <strong>{t(item.labelKey)}</strong>
+                    <small>{t(item.descriptionKey)}</small>
                   </span>
                   {item.key === quality ? <Check size={15} /> : null}
                 </button>

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef } from 'react';
 import type { DragEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { LibraryTrack } from '../../../shared/types/library';
+import { useI18n } from '../../i18n/I18nProvider';
 import { TrackRow } from './TrackRow';
 
 type TrackListProps = {
@@ -45,6 +46,7 @@ const rowHeight = 76;
 const loadAheadRows = 12;
 
 export const TrackList = memo(({ tracks, currentTrackId, loadingTrackId = null, canLoadMore = false, canLoadPrevious = false, totalCount, loadedCount = tracks.length, loadedStartIndex = 0, isLoadingMore = false, onEndReached, onStartReached, onPlay, selectedTrackIds = {}, onToggleSelected, onAddToQueue, onAddToPlaylist, onDownload, onOpenArtist, onOpenAlbum, downloadingTrackIds = {}, downloadProgressByTrackId = {}, duplicateHiddenCounts = {}, onShowVersions, onOpenTrackMenu, onVisibleTrackIdsChange, isTrackDraggable, draggedTrackId = null, dropTargetTrackId = null, onTrackDragStart, onTrackDragOver, onTrackDrop, onTrackDragEnd }: TrackListProps): JSX.Element => {
+  const { t } = useI18n();
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
   const loadRequestedRef = useRef(false);
   const loadPreviousRequestedRef = useRef(false);
@@ -190,7 +192,7 @@ export const TrackList = memo(({ tracks, currentTrackId, loadingTrackId = null, 
   };
 
   return (
-    <section className="track-list-shell" aria-label="歌曲列表">
+    <section className="track-list-shell" aria-label={t('songs.trackList.aria')}>
       <div
         className="track-list"
         ref={scrollParentRef}
@@ -203,7 +205,7 @@ export const TrackList = memo(({ tracks, currentTrackId, loadingTrackId = null, 
         onScroll={handleScroll}
       >
         {virtualCount === 0 ? (
-          <div className="track-empty-state">没有可显示的歌曲。导入音乐文件夹后，这里会显示曲库列表。</div>
+          <div className="track-empty-state">{t('songs.trackList.empty')}</div>
         ) : (
           <div className="track-virtual-spacer" style={{ height: rowVirtualizer.getTotalSize() }}>
             {renderedVirtualItems.map((virtualRow) => {

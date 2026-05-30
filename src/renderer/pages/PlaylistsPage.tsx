@@ -8,6 +8,7 @@ import type { StreamingAudioQuality, StreamingFavoriteCollection, StreamingFavor
 import { TrackList } from '../components/library/TrackList';
 import { TrackContextMenu, type TrackMenuAction } from '../components/library/TrackContextMenu';
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
+import { useI18n } from '../i18n/I18nProvider';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
@@ -318,44 +319,45 @@ const emptyItemsPage = (): LibraryPage<LibraryPlaylistItem> => ({
 });
 
 const itemToTrack = (item: LibraryPlaylistItem, streamingQuality?: StreamingAudioQuality): LibraryTrack => {
-  if (item.track && !item.unavailable) {
-    return {
-      ...item.track,
-      streamingQuality: item.track.mediaType === 'streaming' ? (item.track.streamingQuality ?? streamingQuality) : item.track.streamingQuality,
-      playlistItemId: item.id,
-      unavailable: false,
-    };
-  }
-
   if (item.mediaType === 'stream_track' && item.mediaId && item.sourceItemId && !item.unavailable) {
+    const cachedTrack = item.track ?? null;
     return {
       id: item.mediaId,
       mediaType: 'streaming',
       path: item.mediaId,
       provider: item.sourceProvider,
       providerTrackId: item.sourceItemId,
-      streamingQuality,
-      stableKey: item.mediaId,
-      title: item.titleSnapshot ?? 'Streaming track',
-      artist: item.artistSnapshot ?? 'Unknown artist',
-      album: item.albumSnapshot ?? '',
-      albumArtist: item.artistSnapshot ?? '',
-      trackNo: null,
-      discNo: null,
-      year: null,
-      genre: null,
-      duration: item.durationSnapshot ?? 0,
-      codec: null,
-      sampleRate: null,
-      bitDepth: null,
-      bitrate: null,
-      coverId: item.coverId,
-      coverThumb: item.coverThumb,
+      streamingQuality: cachedTrack?.streamingQuality ?? streamingQuality,
+      stableKey: cachedTrack?.stableKey ?? item.mediaId,
+      title: cachedTrack?.title ?? item.titleSnapshot ?? 'Streaming track',
+      artist: cachedTrack?.artist ?? item.artistSnapshot ?? 'Unknown artist',
+      album: cachedTrack?.album ?? item.albumSnapshot ?? '',
+      albumArtist: cachedTrack?.albumArtist ?? item.artistSnapshot ?? '',
+      trackNo: cachedTrack?.trackNo ?? null,
+      discNo: cachedTrack?.discNo ?? null,
+      year: cachedTrack?.year ?? null,
+      genre: cachedTrack?.genre ?? null,
+      duration: cachedTrack?.duration ?? item.durationSnapshot ?? 0,
+      codec: cachedTrack?.codec ?? null,
+      sampleRate: cachedTrack?.sampleRate ?? null,
+      bitDepth: cachedTrack?.bitDepth ?? null,
+      bitrate: cachedTrack?.bitrate ?? null,
+      coverId: cachedTrack?.coverId ?? item.coverId,
+      coverThumb: cachedTrack?.coverThumb ?? item.coverThumb,
       fieldSources: {
         title: item.sourceProvider,
         artist: item.sourceProvider,
         album: item.sourceProvider,
       },
+      playlistItemId: item.id,
+      unavailable: false,
+    };
+  }
+
+  if (item.track && !item.unavailable) {
+    return {
+      ...item.track,
+      streamingQuality: item.track.mediaType === 'streaming' ? (item.track.streamingQuality ?? streamingQuality) : item.track.streamingQuality,
       playlistItemId: item.id,
       unavailable: false,
     };
@@ -416,7 +418,16 @@ const favoriteToTrack = (item: StreamingFavoriteTrack, streamingQuality: Streami
   unavailable: !item.playable,
 });
 
+const playableTailFromTrack = (tracks: LibraryTrack[], track: LibraryTrack): LibraryTrack[] => {
+  const startIndex = tracks.findIndex((candidate) =>
+    (track.playlistItemId && candidate.playlistItemId === track.playlistItemId) || candidate.id === track.id,
+  );
+  const tail = (startIndex >= 0 ? tracks.slice(startIndex) : tracks).filter((candidate) => !candidate.unavailable);
+  return tail.length > 0 ? tail : track.unavailable ? [] : [track];
+};
+
 export const PlaylistsPage = (): JSX.Element => {
+  const { t } = useI18n();
   const [playlistPanelView, setPlaylistPanelView] = useState<'local' | 'streamingFavorites'>('local');
   const [playlists, setPlaylists] = useState<LibraryPlaylist[]>([]);
   const [playlistOrderIds, setPlaylistOrderIds] = useState<string[]>(() => readPlaylistListOrderMemory());
@@ -914,13 +925,13 @@ export const PlaylistsPage = (): JSX.Element => {
   const handleRefreshNeteaseDailyRecommend = async (): Promise<void> => {
     const streaming = window.echo?.streaming;
     if (!streaming?.refreshNeteaseDailyRecommend) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.');
+      setError(t('playlistsPage.error.desktopBridgeDailyRecommend'));
       return;
     }
 
     setIsRefreshingStreamingPlaylist(true);
     setError(null);
-    setStatusMessage('正在刷新网易云每日推荐...');
+    setStatusMessage(t('playlistsPage.status.refreshingDaily'));
     try {
       const result = await streaming.refreshNeteaseDailyRecommend();
       await loadPlaylists();
@@ -928,7 +939,7 @@ export const PlaylistsPage = (): JSX.Element => {
       setPlaylistSearchInput('');
       setPlaylistSearch('');
       await loadItems(result.playlistId, 1, 'replace', '');
-      setStatusMessage(`已刷新每日推荐：${result.importedCount} 首`);
+      setStatusMessage(t('playlistsPage.status.refreshedDaily', { count: result.importedCount }));
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
@@ -940,7 +951,7 @@ export const PlaylistsPage = (): JSX.Element => {
 
   const handleCreatePlaylist = async (nameInput?: string): Promise<void> => {
     const library = window.echo?.library;
-    const name = nameInput ?? window.prompt('新建本地歌单名称');
+    const name = nameInput ?? window.prompt(t('playlistsPage.prompt.newLocalName'));
     if (!library || !name?.trim()) {
       return;
     }
@@ -953,7 +964,7 @@ export const PlaylistsPage = (): JSX.Element => {
       setPlaylistSearch('');
       setNewPlaylistName('');
       setShowNewPlaylistForm(false);
-      setStatusMessage('本地歌单已创建');
+      setStatusMessage(t('playlistsPage.status.createdLocal'));
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : String(createError));
@@ -1304,7 +1315,7 @@ export const PlaylistsPage = (): JSX.Element => {
     setIsImportingPlaylist(true);
     setError(null);
     setSpotifyPlaylistHelpUrl(null);
-    setStatusMessage('正在添加流媒体歌单...');
+    setStatusMessage(t('playlistsPage.status.importingStreamingPlaylist'));
     try {
       const result = await streaming.importPlaylistFromUrl(url);
       setPlaylistUrl('');
@@ -1313,7 +1324,7 @@ export const PlaylistsPage = (): JSX.Element => {
       setPlaylistSearchInput('');
       setPlaylistSearch('');
       await loadItems(result.playlistId, 1, 'replace', '');
-      setStatusMessage(`已添加歌单：${result.playlistName}，共 ${result.importedCount} 首`);
+      setStatusMessage(t('playlistsPage.status.importedStreamingPlaylist', { name: result.playlistName, count: result.importedCount }));
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (importError) {
       if (isSpotifyPlaylistUrl(url) && isSpotifyPlaylistOwnerImportError(importError)) {
@@ -1759,8 +1770,9 @@ export const PlaylistsPage = (): JSX.Element => {
         return;
       }
 
+      const sequenceTracks = playableTailFromTrack(favoriteDisplayTracks, track);
       try {
-        await playPlaylistSequence(playableTracks, {
+        await playPlaylistSequence(sequenceTracks, {
           label: queueSource.label,
           source: queueSource,
           startTrackId: track.id,
@@ -1777,8 +1789,9 @@ export const PlaylistsPage = (): JSX.Element => {
       return;
     }
 
+    const sequenceTracks = playableTailFromTrack(displayTracks, playableTrack);
     try {
-      await playPlaylistSequence(playableTracks, {
+      await playPlaylistSequence(sequenceTracks, {
         label: selectedPlaylist?.name,
         playlistId: selectedPlaylist?.id,
         source: queueSource,
@@ -2019,13 +2032,13 @@ export const PlaylistsPage = (): JSX.Element => {
 
   return (
     <div className="playlists-page">
-      <aside className="playlist-sidebar" aria-label="Playlists">
+      <aside className="playlist-sidebar" aria-label={t('route.playlists.label')}>
         <div className="playlist-sidebar-header">
-          <h1>Playlists</h1>
-          <button className="tool-button" type="button" aria-label="导入 M3U/M3U8 歌单" title="导入 M3U/M3U8 歌单" disabled={isImportingPlaylistFile} onClick={() => void handleImportPlaylistFile()}>
+          <h1>{t('route.playlists.label')}</h1>
+          <button className="tool-button" type="button" aria-label={t('playlistsPage.action.importFile')} title={t('playlistsPage.action.importFile')} disabled={isImportingPlaylistFile} onClick={() => void handleImportPlaylistFile()}>
             {isImportingPlaylistFile ? <Loader2 className="spinning-icon" size={17} /> : <Upload size={17} />}
           </button>
-          <button className="tool-button" type="button" aria-label="新建本地歌单" title="新建本地歌单" onClick={handleShowNewPlaylistForm}>
+          <button className="tool-button" type="button" aria-label={t('playlistsPage.action.newLocal')} title={t('playlistsPage.action.newLocal')} onClick={handleShowNewPlaylistForm}>
             <Plus size={17} />
           </button>
         </div>
@@ -2041,19 +2054,19 @@ export const PlaylistsPage = (): JSX.Element => {
             <input
               ref={newPlaylistInputRef}
               value={newPlaylistName}
-              aria-label="本地歌单名称"
-              placeholder="新建本地歌单"
+              aria-label={t('playlistsPage.form.nameAria')}
+              placeholder={t('playlistsPage.form.placeholder')}
               onChange={(event) => setNewPlaylistName(event.target.value)}
             />
             <button className="secondary-action" type="submit" disabled={!newPlaylistName.trim()}>
               <Plus size={15} />
-              <span>创建</span>
+              <span>{t('playlistsPage.form.create')}</span>
             </button>
             <button
               className="tool-button"
               type="button"
-              aria-label="取消新建"
-              title="取消新建"
+              aria-label={t('playlistsPage.form.cancel')}
+              title={t('playlistsPage.form.cancel')}
               onClick={() => {
                 setShowNewPlaylistForm(false);
                 setNewPlaylistName('');
@@ -2064,12 +2077,12 @@ export const PlaylistsPage = (): JSX.Element => {
           </form>
         ) : null}
 
-        <div className="playlist-view-switch" role="tablist" aria-label="播放列表视图">
+        <div className="playlist-view-switch" role="tablist" aria-label={t('playlistsPage.view.aria')}>
           <button type="button" role="tab" aria-selected={playlistPanelView === 'local'} data-active={playlistPanelView === 'local'} onClick={() => setPlaylistPanelView('local')}>
-            本地歌单
+            {t('playlistsPage.view.local')}
           </button>
           <button type="button" role="tab" aria-selected={playlistPanelView === 'streamingFavorites'} data-active={playlistPanelView === 'streamingFavorites'} onClick={() => setPlaylistPanelView('streamingFavorites')}>
-            流媒体收藏
+            {t('playlistsPage.view.streamingFavorites')}
           </button>
         </div>
 
@@ -2083,8 +2096,8 @@ export const PlaylistsPage = (): JSX.Element => {
             >
               {isRefreshingStreamingPlaylist ? <Loader2 className="spinning-icon" size={16} /> : <CalendarDays size={16} />}
               <span>
-                <strong>每日推荐</strong>
-                <small>网易云账号推荐</small>
+                <strong>{t('playlistsPage.daily.title')}</strong>
+                <small>{t('playlistsPage.daily.subtitle')}</small>
               </span>
             </button>
 
@@ -2114,12 +2127,12 @@ export const PlaylistsPage = (): JSX.Element => {
                         <span>{playlist.name}</span>
                         {sourceLabel ? <em>{sourceLabel}</em> : null}
                       </strong>
-                      <small>{playlist.itemCount} tracks</small>
+                      <small>{t('albumMenu.playlistSubmenu.itemCount', { count: playlist.itemCount })}</small>
                     </span>
                   </button>
                 );
               })}
-              {orderedPlaylists.length === 0 ? <p className="playlist-empty">还没有本地歌单。</p> : null}
+              {orderedPlaylists.length === 0 ? <p className="playlist-empty">{t('playlistsPage.empty.local')}</p> : null}
             </div>
 
             <form
@@ -2129,7 +2142,7 @@ export const PlaylistsPage = (): JSX.Element => {
                 void handleImportStreamingPlaylist();
               }}
             >
-              <h2>添加流媒体歌单</h2>
+              <h2>{t('playlistsPage.importStreaming.title')}</h2>
               <label>
                 <Link size={14} />
                 <input
@@ -2138,13 +2151,13 @@ export const PlaylistsPage = (): JSX.Element => {
                     setPlaylistUrl(event.target.value);
                     setSpotifyPlaylistHelpUrl(null);
                   }}
-                  placeholder="粘贴网易云 / QQ 音乐 / Spotify 歌单链接"
+                  placeholder={t('playlistsPage.importStreaming.placeholder')}
                   disabled={isImportingPlaylist}
                 />
               </label>
               <button className="secondary-action" type="submit" disabled={!playlistUrl.trim() || isImportingPlaylist}>
                 {isImportingPlaylist ? <Loader2 className="spinning-icon" size={15} /> : <Plus size={15} />}
-                <span>{isImportingPlaylist ? '添加中' : '添加歌单'}</span>
+                <span>{isImportingPlaylist ? t('playlistsPage.importStreaming.adding') : t('playlistsPage.importStreaming.add')}</span>
               </button>
             </form>
 
@@ -2589,17 +2602,17 @@ export const PlaylistsPage = (): JSX.Element => {
         ) : (
           <div className="playlist-start">
             <Music2 size={36} />
-            <strong>创建第一个本地歌单</strong>
+            <strong>{t('playlistsPage.empty.createFirst')}</strong>
             <button className="primary-action" type="button" onClick={() => void handleCreatePlaylist()}>
               <Plus size={16} />
-              <span>新建歌单</span>
+              <span>{t('playlistsPage.empty.create')}</span>
             </button>
           </div>
         )}
 
         {error || statusMessage || isLoading ? (
           <div className="list-footer">
-            <span>{error ?? statusMessage ?? '正在读取歌单...'}</span>
+            <span>{error ?? statusMessage ?? t('playlistsPage.status.loading')}</span>
             {spotifyPlaylistHelpUrl ? (
               <button className="text-action" type="button" onClick={() => void handleOpenSpotifyPlaylistForCopy()}>
                 <ExternalLink size={13} />

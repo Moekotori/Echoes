@@ -5,7 +5,8 @@ import type { DragEvent } from 'react';
 import type { DownloadJob } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack } from '../../shared/types/library';
 import type { StreamingFavoriteTrack, StreamingFavoritesSnapshot } from '../../shared/types/streaming';
-import { PlaybackQueueProvider } from '../stores/PlaybackQueueProvider';
+import { translations, isLocale, localeOptions } from '../i18n/locales';
+import { PlaybackQueueProvider, usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { PlaylistsPage } from './PlaylistsPage';
 
 vi.mock('../components/library/TrackList', () => ({
@@ -77,6 +78,33 @@ vi.mock('../components/library/TrackContextMenu', () => ({
     </div>
   ),
 }));
+
+vi.mock('../i18n/I18nProvider', async () => {
+  const actual = await vi.importActual<typeof import('../i18n/I18nProvider')>('../i18n/I18nProvider');
+  const fallbackLocale = 'zh-CN' as const;
+  const interpolate = (text: string, options?: Record<string, string | number>): string =>
+    options
+      ? Object.entries(options).reduce((current, [key, value]) => current.replaceAll(`{${key}}`, String(value)), text)
+      : text;
+  const resolveLocale = (): keyof typeof translations => {
+    const stored = window.localStorage.getItem('echo-next.locale');
+    return isLocale(stored) ? stored : fallbackLocale;
+  };
+
+  return {
+    ...actual,
+    useI18n: () => {
+      const locale = resolveLocale();
+      return {
+        locale,
+        localeOptions,
+        setLocale: vi.fn(),
+        t: (key: keyof (typeof translations)[typeof fallbackLocale], options?: Record<string, string | number>) =>
+          interpolate(translations[locale][key] ?? translations[fallbackLocale][key] ?? String(key), options),
+      };
+    },
+  };
+});
 
 const playlist = (overrides: Partial<LibraryPlaylist> = {}): LibraryPlaylist => ({
   id: 'playlist-1',
@@ -222,6 +250,11 @@ const renderPlaylistsPage = () =>
       <PlaylistsPage />
     </PlaybackQueueProvider>,
   );
+
+const QueueProbe = (): JSX.Element => {
+  const queue = usePlaybackQueue();
+  return <output aria-label="queue-track-ids">{queue.items.map((item) => item.track.id).join(',')}</output>;
+};
 
 afterEach(() => {
   cleanup();
@@ -402,6 +435,71 @@ describe('PlaylistsPage actions menu', () => {
         }),
       })),
     );
+  });
+
+  it('queues the remaining remote playlist tracks after playing one item', async () => {
+    const firstItem = item({
+      id: 'item-1',
+      mediaType: 'stream_track',
+      mediaId: 'streaming:netease:track-1',
+      sourceProvider: 'netease',
+      sourceItemId: 'track-1',
+      titleSnapshot: 'Song One',
+      track: null,
+    });
+    const secondItem = item({
+      id: 'item-2',
+      mediaType: 'stream_track',
+      mediaId: 'streaming:netease:track-2',
+      sourceProvider: 'netease',
+      sourceItemId: 'track-2',
+      titleSnapshot: 'Song Two',
+      track: null,
+    });
+    const thirdItem = item({
+      id: 'item-3',
+      mediaType: 'stream_track',
+      mediaId: 'streaming:netease:track-3',
+      sourceProvider: 'netease',
+      sourceItemId: 'track-3',
+      titleSnapshot: 'Song Three',
+      track: null,
+    });
+    const playMediaItem = vi.fn().mockImplementation((request: { item: { trackId: string } }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.item.trackId,
+        positionMs: 0,
+        durationMs: 180000,
+        filePath: null,
+      }),
+    );
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValue([playlist({ sourceProvider: 'netease', sourcePlaylistId: '163289102', itemCount: 3 })]),
+        getPlaylistItems: vi.fn().mockResolvedValue(page([firstItem, secondItem, thirdItem])),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+        startPlaybackHistory: vi.fn().mockResolvedValue({ historyId: 'history-1' }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+        playMediaItem,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueProbe />
+        <PlaylistsPage />
+      </PlaybackQueueProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Song Two' }));
+
+    await waitFor(() => expect(playMediaItem).toHaveBeenCalledWith(expect.objectContaining({
+      item: expect.objectContaining({ trackId: 'streaming:netease:track-2' }),
+    })));
+    await waitFor(() => expect(screen.getByLabelText('queue-track-ids').textContent).toBe('streaming:netease:track-2,streaming:netease:track-3'));
   });
 
   it('hides streaming quality for local playlists', async () => {
@@ -951,7 +1049,7 @@ describe('PlaylistsPage actions menu', () => {
       sourceItemId: 'track-2',
       titleSnapshot: 'Second Remote',
       artistSnapshot: 'Artist B',
-      track: null,
+      track: track({ id: 'local-match-2', title: 'Second Remote', artist: 'Artist B', codec: 'FLAC' }),
       position: 1,
     });
     const resolvePlayback = vi.fn(async ({ providerTrackId }: { providerTrackId: string }) => ({

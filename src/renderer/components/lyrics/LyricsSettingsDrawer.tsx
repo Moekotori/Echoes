@@ -222,6 +222,7 @@ const dispatchLyricsDisplaySettingsChanged = (patch: Partial<AppSettings>): void
 };
 
 const desktopLyricsFontPanelOpenStorageKey = 'echo-next.lyrics.desktop-font-panel-open';
+const lyricsDisplayPanelOpenStorageKey = 'echo-next.lyrics.display-panel-open';
 const lyricsStyleControlsOpenStorageKey = 'echo-next.lyrics.style-controls-open';
 const lyricsBackgroundTuningOpenStorageKey = 'echo-next.lyrics.background-tuning-open';
 const lyricsSourcePanelOpenStorageKey = 'echo-next.lyrics.source-panel-open';
@@ -239,6 +240,23 @@ const writeDesktopLyricsFontPanelOpen = (enabled: boolean): void => {
     window.localStorage.setItem(desktopLyricsFontPanelOpenStorageKey, enabled ? 'true' : 'false');
   } catch {
     // UI preference only; desktop lyrics settings remain usable without storage.
+  }
+};
+
+const readLyricsDisplayPanelOpen = (): boolean => {
+  try {
+    const stored = window.localStorage.getItem(lyricsDisplayPanelOpenStorageKey);
+    return stored === null ? true : stored === 'true';
+  } catch {
+    return true;
+  }
+};
+
+const writeLyricsDisplayPanelOpen = (enabled: boolean): void => {
+  try {
+    window.localStorage.setItem(lyricsDisplayPanelOpenStorageKey, enabled ? 'true' : 'false');
+  } catch {
+    // UI preference only; lyrics display settings remain usable without storage.
   }
 };
 
@@ -548,6 +566,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
   const [isBusy, setIsBusy] = useState(false);
   const [currentLyricsProviderLabel, setCurrentLyricsProviderLabel] = useState(providerLabelFor(null, t));
   const [draggingSourceId, setDraggingSourceId] = useState<LyricsProviderId | null>(null);
+  const [isLyricsDisplayPanelOpen, setIsLyricsDisplayPanelOpen] = useState(readLyricsDisplayPanelOpen);
   const [isLyricsStyleControlsOpen, setIsLyricsStyleControlsOpen] = useState(readLyricsStyleControlsOpen);
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackLyricsFontFamilies);
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
@@ -689,6 +708,14 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     setIsDesktopLyricsFontPanelOpen((value) => {
       const nextValue = !value;
       writeDesktopLyricsFontPanelOpen(nextValue);
+      return nextValue;
+    });
+  }, []);
+
+  const toggleLyricsDisplayPanel = useCallback(() => {
+    setIsLyricsDisplayPanelOpen((value) => {
+      const nextValue = !value;
+      writeLyricsDisplayPanelOpen(nextValue);
       return nextValue;
     });
   }, []);
@@ -1613,12 +1640,23 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         </section>
       ) : null}
 
-        <section className="audio-drawer-section audio-drawer-options audio-drawer-options--open">
-          <div className="audio-drawer-section-title">
-            <Captions size={17} />
-            <h3>{t('lyricsSettings.display.title')}</h3>
-          </div>
+        <section className={`audio-drawer-section audio-drawer-options audio-drawer-options--open lyrics-display-panel${isLyricsDisplayPanelOpen ? ' lyrics-display-panel--open' : ''}`}>
+          <button
+            className="lyrics-display-collapse-button"
+            type="button"
+            aria-expanded={isLyricsDisplayPanelOpen}
+            onClick={toggleLyricsDisplayPanel}
+          >
+            <span>
+              <Captions size={17} />
+              <strong>{t('lyricsSettings.display.title')}</strong>
+              <small>{t('lyricsSettings.display.enableLyricsDescription')}</small>
+            </span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </button>
 
+          {isLyricsDisplayPanelOpen ? (
+          <>
           <label className="audio-toggle-row">
             <span>
               <Captions size={17} />
@@ -2300,6 +2338,8 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               <small>{t('lyricsSettings.preview.secondary')}</small>
             </div>
           </div>
+          ) : null}
+          </>
           ) : null}
         </section>
 

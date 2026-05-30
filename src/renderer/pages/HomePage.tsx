@@ -29,6 +29,7 @@ import type {
   PlaybackStatsDashboard,
   PlaybackStatsDay,
 } from '../../shared/types/library';
+import { translateCurrentLocale, useI18n } from '../i18n/I18nProvider';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import { openAlbumDetail, openAlbumDetailForTrack } from '../utils/albumNavigation';
@@ -292,6 +293,7 @@ const HomeNowMeta = ({
   onOpenArtist: (artistName: string) => void;
   track: LibraryTrack | null;
 }): JSX.Element => {
+  const { t } = useI18n();
   const metaRef = useRef<HTMLElement | null>(null);
   const innerRef = useRef<HTMLSpanElement | null>(null);
   const [shouldScroll, setShouldScroll] = useState(false);
@@ -337,7 +339,7 @@ const HomeNowMeta = ({
   }, [track]);
 
   if (!track) {
-    return <small className="home-now-meta">曲库准备好后会显示最近内容</small>;
+    return <small className="home-now-meta">{t('home.nowMeta.empty')}</small>;
   }
 
   const artistName = track.artist?.trim();
@@ -351,7 +353,7 @@ const HomeNowMeta = ({
             {artistName}
           </button>
         ) : (
-          <span>未知艺术家</span>
+          <span>{t('queue.unknownArtist')}</span>
         )}
         <span aria-hidden="true"> · </span>
         {albumTitle ? (
@@ -359,7 +361,7 @@ const HomeNowMeta = ({
             {albumTitle}
           </button>
         ) : (
-          <span>未知专辑</span>
+          <span>{t('queue.unknownAlbum')}</span>
         )}
       </span>
     </small>
@@ -409,8 +411,8 @@ const recentPlayedAlbumsFromHistory = (entries: PlaybackHistoryEntry[]): RecentP
   const albums: RecentPlayedAlbum[] = [];
 
   for (const entry of entries) {
-    const title = historyText(entry.album, historyText(entry.title, 'Unknown Album'));
-    const albumArtist = historyText(entry.albumArtist, historyText(entry.artist, 'Unknown Artist'));
+    const title = historyText(entry.album, historyText(entry.title, translateCurrentLocale('queue.unknownAlbum')));
+    const albumArtist = historyText(entry.albumArtist, historyText(entry.artist, translateCurrentLocale('queue.unknownArtist')));
     const albumKey = `${entry.mediaType}:${albumArtist.toLowerCase()}:${title.toLowerCase()}`;
 
     if (seenAlbumKeys.has(albumKey)) {
@@ -556,32 +558,32 @@ const formatCompactNumber = (value: number): string => {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 1000 ? 1 : 0, notation: value >= 10000 ? 'compact' : 'standard' }).format(value);
 };
 
-const formatDuration = (seconds: number): string => {
+const formatDuration = (seconds: number, t: ReturnType<typeof useI18n>['t']): string => {
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    return '0 分钟';
+    return t('home.duration.zeroMinutes');
   }
 
   const totalMinutes = Math.round(seconds / 60);
   if (totalMinutes < 60) {
-    return `${totalMinutes} 分钟`;
+    return t('home.duration.minutes', { count: totalMinutes });
   }
 
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return minutes > 0 ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`;
+  return minutes > 0 ? t('home.duration.hoursMinutes', { hours, minutes }) : t('home.duration.hoursOnly', { hours });
 };
 
-const formatShortDate = (value: string | null): string => {
+const formatShortDate = (value: string | null, t: ReturnType<typeof useI18n>['t'], locale: string): string => {
   if (!value) {
-    return '还没有记录';
+    return t('home.date.none');
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return '时间未知';
+    return t('home.date.unknown');
   }
 
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(date);
 };
 
 const ArtistLeaderboard = ({
@@ -591,6 +593,7 @@ const ArtistLeaderboard = ({
   artists: PlaybackStatsDashboard['topArtists'];
   onOpenArtist: (artistName: string) => void;
 }): JSX.Element => {
+  const { t } = useI18n();
   const visibleArtists = artists
     .filter((artist) => artist.artist.trim().length > 0)
     .slice(0, artistLeaderboardLimit);
@@ -601,15 +604,15 @@ const ArtistLeaderboard = ({
       <div className="home-artist-rank-empty" role="status">
         <UserRound size={18} />
         <span>
-          <strong>还没有艺人排行</strong>
-          <small>播放更多音乐后，这里会形成你的高频艺人榜。</small>
+          <strong>{t('home.artistLeaderboard.emptyTitle')}</strong>
+          <small>{t('home.artistLeaderboard.emptyDescription')}</small>
         </span>
       </div>
     );
   }
 
   return (
-    <ol className="home-artist-leaderboard" aria-label="艺人排行榜">
+    <ol className="home-artist-leaderboard" aria-label={t('home.artistLeaderboard.aria')}>
       {visibleArtists.map((artist, index) => {
         const artistName = artist.artist.trim();
         const score = Math.max(0.08, artist.playCount / maxPlayCount);
@@ -628,12 +631,12 @@ const ArtistLeaderboard = ({
               <span className="home-artist-rank-main">
                 <strong>{artistName}</strong>
                 <span className="home-artist-rank-meta">
-                  <span>{formatCompactNumber(artist.playCount)} 次</span>
+                  <span>{t('home.artistLeaderboard.playCount', { count: formatCompactNumber(artist.playCount) })}</span>
                   <span aria-hidden="true">·</span>
-                  <span>{formatDuration(artist.playedSeconds)}</span>
+                  <span>{formatDuration(artist.playedSeconds, t)}</span>
                 </span>
               </span>
-              <span className="home-artist-rank-chip">{completionRate}% 完播</span>
+              <span className="home-artist-rank-chip">{t('home.artistLeaderboard.completionRate', { rate: completionRate })}</span>
               <span className="home-artist-rank-meter" aria-hidden="true">
                 <i />
               </span>
@@ -671,6 +674,7 @@ const FavoriteAlbumGrid = ({
   albums: PlaybackStatsAlbum[];
   onOpenAlbum: (album: PlaybackStatsAlbum) => void;
 }): JSX.Element => {
+  const { t } = useI18n();
   const visibleAlbums = albums
     .filter((album) => album.title.trim().length > 0)
     .slice(0, favoriteAlbumLimit);
@@ -680,15 +684,15 @@ const FavoriteAlbumGrid = ({
       <div className="home-favorite-album-empty" role="status">
         <Album size={18} />
         <span>
-          <strong>还没有常听专辑</strong>
-          <small>播放更多专辑后，这里会按听过最多次数选出前四张。</small>
+          <strong>{t('home.favoriteAlbums.emptyTitle')}</strong>
+          <small>{t('home.favoriteAlbums.emptyDescription')}</small>
         </span>
       </div>
     );
   }
 
   return (
-    <div className="home-favorite-album-grid" aria-label="你喜欢的专辑">
+    <div className="home-favorite-album-grid" aria-label={t('home.favoriteAlbums.aria')}>
       {visibleAlbums.map((album, index) => {
         const canOpen = statsAlbumToLibraryAlbum(album) !== null;
 
@@ -704,8 +708,8 @@ const FavoriteAlbumGrid = ({
             <span className="home-favorite-album-rank">{String(index + 1).padStart(2, '0')}</span>
             <span className="home-favorite-album-copy">
               <strong>{album.title}</strong>
-              <small>{album.albumArtist || '未知艺术家'}</small>
-              <em>{formatCompactNumber(album.playCount)} 次 · {formatDuration(album.playedSeconds)}</em>
+              <small>{album.albumArtist || t('queue.unknownArtist')}</small>
+              <em>{t('home.artistLeaderboard.playCount', { count: formatCompactNumber(album.playCount) })} · {formatDuration(album.playedSeconds, t)}</em>
             </span>
           </button>
         );
@@ -743,7 +747,8 @@ const formatDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
-const formatMonthLabel = (date: Date): string => `${date.getMonth() + 1}月`;
+const formatMonthLabel = (date: Date, t: ReturnType<typeof useI18n>['t']): string =>
+  t('home.month.label', { month: date.getMonth() + 1 });
 
 const clampSignal = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -1029,16 +1034,20 @@ const Artwork = ({ coverThumb, title, size = 92 }: { coverThumb: string | null; 
   </div>
 );
 
-const MetricTile = ({ icon: Icon, label, value, detail, routeId }: MetricTileProps): JSX.Element => (
-  <button className="home-metric-tile" type="button" aria-label={`打开${label}`} onClick={() => navigateHomeRoute(routeId)}>
-    <Icon size={19} />
-    <div>
-      <strong>{value}</strong>
-      <span>{label}</span>
-      <small>{detail}</small>
-    </div>
-  </button>
-);
+const MetricTile = ({ icon: Icon, label, value, detail, routeId }: MetricTileProps): JSX.Element => {
+  const { t } = useI18n();
+
+  return (
+    <button className="home-metric-tile" type="button" aria-label={t('home.metric.openAria', { label })} onClick={() => navigateHomeRoute(routeId)}>
+      <Icon size={19} />
+      <div>
+        <strong>{value}</strong>
+        <span>{label}</span>
+        <small>{detail}</small>
+      </div>
+    </button>
+  );
+};
 
 const SectionHeader = ({
   title,
@@ -1276,7 +1285,7 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
   }, [isActive, meterReady, signalSeed]);
 
   return (
-    <div className="home-signal-visualizer" data-active={isActive} data-meter-ready={meterReady} data-telemetry-state={visualTelemetryState ?? 'none'} aria-label="音频可视化">
+    <div className="home-signal-visualizer" data-active={isActive} data-meter-ready={meterReady} data-telemetry-state={visualTelemetryState ?? 'none'} aria-label={translateCurrentLocale('home.signalVisualizer.aria')}>
       <div className="home-signal-bars" aria-hidden="true">
         {bars.map((bar, index) => (
           <i
@@ -1338,6 +1347,7 @@ const scheduleHomeStartupWork = (callback: () => void, delayMs = 0): (() => void
 };
 
 const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
+  const { t } = useI18n();
   const today = startOfDay(new Date());
   const currentWeekStart = startOfWeek(today);
   const firstWeekStart = addDays(currentWeekStart, -7 * (weeklyHeatmapWeeks - 1));
@@ -1376,7 +1386,7 @@ const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
     const lastLabel = labels.at(-1);
     if (!lastLabel || firstDay.getMonth() !== lastLabel.month || firstDay.getFullYear() !== lastLabel.year) {
       labels.push({
-        label: formatMonthLabel(firstDay),
+        label: formatMonthLabel(firstDay, t),
         month: firstDay.getMonth(),
         span: 1,
         week: weekIndex,
@@ -1418,18 +1428,18 @@ const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
       </div>
       <div className="home-week-grid-shell">
         <div className="home-weekdays" aria-hidden="true">
-          <span>一</span>
+          <span>{t('home.weekday.mon')}</span>
           <span />
-          <span>三</span>
+          <span>{t('home.weekday.wed')}</span>
           <span />
-          <span>五</span>
+          <span>{t('home.weekday.fri')}</span>
           <span />
           <span />
         </div>
         <div
           className="home-week-grid"
           style={{ gridTemplateColumns: `repeat(${weeklyHeatmapWeeks}, var(--home-week-cell))` }}
-          aria-label={`近 ${weeklyHeatmapWeeks} 周播放热力图`}
+          aria-label={t('home.weeklyHeatmap.aria', { weeks: weeklyHeatmapWeeks })}
         >
           {cells.map((day) => (
             <span
@@ -1437,14 +1447,14 @@ const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
               data-future={day.isFuture ? 'true' : undefined}
               data-level={day.isFuture ? 0 : getLevel(day.playCount)}
               key={day.dateKey}
-              title={`${day.dateKey} · ${day.playCount} 次 · ${formatDuration(day.playedSeconds)}`}
-              aria-label={`${day.dateKey}，${day.playCount} 次播放`}
+              title={t('home.weeklyHeatmap.dayTitle', { date: day.dateKey, playCount: day.playCount, duration: formatDuration(day.playedSeconds, t) })}
+              aria-label={t('home.weeklyHeatmap.dayAria', { date: day.dateKey, playCount: day.playCount })}
             />
           ))}
         </div>
       </div>
       <div className="home-week-legend" aria-hidden="true">
-        <span>{activeWeeks} 周活跃</span>
+        <span>{t('home.weeklyHeatmap.activeWeeks', { count: activeWeeks })}</span>
         <i data-level={0} />
         <i data-level={1} />
         <i data-level={2} />
@@ -1456,6 +1466,7 @@ const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
 };
 
 export const HomePage = (): JSX.Element => {
+  const { locale, t } = useI18n();
   const queue = usePlaybackQueue();
   const playbackStatusSnapshot = useSharedPlaybackStatus();
   const initialHomeData = cachedHomePageData ?? emptyHomePageData;
@@ -1488,7 +1499,7 @@ export const HomePage = (): JSX.Element => {
     cachedHomeHeroTitle ??= pickHomeHeroTitle();
     return cachedHomeHeroTitle;
   });
-  const homeHeroTitle = homeRandomHeroTitleEnabled ? randomHomeHeroTitle : defaultHomeHeroTitle;
+  const homeHeroTitle = homeRandomHeroTitleEnabled ? randomHomeHeroTitle : t('home.hero.defaultTitle');
   const topArtist = stats?.topArtists[0]?.artist ?? focusTrack?.artist ?? 'ECHO';
 
   useEffect(() => {
@@ -1523,7 +1534,7 @@ export const HomePage = (): JSX.Element => {
     const library = window.echo?.library;
 
     if (!library?.getTracks) {
-      setError('桌面曲库桥接不可用。请在 ECHO Next 桌面端生成随机队列。');
+      setError(t('home.error.desktopBridgeRandom'));
       return;
     }
 
@@ -1534,7 +1545,7 @@ export const HomePage = (): JSX.Element => {
       const randomTracks = result.items.filter((track) => !track.unavailable);
 
       if (randomTracks.length === 0) {
-        setError('曲库里还没有可加入队列的歌曲。');
+        setError(t('queue.error.noRandomTracks'));
         return;
       }
 
@@ -1545,7 +1556,7 @@ export const HomePage = (): JSX.Element => {
 
       queue.replaceQueue(queueTracks, {
         startTrackId: currentTrack?.id,
-        source: { type: 'songs', label: '随机队列', sort: 'random' },
+        source: { type: 'songs', label: t('queue.randomSource'), sort: 'random' },
       });
       navigateHomeRoute('queue');
     } catch (queueError) {
@@ -1553,31 +1564,31 @@ export const HomePage = (): JSX.Element => {
     } finally {
       setIsGeneratingRandomQueue(false);
     }
-  }, [queue]);
+  }, [queue, t]);
 
   const openTrackAlbum = useCallback(async (track: LibraryTrack): Promise<void> => {
     try {
       setError(null);
       const album = await openAlbumDetailForTrack(track, { returnTo: 'home' });
       if (!album) {
-        setError(`未找到专辑：${track.album || 'Unknown Album'}`);
+        setError(t('home.error.albumNotFound', { album: track.album || t('queue.unknownAlbum') }));
       }
     } catch (navigationError) {
       setError(navigationError instanceof Error ? navigationError.message : String(navigationError));
     }
-  }, []);
+  }, [t]);
 
   const openTrackArtist = useCallback(async (artistName: string): Promise<void> => {
     try {
       setError(null);
       const artist = await openArtistDetailByName(artistName, { returnTo: 'home' });
       if (!artist) {
-        setError(`未找到艺术家：${artistName || 'Unknown Artist'}`);
+        setError(t('home.error.artistNotFound', { artist: artistName || t('queue.unknownArtist') }));
       }
     } catch (navigationError) {
       setError(navigationError instanceof Error ? navigationError.message : String(navigationError));
     }
-  }, []);
+  }, [t]);
 
   const openRecommendedAlbum = useCallback((album: LibraryAlbum): void => {
     void openAlbumDetail(album, { returnTo: 'home' }).catch((navigationError) => {
@@ -1605,7 +1616,7 @@ export const HomePage = (): JSX.Element => {
     recommendationRequestIdRef.current = requestId;
 
     if (!library?.getAlbums) {
-      setError('桌面曲库桥接不可用。请在 ECHO Next 桌面端刷新推荐。');
+      setError(t('home.error.desktopBridgeRecommend'));
       return;
     }
 
@@ -1631,7 +1642,7 @@ export const HomePage = (): JSX.Element => {
         setIsRefreshingRecommendations(false);
       }
     }
-  }, [summary.albumCount]);
+  }, [summary.albumCount, t]);
 
   const pushRecentPlayedAlbum = useCallback((item: RecentPlayedAlbum): void => {
     setRecentPlayedAlbums((current) => {
@@ -1798,7 +1809,7 @@ export const HomePage = (): JSX.Element => {
       setRecentAddedAlbums([]);
       setRecommendedAlbums([]);
       setRecentTracks([]);
-      setError('桌面曲库桥接不可用。请在 ECHO Next 桌面端查看主页。');
+      setError(t('home.error.desktopBridgeView'));
       setIsLoading(false);
       return;
     }
@@ -1836,7 +1847,7 @@ export const HomePage = (): JSX.Element => {
         setIsLoading(false);
       }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (cachedHomePageData === null) {
@@ -1944,12 +1955,12 @@ export const HomePage = (): JSX.Element => {
 
   const pulseTiles = useMemo<MetricTileProps[]>(
     () => [
-      { icon: Music2, label: '歌曲', value: formatCompactNumber(summary.songCount), detail: `总时长 ${formatDuration(summary.totalDuration)}`, routeId: 'songs' },
-      { icon: Album, label: '专辑', value: formatCompactNumber(summary.albumCount), detail: '按作品聚合', routeId: 'albums' },
-      { icon: UserRound, label: '艺术家', value: formatCompactNumber(summary.artistCount), detail: topArtist, routeId: 'artists' },
-      { icon: Folder, label: '文件夹', value: formatCompactNumber(summary.folderCount), detail: `最近扫描 ${formatShortDate(summary.lastScanAt)}`, routeId: 'folders' },
+      { icon: Music2, label: t('home.metric.songs'), value: formatCompactNumber(summary.songCount), detail: t('home.metric.songsDetail', { duration: formatDuration(summary.totalDuration, t) }), routeId: 'songs' },
+      { icon: Album, label: t('home.metric.albums'), value: formatCompactNumber(summary.albumCount), detail: t('home.metric.albumsDetail'), routeId: 'albums' },
+      { icon: UserRound, label: t('home.metric.artists'), value: formatCompactNumber(summary.artistCount), detail: topArtist, routeId: 'artists' },
+      { icon: Folder, label: t('home.metric.folders'), value: formatCompactNumber(summary.folderCount), detail: t('home.metric.foldersDetail', { date: formatShortDate(summary.lastScanAt, t, locale) }), routeId: 'folders' },
     ],
-    [summary, topArtist],
+    [locale, summary, t, topArtist],
   );
 
   const weeklyPlayCount = historySummary?.rangeCount ?? stats?.totals.playCount ?? 0;
@@ -1963,41 +1974,41 @@ export const HomePage = (): JSX.Element => {
 
   return (
     <div className="home-page">
-      <section className="home-hero" aria-label="今日回声">
+      <section className="home-hero" aria-label={t('home.hero.aria')}>
         <div className="home-hero-copy">
           <span className="home-signal-label">
             <Radio size={15} />
-            今日回声
+            {t('home.hero.kicker')}
           </span>
           <h1>{homeHeroTitle}</h1>
           <p>
             {focusTrack
-              ? `接上 ${focusTrack.artist || '未知艺术家'} 的「${focusTrack.title}」，或者从最近入库里挑一张封面开始。`
-              : '导入音乐后，这里会变成你的曲库入口、最近播放和本周聆听脉冲。'}
+              ? t('home.hero.description.resume', { artist: focusTrack.artist || t('queue.unknownArtist'), title: focusTrack.title })
+              : t('home.hero.description.empty')}
           </p>
           <div className="home-hero-actions">
             <button className="home-primary-action" type="button" disabled={!focusTrack} onClick={() => focusTrack && void playTrack(focusTrack)}>
               <Play size={17} fill="currentColor" />
-              继续播放
+              {t('home.hero.action.continue')}
             </button>
             <button className="home-secondary-action" type="button" onClick={() => navigateHomeRoute('queue')}>
               <ListMusic size={17} />
-              查看队列
+              {t('home.hero.action.viewQueue')}
             </button>
             <button className="home-secondary-action" type="button" disabled={summary.songCount <= 0 || isGeneratingRandomQueue} onClick={() => void generateRandomQueue()}>
               <Shuffle size={17} />
-              {isGeneratingRandomQueue ? '生成中' : '生成随机队列'}
+              {isGeneratingRandomQueue ? t('queue.action.generatingRandom') : t('queue.action.generateRandom')}
             </button>
           </div>
         </div>
 
         <div className="home-now-card" data-empty={!focusTrack} data-signal-enabled={homeWaveformVisualizerEnabled}>
           <div className="home-now-artwork-stack">
-            <Artwork coverThumb={focusTrack ? homeArtworkUrl(focusTrack, 'album') : null} title={focusTrack?.title ?? '暂无播放'} size={132} />
+            <Artwork coverThumb={focusTrack ? homeArtworkUrl(focusTrack, 'album') : null} title={focusTrack?.title ?? t('nowPlaying.emptyTitle')} size={132} />
           </div>
           <div className="home-now-copy">
-            <span>{queue.currentTrack ? '正在播放' : '最近信号'}</span>
-            <HomeNowTitle title={focusTrack?.title ?? '暂无播放'} />
+            <span>{queue.currentTrack ? t('home.hero.nowPlaying') : t('home.hero.recentSignal')}</span>
+            <HomeNowTitle title={focusTrack?.title ?? t('nowPlaying.emptyTitle')} />
             <HomeNowMeta track={focusTrack} onOpenAlbum={(track) => void openTrackAlbum(track)} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
           </div>
           {homeWaveformVisualizerEnabled ? (
@@ -2006,7 +2017,7 @@ export const HomePage = (): JSX.Element => {
         </div>
       </section>
 
-      <section className="home-pulse" aria-label="曲库统计">
+      <section className="home-pulse" aria-label={t('home.hero.statsAria')}>
         <div className="home-metric-grid">
           {pulseTiles.map((tile) => (
             <MetricTile key={tile.label} {...tile} />
@@ -2018,13 +2029,13 @@ export const HomePage = (): JSX.Element => {
         <div className="home-panel home-recent-panel" data-mode={recentPanelMode}>
           <header className="home-section-header home-recent-header">
             <div className="home-recent-title-row">
-              <h2>最近活动</h2>
-              <div className="home-segmented-control" role="tablist" aria-label="最近内容">
+              <h2>{t('home.recent.title')}</h2>
+              <div className="home-segmented-control" role="tablist" aria-label={t('home.recent.tabsAria')}>
                 <button type="button" role="tab" aria-selected={recentPanelMode === 'played'} data-active={recentPanelMode === 'played'} onClick={() => changeRecentPanelMode('played')}>
-                  已播放
+                  {t('home.recent.tab.played')}
                 </button>
                 <button type="button" role="tab" aria-selected={recentPanelMode === 'added'} data-active={recentPanelMode === 'added'} onClick={() => changeRecentPanelMode('added')}>
-                  添加于
+                  {t('home.recent.tab.added')}
                 </button>
               </div>
             </div>
@@ -2032,7 +2043,7 @@ export const HomePage = (): JSX.Element => {
               <button
                 className="home-shelf-arrow"
                 type="button"
-                aria-label="上一页"
+                aria-label={t('home.recent.prevPage')}
                 disabled={recentShelfPage <= 0}
                 onClick={() => setRecentShelfPage((page) => Math.max(0, page - 1))}
               >
@@ -2041,7 +2052,7 @@ export const HomePage = (): JSX.Element => {
               <button
                 className="home-shelf-arrow"
                 type="button"
-                aria-label="下一页"
+                aria-label={t('home.recent.nextPage')}
                 disabled={recentShelfPage >= recentTotalPages - 1}
                 onClick={() => setRecentShelfPage((page) => Math.min(recentTotalPages - 1, page + 1))}
               >
@@ -2057,15 +2068,15 @@ export const HomePage = (): JSX.Element => {
                   <button className="home-cover-card" key={album.id} type="button" onClick={() => openRecommendedAlbum(album)}>
                     <Artwork coverThumb={homeArtworkUrl(album, 'large')} title={album.title} size={176} />
                     <strong>{album.title}</strong>
-                    <span>{album.albumArtist || '未知艺术家'} · {album.trackCount} 首</span>
+                    <span>{album.albumArtist || t('queue.unknownArtist')} · {t('home.count.tracks', { count: album.trackCount })}</span>
                   </button>
                 ))}
               </div>
             ) : (
               <div className="home-empty-panel">
                 <Library size={24} />
-                <strong>还没有最近入库</strong>
-                <span>导入文件夹后，这里会显示最新进入曲库的封面。</span>
+                <strong>{t('home.recent.emptyAddedTitle')}</strong>
+                <span>{t('home.recent.emptyAddedDescription')}</span>
               </div>
             )
           ) : recentPlayedAlbums.length > 0 ? (
@@ -2074,46 +2085,46 @@ export const HomePage = (): JSX.Element => {
                 <button className="home-cover-card" key={item.album.id} type="button" onClick={() => openRecommendedAlbum(item.album)}>
                   <Artwork coverThumb={homeArtworkUrl(item.album, 'large')} title={item.album.title} size={156} />
                   <strong>{item.album.title}</strong>
-                  <span>{item.album.albumArtist || '未知艺术家'} · {formatShortDate(item.startedAt)}</span>
+                  <span>{item.album.albumArtist || t('queue.unknownArtist')} · {formatShortDate(item.startedAt, t, locale)}</span>
                 </button>
               ))}
             </div>
           ) : (
               <div className="home-empty-panel">
                 <History size={24} />
-                <strong>还没有最近播放</strong>
-                <span>开始播放后，这里会出现最近听过的专辑。</span>
+                <strong>{t('home.recent.emptyPlayedTitle')}</strong>
+                <span>{t('home.recent.emptyPlayedDescription')}</span>
               </div>
             )}
         </div>
 
         <div className="home-panel home-week-panel" data-empty={!hasWeeklyActivity}>
-          <SectionHeader title="本周回声" actionLabel="播放历史" routeId="history" />
+          <SectionHeader title={t('home.week.title')} actionLabel={t('route.history.label')} routeId="history" />
           <div className="home-week-summary">
             <div className="home-week-stat">
-              <span>本周播放</span>
+              <span>{t('home.week.playCount')}</span>
               <strong>{formatCompactNumber(weeklyPlayCount)}</strong>
-              <small>次</small>
+              <small>{t('home.week.times')}</small>
             </div>
             <div className="home-week-stat">
-              <span>聆听时长</span>
-              <strong>{formatDuration(weeklyDuration)}</strong>
+              <span>{t('home.week.listenDuration')}</span>
+              <strong>{formatDuration(weeklyDuration, t)}</strong>
             </div>
           </div>
           <WeeklyHeatmap days={stats?.dailyActivity ?? []} />
           {!hasWeeklyActivity ? (
-            <p className="home-week-hint">播放后，格子会按每周节奏被点亮。</p>
+            <p className="home-week-hint">{t('home.week.emptyHint')}</p>
           ) : null}
         </div>
       </section>
 
       <section className="home-panel home-recommend-panel" data-empty={recommendedAlbums.length === 0}>
         <SectionHeader
-          title="为你推荐"
+          title={t('home.recommend.title')}
           action={
             <button type="button" disabled={isRefreshingRecommendations || summary.albumCount <= 0} onClick={() => void refreshRecommendedAlbums()}>
               <RefreshCw size={15} />
-              {isRefreshingRecommendations ? '刷新中' : '刷新'}
+              {isRefreshingRecommendations ? t('home.recommend.refreshing') : t('home.recommend.refresh')}
             </button>
           }
         />
@@ -2124,7 +2135,7 @@ export const HomePage = (): JSX.Element => {
                 <Artwork coverThumb={homeArtworkUrl(album, 'large')} title={album.title} size={176} />
                 <strong>{album.title}</strong>
                 <span>
-                  {album.albumArtist || '未知艺术家'} · {album.trackCount} 首
+                  {album.albumArtist || t('queue.unknownArtist')} · {t('home.count.tracks', { count: album.trackCount })}
                 </span>
               </button>
             ))}
@@ -2132,27 +2143,27 @@ export const HomePage = (): JSX.Element => {
         ) : (
           <div className="home-empty-panel home-empty-panel--compact">
             <Album size={24} />
-            <strong>还没有可推荐专辑</strong>
-            <span>导入专辑后，这里会直接铺满你的专辑。</span>
+            <strong>{t('home.recommend.emptyTitle')}</strong>
+            <span>{t('home.recommend.emptyDescription')}</span>
           </div>
         )}
       </section>
 
-      <section className="home-stats-grid" aria-label="播放偏好">
+      <section className="home-stats-grid" aria-label={t('home.preferences.aria')}>
         <div className="home-panel home-artist-rank-panel" data-empty={(stats?.topArtists.length ?? 0) === 0}>
-          <SectionHeader title="艺人排行榜" />
+          <SectionHeader title={t('home.artistLeaderboard.title')} />
           <ArtistLeaderboard artists={stats?.topArtists ?? []} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
         </div>
 
         <div className="home-panel home-favorite-album-panel" data-empty={(stats?.topAlbums?.length ?? 0) === 0}>
-          <SectionHeader title="你喜欢的专辑" />
+          <SectionHeader title={t('home.favoriteAlbums.title')} />
           <FavoriteAlbumGrid albums={stats?.topAlbums ?? []} onOpenAlbum={openFavoriteAlbum} />
         </div>
       </section>
 
       {error || isLoading ? (
         <p className="home-status-line" role={error ? 'alert' : 'status'}>
-          {error ?? '正在整理主页...'}
+          {error ?? t('home.status.loading')}
         </p>
       ) : null}
     </div>

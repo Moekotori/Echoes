@@ -1285,6 +1285,79 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
   }
 }
 
+@media (orientation: portrait) and (min-width: 641px) and (max-width: 1400px) {
+  .sidebar {
+    padding: 12px 10px 14px;
+  }
+
+  .nav-item {
+    min-height: 46px;
+    padding-inline: 6px;
+  }
+
+  .player-bar {
+    grid-template-columns: minmax(0, 0.88fr) minmax(320px, 1.12fr);
+    gap: 12px;
+    padding-inline: 20px;
+  }
+
+  .player-now {
+    max-width: none;
+  }
+
+  .player-center {
+    max-width: none;
+  }
+
+  .output-status {
+    display: none;
+  }
+
+  .settings-page {
+    padding-inline: 32px;
+  }
+
+  .settings-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-search {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .settings-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    align-self: stretch;
+    gap: 5px;
+    overflow-x: auto;
+    padding: 0 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: inherit;
+    box-shadow: none;
+  }
+
+  .settings-nav-item {
+    width: max-content;
+    min-width: max-content;
+    min-height: 44px;
+    grid-template-columns: 26px max-content;
+    align-items: center;
+    padding: 8px 11px;
+    white-space: nowrap;
+  }
+
+  .settings-nav-desc {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .sidebar {
     background: var(--echo-polish-player-bg);

@@ -390,6 +390,14 @@ export class RemoteLibraryStore {
   }
 
   deleteSource(id: string): void {
+    this.database.transaction(() => {
+      this.preserveRemoteCoverAliasesForSource(id);
+      this.database.prepare('DELETE FROM remote_tracks WHERE source_id = ?').run(id);
+      this.database.prepare('DELETE FROM remote_sources WHERE id = ?').run(id);
+    })();
+  }
+
+  disconnectSource(id: string): void {
     const timestamp = nowIso();
     this.database.transaction(() => {
       this.preserveRemoteCoverAliasesForSource(id);

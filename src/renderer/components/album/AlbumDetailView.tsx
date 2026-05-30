@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { ArrowLeft, Disc3, ExternalLink, Heart, Info, Loader2, MoreHorizontal, Play, RefreshCw, Star } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, Disc3, ExternalLink, FolderOpen, Heart, Info, ListEnd, Loader2, MoreHorizontal, Play, RefreshCw, Star } from 'lucide-react';
 import type { AlbumOnlineInfo, AlbumOnlineInfoRequestOptions, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../../hooks/useLikedMedia';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
@@ -85,6 +86,11 @@ type TrackMenuState = {
   position: { x: number; y: number };
 };
 
+type AlbumMenuPosition = {
+  x: number;
+  y: number;
+};
+
 type AlbumDetailTab = 'tracks' | 'sources' | 'releases' | 'information';
 
 type OnlineInfoState = {
@@ -127,6 +133,9 @@ const emptyRelatedAlbumsState = (): RelatedAlbumsState => ({
 });
 
 const albumOnlineInfoProviders: OnlineInfoProvider[] = ['wikipedia', 'musicbrainz'];
+const albumMenuWidth = 218;
+const albumMenuViewportPadding = 8;
+const albumMenuOffset = 6;
 
 const hasOnlineInfoPayload = (info: AlbumOnlineInfo | null): boolean =>
   Boolean(
@@ -475,7 +484,7 @@ const formatReleaseVersionMeta = (version: NonNullable<AlbumOnlineInfo['releaseV
 
 export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.Element => {
   const { locale, t } = useI18n();
-  const { appendToQueue, currentTrackId, playTrack, playTrackNext, removeTrackFromQueue, replaceQueue, updateTrackSnapshot } = usePlaybackQueue();
+  const { appendToQueue, appendTracksToQueue, currentTrackId, playTrack, playTrackNext, removeTrackFromQueue, replaceQueue, updateTrackSnapshot } = usePlaybackQueue();
   const { isReturning, returnBack } = useAnimatedBackNavigation(onBack);
   const [firstTrack, setFirstTrack] = useState<LibraryTrack | null>(null);
   const [loadedTracks, setLoadedTracks] = useState<LibraryTrack[]>([]);
@@ -487,6 +496,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [failedLargeCover, setFailedLargeCover] = useState(false);
   const [failedThumbCover, setFailedThumbCover] = useState(false);
   const [isAlbumLiked, setIsAlbumLiked] = useState(false);
+  const [albumMenuPosition, setAlbumMenuPosition] = useState<AlbumMenuPosition | null>(null);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
   const [trackActionMessage, setTrackActionMessage] = useState<string | null>(null);
   const [osuTimingTrack, setOsuTimingTrack] = useState<LibraryTrack | null>(null);
@@ -761,6 +771,28 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     return () => window.removeEventListener(likedAlbumsChangedEvent, refreshAlbumLiked);
   }, [refreshAlbumLiked]);
 
+  useEffect(() => {
+    if (!albumMenuPosition) {
+      return undefined;
+    }
+
+    const closeAlbumMenu = (): void => setAlbumMenuPosition(null);
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        closeAlbumMenu();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', closeAlbumMenu);
+    window.addEventListener('scroll', closeAlbumMenu, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', closeAlbumMenu);
+      window.removeEventListener('scroll', closeAlbumMenu, true);
+    };
+  }, [albumMenuPosition]);
+
   const handleFirstTrackChange = useCallback((track: LibraryTrack | null, isLoading: boolean): void => {
     setFirstTrack(track);
     setIsLoadingFirstTrack(isLoading);
@@ -777,6 +809,93 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     (track: LibraryTrack): LibraryTrack => (track.coverThumb || !album.coverThumb ? track : { ...track, coverThumb: album.coverThumb }),
     [album.coverThumb],
   );
+
+  const getAllAlbumTracks = useCallback(async (): Promise<LibraryTrack[]> => {
+    if (loadedTotal > 0 && loadedTracks.length >= loadedTotal) {
+      return loadedTracks.map(withAlbumCoverFallback);
+    }
+
+    const library = window.echo?.library;
+    if (!library?.getAlbumTracks) {
+      throw new Error(t('albumDetail.tracks.error.desktopBridgeRead'));
+    }
+
+    const tracks: LibraryTrack[] = [];
+    let nextPage = 1;
+    const trackPageSize = 500;
+    for (;;) {
+      const result = await library.getAlbumTracks(album.id, { page: nextPage, pageSize: trackPageSize });
+      tracks.push(...result.items);
+      if (!result.hasMore) {
+        return tracks.map(withAlbumCoverFallback);
+      }
+      nextPage += 1;
+    }
+  }, [album.id, loadedTotal, loadedTracks, t, withAlbumCoverFallback]);
+
+  const handleOpenAlbumMenu = useCallback((event: MouseEvent<HTMLButtonElement>): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setAlbumMenuPosition({
+      x: Math.max(albumMenuViewportPadding, Math.min(rect.left, window.innerWidth - albumMenuWidth - albumMenuViewportPadding)),
+      y: Math.max(albumMenuViewportPadding, rect.bottom + albumMenuOffset),
+    });
+  }, []);
+
+  const handleAddAlbumToQueue = useCallback(async (): Promise<void> => {
+    setAlbumMenuPosition(null);
+    try {
+      setPlayError(null);
+      setTrackActionMessage(null);
+      const tracks = await getAllAlbumTracks();
+      if (tracks.length === 0) {
+        setPlayError(t('albumDetail.tracks.empty'));
+        return;
+      }
+      appendTracksToQueue(tracks, albumSource);
+      setTrackActionMessage(t('albumDetail.status.addedToQueue', { count: tracks.length }));
+    } catch (error) {
+      setPlayError(error instanceof Error ? error.message : String(error));
+    }
+  }, [albumSource, appendTracksToQueue, getAllAlbumTracks, t]);
+
+  const handleShowAlbumInFolder = useCallback(async (): Promise<void> => {
+    setAlbumMenuPosition(null);
+    try {
+      setPlayError(null);
+      setTrackActionMessage(null);
+      if (album.mediaType === 'remote') {
+        setPlayError(t('albumDetail.tracks.error.remoteFileAction'));
+        return;
+      }
+
+      const library = window.echo?.library;
+      if (!library) {
+        throw new Error(t('albumDetail.tracks.error.desktopBridgeActions'));
+      }
+
+      const track = firstTrack ?? loadedTracks[0] ?? (await getAllAlbumTracks())[0];
+      if (!track) {
+        setPlayError(t('albumDetail.tracks.empty'));
+        return;
+      }
+
+      if (library.openTrackInFolder) {
+        await library.openTrackInFolder(track.id);
+        return;
+      }
+
+      if (library.openPathInFolder) {
+        await library.openPathInFolder(track.path);
+        return;
+      }
+
+      throw new Error(t('albumTagEditor.error.openFolderUnsupported'));
+    } catch (error) {
+      setPlayError(error instanceof Error ? error.message : String(error));
+    }
+  }, [album.mediaType, firstTrack, getAllAlbumTracks, loadedTracks, t]);
 
   const handlePlayTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {
@@ -1510,6 +1629,35 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     );
   };
 
+  const renderAlbumMenu = (): JSX.Element | null => {
+    if (!albumMenuPosition) {
+      return null;
+    }
+
+    return createPortal(
+      <div className="album-menu-layer" role="presentation" onMouseDown={() => setAlbumMenuPosition(null)}>
+        <div
+          className="album-context-menu"
+          role="menu"
+          style={{ left: albumMenuPosition.x, top: albumMenuPosition.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button className="album-menu-item" role="menuitem" type="button" onClick={() => void handleAddAlbumToQueue()}>
+            <ListEnd size={16} />
+            <span>{t('albumDetail.action.addToQueue')}</span>
+          </button>
+          {album.mediaType !== 'remote' ? (
+            <button className="album-menu-item" role="menuitem" type="button" onClick={() => void handleShowAlbumInFolder()}>
+              <FolderOpen size={16} />
+              <span>{t('albumDetail.action.showInFolder')}</span>
+            </button>
+          ) : null}
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
   return (
     <div className={`album-detail-page ${isReturning ? 'is-returning' : ''}`}>
       <button className="album-back-button" type="button" onClick={returnBack}>
@@ -1558,7 +1706,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
             >
               <Heart size={16} fill={isAlbumLiked ? 'currentColor' : 'none'} />
             </button>
-            <button className="album-icon-action" type="button" aria-label={t('albumDetail.action.more')} title={t('albumDetail.action.more')}>
+            <button className="album-icon-action" type="button" aria-label={t('albumDetail.action.more')} title={t('albumDetail.action.more')} onClick={handleOpenAlbumMenu}>
               <MoreHorizontal size={17} />
             </button>
           </div>
@@ -1575,6 +1723,8 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
           ))}
         </aside>
       </section>
+
+      {renderAlbumMenu()}
 
       <section className="album-detail-track-console album-detail-switch-surface" key={`album-console-${album.id}`} aria-label={t('albumDetail.aria.trackConsole', { album: album.title })}>
         <header className="album-detail-tabs" aria-label={t('albumDetail.aria.sections')}>

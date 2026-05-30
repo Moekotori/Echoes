@@ -8,6 +8,7 @@ export const localeOptions: Array<{ locale: Locale; label: string }> = [
 ];
 
 type AlbumDetailTranslationKey =
+  | 'albumDetail.action.addToQueue'
   | 'albumDetail.action.back'
   | 'albumDetail.action.likeAlbum'
   | 'albumDetail.action.more'
@@ -15,6 +16,7 @@ type AlbumDetailTranslationKey =
   | 'albumDetail.action.playNow'
   | 'albumDetail.action.readingAlbum'
   | 'albumDetail.action.refresh'
+  | 'albumDetail.action.showInFolder'
   | 'albumDetail.action.unlikeAlbum'
   | 'albumDetail.aria.details'
   | 'albumDetail.aria.info'
@@ -98,6 +100,7 @@ type AlbumDetailTranslationKey =
   | 'albumDetail.sources.releaseAria'
   | 'albumDetail.sources.releaseDetails'
   | 'albumDetail.status.libraryReady'
+  | 'albumDetail.status.addedToQueue'
   | 'albumDetail.status.readingSignal'
   | 'albumDetail.status.unknownGenre'
   | 'albumDetail.status.unknownLength'
@@ -365,6 +368,88 @@ export type TranslationKey =
   | 'firstRun.error.desktopBridgeCache'
   | 'firstRun.error.desktopBridgeMusicFolder'
   | 'firstRun.error.desktopBridgeSave'
+  | 'connectPage.controls.aria'
+  | 'connectPage.controls.disconnect'
+  | 'connectPage.controls.pause'
+  | 'connectPage.controls.play'
+  | 'connectPage.controls.stop'
+  | 'connectPage.controls.volume'
+  | 'connectPage.deviceState.available'
+  | 'connectPage.deviceState.connected'
+  | 'connectPage.deviceState.unavailable'
+  | 'connectPage.deviceState.unsupported'
+  | 'connectPage.devices.allHidden'
+  | 'connectPage.devices.aria'
+  | 'connectPage.devices.collapse'
+  | 'connectPage.devices.empty'
+  | 'connectPage.devices.emptyHint'
+  | 'connectPage.devices.expand'
+  | 'connectPage.devices.hiddenAria'
+  | 'connectPage.devices.hiddenTitle'
+  | 'connectPage.devices.kicker'
+  | 'connectPage.devices.restoreAll'
+  | 'connectPage.devices.restoreHint'
+  | 'connectPage.devices.summary'
+  | 'connectPage.devices.title'
+  | 'connectPage.header.autoStart'
+  | 'connectPage.header.description'
+  | 'connectPage.header.kicker'
+  | 'connectPage.header.refresh'
+  | 'connectPage.hqplayer.enable'
+  | 'connectPage.hqplayer.kicker'
+  | 'connectPage.hqplayer.localDesktop'
+  | 'connectPage.hqplayer.state.available'
+  | 'connectPage.hqplayer.state.checking'
+  | 'connectPage.hqplayer.state.disabled'
+  | 'connectPage.hqplayer.state.notConfigured'
+  | 'connectPage.hqplayer.state.unavailable'
+  | 'connectPage.hqplayer.test'
+  | 'connectPage.nowPlaying.aria'
+  | 'connectPage.nowPlaying.chooseDevice'
+  | 'connectPage.nowPlaying.coverReady'
+  | 'connectPage.nowPlaying.coverWaiting'
+  | 'connectPage.nowPlaying.dlnaPolling'
+  | 'connectPage.nowPlaying.emptyTitle'
+  | 'connectPage.nowPlaying.infoAria'
+  | 'connectPage.nowPlaying.infoWaiting'
+  | 'connectPage.nowPlaying.latency'
+  | 'connectPage.nowPlaying.noOutput'
+  | 'connectPage.nowPlaying.progressAria'
+  | 'connectPage.outgoing.aria'
+  | 'connectPage.outgoing.empty'
+  | 'connectPage.outgoing.note'
+  | 'connectPage.outgoing.recent'
+  | 'connectPage.outgoing.title'
+  | 'connectPage.receiver.aria'
+  | 'connectPage.receiver.disable'
+  | 'connectPage.receiver.discoveryHint'
+  | 'connectPage.receiver.enable'
+  | 'connectPage.receiver.fromClient'
+  | 'connectPage.receiver.kicker'
+  | 'connectPage.receiver.noClient'
+  | 'connectPage.receiver.preparing'
+  | 'connectPage.receiver.progressAria'
+  | 'connectPage.receiver.state.disabled'
+  | 'connectPage.receiver.state.idle'
+  | 'connectPage.receiver.state.loading'
+  | 'connectPage.receiver.state.playing'
+  | 'connectPage.receiver.state.ready'
+  | 'connectPage.receiver.stop'
+  | 'connectPage.receiver.title'
+  | 'connectPage.receiver.waitingTitle'
+  | 'connectPage.stage.aria'
+  | 'connectPage.state.connecting'
+  | 'connectPage.state.discovering'
+  | 'connectPage.state.error'
+  | 'connectPage.state.idle'
+  | 'connectPage.state.paused'
+  | 'connectPage.state.playing'
+  | 'connectPage.state.stopped'
+  | 'connectPage.airplay.state.idle'
+  | 'connectPage.airplay.state.playing'
+  | 'connectPage.airplay.state.starting'
+  | 'connectPage.airplay.state.unavailable'
+  | 'connectPage.airplay.waitingTitle'
   | 'firstRun.library.chooseFolder'
   | 'firstRun.library.noneSelected'
   | 'firstRun.library.scanAfterFinish'
@@ -649,10 +734,6 @@ export type TranslationKey =
   | 'audioDrawer.mode.directSound'
   | 'audioDrawer.mode.shared'
   | 'audioDrawer.note.asio'
-  | 'audioDrawer.note.asioWarning'
-  | 'audioDrawer.note.outputResponsibilityPrimary'
-  | 'audioDrawer.note.outputResponsibilitySecondary'
-  | 'audioDrawer.note.outputResponsibilityTitle'
   | 'audioDrawer.note.currentOutput'
   | 'audioDrawer.note.engine'
   | 'audioDrawer.note.juceOutput'
@@ -1051,10 +1132,192 @@ export type TranslationKey =
   | 'route.folders.label'
   | 'route.history.description'
   | 'route.history.label'
+  | 'historyPage.action.clear'
+  | 'historyPage.confirm.clear'
+  | 'historyPage.date.none'
+  | 'historyPage.duration.hoursMinutes'
+  | 'historyPage.duration.minutes'
+  | 'historyPage.empty.description'
+  | 'historyPage.empty.title'
+  | 'historyPage.error.desktopBridgeRead'
+  | 'historyPage.filter.all'
+  | 'historyPage.filter.completed'
+  | 'historyPage.filter.month'
+  | 'historyPage.filter.today'
+  | 'historyPage.filter.week'
+  | 'historyPage.header.kicker'
+  | 'historyPage.header.title'
+  | 'historyPage.list.aria'
+  | 'historyPage.list.doubleClick'
+  | 'historyPage.list.source'
+  | 'historyPage.list.unknownAlbum'
+  | 'historyPage.list.unknownArtist'
+  | 'historyPage.list.unknownSource'
+  | 'historyPage.loadMore'
+  | 'historyPage.loading'
+  | 'historyPage.loadingMore'
+  | 'historyPage.metric.plays'
+  | 'historyPage.metric.tracks'
+  | 'historyPage.search.placeholder'
+  | 'historyPage.summary.all.count'
+  | 'historyPage.summary.all.duration'
+  | 'historyPage.summary.all.group'
+  | 'historyPage.summary.all.latest'
+  | 'historyPage.summary.all.tracks'
+  | 'historyPage.summary.aria'
+  | 'historyPage.summary.completed.count'
+  | 'historyPage.summary.completed.duration'
+  | 'historyPage.summary.completed.group'
+  | 'historyPage.summary.completed.latest'
+  | 'historyPage.summary.completed.tracks'
+  | 'historyPage.summary.month.count'
+  | 'historyPage.summary.month.duration'
+  | 'historyPage.summary.month.group'
+  | 'historyPage.summary.month.latest'
+  | 'historyPage.summary.month.tracks'
+  | 'historyPage.summary.today.count'
+  | 'historyPage.summary.today.duration'
+  | 'historyPage.summary.today.group'
+  | 'historyPage.summary.today.latest'
+  | 'historyPage.summary.today.tracks'
+  | 'historyPage.summary.week.count'
+  | 'historyPage.summary.week.duration'
+  | 'historyPage.summary.week.group'
+  | 'historyPage.summary.week.latest'
+  | 'historyPage.summary.week.tracks'
+  | 'historyPage.toolbar.aria'
+  | 'home.artistLeaderboard.aria'
+  | 'home.artistLeaderboard.completionRate'
+  | 'home.artistLeaderboard.emptyDescription'
+  | 'home.artistLeaderboard.emptyTitle'
+  | 'home.artistLeaderboard.playCount'
+  | 'home.artistLeaderboard.title'
+  | 'home.count.tracks'
+  | 'home.date.none'
+  | 'home.date.unknown'
+  | 'home.duration.hoursMinutes'
+  | 'home.duration.hoursOnly'
+  | 'home.duration.minutes'
+  | 'home.duration.zeroMinutes'
+  | 'home.error.albumNotFound'
+  | 'home.error.artistNotFound'
+  | 'home.error.desktopBridgeRandom'
+  | 'home.error.desktopBridgeRecommend'
+  | 'home.error.desktopBridgeView'
+  | 'home.favoriteAlbums.aria'
+  | 'home.favoriteAlbums.emptyDescription'
+  | 'home.favoriteAlbums.emptyTitle'
+  | 'home.favoriteAlbums.title'
+  | 'home.hero.action.continue'
+  | 'home.hero.action.viewQueue'
+  | 'home.hero.aria'
+  | 'home.hero.defaultTitle'
+  | 'home.hero.description.empty'
+  | 'home.hero.description.resume'
+  | 'home.hero.kicker'
+  | 'home.hero.nowPlaying'
+  | 'home.hero.recentSignal'
+  | 'home.hero.statsAria'
+  | 'home.metric.albums'
+  | 'home.metric.albumsDetail'
+  | 'home.metric.artists'
+  | 'home.metric.folders'
+  | 'home.metric.foldersDetail'
+  | 'home.metric.openAria'
+  | 'home.metric.songs'
+  | 'home.metric.songsDetail'
+  | 'home.month.label'
+  | 'home.nowMeta.empty'
+  | 'home.preferences.aria'
+  | 'home.recent.emptyAddedDescription'
+  | 'home.recent.emptyAddedTitle'
+  | 'home.recent.emptyPlayedDescription'
+  | 'home.recent.emptyPlayedTitle'
+  | 'home.recent.nextPage'
+  | 'home.recent.prevPage'
+  | 'home.recent.tab.added'
+  | 'home.recent.tab.played'
+  | 'home.recent.tabsAria'
+  | 'home.recent.title'
+  | 'home.recommend.emptyDescription'
+  | 'home.recommend.emptyTitle'
+  | 'home.recommend.refresh'
+  | 'home.recommend.refreshing'
+  | 'home.recommend.title'
+  | 'home.signalVisualizer.aria'
+  | 'home.status.loading'
+  | 'home.week.emptyHint'
+  | 'home.week.listenDuration'
+  | 'home.week.playCount'
+  | 'home.week.times'
+  | 'home.week.title'
+  | 'home.weekday.fri'
+  | 'home.weekday.mon'
+  | 'home.weekday.wed'
+  | 'home.weeklyHeatmap.activeWeeks'
+  | 'home.weeklyHeatmap.aria'
+  | 'home.weeklyHeatmap.dayAria'
+  | 'home.weeklyHeatmap.dayTitle'
   | 'route.home.description'
   | 'route.home.label'
   | 'route.inbox.description'
   | 'route.inbox.label'
+  | 'inboxPage.action.addToQueue'
+  | 'inboxPage.action.generatePlaylist'
+  | 'inboxPage.batch.latest'
+  | 'inboxPage.batch.recentAll'
+  | 'inboxPage.batch.selected'
+  | 'inboxPage.date.none'
+  | 'inboxPage.empty.description'
+  | 'inboxPage.empty.noMatch'
+  | 'inboxPage.empty.title'
+  | 'inboxPage.empty.tryFilter'
+  | 'inboxPage.error.desktopBridgeRead'
+  | 'inboxPage.facets.allAlbums'
+  | 'inboxPage.facets.allArtists'
+  | 'inboxPage.facets.allFolders'
+  | 'inboxPage.facets.aria'
+  | 'inboxPage.filter.all'
+  | 'inboxPage.filter.aria'
+  | 'inboxPage.filter.clear'
+  | 'inboxPage.filter.metadataIssue'
+  | 'inboxPage.filter.missingCover'
+  | 'inboxPage.filter.suspiciousFile'
+  | 'inboxPage.filter.unknownAlbum'
+  | 'inboxPage.filter.unknownArtist'
+  | 'inboxPage.hero.kicker'
+  | 'inboxPage.loading'
+  | 'inboxPage.processing.aria'
+  | 'inboxPage.processing.pending'
+  | 'inboxPage.quality.aria'
+  | 'inboxPage.quality.coverCompleteness'
+  | 'inboxPage.quality.metadataCompleteness'
+  | 'inboxPage.quality.unknownArtistAlbum'
+  | 'inboxPage.search.aria'
+  | 'inboxPage.search.placeholder'
+  | 'inboxPage.stats.aria'
+  | 'inboxPage.stats.currentResults'
+  | 'inboxPage.stats.newSongs'
+  | 'inboxPage.status.all'
+  | 'inboxPage.status.aria'
+  | 'inboxPage.status.ignored'
+  | 'inboxPage.status.pending'
+  | 'inboxPage.status.processed'
+  | 'inboxPage.story.aria'
+  | 'inboxPage.story.clean'
+  | 'inboxPage.story.empty'
+  | 'inboxPage.story.kicker'
+  | 'inboxPage.story.newAlbums'
+  | 'inboxPage.story.newArtists'
+  | 'inboxPage.story.summaryAlbums'
+  | 'inboxPage.story.summaryArtists'
+  | 'inboxPage.story.summaryTracks'
+  | 'inboxPage.story.totalDuration'
+  | 'inboxPage.story.warningMetadataIssue'
+  | 'inboxPage.story.warningMissingCover'
+  | 'inboxPage.story.withWarnings'
+  | 'inboxPage.toolbar.aria'
+  | 'inboxPage.toolbar.batch'
   | 'route.importFile.description'
   | 'route.importFile.label'
   | 'route.importFolder.description'
@@ -1371,6 +1634,32 @@ export type TranslationKey =
   | 'mvSettings.title'
   | 'route.playlists.description'
   | 'route.playlists.label'
+  | 'playlistsPage.action.importFile'
+  | 'playlistsPage.action.newLocal'
+  | 'playlistsPage.daily.subtitle'
+  | 'playlistsPage.daily.title'
+  | 'playlistsPage.empty.create'
+  | 'playlistsPage.empty.createFirst'
+  | 'playlistsPage.empty.local'
+  | 'playlistsPage.error.desktopBridgeDailyRecommend'
+  | 'playlistsPage.form.cancel'
+  | 'playlistsPage.form.create'
+  | 'playlistsPage.form.nameAria'
+  | 'playlistsPage.form.placeholder'
+  | 'playlistsPage.importStreaming.add'
+  | 'playlistsPage.importStreaming.adding'
+  | 'playlistsPage.importStreaming.placeholder'
+  | 'playlistsPage.importStreaming.title'
+  | 'playlistsPage.prompt.newLocalName'
+  | 'playlistsPage.status.createdLocal'
+  | 'playlistsPage.status.importedStreamingPlaylist'
+  | 'playlistsPage.status.importingStreamingPlaylist'
+  | 'playlistsPage.status.loading'
+  | 'playlistsPage.status.refreshedDaily'
+  | 'playlistsPage.status.refreshingDaily'
+  | 'playlistsPage.view.aria'
+  | 'playlistsPage.view.local'
+  | 'playlistsPage.view.streamingFavorites'
   | 'route.plugins.description'
   | 'route.plugins.label'
   | 'route.queue.description'
@@ -1381,14 +1670,117 @@ export type TranslationKey =
   | 'route.settings.label'
   | 'route.songs.description'
   | 'route.songs.label'
+  | 'songs.action.clearList'
+  | 'songs.action.openRecovery'
+  | 'songs.duplicatesOnly'
+  | 'songs.error.albumNotFound'
+  | 'songs.error.artistNotFound'
+  | 'songs.error.desktopBridgeClear'
+  | 'songs.error.desktopBridgeFileActions'
+  | 'songs.error.desktopBridgeLyricsCache'
+  | 'songs.error.desktopBridgeMaintain'
+  | 'songs.error.desktopBridgePlay'
+  | 'songs.error.desktopBridgePlaylists'
+  | 'songs.error.desktopBridgeRead'
+  | 'songs.error.desktopBridgeVersions'
+  | 'songs.importHint'
+  | 'songs.queueSource.local'
+  | 'songs.queueSource.remote'
+  | 'songs.search.placeholder'
+  | 'songs.sort.album'
+  | 'songs.sort.artist'
+  | 'songs.sort.createdAsc'
+  | 'songs.sort.createdDesc'
+  | 'songs.sort.default'
+  | 'songs.sort.durationAsc'
+  | 'songs.sort.durationDesc'
+  | 'songs.sort.fileModifiedAsc'
+  | 'songs.sort.fileModifiedDesc'
+  | 'songs.sort.frequent'
+  | 'songs.sort.menuAria'
+  | 'songs.sort.qualityAsc'
+  | 'songs.sort.qualityDesc'
+  | 'songs.sort.random'
+  | 'songs.sort.recent'
+  | 'songs.sort.titleAsc'
+  | 'songs.sort.titleDesc'
+  | 'songs.trackList.aria'
+  | 'songs.trackList.empty'
   | 'route.streaming.description'
   | 'route.streaming.label'
+  | 'streaming.empty.notFoundAlbum'
+  | 'streaming.empty.notFoundArtist'
+  | 'streaming.empty.notFoundPlaylist'
+  | 'streaming.empty.notFoundTrack'
+  | 'streaming.empty.searchHint'
+  | 'streaming.hero.currentProvider'
+  | 'streaming.hero.description'
+  | 'streaming.hero.meterAria'
+  | 'streaming.hero.preparingSearch'
+  | 'streaming.hero.title'
+  | 'streaming.provider.available'
+  | 'streaming.provider.disabled'
+  | 'streaming.provider.loggedIn'
+  | 'streaming.provider.notLoggedIn'
+  | 'streaming.providers.aria'
+  | 'streaming.quality.high'
+  | 'streaming.quality.highDescription'
+  | 'streaming.quality.hires'
+  | 'streaming.quality.hiresDescription'
+  | 'streaming.quality.label'
+  | 'streaming.quality.lossless'
+  | 'streaming.quality.losslessDescription'
+  | 'streaming.quality.max'
+  | 'streaming.quality.maxDescription'
+  | 'streaming.quality.menuAria'
+  | 'streaming.quality.standard'
+  | 'streaming.quality.standardDescription'
+  | 'streaming.quality.switchFailed'
+  | 'streaming.quality.switched'
+  | 'streaming.result.count'
+  | 'streaming.result.searching'
+  | 'streaming.result.searchingEllipsis'
+  | 'streaming.search.placeholder'
+  | 'streaming.tab.album'
+  | 'streaming.tab.artist'
+  | 'streaming.tab.playlist'
+  | 'streaming.tab.track'
+  | 'streaming.tabs.aria'
   | 'settings.about.audioHost.description'
   | 'settings.about.audioHost.title'
   | 'settings.about.devMode.description'
   | 'settings.about.devMode.title'
   | 'settings.about.nativeSqlite.description'
   | 'settings.about.nativeSqlite.title'
+  | 'settings.about.updates.action.afdian'
+  | 'settings.about.updates.action.check'
+  | 'settings.about.updates.action.checking'
+  | 'settings.about.updates.action.discord'
+  | 'settings.about.updates.action.history'
+  | 'settings.about.updates.action.qq'
+  | 'settings.about.updates.autoCheck'
+  | 'settings.about.updates.currentVersion'
+  | 'settings.about.updates.description'
+  | 'settings.about.updates.lastChecked'
+  | 'settings.about.updates.latestVersion'
+  | 'settings.about.updates.progress.aria'
+  | 'settings.about.updates.progress.downloading'
+  | 'settings.about.updates.progress.ready'
+  | 'settings.about.updates.releaseNotes'
+  | 'settings.about.updates.releaseNotesEmpty'
+  | 'settings.about.updates.releaseNotesPending'
+  | 'settings.about.updates.state.available'
+  | 'settings.about.updates.state.checking'
+  | 'settings.about.updates.state.disabled'
+  | 'settings.about.updates.state.downloaded'
+  | 'settings.about.updates.state.downloading'
+  | 'settings.about.updates.state.error'
+  | 'settings.about.updates.state.idle'
+  | 'settings.about.updates.state.notAvailable'
+  | 'settings.about.updates.status'
+  | 'settings.about.updates.title'
+  | 'settings.about.version.description'
+  | 'settings.about.version.title'
   | 'settings.appearance.density.compact'
   | 'settings.appearance.density.description'
   | 'settings.appearance.density.standard'
@@ -1421,10 +1813,50 @@ export type TranslationKey =
   | 'settings.appearance.reset.title'
   | 'settings.appearance.textDepth.description'
   | 'settings.appearance.textDepth.title'
+  | 'settings.appearance.wallpaper.blur'
+  | 'settings.appearance.wallpaper.brightness'
+  | 'settings.appearance.wallpaper.choose'
+  | 'settings.appearance.wallpaper.clear'
+  | 'settings.appearance.wallpaper.description'
+  | 'settings.appearance.wallpaper.scale'
+  | 'settings.appearance.wallpaper.title'
+  | 'settings.appearance.wallpaper.uiOpacity'
+  | 'settings.appearance.wallpaper.unifiedOpacity'
+  | 'settings.appearance.wallpaper.videoPause.minimized'
+  | 'settings.appearance.wallpaper.videoPause.never'
+  | 'settings.appearance.wallpaper.videoPause.smart'
+  | 'settings.appearance.wallpaper.videoStatus'
+  | 'settings.appearance.wallpaper.visualProtection'
+  | 'settings.appearance.sidebar.count'
+  | 'settings.appearance.sidebar.description'
+  | 'settings.appearance.sidebar.fixed'
+  | 'settings.appearance.sidebar.hidden'
+  | 'settings.appearance.sidebar.hideAria'
+  | 'settings.appearance.sidebar.mainGroup'
+  | 'settings.appearance.sidebar.moveDown'
+  | 'settings.appearance.sidebar.moveDownAria'
+  | 'settings.appearance.sidebar.moveUp'
+  | 'settings.appearance.sidebar.moveUpAria'
+  | 'settings.appearance.sidebar.noItems'
+  | 'settings.appearance.sidebar.reset'
+  | 'settings.appearance.sidebar.showAria'
+  | 'settings.appearance.sidebar.summary.allVisible'
+  | 'settings.appearance.sidebar.summary.hidden'
+  | 'settings.appearance.sidebar.title'
+  | 'settings.appearance.sidebar.utilityGroup'
+  | 'settings.appearance.sidebar.visible'
   | 'settings.appearance.theme.dark'
   | 'settings.appearance.theme.description'
   | 'settings.appearance.theme.followSystem'
   | 'settings.appearance.theme.light'
+  | 'settings.appearance.themeSchedule.darkAt'
+  | 'settings.appearance.themeSchedule.description'
+  | 'settings.appearance.themeSchedule.lightAt'
+  | 'settings.appearance.themeSchedule.status.disabled'
+  | 'settings.appearance.themeSchedule.status.enabled'
+  | 'settings.appearance.themeSchedule.title'
+  | 'settings.appearance.themeSchedule.toggle'
+  | 'settings.appearance.themeSchedule.toggleAria'
   | 'settings.appearance.theme.title'
   | 'settings.appearance.themePreset.berryDream'
   | 'settings.appearance.themePreset.berryDream.description'
@@ -1596,8 +2028,76 @@ export type TranslationKey =
   | 'settings.appearance.themeCustom.preview.description'
   | 'settings.appearance.themeCustom.preview.title'
   | 'settings.appearance.themeCustom.title'
+  | 'settings.danger.database.action.check'
+  | 'settings.danger.database.action.checking'
+  | 'settings.danger.database.action.create'
+  | 'settings.danger.database.action.creating'
+  | 'settings.danger.database.action.discard'
+  | 'settings.danger.database.action.discarding'
+  | 'settings.danger.database.action.export'
+  | 'settings.danger.database.action.exporting'
+  | 'settings.danger.database.action.open'
+  | 'settings.danger.database.action.rebuild'
+  | 'settings.danger.database.action.rebuilding'
+  | 'settings.danger.database.action.relaunch'
+  | 'settings.danger.database.action.relaunching'
+  | 'settings.danger.database.action.restore'
+  | 'settings.danger.database.action.restoring'
+  | 'settings.danger.database.action.scrub'
+  | 'settings.danger.database.action.scrubbing'
+  | 'settings.danger.database.badge.quarantined'
+  | 'settings.danger.database.confirmPlaceholder'
+  | 'settings.danger.database.confirmWord'
   | 'settings.danger.clearCache.description'
   | 'settings.danger.clearCache.title'
+  | 'settings.danger.database.description.healthy'
+  | 'settings.danger.database.description.loading'
+  | 'settings.danger.database.description.quarantined'
+  | 'settings.danger.database.description.recoverable'
+  | 'settings.danger.database.description.unrecoverable'
+  | 'settings.danger.database.health.corrupt'
+  | 'settings.danger.database.health.idle'
+  | 'settings.danger.database.health.ok'
+  | 'settings.danger.database.health.unreadable'
+  | 'settings.danger.database.kicker'
+  | 'settings.danger.database.meta.archive'
+  | 'settings.danger.database.meta.archiveHint'
+  | 'settings.danger.database.meta.current'
+  | 'settings.danger.database.meta.noArchive'
+  | 'settings.danger.database.meta.noSnapshot'
+  | 'settings.danger.database.meta.pending'
+  | 'settings.danger.database.meta.snapshot'
+  | 'settings.danger.database.meta.snapshotHint'
+  | 'settings.danger.database.scanRunning'
+  | 'settings.danger.database.steps.quarantined.1'
+  | 'settings.danger.database.steps.quarantined.2'
+  | 'settings.danger.database.steps.quarantined.3'
+  | 'settings.danger.database.steps.recoverable.1'
+  | 'settings.danger.database.steps.recoverable.2'
+  | 'settings.danger.database.steps.recoverable.3'
+  | 'settings.danger.database.steps.unrecoverable.1'
+  | 'settings.danger.database.steps.unrecoverable.2'
+  | 'settings.danger.database.steps.unrecoverable.3'
+  | 'settings.danger.database.title'
+  | 'settings.danger.database.unavailable.restore'
+  | 'settings.danger.database.unavailable.scrub'
+  | 'settings.danger.duplicates.action.clean'
+  | 'settings.danger.duplicates.action.cleaning'
+  | 'settings.danger.duplicates.action.scan'
+  | 'settings.danger.duplicates.action.scanning'
+  | 'settings.danger.duplicates.description'
+  | 'settings.danger.duplicates.meta.notScanned'
+  | 'settings.danger.duplicates.meta.release'
+  | 'settings.danger.duplicates.meta.result'
+  | 'settings.danger.duplicates.meta.resultValue'
+  | 'settings.danger.duplicates.meta.scanTime'
+  | 'settings.danger.duplicates.progress.clean.aria'
+  | 'settings.danger.duplicates.progress.clean.description'
+  | 'settings.danger.duplicates.progress.clean.title'
+  | 'settings.danger.duplicates.progress.scan.aria'
+  | 'settings.danger.duplicates.progress.scan.description'
+  | 'settings.danger.duplicates.progress.scan.title'
+  | 'settings.danger.duplicates.title'
   | 'settings.devices.empty'
   | 'settings.devices.title'
   | 'settings.general.artistInfoSources.description'
@@ -1608,6 +2108,35 @@ export type TranslationKey =
   | 'settings.general.backup.export'
   | 'settings.general.backup.import'
   | 'settings.general.backup.title'
+  | 'settings.general.dataBackup.action.backingUp'
+  | 'settings.general.dataBackup.action.backupNow'
+  | 'settings.general.dataBackup.action.chooseDirectory'
+  | 'settings.general.dataBackup.action.choosingDirectory'
+  | 'settings.general.dataBackup.action.importBackup'
+  | 'settings.general.dataBackup.action.importingBackup'
+  | 'settings.general.dataBackup.action.openDirectory'
+  | 'settings.general.dataBackup.description'
+  | 'settings.general.dataBackup.frequency.aria'
+  | 'settings.general.dataBackup.frequency.days'
+  | 'settings.general.dataBackup.frequency.monthly'
+  | 'settings.general.dataBackup.hint.chooseDirectory'
+  | 'settings.general.dataBackup.hint.directoryReady'
+  | 'settings.general.dataBackup.meta.atPath'
+  | 'settings.general.dataBackup.meta.directory'
+  | 'settings.general.dataBackup.meta.lastBackup'
+  | 'settings.general.dataBackup.meta.nextRun'
+  | 'settings.general.dataBackup.meta.nextRunPending'
+  | 'settings.general.dataBackup.meta.noneYet'
+  | 'settings.general.dataBackup.meta.notSet'
+  | 'settings.general.dataBackup.status.disabled'
+  | 'settings.general.dataBackup.status.enabled'
+  | 'settings.general.dataBackup.title'
+  | 'settings.general.dataPackage.action.export'
+  | 'settings.general.dataPackage.action.exporting'
+  | 'settings.general.dataPackage.action.recovery'
+  | 'settings.general.dataPackage.description'
+  | 'settings.general.dataPackage.note'
+  | 'settings.general.dataPackage.title'
   | 'settings.general.closeToTray'
   | 'settings.general.fastStartup.description'
   | 'settings.general.fastStartup.title'
@@ -1630,6 +2159,8 @@ export type TranslationKey =
   | 'settings.integrations.discord.action.refresh'
   | 'settings.integrations.discord.title'
   | 'settings.integrations.smtc.description'
+  | 'settings.integrations.smtc.action.restart'
+  | 'settings.integrations.smtc.action.restarting'
   | 'settings.integrations.taskbarPlayback.description'
   | 'settings.integrations.taskbarPlayback.title'
   | 'settings.integrations.smtc.title'
@@ -1688,6 +2219,16 @@ export type TranslationKey =
   | 'settings.integrations.accountPanel.refreshAll'
   | 'settings.integrations.accountStartupRefresh.title'
   | 'settings.integrations.accountStartupRefresh.description'
+  | 'settings.integrations.accountExpiryNotices.title'
+  | 'settings.integrations.accountExpiryNotices.description'
+  | 'settings.integrations.credentialPanel.title'
+  | 'settings.integrations.credentialPanel.description'
+  | 'settings.integrations.credentialPanel.expand'
+  | 'settings.integrations.credentialPanel.collapse'
+  | 'settings.integrations.smtcLyrics.title'
+  | 'settings.integrations.smtcLyrics.description'
+  | 'settings.integrations.spotifyAutoLaunchOfficialPlayer.title'
+  | 'settings.integrations.spotifyAutoLaunchOfficialPlayer.description'
   | 'settings.integrations.networkProxy.title'
   | 'settings.integrations.networkProxy.description'
   | 'settings.integrations.networkProxy.mode'
@@ -1970,12 +2511,66 @@ export type TranslationKey =
   | 'settings.nav.playback.label'
   | 'settings.nav.plugins.description'
   | 'settings.nav.plugins.label'
+  | 'settings.plugins.card.title'
+  | 'settings.plugins.card.description'
+  | 'settings.plugins.meta.runtime'
+  | 'settings.plugins.meta.runtimeValue'
+  | 'settings.plugins.meta.defaultState'
+  | 'settings.plugins.meta.defaultStateValue'
+  | 'settings.plugins.meta.permissions'
+  | 'settings.plugins.meta.permissionsValue'
+  | 'settings.plugins.meta.playbackSafety'
+  | 'settings.plugins.meta.playbackSafetyValue'
+  | 'settings.plugins.action.openPage'
+  | 'settings.plugins.action.openDirectory'
+  | 'settings.plugins.action.createExample'
+  | 'settings.plugins.action.openDocs'
+  | 'settings.plugins.note'
+  | 'settings.remote.albumMerge.action.apply'
+  | 'settings.remote.albumMerge.action.applying'
+  | 'settings.remote.albumMerge.action.scan'
+  | 'settings.remote.albumMerge.action.scanning'
+  | 'settings.remote.albumMerge.aria'
+  | 'settings.remote.albumMerge.description'
+  | 'settings.remote.albumMerge.groupAria'
+  | 'settings.remote.albumMerge.option.conservative'
+  | 'settings.remote.albumMerge.option.conservative.description'
+  | 'settings.remote.albumMerge.option.standard'
+  | 'settings.remote.albumMerge.option.standard.description'
+  | 'settings.remote.albumMerge.pending'
+  | 'settings.remote.albumMerge.stat.current'
+  | 'settings.remote.albumMerge.stat.target'
+  | 'settings.remote.albumMerge.stat.tracks'
+  | 'settings.remote.albumMerge.title'
+  | 'settings.remote.coverPerformance.aria'
+  | 'settings.remote.coverPerformance.description'
+  | 'settings.remote.coverPerformance.groupAria'
+  | 'settings.remote.coverPerformance.option.aggressive'
+  | 'settings.remote.coverPerformance.option.aggressive.description'
+  | 'settings.remote.coverPerformance.option.balanced'
+  | 'settings.remote.coverPerformance.option.balanced.description'
+  | 'settings.remote.coverPerformance.option.lan'
+  | 'settings.remote.coverPerformance.option.lan.description'
+  | 'settings.remote.coverPerformance.option.low'
+  | 'settings.remote.coverPerformance.option.low.description'
+  | 'settings.remote.coverPerformance.title'
+  | 'settings.remote.guardrail.aria'
+  | 'settings.remote.guardrail.description'
+  | 'settings.remote.guardrail.title'
+  | 'settings.remote.hero.description'
+  | 'settings.remote.hero.summary'
+  | 'settings.remote.hero.title'
   | 'settings.nav.remote.description'
   | 'settings.nav.remote.label'
   | 'settings.nav.shortcuts.description'
   | 'settings.nav.shortcuts.label'
   | 'settings.playback.audioStatus.description'
   | 'settings.playback.audioStatus.title'
+  | 'settings.playback.advancedPanel.action.collapse'
+  | 'settings.playback.advancedPanel.action.expand'
+  | 'settings.playback.advancedPanel.description'
+  | 'settings.playback.advancedPanel.memory'
+  | 'settings.playback.advancedPanel.title'
   | 'settings.playback.asioNativeDsd.description'
   | 'settings.playback.asioNativeDsd.title'
   | 'settings.playback.automix.description'
@@ -2533,6 +3128,7 @@ const zhCN: TranslationMap = {
   'import.dragDrop.paths.importedFiles': '已导入 {count} 个文件',
   'import.dragDrop.paths.missing': '跳过 {count} 个不可访问路径',
   'import.dragDrop.paths.scannedAudioFolders': '已扫描 {count} 个音乐文件所在文件夹',
+  'albumDetail.action.addToQueue': '加入队列',
   'albumDetail.action.back': '专辑',
   'albumDetail.action.likeAlbum': '喜欢专辑',
   'albumDetail.action.more': '更多专辑操作',
@@ -2540,6 +3136,7 @@ const zhCN: TranslationMap = {
   'albumDetail.action.playNow': '立即播放',
   'albumDetail.action.readingAlbum': '正在读取专辑',
   'albumDetail.action.refresh': '刷新',
+  'albumDetail.action.showInFolder': '在文件夹中显示',
   'albumDetail.action.unlikeAlbum': '取消喜欢专辑',
   'albumDetail.aria.details': '{album} 专辑详情',
   'albumDetail.aria.info': '专辑信息',
@@ -2622,6 +3219,7 @@ const zhCN: TranslationMap = {
   'albumDetail.sources.linksAria': '专辑外部来源链接',
   'albumDetail.sources.releaseAria': '当前匹配发行信息',
   'albumDetail.sources.releaseDetails': '当前发行',
+  'albumDetail.status.addedToQueue': '已加入队列 {count} 首。',
   'albumDetail.status.libraryReady': '{value} 就绪',
   'albumDetail.status.readingSignal': '正在读取信号',
   'albumDetail.status.unknownGenre': '未知流派',
@@ -2729,10 +3327,6 @@ const zhCN: TranslationMap = {
   'audioDrawer.mode.directSound': 'DirectSound 兼容',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延迟专业音频接口，需要驱动支持。',
-  'audioDrawer.note.asioWarning': '开启 ASIO 会占用您的音频通道；如果没有原厂或可信 ASIO 驱动，请不要使用，也不建议为了适配 ASIO 安装来路不明的虚拟驱动，收益有限且可能导致不稳定。此外，如果您使用 ASIO4ALL 等第三方驱动出现任何问题，请不要说是软件 Bug；这类问题完全不被接受，请使用原生 ASIO 驱动。',
-  'audioDrawer.note.outputResponsibilityTitle': '独占 / ASIO 使用提示',
-  'audioDrawer.note.outputResponsibilityPrimary': '如果您直推耳机或音响，通常没有开启独占的必要。如果非要开启独占 / ASIO 后出现问题，而共享模式正常，请先排查 DAC、声卡、驱动和连接链路，不要一遇到就直接判断为软件 Bug；如果嫌麻烦，建议使用独立解码设备。',
-  'audioDrawer.note.outputResponsibilitySecondary': '如果使用独立解码后仍有问题，请到 设置 - 播放 重置引擎；若仍无法解决，请在群聊发送错误报告。',
   'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 和 WASAPI 独占会以金色标出。',
   'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
   'audioDrawer.note.juceOutput': '默认关闭。FFmpeg 兼容路径作为默认输出；需要时可手动开启 JUCE 输出，失败会自动回退。',
@@ -3228,16 +3822,280 @@ const zhCN: TranslationMap = {
   'route.audioSettings.label': '音频设置',
   'route.connect.description': 'DLNA / AirPlay 无线播放。',
   'route.connect.label': '连接',
+  'connectPage.controls.aria': 'Connect 控制',
+  'connectPage.controls.disconnect': '断开',
+  'connectPage.controls.pause': '暂停',
+  'connectPage.controls.play': '播放',
+  'connectPage.controls.stop': '停止',
+  'connectPage.controls.volume': '投送音量',
+  'connectPage.deviceState.available': '可用',
+  'connectPage.deviceState.connected': '已连接',
+  'connectPage.deviceState.unavailable': '离线',
+  'connectPage.deviceState.unsupported': '实验',
+  'connectPage.devices.allHidden': '当前设备都已隐藏',
+  'connectPage.devices.aria': '设备列表',
+  'connectPage.devices.collapse': '折叠局域网数播',
+  'connectPage.devices.empty': '未发现局域网设备',
+  'connectPage.devices.emptyHint': '刷新后会在这里显示数播、TV、HQPlayer 和 AirPlay 入口。',
+  'connectPage.devices.expand': '展开局域网数播',
+  'connectPage.devices.hiddenAria': '隐藏的局域网设备',
+  'connectPage.devices.hiddenTitle': '已隐藏设备',
+  'connectPage.devices.kicker': 'NETWORK STREAMERS',
+  'connectPage.devices.restoreAll': '全部恢复',
+  'connectPage.devices.restoreHint': '可在上方恢复隐藏设备。',
+  'connectPage.devices.summary': '{streamers} 台数播 · {entries} 个入口 · 已隐藏 {hidden}',
+  'connectPage.devices.title': '局域网数播',
+  'connectPage.header.autoStart': '启动时自动开启 AirPlay / DLNA',
+  'connectPage.header.description': 'DLNA / AirPlay / HQPlayer 外部播放集中管理；HQPlayer 当前以安全交接预演为主。',
+  'connectPage.header.kicker': 'WIRELESS PLAYBACK',
+  'connectPage.header.refresh': '刷新设备',
+  'connectPage.hqplayer.enable': '启用 HQPlayer',
+  'connectPage.hqplayer.kicker': 'EXTERNAL RENDERER',
+  'connectPage.hqplayer.localDesktop': '本机 HQPlayer Desktop',
+  'connectPage.hqplayer.state.available': '可连接',
+  'connectPage.hqplayer.state.checking': '检测中',
+  'connectPage.hqplayer.state.disabled': '未启用',
+  'connectPage.hqplayer.state.notConfigured': '未配置端口',
+  'connectPage.hqplayer.state.unavailable': '不可用',
+  'connectPage.hqplayer.test': '检测 HQPlayer',
+  'connectPage.nowPlaying.aria': '当前投送',
+  'connectPage.nowPlaying.chooseDevice': '选择一台局域网数播后开始投送',
+  'connectPage.nowPlaying.coverReady': '封面 URL 已发送',
+  'connectPage.nowPlaying.coverWaiting': '等待封面 URL',
+  'connectPage.nowPlaying.dlnaPolling': '状态轮询约 3s',
+  'connectPage.nowPlaying.emptyTitle': '没有当前歌曲',
+  'connectPage.nowPlaying.infoAria': '当前投送信息',
+  'connectPage.nowPlaying.infoWaiting': '等待投送信息',
+  'connectPage.nowPlaying.latency': '投送握手 {ms}ms',
+  'connectPage.nowPlaying.noOutput': '未连接输出',
+  'connectPage.nowPlaying.progressAria': '投送进度',
+  'connectPage.outgoing.aria': 'DLNA outgoing request log',
+  'connectPage.outgoing.empty': 'No pulls yet',
+  'connectPage.outgoing.note': '设备拉取封面或音频后会显示在这里',
+  'connectPage.outgoing.recent': '{count} recent',
+  'connectPage.outgoing.title': 'DLNA Out',
+  'connectPage.receiver.aria': '接收来自手机',
+  'connectPage.receiver.disable': '关闭接收',
+  'connectPage.receiver.discoveryHint': '开启后手机可发现',
+  'connectPage.receiver.enable': '开启接收',
+  'connectPage.receiver.fromClient': '来自 {address}',
+  'connectPage.receiver.kicker': 'RECEIVER',
+  'connectPage.receiver.noClient': '未连接手机',
+  'connectPage.receiver.preparing': '正在准备局域网地址',
+  'connectPage.receiver.progressAria': '接收播放进度',
+  'connectPage.receiver.state.disabled': '未开启',
+  'connectPage.receiver.state.idle': '等待手机',
+  'connectPage.receiver.state.loading': '加载中',
+  'connectPage.receiver.state.playing': '手机投送中',
+  'connectPage.receiver.state.ready': '已接收媒体',
+  'connectPage.receiver.stop': '停止接收播放',
+  'connectPage.receiver.title': '接收来自手机',
+  'connectPage.receiver.waitingTitle': '等待手机投送',
+  'connectPage.stage.aria': '快速投送',
+  'connectPage.state.connecting': '连接中',
+  'connectPage.state.discovering': '扫描设备',
+  'connectPage.state.error': '错误',
+  'connectPage.state.idle': '待机',
+  'connectPage.state.paused': '已暂停',
+  'connectPage.state.playing': '投送中',
+  'connectPage.state.stopped': '已停止',
+  'connectPage.airplay.state.idle': '等待 iPhone',
+  'connectPage.airplay.state.playing': 'AirPlay 播放中',
+  'connectPage.airplay.state.starting': '启动中',
+  'connectPage.airplay.state.unavailable': '原生后端不可用',
+  'connectPage.airplay.waitingTitle': '等待 iPhone 投送',
   'route.downloads.description': '下载任务占位。',
   'route.downloads.label': '下载',
   'route.folders.description': '本地导入根目录。',
   'route.folders.label': '文件夹',
   'route.history.description': '播放历史。',
   'route.history.label': '历史',
+  'historyPage.action.clear': '清空历史',
+  'historyPage.confirm.clear': '清空播放历史？这不会删除你的音乐文件，也不会清空曲库。',
+  'historyPage.date.none': '暂无',
+  'historyPage.duration.hoursMinutes': '{hours} 小时 {minutes} 分钟',
+  'historyPage.duration.minutes': '{count} 分钟',
+  'historyPage.empty.description': '播放一首歌后，这里会记录你的最近收听。',
+  'historyPage.empty.title': '还没有播放历史。',
+  'historyPage.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.',
+  'historyPage.filter.all': '全部',
+  'historyPage.filter.completed': '只看完整播放',
+  'historyPage.filter.month': '本月',
+  'historyPage.filter.today': '今天',
+  'historyPage.filter.week': '本周',
+  'historyPage.header.kicker': '最近播放记录',
+  'historyPage.header.title': '历史',
+  'historyPage.list.aria': '播放历史列表',
+  'historyPage.list.doubleClick': '双击播放',
+  'historyPage.list.source': '来自 {source}',
+  'historyPage.list.unknownAlbum': '未知专辑',
+  'historyPage.list.unknownArtist': '未知艺术家',
+  'historyPage.list.unknownSource': '来源未知',
+  'historyPage.loadMore': '加载更多',
+  'historyPage.loading': '正在读取播放历史...',
+  'historyPage.loadingMore': '正在加载...',
+  'historyPage.metric.plays': '{count} 次',
+  'historyPage.metric.tracks': '{count} 首',
+  'historyPage.search.placeholder': '搜索标题、艺术家、专辑或路径',
+  'historyPage.summary.all.count': '总播放',
+  'historyPage.summary.all.duration': '总时长',
+  'historyPage.summary.all.group': '按播放次数排序',
+  'historyPage.summary.all.latest': '最近播放时间',
+  'historyPage.summary.all.tracks': '历史曲目',
+  'historyPage.summary.aria': '历史概览',
+  'historyPage.summary.completed.count': '完整播放',
+  'historyPage.summary.completed.duration': '完整播放时长',
+  'historyPage.summary.completed.group': '按完整播放次数排序',
+  'historyPage.summary.completed.latest': '最近完整播放',
+  'historyPage.summary.completed.tracks': '完整播放曲目',
+  'historyPage.summary.month.count': '本月播放',
+  'historyPage.summary.month.duration': '本月时长',
+  'historyPage.summary.month.group': '本月按播放次数排序',
+  'historyPage.summary.month.latest': '本月最近播放',
+  'historyPage.summary.month.tracks': '本月曲目',
+  'historyPage.summary.today.count': '今日播放',
+  'historyPage.summary.today.duration': '今日时长',
+  'historyPage.summary.today.group': '今日按播放次数排序',
+  'historyPage.summary.today.latest': '今日最近播放',
+  'historyPage.summary.today.tracks': '今日曲目',
+  'historyPage.summary.week.count': '本周播放',
+  'historyPage.summary.week.duration': '本周时长',
+  'historyPage.summary.week.group': '本周按播放次数排序',
+  'historyPage.summary.week.latest': '本周最近播放',
+  'historyPage.summary.week.tracks': '本周曲目',
+  'historyPage.toolbar.aria': '历史筛选',
   'route.home.description': '曲库概览与最近聆听。',
   'route.home.label': '主页',
+  'home.artistLeaderboard.aria': '艺人排行榜',
+  'home.artistLeaderboard.completionRate': '{rate}% 完播',
+  'home.artistLeaderboard.emptyDescription': '播放更多音乐后，这里会形成你的高频艺人榜。',
+  'home.artistLeaderboard.emptyTitle': '还没有艺人排行',
+  'home.artistLeaderboard.playCount': '{count} 次',
+  'home.artistLeaderboard.title': '艺人排行榜',
+  'home.count.tracks': '{count} 首',
+  'home.date.none': '还没有记录',
+  'home.date.unknown': '时间未知',
+  'home.duration.hoursMinutes': '{hours} 小时 {minutes} 分钟',
+  'home.duration.hoursOnly': '{hours} 小时',
+  'home.duration.minutes': '{count} 分钟',
+  'home.duration.zeroMinutes': '0 分钟',
+  'home.error.albumNotFound': '未找到专辑：{album}',
+  'home.error.artistNotFound': '未找到艺术家：{artist}',
+  'home.error.desktopBridgeRandom': '桌面曲库桥接不可用。请在 ECHO Next 桌面端生成随机队列。',
+  'home.error.desktopBridgeRecommend': '桌面曲库桥接不可用。请在 ECHO Next 桌面端刷新推荐。',
+  'home.error.desktopBridgeView': '桌面曲库桥接不可用。请在 ECHO Next 桌面端查看主页。',
+  'home.favoriteAlbums.aria': '你喜欢的专辑',
+  'home.favoriteAlbums.emptyDescription': '播放更多专辑后，这里会按听过最多次数选出前四张。',
+  'home.favoriteAlbums.emptyTitle': '还没有常听专辑',
+  'home.favoriteAlbums.title': '你喜欢的专辑',
+  'home.hero.action.continue': '继续播放',
+  'home.hero.action.viewQueue': '查看队列',
+  'home.hero.aria': '今日回声',
+  'home.hero.defaultTitle': '从你的音乐库开始播放。',
+  'home.hero.description.empty': '导入音乐后，这里会变成你的曲库入口、最近播放和本周聆听脉冲。',
+  'home.hero.description.resume': '接上 {artist} 的「{title}」，或者从最近入库里挑一张封面开始。',
+  'home.hero.kicker': '今日回声',
+  'home.hero.nowPlaying': '正在播放',
+  'home.hero.recentSignal': '最近信号',
+  'home.hero.statsAria': '曲库统计',
+  'home.metric.albums': '专辑',
+  'home.metric.albumsDetail': '按作品聚合',
+  'home.metric.artists': '艺术家',
+  'home.metric.folders': '文件夹',
+  'home.metric.foldersDetail': '最近扫描 {date}',
+  'home.metric.openAria': '打开{label}',
+  'home.metric.songs': '歌曲',
+  'home.metric.songsDetail': '总时长 {duration}',
+  'home.month.label': '{month}月',
+  'home.nowMeta.empty': '曲库准备好后会显示最近内容',
+  'home.preferences.aria': '播放偏好',
+  'home.recent.emptyAddedDescription': '导入文件夹后，这里会显示最新进入曲库的封面。',
+  'home.recent.emptyAddedTitle': '还没有最近入库',
+  'home.recent.emptyPlayedDescription': '开始播放后，这里会出现最近听过的专辑。',
+  'home.recent.emptyPlayedTitle': '还没有最近播放',
+  'home.recent.nextPage': '下一页',
+  'home.recent.prevPage': '上一页',
+  'home.recent.tab.added': '添加于',
+  'home.recent.tab.played': '已播放',
+  'home.recent.tabsAria': '最近内容',
+  'home.recent.title': '最近活动',
+  'home.recommend.emptyDescription': '导入专辑后，这里会直接铺满你的专辑。',
+  'home.recommend.emptyTitle': '还没有可推荐专辑',
+  'home.recommend.refresh': '刷新',
+  'home.recommend.refreshing': '刷新中',
+  'home.recommend.title': '为你推荐',
+  'home.signalVisualizer.aria': '音频可视化',
+  'home.status.loading': '正在整理主页...',
+  'home.week.emptyHint': '播放后，格子会按每周节奏被点亮。',
+  'home.week.listenDuration': '聆听时长',
+  'home.week.playCount': '本周播放',
+  'home.week.times': '次',
+  'home.week.title': '本周回声',
+  'home.weekday.fri': '五',
+  'home.weekday.mon': '一',
+  'home.weekday.wed': '三',
+  'home.weeklyHeatmap.activeWeeks': '{count} 周活跃',
+  'home.weeklyHeatmap.aria': '近 {weeks} 周播放热力图',
+  'home.weeklyHeatmap.dayAria': '{date}，{playCount} 次播放',
+  'home.weeklyHeatmap.dayTitle': '{date} · {playCount} 次 · {duration}',
   'route.inbox.description': '每次扫描新增歌曲。',
   'route.inbox.label': '收件箱',
+  'inboxPage.action.addToQueue': '加入队列',
+  'inboxPage.action.generatePlaylist': '生成待听歌单',
+  'inboxPage.batch.latest': '最新扫描',
+  'inboxPage.batch.recentAll': '最近全部扫描',
+  'inboxPage.batch.selected': '指定扫描',
+  'inboxPage.date.none': '尚无记录',
+  'inboxPage.empty.description': '完成一次曲库扫描后，这里会出现新增歌曲。',
+  'inboxPage.empty.noMatch': '没有匹配的新歌',
+  'inboxPage.empty.title': '还没有新增记录',
+  'inboxPage.empty.tryFilter': '换个筛选条件再看看。',
+  'inboxPage.error.desktopBridgeRead': '桌面桥接暂不可用，无法读取新歌收件箱。',
+  'inboxPage.facets.allAlbums': '全部专辑',
+  'inboxPage.facets.allArtists': '全部艺人',
+  'inboxPage.facets.allFolders': '全部文件夹',
+  'inboxPage.facets.aria': '新歌收件箱维度筛选',
+  'inboxPage.filter.all': '全部新增',
+  'inboxPage.filter.aria': '问题分类筛选',
+  'inboxPage.filter.clear': '清空筛选',
+  'inboxPage.filter.metadataIssue': '资料异常',
+  'inboxPage.filter.missingCover': '缺封面',
+  'inboxPage.filter.suspiciousFile': '疑似异常',
+  'inboxPage.filter.unknownAlbum': '未知专辑',
+  'inboxPage.filter.unknownArtist': '未知艺人',
+  'inboxPage.hero.kicker': 'LIBRARY INBOX',
+  'inboxPage.loading': '正在读取收件箱...',
+  'inboxPage.processing.aria': '本批待处理',
+  'inboxPage.processing.pending': '待听 / 待处理',
+  'inboxPage.quality.aria': '入库质量摘要',
+  'inboxPage.quality.coverCompleteness': '封面完整率',
+  'inboxPage.quality.metadataCompleteness': '资料完整率',
+  'inboxPage.quality.unknownArtistAlbum': '未知艺人 / 专辑',
+  'inboxPage.search.aria': '搜索新歌收件箱',
+  'inboxPage.search.placeholder': '搜索标题、艺人、专辑、路径',
+  'inboxPage.stats.aria': '新歌收件箱摘要',
+  'inboxPage.stats.currentResults': '当前结果',
+  'inboxPage.stats.newSongs': '新增歌曲',
+  'inboxPage.status.all': '全部状态',
+  'inboxPage.status.aria': '处理状态筛选',
+  'inboxPage.status.ignored': '已忽略',
+  'inboxPage.status.pending': '待处理',
+  'inboxPage.status.processed': '已处理',
+  'inboxPage.story.aria': '入库故事',
+  'inboxPage.story.clean': '{summary}。资料看起来很干净。',
+  'inboxPage.story.empty': '完成一次扫描后，ECHO 会把新增歌曲、专辑和资料问题整理在这里。',
+  'inboxPage.story.kicker': 'IMPORT STORY',
+  'inboxPage.story.newAlbums': '新增专辑',
+  'inboxPage.story.newArtists': '新增艺人',
+  'inboxPage.story.summaryAlbums': '{count} 张专辑',
+  'inboxPage.story.summaryArtists': '{count} 位艺人',
+  'inboxPage.story.summaryTracks': '{scope}新增 {count} 首',
+  'inboxPage.story.totalDuration': '总时长',
+  'inboxPage.story.warningMetadataIssue': '{count} 首资料异常',
+  'inboxPage.story.warningMissingCover': '{count} 首缺封面',
+  'inboxPage.story.withWarnings': '{summary}。其中 {warnings}。',
+  'inboxPage.toolbar.aria': '新歌收件箱筛选',
+  'inboxPage.toolbar.batch': '批次',
   'route.importFile.description': '导入单个音频文件。',
   'route.importFile.label': '导入文件',
   'route.importFolder.description': '选择本地音乐文件夹。',
@@ -3554,6 +4412,32 @@ const zhCN: TranslationMap = {
   'mvSettings.title': 'MV 设置',
   'route.playlists.description': '用户歌单。',
   'route.playlists.label': '歌单',
+  'playlistsPage.action.importFile': '导入 M3U/M3U8 歌单',
+  'playlistsPage.action.newLocal': '新建本地歌单',
+  'playlistsPage.daily.subtitle': '网易云账号推荐',
+  'playlistsPage.daily.title': '每日推荐',
+  'playlistsPage.empty.create': '新建歌单',
+  'playlistsPage.empty.createFirst': '创建第一个本地歌单',
+  'playlistsPage.empty.local': '还没有本地歌单。',
+  'playlistsPage.error.desktopBridgeDailyRecommend': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.',
+  'playlistsPage.form.cancel': '取消新建',
+  'playlistsPage.form.create': '创建',
+  'playlistsPage.form.nameAria': '本地歌单名称',
+  'playlistsPage.form.placeholder': '新建本地歌单',
+  'playlistsPage.importStreaming.add': '添加歌单',
+  'playlistsPage.importStreaming.adding': '添加中',
+  'playlistsPage.importStreaming.placeholder': '粘贴网易云 / QQ 音乐 / Spotify 歌单链接',
+  'playlistsPage.importStreaming.title': '添加流媒体歌单',
+  'playlistsPage.prompt.newLocalName': '新建本地歌单名称',
+  'playlistsPage.status.createdLocal': '本地歌单已创建',
+  'playlistsPage.status.importedStreamingPlaylist': '已添加歌单：{name}，共 {count} 首',
+  'playlistsPage.status.importingStreamingPlaylist': '正在添加流媒体歌单...',
+  'playlistsPage.status.loading': '正在读取歌单...',
+  'playlistsPage.status.refreshedDaily': '已刷新每日推荐：{count} 首',
+  'playlistsPage.status.refreshingDaily': '正在刷新网易云每日推荐...',
+  'playlistsPage.view.aria': '播放列表视图',
+  'playlistsPage.view.local': '本地歌单',
+  'playlistsPage.view.streamingFavorites': '流媒体收藏',
   'route.plugins.description': '本地可编辑插件。',
   'route.plugins.label': '插件',
   'route.queue.description': '播放队列。',
@@ -3564,14 +4448,117 @@ const zhCN: TranslationMap = {
   'route.settings.label': '设置',
   'route.songs.description': '本地曲库歌曲列表。',
   'route.songs.label': '歌曲',
+  'songs.action.clearList': '清空列表',
+  'songs.action.openRecovery': '去恢复助手',
+  'songs.duplicatesOnly': '只看重复歌曲',
+  'songs.error.albumNotFound': '未找到专辑：{album}',
+  'songs.error.artistNotFound': '未找到艺术家：{artist}',
+  'songs.error.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.',
+  'songs.error.desktopBridgeFileActions': 'Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.',
+  'songs.error.desktopBridgeLyricsCache': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.',
+  'songs.error.desktopBridgeMaintain': 'Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.',
+  'songs.error.desktopBridgePlay': 'Desktop bridge unavailable. Open ECHO Next in Electron to play local files.',
+  'songs.error.desktopBridgePlaylists': 'Desktop bridge unavailable. Open ECHO Next in Electron to use playlists.',
+  'songs.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read the library.',
+  'songs.error.desktopBridgeVersions': 'Desktop bridge unavailable. Open ECHO Next in Electron to inspect duplicate versions.',
+  'songs.importHint': '也可以直接把音乐文件或文件夹拖入窗口。支持 MP3, FLAC, WAV, ALAC, AAC, OPUS, OGG, APE, WV, DSF, DFF, CUE 等格式，更多格式会自动识别。',
+  'songs.queueSource.local': '歌曲列表',
+  'songs.queueSource.remote': '网盘歌曲',
+  'songs.search.placeholder': '搜索曲目 / 艺人 / 专辑...',
+  'songs.sort.album': '按专辑',
+  'songs.sort.artist': '按艺术家',
+  'songs.sort.createdAsc': '创建时间（正序）',
+  'songs.sort.createdDesc': '创建时间（倒序）',
+  'songs.sort.default': '默认排序',
+  'songs.sort.durationAsc': '音乐时间（短到长）',
+  'songs.sort.durationDesc': '音乐时间（长到短）',
+  'songs.sort.fileModifiedAsc': '文件修改时间（旧到新）',
+  'songs.sort.fileModifiedDesc': '文件修改时间（新到旧）',
+  'songs.sort.frequent': '根据常听歌曲排序',
+  'songs.sort.menuAria': '歌曲排序',
+  'songs.sort.qualityAsc': '歌曲质量/大小（小到大）',
+  'songs.sort.qualityDesc': '歌曲质量/大小（大到小）',
+  'songs.sort.random': '随机排序',
+  'songs.sort.recent': '最近更新',
+  'songs.sort.titleAsc': '歌曲名（A-Z）',
+  'songs.sort.titleDesc': '歌曲名（Z-A）',
+  'songs.trackList.aria': '歌曲列表',
+  'songs.trackList.empty': '没有可显示的歌曲。导入音乐文件夹后，这里会显示曲库列表。',
   'route.streaming.description': '流媒体音乐源。',
   'route.streaming.label': '流媒体',
+  'streaming.empty.notFoundAlbum': '没有找到匹配的专辑。',
+  'streaming.empty.notFoundArtist': '没有找到匹配的歌手。',
+  'streaming.empty.notFoundPlaylist': '没有找到匹配的歌单。',
+  'streaming.empty.notFoundTrack': '没有找到匹配的流媒体歌曲。',
+  'streaming.empty.searchHint': '输入关键词开始搜索。播放时才会解析真实地址，队列不会保存临时 URL。',
+  'streaming.hero.currentProvider': '当前来源',
+  'streaming.hero.description': '搜索在线曲库，播放前临时解析音频地址。',
+  'streaming.hero.meterAria': '当前流媒体状态',
+  'streaming.hero.preparingSearch': '准备搜索',
+  'streaming.hero.title': '流媒体音乐',
+  'streaming.provider.available': '可用',
+  'streaming.provider.disabled': '未启用',
+  'streaming.provider.loggedIn': '已登录 {name}',
+  'streaming.provider.notLoggedIn': '未登录',
+  'streaming.providers.aria': '流媒体平台',
+  'streaming.quality.high': '高音质',
+  'streaming.quality.highDescription': '320kbps 优先',
+  'streaming.quality.hires': 'Hi-Res',
+  'streaming.quality.hiresDescription': '平台可用时启用',
+  'streaming.quality.label': '音质',
+  'streaming.quality.lossless': '无损',
+  'streaming.quality.losslessDescription': '优先 FLAC',
+  'streaming.quality.max': 'Max',
+  'streaming.quality.maxDescription': '默认最高音质',
+  'streaming.quality.menuAria': '音质',
+  'streaming.quality.standard': '标准',
+  'streaming.quality.standardDescription': '兼容更好',
+  'streaming.quality.switchFailed': '切换音质失败',
+  'streaming.quality.switched': '已切换音质：{quality}',
+  'streaming.result.count': '{count} 项结果',
+  'streaming.result.searching': '正在搜索',
+  'streaming.result.searchingEllipsis': '正在搜索...',
+  'streaming.search.placeholder': '搜索歌曲、歌手、专辑',
+  'streaming.tab.album': '专辑',
+  'streaming.tab.artist': '歌手',
+  'streaming.tab.playlist': '歌单',
+  'streaming.tab.track': '单曲',
+  'streaming.tabs.aria': '结果类型',
   'settings.about.audioHost.description': 'echo-audio-host.exe 当前用于本地迁移验收，正式发布后走 extraResources。',
   'settings.about.audioHost.title': '音频宿主',
   'settings.about.devMode.description': '当前正在使用 ECHO Next Phase 1：Library Core + Audio Host 验收。',
   'settings.about.devMode.title': '开发模式',
   'settings.about.nativeSqlite.description': 'better-sqlite3 会在 dev 前 rebuild 到 Electron ABI，避免扫描时模块版本不匹配。',
   'settings.about.nativeSqlite.title': '原生 SQLite',
+  'settings.about.version.title': '版本号',
+  'settings.about.version.description': '当前安装的 ECHO Next 版本。',
+  'settings.about.updates.title': '自动更新',
+  'settings.about.updates.description': '启动后自动检查 GitHub Release，下载完成后自动重启安装。',
+  'settings.about.updates.currentVersion': '当前版本',
+  'settings.about.updates.latestVersion': '最新版本',
+  'settings.about.updates.status': '状态',
+  'settings.about.updates.lastChecked': '上次检查',
+  'settings.about.updates.autoCheck': '自动检查更新',
+  'settings.about.updates.action.check': '检查更新',
+  'settings.about.updates.action.checking': '检查中...',
+  'settings.about.updates.action.afdian': '爱发电',
+  'settings.about.updates.action.history': '查看历史更新日志',
+  'settings.about.updates.action.qq': '加入 QQ 群聊',
+  'settings.about.updates.action.discord': '加入 Discord',
+  'settings.about.updates.progress.ready': '下载完成，准备安装',
+  'settings.about.updates.progress.downloading': '正在下载更新',
+  'settings.about.updates.progress.aria': 'OTA 更新下载进度 {percent}%',
+  'settings.about.updates.releaseNotes': '更新日志',
+  'settings.about.updates.releaseNotesPending': '更新日志稍后显示...',
+  'settings.about.updates.releaseNotesEmpty': '更新日志会在 GitHub Release 返回 release notes 后显示。',
+  'settings.about.updates.state.idle': '待检查',
+  'settings.about.updates.state.checking': '正在检查',
+  'settings.about.updates.state.available': '发现新版本',
+  'settings.about.updates.state.downloading': '下载中',
+  'settings.about.updates.state.downloaded': '下载完成，正在安装',
+  'settings.about.updates.state.notAvailable': '已是最新',
+  'settings.about.updates.state.error': '检查失败',
+  'settings.about.updates.state.disabled': '已关闭',
   'settings.appearance.density.compact': '紧凑',
   'settings.appearance.density.description': '曲库列表采用更紧凑的桌面密度，不再使用过大的卡片行。',
   'settings.appearance.density.standard': '标准',
@@ -3602,12 +4589,52 @@ const zhCN: TranslationMap = {
   'settings.appearance.reset.action': '恢复默认',
   'settings.appearance.reset.description': '恢复 Outfit、默认中文字体、备用字体、字号、行距与文字深浅。',
   'settings.appearance.reset.title': '外观默认值',
+  'settings.appearance.sidebar.title': '左侧栏',
+  'settings.appearance.sidebar.description': '调整左侧入口的顺序和显示状态，不会改动页面或播放链路。',
+  'settings.appearance.sidebar.mainGroup': '主导航',
+  'settings.appearance.sidebar.utilityGroup': '底部入口',
+  'settings.appearance.sidebar.reset': '恢复默认',
+  'settings.appearance.sidebar.visible': '显示',
+  'settings.appearance.sidebar.hidden': '隐藏',
+  'settings.appearance.sidebar.fixed': '固定显示',
+  'settings.appearance.sidebar.noItems': '这一组没有可调整的入口。',
+  'settings.appearance.sidebar.summary.allVisible': '全部显示',
+  'settings.appearance.sidebar.summary.hidden': '已隐藏 {count} 个入口',
+  'settings.appearance.sidebar.count': '{count} 项',
+  'settings.appearance.sidebar.moveUp': '上移',
+  'settings.appearance.sidebar.moveDown': '下移',
+  'settings.appearance.sidebar.moveUpAria': '上移 {label}',
+  'settings.appearance.sidebar.moveDownAria': '下移 {label}',
+  'settings.appearance.sidebar.hideAria': '隐藏 {label}',
+  'settings.appearance.sidebar.showAria': '显示 {label}',
   'settings.appearance.textDepth.description': '调整界面文字颜色深浅；数值越低越浅。',
   'settings.appearance.textDepth.title': '文字颜色深浅',
+  'settings.appearance.wallpaper.title': '自定义背景',
+  'settings.appearance.wallpaper.description': '支持图片和本地视频；视频静音循环，不进入音频链路。',
+  'settings.appearance.wallpaper.choose': '选择背景',
+  'settings.appearance.wallpaper.clear': '清除背景',
+  'settings.appearance.wallpaper.videoStatus': '视频壁纸 · 静音循环',
+  'settings.appearance.wallpaper.videoPause.smart': '智能暂停',
+  'settings.appearance.wallpaper.videoPause.minimized': '最小化暂停',
+  'settings.appearance.wallpaper.videoPause.never': '始终播放',
+  'settings.appearance.wallpaper.scale': '壁纸缩放',
+  'settings.appearance.wallpaper.blur': '壁纸模糊度',
+  'settings.appearance.wallpaper.brightness': '壁纸亮度',
+  'settings.appearance.wallpaper.uiOpacity': 'UI 透明度',
+  'settings.appearance.wallpaper.visualProtection': '可视化保护',
+  'settings.appearance.wallpaper.unifiedOpacity': '统一透明度',
   'settings.appearance.theme.dark': '深色',
   'settings.appearance.theme.description': '选择浅色、深色，或跟随系统外观。',
   'settings.appearance.theme.followSystem': '跟随系统',
   'settings.appearance.theme.light': '浅色',
+  'settings.appearance.themeSchedule.title': '定时切换深色模式',
+  'settings.appearance.themeSchedule.description': '以用户系统时间为准，到点自动切到深色，再按设定时间切回浅色。',
+  'settings.appearance.themeSchedule.toggle': '启用定时',
+  'settings.appearance.themeSchedule.toggleAria': '启用定时切换深色模式',
+  'settings.appearance.themeSchedule.darkAt': '切到深色',
+  'settings.appearance.themeSchedule.lightAt': '切回浅色',
+  'settings.appearance.themeSchedule.status.enabled': '已启用：{darkAt} 切到{mode}，{lightAt} 自动切回浅色。当前按本机时间使用{mode}。',
+  'settings.appearance.themeSchedule.status.disabled': '关闭后仍使用上面的手动主题模式。',
   'settings.appearance.theme.title': '主题',
   'settings.appearance.themePreset.title': '主题预设',
   'settings.appearance.themePreset.description': '选择一套全局渐变色板；当前明暗模式仍会保留。',
@@ -3779,8 +4806,76 @@ const zhCN: TranslationMap = {
   'settings.appearance.themeCustom.message.lowContrast': '当前文字对比度不足，先自动修正或调深文字后再保存。',
   'settings.appearance.themeCustom.message.reset': '已重置当前主题的自定义。',
   'settings.appearance.themeCustom.message.saved': '已保存当前主题自定义。',
+  'settings.danger.database.kicker': '曲库数据库安全',
+  'settings.danger.database.title': '恢复助手',
+  'settings.danger.database.badge.quarantined': '已隔离',
+  'settings.danger.database.description.loading': '正在读取数据库健康状态、健康快照和最近维护记录。',
+  'settings.danger.database.description.quarantined': '曲库因损坏嵌入标签或超大文本已被隔离。ECHO 会先打开恢复界面，音乐文件不会被删除。',
+  'settings.danger.database.description.healthy': '当前数据库检查正常。这里会保留健康快照、坏库归档和最近维护记录。',
+  'settings.danger.database.description.unrecoverable': '数据库无法从健康快照恢复。音乐文件不会被删除；请先导出诊断和查看保护目录，再确认归档坏库并重建空库。',
+  'settings.danger.database.description.recoverable': '检测到数据库不可用时，先尝试恢复健康快照；恢复会先归档当前数据库，音乐文件不会被删除。',
+  'settings.danger.database.health.ok': '健康',
+  'settings.danger.database.health.corrupt': '疑似损坏',
+  'settings.danger.database.health.unreadable': '无法读取',
+  'settings.danger.database.health.idle': '待检查',
+  'settings.danger.database.steps.quarantined.1': '当前曲库已被移出活动位置，ECHO 不会继续读取那批危险标签。',
+  'settings.danger.database.steps.quarantined.2': '优先使用“修复隔离库副本”，它只处理归档副本，验证通过后才恢复。',
+  'settings.danger.database.steps.quarantined.3': '如果修复失败，再选择恢复健康快照或归档并重建空曲库；音乐文件不会被删除。',
+  'settings.danger.database.steps.unrecoverable.1': '先确认扫描没有运行；扫描中会拒绝恢复、重建和删除。',
+  'settings.danger.database.steps.unrecoverable.2': '优先导出诊断并打开保护目录，保留坏库归档线索。',
+  'settings.danger.database.steps.unrecoverable.3': '输入确认词“重建空库”后，归档坏库并重建空库，再重新添加曲库文件夹并扫描。',
+  'settings.danger.database.steps.recoverable.1': '先确认扫描没有运行；扫描中会拒绝恢复、重建和删除。',
+  'settings.danger.database.steps.recoverable.2': '优先点“恢复最近健康快照”，它只接受主进程枚举出的快照。',
+  'settings.danger.database.steps.recoverable.3': '没有健康快照或恢复后仍损坏时，使用“归档坏库并重建空库”。',
+  'settings.danger.database.action.check': '检查健康',
+  'settings.danger.database.action.checking': '检查中...',
+  'settings.danger.database.action.create': '创建健康快照',
+  'settings.danger.database.action.creating': '创建中...',
+  'settings.danger.database.action.restore': '恢复最近健康快照',
+  'settings.danger.database.action.restoring': '恢复中...',
+  'settings.danger.database.action.scrub': '修复隔离库副本',
+  'settings.danger.database.action.scrubbing': '修复中...',
+  'settings.danger.database.action.rebuild': '归档坏库并重建空库',
+  'settings.danger.database.action.rebuilding': '重建中...',
+  'settings.danger.database.action.discard': '归档问题曲目',
+  'settings.danger.database.action.discarding': '归档中...',
+  'settings.danger.database.action.relaunch': '重启到恢复模式',
+  'settings.danger.database.action.relaunching': '重启中...',
+  'settings.danger.database.action.open': '打开保护目录',
+  'settings.danger.database.action.export': '导出诊断',
+  'settings.danger.database.action.exporting': '导出中...',
+  'settings.danger.database.meta.current': '当前数据库',
+  'settings.danger.database.meta.snapshot': '最近健康快照',
+  'settings.danger.database.meta.snapshotHint': '可手动创建',
+  'settings.danger.database.meta.archive': '最近坏库归档',
+  'settings.danger.database.meta.archiveHint': '恢复/重建前会自动归档',
+  'settings.danger.database.meta.pending': '待加载',
+  'settings.danger.database.meta.noSnapshot': '暂无健康快照',
+  'settings.danger.database.meta.noArchive': '暂无坏库归档',
+  'settings.danger.database.unavailable.scrub': '没有找到可修复的隔离库副本；请打开保护目录确认归档是否存在，或直接导出诊断。',
+  'settings.danger.database.unavailable.restore': '暂无健康快照可恢复。可以先创建健康快照；如果当前库不可用，请导出诊断。',
+  'settings.danger.database.confirmWord': '危险操作确认词',
+  'settings.danger.database.confirmPlaceholder': '先输入按钮提示的确认词，再执行危险操作',
+  'settings.danger.database.scanRunning': '曲库扫描正在运行，恢复、重建和删除会被拒绝。请等扫描结束后再操作。',
   'settings.danger.clearCache.description': '移除曲库索引、扫描记录和封面缓存，不会删除你的音乐文件或曲库文件夹。',
   'settings.danger.clearCache.title': '清空曲库缓存',
+  'settings.danger.duplicates.title': '扫描重复歌曲并清理',
+  'settings.danger.duplicates.description': '先扫描并列出重复组；清理时优先把低音质、低评分副本移入系统回收站，每组保留评分最高的一首。',
+  'settings.danger.duplicates.meta.result': '扫描结果',
+  'settings.danger.duplicates.meta.resultValue': '{groups} 组 / {tracks} 首待清理',
+  'settings.danger.duplicates.meta.release': '预计释放',
+  'settings.danger.duplicates.meta.scanTime': '扫描时间',
+  'settings.danger.duplicates.meta.notScanned': '尚未扫描',
+  'settings.danger.duplicates.action.scan': '扫描重复歌曲',
+  'settings.danger.duplicates.action.scanning': '扫描中...',
+  'settings.danger.duplicates.action.clean': '清理扫描结果',
+  'settings.danger.duplicates.action.cleaning': '清理中...',
+  'settings.danger.duplicates.progress.scan.title': '正在扫描重复歌曲',
+  'settings.danger.duplicates.progress.scan.description': '分批处理，避免挤占播放',
+  'settings.danger.duplicates.progress.scan.aria': '重复歌曲扫描中',
+  'settings.danger.duplicates.progress.clean.title': '正在清理扫描结果',
+  'settings.danger.duplicates.progress.clean.description': '移入回收站并更新曲库索引',
+  'settings.danger.duplicates.progress.clean.aria': '重复歌曲清理中',
   'settings.devices.empty': 'echo-audio-host 暂未返回输出设备。',
   'settings.devices.title': '设备列表',
   'settings.general.artistInfoSources.description': '选择刷新艺人简介时使用的百科来源；百度百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。',
@@ -3791,6 +4886,35 @@ const zhCN: TranslationMap = {
   'settings.general.backup.export': '导出设置',
   'settings.general.backup.import': '导入设置',
   'settings.general.backup.title': '设置参数备份',
+  'settings.general.dataBackup.title': '自动数据备份',
+  'settings.general.dataBackup.description': '备份设置、曲库索引、播放记忆、账号本地状态、壁纸、封面缓存和元数据；备份前会校验曲库数据库，坏数据会被拒绝。',
+  'settings.general.dataBackup.status.enabled': '自动备份已开启',
+  'settings.general.dataBackup.status.disabled': '自动备份未开启',
+  'settings.general.dataBackup.hint.directoryReady': '目录已设置，可手动备份或开启定期备份',
+  'settings.general.dataBackup.hint.chooseDirectory': '请先选择备份目录',
+  'settings.general.dataBackup.frequency.aria': '自动备份周期',
+  'settings.general.dataBackup.frequency.days': '{days} 天',
+  'settings.general.dataBackup.frequency.monthly': '每月',
+  'settings.general.dataBackup.meta.directory': '目录',
+  'settings.general.dataBackup.meta.lastBackup': '上次备份',
+  'settings.general.dataBackup.meta.nextRun': '下次执行',
+  'settings.general.dataBackup.meta.notSet': '未设置',
+  'settings.general.dataBackup.meta.noneYet': '暂无自动备份',
+  'settings.general.dataBackup.meta.nextRunPending': '选择目录并开启后生效',
+  'settings.general.dataBackup.meta.atPath': '{time} · {path}',
+  'settings.general.dataBackup.action.chooseDirectory': '选择目录',
+  'settings.general.dataBackup.action.choosingDirectory': '选择中...',
+  'settings.general.dataBackup.action.backupNow': '立即备份',
+  'settings.general.dataBackup.action.backingUp': '备份中...',
+  'settings.general.dataBackup.action.importBackup': '导入备份',
+  'settings.general.dataBackup.action.importingBackup': '导入中...',
+  'settings.general.dataBackup.action.openDirectory': '打开目录',
+  'settings.general.dataPackage.title': '一键导出 / 迁移 ECHO 数据包',
+  'settings.general.dataPackage.description': '导出设置、曲库索引、歌单快照、封面缓存路径和账号状态说明。不会复制音乐文件，也不会导出登录密钥。',
+  'settings.general.dataPackage.action.export': '导出 ECHO 数据包',
+  'settings.general.dataPackage.action.exporting': '打包中...',
+  'settings.general.dataPackage.action.recovery': '恢复入口',
+  'settings.general.dataPackage.note': '恢复前请先在危险区创建健康快照；迁移包里的 RESTORE.md 会说明每个文件的用途。',
   'settings.general.closeToTray': '关闭时隐藏到托盘',
   'settings.general.fastStartup.description': '开启后，启动时只做轻量只读曲库验证；完整数据保护快照会在窗口打开后后台完成。默认关闭。',
   'settings.general.fastStartup.title': '快速启动',
@@ -3813,6 +4937,8 @@ const zhCN: TranslationMap = {
   'settings.integrations.discord.description': '将当前播放状态同步到 Discord Rich Presence，可显示歌曲、艺术家、进度和播放状态。',
   'settings.integrations.discord.title': 'Discord 状态',
   'settings.integrations.smtc.description': '把当前播放信息、封面、进度和媒体键动作发布到 Windows 音量浮层与锁屏媒体控件。',
+  'settings.integrations.smtc.action.restart': '重启 SMTC',
+  'settings.integrations.smtc.action.restarting': '重启中...',
   'settings.integrations.taskbarPlayback.description': '在 Windows 任务栏图标上显示播放进度，并在悬停缩略图里提供上一首、播放暂停和下一首按钮。',
   'settings.integrations.taskbarPlayback.title': '任务栏音乐控制',
   'settings.integrations.smtc.title': 'Windows 媒体控件',
@@ -3871,6 +4997,16 @@ const zhCN: TranslationMap = {
   'settings.integrations.accountPanel.refreshAll': '刷新全部',
   'settings.integrations.accountStartupRefresh.title': '启动时刷新账号登录状态',
   'settings.integrations.accountStartupRefresh.description': '仅检查以前登录过的账号，从未登录过的平台会保持静默。',
+  'settings.integrations.accountExpiryNotices.title': '关闭账号失效通知',
+  'settings.integrations.accountExpiryNotices.description': '开启后，账号失效时不再弹出左上角提醒；账号状态仍可在这里查看。',
+  'settings.integrations.credentialPanel.title': '开发者 / API 配置',
+  'settings.integrations.credentialPanel.description': 'Spotify、TIDAL、Discogs、在线歌手和 Last.fm；用不到可以保持收起。',
+  'settings.integrations.credentialPanel.expand': '展开 API 配置',
+  'settings.integrations.credentialPanel.collapse': '收起 API 配置',
+  'settings.integrations.smtcLyrics.title': 'SMTC 歌词显示',
+  'settings.integrations.smtcLyrics.description': '允许把当前歌词行附加到 Windows 媒体信息里；默认关闭，避免污染歌手字段。',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.title': 'Spotify 自动启动官方播放器',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.description': '播放 Spotify 时，如果 ECHO 内置 SDK 因 DRM 不可用，会自动打开 Spotify 桌面端或网页版并接管 Connect 设备。',
   'settings.integrations.networkProxy.title': '网络代理',
   'settings.integrations.networkProxy.description': '给登录页、网络封面、歌词、MV 搜索和元数据补全使用。媒体播放流默认不走代理，避免影响缓冲和 Range 请求。',
   'settings.integrations.networkProxy.mode': '模式',
@@ -4153,12 +5289,32 @@ const zhCN: TranslationMap = {
   'settings.nav.playback.label': '播放',
   'settings.nav.plugins.description': '本地扩展、权限和脚本',
   'settings.nav.plugins.label': '插件',
+  'settings.plugins.card.title': '本地插件',
+  'settings.plugins.card.description': '插件默认放在 userData/plugins 下，用户可以直接编辑 echo.plugin.json、plugin.js 和面板文件。',
+  'settings.plugins.meta.runtime': '运行方式',
+  'settings.plugins.meta.runtimeValue': '本地沙箱',
+  'settings.plugins.meta.defaultState': '默认状态',
+  'settings.plugins.meta.defaultStateValue': '手动启用',
+  'settings.plugins.meta.permissions': '权限',
+  'settings.plugins.meta.permissionsValue': '启用时确认',
+  'settings.plugins.meta.playbackSafety': '播放安全',
+  'settings.plugins.meta.playbackSafetyValue': '不进入音频热路径',
+  'settings.plugins.action.openPage': '打开插件页',
+  'settings.plugins.action.openDirectory': '打开插件目录',
+  'settings.plugins.action.createExample': '新建示例插件',
+  'settings.plugins.action.openDocs': '查看插件文档',
+  'settings.plugins.note': '插件页负责启用、禁用、重载、命令和日志；这里保留入口和安全边界说明，避免两套管理 UI 分叉。',
   'settings.nav.remote.description': 'NAS、WebDAV、Subsonic',
   'settings.nav.remote.label': '网盘 / 远程',
   'settings.nav.shortcuts.description': '快捷键设置',
   'settings.nav.shortcuts.label': '快捷键',
   'settings.playback.audioStatus.description': '采样率字段必须分开显示，避免旧 ECHO 独占模式 48k 锁死回归。',
   'settings.playback.audioStatus.title': '音频状态',
+  'settings.playback.advancedPanel.action.collapse': '收起高级播放设置',
+  'settings.playback.advancedPanel.action.expand': '展开高级播放设置',
+  'settings.playback.advancedPanel.description': '低负载、诊断、JUCE / DSD、导出和细节播放控制默认收起，避免干扰常用输出设置。',
+  'settings.playback.advancedPanel.memory': '会记住展开状态',
+  'settings.playback.advancedPanel.title': '高级播放设置',
   'settings.playback.asioNativeDsd.description': '默认关闭。仅在 ASIO + 本地 DSF + DoP 开启且无 EQ/音量/变速/DSP 时尝试；失败会退回现有 DoP/PCM。',
   'settings.playback.asioNativeDsd.title': 'ASIO 原生 DSD 实验',
   'settings.playback.automix.description': '默认关闭。开启后，连续队列会提前准备下一首，并用原生双 Deck 引擎避开尾部空白、智能衔接切歌。',
@@ -4358,6 +5514,40 @@ const zhCN: TranslationMap = {
   'settings.shortcuts.scope.local': '普通快捷键',
   'settings.shortcuts.scope.global': '全局快捷键',
   'settings.shortcuts.title': '快捷键',
+  'settings.remote.hero.title': '网盘 / 远程音乐库',
+  'settings.remote.hero.summary': '网盘 / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby',
+  'settings.remote.hero.description': '连接 AList、坚果云、Nextcloud 等 WebDAV 网盘，也可以把 Jellyfin、Emby、Navidrome、NAS 或 SSHFS 作为独立音乐来源浏览。ECHO 会为远程歌曲建立本地索引，使歌词、MV、播放进度、收藏和历史记录正常工作。',
+  'settings.remote.guardrail.aria': '远程库同步边界',
+  'settings.remote.guardrail.title': '本地播放优先',
+  'settings.remote.guardrail.description': '远程同步和封面/元数据补齐都在后台限速执行；播放活跃时会降并发。当前离线边界是索引、封面和小型元数据缓存，不会静默镜像整库音乐文件。',
+  'settings.remote.coverPerformance.aria': '远程封面加载性能',
+  'settings.remote.coverPerformance.title': '加载性能',
+  'settings.remote.coverPerformance.description': '控制远程封面预热强度；只影响列表封面加载，不会改变播放取流。',
+  'settings.remote.coverPerformance.groupAria': '远程封面加载性能档位',
+  'settings.remote.coverPerformance.option.low': '省流量',
+  'settings.remote.coverPerformance.option.low.description': '只预热当前可见封面，适合公网或弱服务器。',
+  'settings.remote.coverPerformance.option.balanced': '均衡',
+  'settings.remote.coverPerformance.option.balanced.description': '预热当前和后面约半屏到一屏，默认推荐。',
+  'settings.remote.coverPerformance.option.aggressive': '积极预热',
+  'settings.remote.coverPerformance.option.aggressive.description': '滚动停顿时提前拉取更多封面，适合局域网 Navidrome。',
+  'settings.remote.coverPerformance.option.lan': '局域网极速',
+  'settings.remote.coverPerformance.option.lan.description': '拉满远程封面预热和后台加载并发，适合本机、NAS 或稳定千兆局域网。',
+  'settings.remote.albumMerge.aria': '远程专辑合并策略',
+  'settings.remote.albumMerge.title': '专辑合并',
+  'settings.remote.albumMerge.description': '只影响网盘 / 远程专辑列表的展示分组；不改本地库、不改文件标签、不影响播放。',
+  'settings.remote.albumMerge.groupAria': '远程专辑合并档位',
+  'settings.remote.albumMerge.option.conservative': '保守合并',
+  'settings.remote.albumMerge.option.conservative.description': '优先使用服务器专辑 ID；普通网盘只合并同来源、同文件夹、同专辑的曲目。',
+  'settings.remote.albumMerge.option.standard': '普通合并',
+  'settings.remote.albumMerge.option.standard.description': '在保守边界上放宽标题差异，会合并大小写、符号和 - Single 这类远程专辑拆分。',
+  'settings.remote.albumMerge.stat.current': '原专辑数量',
+  'settings.remote.albumMerge.stat.target': '合并后数量',
+  'settings.remote.albumMerge.stat.tracks': '已索引远程歌曲',
+  'settings.remote.albumMerge.pending': '待扫描',
+  'settings.remote.albumMerge.action.scan': '扫描远程曲库',
+  'settings.remote.albumMerge.action.scanning': '扫描中...',
+  'settings.remote.albumMerge.action.apply': '应用并重新整理分组',
+  'settings.remote.albumMerge.action.applying': '重新整理中...',
   'settings.remote.library.description': '本阶段禁止网盘 / 远程 / 流媒体，只保留设置分组占位。',
   'settings.remote.library.title': '远程音乐库',
   'segmentLoop.action.clear': '清除当前 A-B 点',
@@ -4725,6 +5915,7 @@ const zhTW: TranslationMap = {
   'punctuation.clauseSeparator': '，',
   'punctuation.listSeparator': '、',
   'library.action.refresh': '重新整理',
+  'albumDetail.action.addToQueue': '加入佇列',
   'albumDetail.action.back': '專輯',
   'albumDetail.action.likeAlbum': '喜歡專輯',
   'albumDetail.action.more': '更多專輯操作',
@@ -4732,6 +5923,7 @@ const zhTW: TranslationMap = {
   'albumDetail.action.playNow': '立即播放',
   'albumDetail.action.readingAlbum': '正在讀取專輯',
   'albumDetail.action.refresh': '重新整理',
+  'albumDetail.action.showInFolder': '在資料夾中顯示',
   'albumDetail.action.unlikeAlbum': '取消喜歡專輯',
   'albumDetail.aria.details': '{album} 專輯詳情',
   'albumDetail.aria.info': '專輯資訊',
@@ -4813,6 +6005,7 @@ const zhTW: TranslationMap = {
   'albumDetail.sources.linksAria': '專輯外部來源連結',
   'albumDetail.sources.releaseAria': '目前匹配發行資訊',
   'albumDetail.sources.releaseDetails': '目前發行',
+  'albumDetail.status.addedToQueue': '已加入佇列 {count} 首。',
   'albumDetail.status.libraryReady': '{value} 就緒',
   'albumDetail.status.readingSignal': '正在讀取訊號',
   'albumDetail.status.unknownGenre': '未知曲風',
@@ -5084,10 +6277,6 @@ const zhTW: TranslationMap = {
   'audioDrawer.mode.directSound': 'DirectSound 相容',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延遲專業音訊介面，需要驅動支援。',
-  'audioDrawer.note.asioWarning': '開啟 ASIO 會占用您的音訊通道；如果沒有原廠或可信 ASIO 驅動，請不要使用，也不建議為了適配 ASIO 安裝來源不明的虛擬驅動，收益有限且可能導致不穩定。此外，如果您使用 ASIO4ALL 等第三方驅動出現任何問題，請不要說是軟體 Bug；這類問題完全不被接受，請使用原生 ASIO 驅動。',
-  'audioDrawer.note.outputResponsibilityTitle': '獨佔 / ASIO 使用提示',
-  'audioDrawer.note.outputResponsibilityPrimary': '如果您直推耳機或音響，通常沒有開啟獨佔的必要。如果非要開啟獨佔 / ASIO 後出現問題，而共享模式正常，請先排查 DAC、音效卡、驅動和連接鏈路，不要一遇到就直接判斷為軟體 Bug；如果嫌麻煩，建議使用獨立解碼設備。',
-  'audioDrawer.note.outputResponsibilitySecondary': '如果使用獨立解碼後仍有問題，請到 設定 - 播放 重置引擎；若仍無法解決，請在群聊發送錯誤報告。',
   'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 和 WASAPI 獨佔會以金色標出。',
   'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
   'audioDrawer.note.juceOutput': '預設關閉。FFmpeg 相容路徑作為預設輸出；需要時可手動開啟 JUCE 輸出，失敗會自動退回。',
@@ -5336,13 +6525,277 @@ const zhTW: TranslationMap = {
   'route.audioSettings.label': '音訊設定',
   'route.connect.description': 'DLNA / AirPlay 無線播放。',
   'route.connect.label': '連接',
+  'connectPage.controls.aria': 'Connect 控制',
+  'connectPage.controls.disconnect': '中斷連接',
+  'connectPage.controls.pause': '暫停',
+  'connectPage.controls.play': '播放',
+  'connectPage.controls.stop': '停止',
+  'connectPage.controls.volume': '投送音量',
+  'connectPage.deviceState.available': '可用',
+  'connectPage.deviceState.connected': '已連接',
+  'connectPage.deviceState.unavailable': '離線',
+  'connectPage.deviceState.unsupported': '實驗',
+  'connectPage.devices.allHidden': '目前設備都已隱藏',
+  'connectPage.devices.aria': '設備列表',
+  'connectPage.devices.collapse': '收起區域網串流設備',
+  'connectPage.devices.empty': '未發現區域網設備',
+  'connectPage.devices.emptyHint': '重新整理後會在這裡顯示串流器、TV、HQPlayer 和 AirPlay 入口。',
+  'connectPage.devices.expand': '展開區域網串流設備',
+  'connectPage.devices.hiddenAria': '已隱藏的區域網設備',
+  'connectPage.devices.hiddenTitle': '已隱藏設備',
+  'connectPage.devices.kicker': 'NETWORK STREAMERS',
+  'connectPage.devices.restoreAll': '全部恢復',
+  'connectPage.devices.restoreHint': '可在上方恢復隱藏設備。',
+  'connectPage.devices.summary': '{streamers} 台串流器 · {entries} 個入口 · 已隱藏 {hidden}',
+  'connectPage.devices.title': '區域網串流',
+  'connectPage.header.autoStart': '啟動時自動開啟 AirPlay / DLNA',
+  'connectPage.header.description': '集中管理 DLNA / AirPlay / HQPlayer 外部播放；HQPlayer 目前以安全交接預演為主。',
+  'connectPage.header.kicker': 'WIRELESS PLAYBACK',
+  'connectPage.header.refresh': '重新整理設備',
+  'connectPage.hqplayer.enable': '啟用 HQPlayer',
+  'connectPage.hqplayer.kicker': 'EXTERNAL RENDERER',
+  'connectPage.hqplayer.localDesktop': '本機 HQPlayer Desktop',
+  'connectPage.hqplayer.state.available': '可連接',
+  'connectPage.hqplayer.state.checking': '檢測中',
+  'connectPage.hqplayer.state.disabled': '未啟用',
+  'connectPage.hqplayer.state.notConfigured': '未設定連接埠',
+  'connectPage.hqplayer.state.unavailable': '不可用',
+  'connectPage.hqplayer.test': '檢測 HQPlayer',
+  'connectPage.nowPlaying.aria': '目前投送',
+  'connectPage.nowPlaying.chooseDevice': '選擇一台區域網串流器後開始投送',
+  'connectPage.nowPlaying.coverReady': '封面 URL 已送出',
+  'connectPage.nowPlaying.coverWaiting': '等待封面 URL',
+  'connectPage.nowPlaying.dlnaPolling': '狀態輪詢約 3 秒',
+  'connectPage.nowPlaying.emptyTitle': '目前沒有歌曲',
+  'connectPage.nowPlaying.infoAria': '目前投送資訊',
+  'connectPage.nowPlaying.infoWaiting': '等待投送資訊',
+  'connectPage.nowPlaying.latency': '投送握手 {ms}ms',
+  'connectPage.nowPlaying.noOutput': '未連接輸出',
+  'connectPage.nowPlaying.progressAria': '投送進度',
+  'connectPage.outgoing.aria': 'DLNA outgoing request log',
+  'connectPage.outgoing.empty': 'No pulls yet',
+  'connectPage.outgoing.note': '設備拉取封面或音訊後會顯示在這裡',
+  'connectPage.outgoing.recent': '{count} recent',
+  'connectPage.outgoing.title': 'DLNA Out',
+  'connectPage.receiver.aria': '接收來自手機',
+  'connectPage.receiver.disable': '關閉接收',
+  'connectPage.receiver.discoveryHint': '開啟後手機即可發現',
+  'connectPage.receiver.enable': '開啟接收',
+  'connectPage.receiver.fromClient': '來自 {address}',
+  'connectPage.receiver.kicker': 'RECEIVER',
+  'connectPage.receiver.noClient': '未連接手機',
+  'connectPage.receiver.preparing': '正在準備區域網位址',
+  'connectPage.receiver.progressAria': '接收播放進度',
+  'connectPage.receiver.state.disabled': '未開啟',
+  'connectPage.receiver.state.idle': '等待手機',
+  'connectPage.receiver.state.loading': '載入中',
+  'connectPage.receiver.state.playing': '手機投送中',
+  'connectPage.receiver.state.ready': '已接收媒體',
+  'connectPage.receiver.stop': '停止接收播放',
+  'connectPage.receiver.title': '接收來自手機',
+  'connectPage.receiver.waitingTitle': '等待手機投送',
+  'connectPage.stage.aria': '快速投送',
+  'connectPage.state.connecting': '連接中',
+  'connectPage.state.discovering': '掃描設備',
+  'connectPage.state.error': '錯誤',
+  'connectPage.state.idle': '待機',
+  'connectPage.state.paused': '已暫停',
+  'connectPage.state.playing': '投送中',
+  'connectPage.state.stopped': '已停止',
+  'connectPage.airplay.state.idle': '等待 iPhone',
+  'connectPage.airplay.state.playing': 'AirPlay 播放中',
+  'connectPage.airplay.state.starting': '啟動中',
+  'connectPage.airplay.state.unavailable': '原生後端不可用',
+  'connectPage.airplay.waitingTitle': '等待 iPhone 投送',
   'route.downloads.description': '下載任務佔位。',
   'route.downloads.label': '下載',
   'route.folders.label': '資料夾',
+  'historyPage.action.clear': '清空歷史',
+  'historyPage.confirm.clear': '要清空播放歷史嗎？這不會刪除你的音樂檔案，也不會清空曲庫。',
+  'historyPage.date.none': '暫無',
+  'historyPage.duration.hoursMinutes': '{hours} 小時 {minutes} 分鐘',
+  'historyPage.duration.minutes': '{count} 分鐘',
+  'historyPage.empty.description': '播放一首歌後，這裡會記錄你的最近收聽。',
+  'historyPage.empty.title': '還沒有播放歷史。',
+  'historyPage.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.',
+  'historyPage.filter.all': '全部',
+  'historyPage.filter.completed': '只看完整播放',
+  'historyPage.filter.month': '本月',
+  'historyPage.filter.today': '今天',
+  'historyPage.filter.week': '本週',
+  'historyPage.header.kicker': '最近播放記錄',
+  'historyPage.header.title': '歷史',
+  'historyPage.list.aria': '播放歷史列表',
+  'historyPage.list.doubleClick': '雙擊播放',
+  'historyPage.list.source': '來自 {source}',
+  'historyPage.list.unknownAlbum': '未知專輯',
+  'historyPage.list.unknownArtist': '未知藝術家',
+  'historyPage.list.unknownSource': '來源未知',
+  'historyPage.loadMore': '載入更多',
+  'historyPage.loading': '正在讀取播放歷史...',
+  'historyPage.loadingMore': '正在載入...',
+  'historyPage.metric.plays': '{count} 次',
+  'historyPage.metric.tracks': '{count} 首',
+  'historyPage.search.placeholder': '搜尋標題、藝術家、專輯或路徑',
+  'historyPage.summary.all.count': '總播放',
+  'historyPage.summary.all.duration': '總時長',
+  'historyPage.summary.all.group': '按播放次數排序',
+  'historyPage.summary.all.latest': '最近播放時間',
+  'historyPage.summary.all.tracks': '歷史曲目',
+  'historyPage.summary.aria': '歷史概覽',
+  'historyPage.summary.completed.count': '完整播放',
+  'historyPage.summary.completed.duration': '完整播放時長',
+  'historyPage.summary.completed.group': '按完整播放次數排序',
+  'historyPage.summary.completed.latest': '最近完整播放',
+  'historyPage.summary.completed.tracks': '完整播放曲目',
+  'historyPage.summary.month.count': '本月播放',
+  'historyPage.summary.month.duration': '本月時長',
+  'historyPage.summary.month.group': '本月按播放次數排序',
+  'historyPage.summary.month.latest': '本月最近播放',
+  'historyPage.summary.month.tracks': '本月曲目',
+  'historyPage.summary.today.count': '今日播放',
+  'historyPage.summary.today.duration': '今日時長',
+  'historyPage.summary.today.group': '今日按播放次數排序',
+  'historyPage.summary.today.latest': '今日最近播放',
+  'historyPage.summary.today.tracks': '今日曲目',
+  'historyPage.summary.week.count': '本週播放',
+  'historyPage.summary.week.duration': '本週時長',
+  'historyPage.summary.week.group': '本週按播放次數排序',
+  'historyPage.summary.week.latest': '本週最近播放',
+  'historyPage.summary.week.tracks': '本週曲目',
+  'historyPage.toolbar.aria': '歷史篩選',
   'route.home.description': '曲庫概覽與最近聆聽。',
   'route.home.label': '主頁',
+  'home.artistLeaderboard.aria': '藝人排行榜',
+  'home.artistLeaderboard.completionRate': '{rate}% 完播',
+  'home.artistLeaderboard.emptyDescription': '播放更多音樂後，這裡會形成你的高頻藝人榜。',
+  'home.artistLeaderboard.emptyTitle': '還沒有藝人排行',
+  'home.artistLeaderboard.playCount': '{count} 次',
+  'home.artistLeaderboard.title': '藝人排行榜',
+  'home.count.tracks': '{count} 首',
+  'home.date.none': '還沒有記錄',
+  'home.date.unknown': '時間未知',
+  'home.duration.hoursMinutes': '{hours} 小時 {minutes} 分鐘',
+  'home.duration.hoursOnly': '{hours} 小時',
+  'home.duration.minutes': '{count} 分鐘',
+  'home.duration.zeroMinutes': '0 分鐘',
+  'home.error.albumNotFound': '未找到專輯：{album}',
+  'home.error.artistNotFound': '未找到藝人：{artist}',
+  'home.error.desktopBridgeRandom': '桌面曲庫橋接不可用。請在 ECHO Next 桌面端生成隨機佇列。',
+  'home.error.desktopBridgeRecommend': '桌面曲庫橋接不可用。請在 ECHO Next 桌面端刷新推薦。',
+  'home.error.desktopBridgeView': '桌面曲庫橋接不可用。請在 ECHO Next 桌面端查看首頁。',
+  'home.favoriteAlbums.aria': '你喜歡的專輯',
+  'home.favoriteAlbums.emptyDescription': '播放更多專輯後，這裡會按聽過最多次數選出前四張。',
+  'home.favoriteAlbums.emptyTitle': '還沒有常聽專輯',
+  'home.favoriteAlbums.title': '你喜歡的專輯',
+  'home.hero.action.continue': '繼續播放',
+  'home.hero.action.viewQueue': '查看佇列',
+  'home.hero.aria': '今日回聲',
+  'home.hero.defaultTitle': '從你的音樂庫開始播放。',
+  'home.hero.description.empty': '匯入音樂後，這裡會變成你的曲庫入口、最近播放和本週聆聽脈衝。',
+  'home.hero.description.resume': '接上 {artist} 的「{title}」，或從最近入庫裡挑一張封面開始。',
+  'home.hero.kicker': '今日回聲',
+  'home.hero.nowPlaying': '正在播放',
+  'home.hero.recentSignal': '最近訊號',
+  'home.hero.statsAria': '曲庫統計',
+  'home.metric.albums': '專輯',
+  'home.metric.albumsDetail': '按作品聚合',
+  'home.metric.artists': '藝人',
+  'home.metric.folders': '資料夾',
+  'home.metric.foldersDetail': '最近掃描 {date}',
+  'home.metric.openAria': '打開{label}',
+  'home.metric.songs': '歌曲',
+  'home.metric.songsDetail': '總時長 {duration}',
+  'home.month.label': '{month}月',
+  'home.nowMeta.empty': '曲庫準備好後會顯示最近內容',
+  'home.preferences.aria': '播放偏好',
+  'home.recent.emptyAddedDescription': '匯入資料夾後，這裡會顯示最新進入曲庫的封面。',
+  'home.recent.emptyAddedTitle': '還沒有最近入庫',
+  'home.recent.emptyPlayedDescription': '開始播放後，這裡會出現最近聽過的專輯。',
+  'home.recent.emptyPlayedTitle': '還沒有最近播放',
+  'home.recent.nextPage': '下一頁',
+  'home.recent.prevPage': '上一頁',
+  'home.recent.tab.added': '新增於',
+  'home.recent.tab.played': '已播放',
+  'home.recent.tabsAria': '最近內容',
+  'home.recent.title': '最近活動',
+  'home.recommend.emptyDescription': '匯入專輯後，這裡會直接鋪滿你的專輯。',
+  'home.recommend.emptyTitle': '還沒有可推薦專輯',
+  'home.recommend.refresh': '刷新',
+  'home.recommend.refreshing': '刷新中',
+  'home.recommend.title': '為你推薦',
+  'home.signalVisualizer.aria': '音訊視覺化',
+  'home.status.loading': '正在整理首頁...',
+  'home.week.emptyHint': '播放後，格子會按每週節奏被點亮。',
+  'home.week.listenDuration': '聆聽時長',
+  'home.week.playCount': '本週播放',
+  'home.week.times': '次',
+  'home.week.title': '本週回聲',
+  'home.weekday.fri': '五',
+  'home.weekday.mon': '一',
+  'home.weekday.wed': '三',
+  'home.weeklyHeatmap.activeWeeks': '{count} 週活躍',
+  'home.weeklyHeatmap.aria': '近 {weeks} 週播放熱力圖',
+  'home.weeklyHeatmap.dayAria': '{date}，{playCount} 次播放',
+  'home.weeklyHeatmap.dayTitle': '{date} · {playCount} 次 · {duration}',
   'route.inbox.description': '每次掃描新增的歌曲。',
   'route.inbox.label': '收件箱',
+  'inboxPage.action.addToQueue': '加入佇列',
+  'inboxPage.action.generatePlaylist': '生成待聽歌單',
+  'inboxPage.batch.latest': '最新掃描',
+  'inboxPage.batch.recentAll': '最近全部掃描',
+  'inboxPage.batch.selected': '指定掃描',
+  'inboxPage.date.none': '尚無記錄',
+  'inboxPage.empty.description': '完成一次曲庫掃描後，這裡會出現新增歌曲。',
+  'inboxPage.empty.noMatch': '沒有符合的新歌',
+  'inboxPage.empty.title': '還沒有新增記錄',
+  'inboxPage.empty.tryFilter': '換個篩選條件再看看。',
+  'inboxPage.error.desktopBridgeRead': '桌面橋接暫不可用，無法讀取新歌收件箱。',
+  'inboxPage.facets.allAlbums': '全部專輯',
+  'inboxPage.facets.allArtists': '全部藝人',
+  'inboxPage.facets.allFolders': '全部資料夾',
+  'inboxPage.facets.aria': '新歌收件箱維度篩選',
+  'inboxPage.filter.all': '全部新增',
+  'inboxPage.filter.aria': '問題分類篩選',
+  'inboxPage.filter.clear': '清空篩選',
+  'inboxPage.filter.metadataIssue': '資料異常',
+  'inboxPage.filter.missingCover': '缺封面',
+  'inboxPage.filter.suspiciousFile': '疑似異常',
+  'inboxPage.filter.unknownAlbum': '未知專輯',
+  'inboxPage.filter.unknownArtist': '未知藝人',
+  'inboxPage.hero.kicker': 'LIBRARY INBOX',
+  'inboxPage.loading': '正在讀取收件箱...',
+  'inboxPage.processing.aria': '本批待處理',
+  'inboxPage.processing.pending': '待聽 / 待處理',
+  'inboxPage.quality.aria': '入庫品質摘要',
+  'inboxPage.quality.coverCompleteness': '封面完整率',
+  'inboxPage.quality.metadataCompleteness': '資料完整率',
+  'inboxPage.quality.unknownArtistAlbum': '未知藝人 / 專輯',
+  'inboxPage.search.aria': '搜尋新歌收件箱',
+  'inboxPage.search.placeholder': '搜尋標題、藝人、專輯、路徑',
+  'inboxPage.stats.aria': '新歌收件箱摘要',
+  'inboxPage.stats.currentResults': '目前結果',
+  'inboxPage.stats.newSongs': '新增歌曲',
+  'inboxPage.status.all': '全部狀態',
+  'inboxPage.status.aria': '處理狀態篩選',
+  'inboxPage.status.ignored': '已忽略',
+  'inboxPage.status.pending': '待處理',
+  'inboxPage.status.processed': '已處理',
+  'inboxPage.story.aria': '入庫故事',
+  'inboxPage.story.clean': '{summary}。資料看起來很乾淨。',
+  'inboxPage.story.empty': '完成一次掃描後，ECHO 會把新增歌曲、專輯和資料問題整理在這裡。',
+  'inboxPage.story.kicker': 'IMPORT STORY',
+  'inboxPage.story.newAlbums': '新增專輯',
+  'inboxPage.story.newArtists': '新增藝人',
+  'inboxPage.story.summaryAlbums': '{count} 張專輯',
+  'inboxPage.story.summaryArtists': '{count} 位藝人',
+  'inboxPage.story.summaryTracks': '{scope}新增 {count} 首',
+  'inboxPage.story.totalDuration': '總時長',
+  'inboxPage.story.warningMetadataIssue': '{count} 首資料異常',
+  'inboxPage.story.warningMissingCover': '{count} 首缺封面',
+  'inboxPage.story.withWarnings': '{summary}。其中 {warnings}。',
+  'inboxPage.toolbar.aria': '新歌收件箱篩選',
+  'inboxPage.toolbar.batch': '批次',
   'route.importFile.label': '匯入檔案',
   'route.importFolder.description': '選擇本機音樂資料夾。',
   'route.importFolder.label': '匯入資料夾',
@@ -5655,6 +7108,32 @@ const zhTW: TranslationMap = {
   'mvSettings.status.on': '開啟',
   'mvSettings.title': 'MV 設定',
   'route.playlists.label': '播放清單',
+  'playlistsPage.action.importFile': '匯入 M3U/M3U8 歌單',
+  'playlistsPage.action.newLocal': '新建本地歌單',
+  'playlistsPage.daily.subtitle': '網易雲帳號推薦',
+  'playlistsPage.daily.title': '每日推薦',
+  'playlistsPage.empty.create': '新建歌單',
+  'playlistsPage.empty.createFirst': '建立第一個本地歌單',
+  'playlistsPage.empty.local': '還沒有本地歌單。',
+  'playlistsPage.error.desktopBridgeDailyRecommend': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.',
+  'playlistsPage.form.cancel': '取消新建',
+  'playlistsPage.form.create': '建立',
+  'playlistsPage.form.nameAria': '本地歌單名稱',
+  'playlistsPage.form.placeholder': '新建本地歌單',
+  'playlistsPage.importStreaming.add': '添加歌單',
+  'playlistsPage.importStreaming.adding': '添加中',
+  'playlistsPage.importStreaming.placeholder': '貼上網易雲 / QQ 音樂 / Spotify 歌單連結',
+  'playlistsPage.importStreaming.title': '添加串流歌單',
+  'playlistsPage.prompt.newLocalName': '新建本地歌單名稱',
+  'playlistsPage.status.createdLocal': '本地歌單已建立',
+  'playlistsPage.status.importedStreamingPlaylist': '已添加歌單：{name}，共 {count} 首',
+  'playlistsPage.status.importingStreamingPlaylist': '正在添加串流歌單...',
+  'playlistsPage.status.loading': '正在讀取歌單...',
+  'playlistsPage.status.refreshedDaily': '已刷新每日推薦：{count} 首',
+  'playlistsPage.status.refreshingDaily': '正在刷新網易雲每日推薦...',
+  'playlistsPage.view.aria': '播放清單視圖',
+  'playlistsPage.view.local': '本地歌單',
+  'playlistsPage.view.streamingFavorites': '串流收藏',
   'route.plugins.description': '本機可編輯外掛。',
   'route.plugins.label': '外掛',
   'route.queue.label': '佇列',
@@ -5703,10 +7182,142 @@ const zhTW: TranslationMap = {
   'route.remote.label': '網路硬碟 / 遠端',
   'route.settings.label': '設定',
   'route.songs.label': '曲目',
+  'songs.action.clearList': '清空列表',
+  'songs.action.openRecovery': '前往復原助手',
+  'songs.duplicatesOnly': '只看重複歌曲',
+  'songs.error.albumNotFound': '未找到專輯：{album}',
+  'songs.error.artistNotFound': '未找到藝人：{artist}',
+  'songs.error.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.',
+  'songs.error.desktopBridgeFileActions': 'Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.',
+  'songs.error.desktopBridgeLyricsCache': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.',
+  'songs.error.desktopBridgeMaintain': 'Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.',
+  'songs.error.desktopBridgePlay': 'Desktop bridge unavailable. Open ECHO Next in Electron to play local files.',
+  'songs.error.desktopBridgePlaylists': 'Desktop bridge unavailable. Open ECHO Next in Electron to use playlists.',
+  'songs.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read the library.',
+  'songs.error.desktopBridgeVersions': 'Desktop bridge unavailable. Open ECHO Next in Electron to inspect duplicate versions.',
+  'songs.importHint': '也可以直接把音樂檔案或資料夾拖入視窗。支援 MP3、FLAC、WAV、ALAC、AAC、OPUS、OGG、APE、WV、DSF、DFF、CUE 等格式，更多格式會自動識別。',
+  'songs.queueSource.local': '歌曲列表',
+  'songs.queueSource.remote': '網盤歌曲',
+  'songs.search.placeholder': '搜尋曲目 / 藝人 / 專輯...',
+  'songs.sort.album': '按專輯',
+  'songs.sort.artist': '按藝人',
+  'songs.sort.createdAsc': '建立時間（正序）',
+  'songs.sort.createdDesc': '建立時間（倒序）',
+  'songs.sort.default': '預設排序',
+  'songs.sort.durationAsc': '音樂時間（短到長）',
+  'songs.sort.durationDesc': '音樂時間（長到短）',
+  'songs.sort.fileModifiedAsc': '檔案修改時間（舊到新）',
+  'songs.sort.fileModifiedDesc': '檔案修改時間（新到舊）',
+  'songs.sort.frequent': '依常聽歌曲排序',
+  'songs.sort.menuAria': '歌曲排序',
+  'songs.sort.qualityAsc': '歌曲品質/大小（小到大）',
+  'songs.sort.qualityDesc': '歌曲品質/大小（大到小）',
+  'songs.sort.random': '隨機排序',
+  'songs.sort.recent': '最近更新',
+  'songs.sort.titleAsc': '歌曲名（A-Z）',
+  'songs.sort.titleDesc': '歌曲名（Z-A）',
+  'songs.trackList.aria': '歌曲列表',
+  'songs.trackList.empty': '沒有可顯示的歌曲。匯入音樂資料夾後，這裡會顯示曲庫列表。',
   'route.streaming.description': '串流音樂來源。',
   'route.streaming.label': '串流',
+  'streaming.empty.notFoundAlbum': '找不到匹配的專輯。',
+  'streaming.empty.notFoundArtist': '找不到匹配的歌手。',
+  'streaming.empty.notFoundPlaylist': '找不到匹配的歌單。',
+  'streaming.empty.notFoundTrack': '找不到匹配的串流歌曲。',
+  'streaming.empty.searchHint': '輸入關鍵字開始搜尋。播放時才會解析真實位址，佇列不會保存臨時 URL。',
+  'streaming.hero.currentProvider': '目前來源',
+  'streaming.hero.description': '搜尋線上曲庫，播放前臨時解析音訊位址。',
+  'streaming.hero.meterAria': '目前串流狀態',
+  'streaming.hero.preparingSearch': '準備搜尋',
+  'streaming.hero.title': '串流音樂',
+  'streaming.provider.available': '可用',
+  'streaming.provider.disabled': '未啟用',
+  'streaming.provider.loggedIn': '已登入 {name}',
+  'streaming.provider.notLoggedIn': '未登入',
+  'streaming.providers.aria': '串流平台',
+  'streaming.quality.high': '高音質',
+  'streaming.quality.highDescription': '優先 320kbps',
+  'streaming.quality.hires': 'Hi-Res',
+  'streaming.quality.hiresDescription': '平台可用時啟用',
+  'streaming.quality.label': '音質',
+  'streaming.quality.lossless': '無損',
+  'streaming.quality.losslessDescription': '優先 FLAC',
+  'streaming.quality.max': 'Max',
+  'streaming.quality.maxDescription': '預設最高音質',
+  'streaming.quality.menuAria': '音質',
+  'streaming.quality.standard': '標準',
+  'streaming.quality.standardDescription': '相容性更好',
+  'streaming.quality.switchFailed': '切換音質失敗',
+  'streaming.quality.switched': '已切換音質：{quality}',
+  'streaming.result.count': '{count} 項結果',
+  'streaming.result.searching': '搜尋中',
+  'streaming.result.searchingEllipsis': '搜尋中...',
+  'streaming.search.placeholder': '搜尋歌曲、歌手、專輯',
+  'streaming.tab.album': '專輯',
+  'streaming.tab.artist': '歌手',
+  'streaming.tab.playlist': '歌單',
+  'streaming.tab.track': '單曲',
+  'streaming.tabs.aria': '結果類型',
   'settings.general.language.title': '顯示語言',
   'settings.general.language.description': '選擇選單、應用程式內設定與系統對話框的顯示語言。',
+  'settings.about.version.title': '版本號',
+  'settings.about.version.description': '目前安裝的 ECHO Next 版本。',
+  'settings.about.updates.title': '自動更新',
+  'settings.about.updates.description': '啟動後自動檢查 GitHub Release，下載完成後自動重新啟動安裝。',
+  'settings.about.updates.currentVersion': '目前版本',
+  'settings.about.updates.latestVersion': '最新版本',
+  'settings.about.updates.status': '狀態',
+  'settings.about.updates.lastChecked': '上次檢查',
+  'settings.about.updates.autoCheck': '自動檢查更新',
+  'settings.about.updates.action.check': '檢查更新',
+  'settings.about.updates.action.checking': '檢查中...',
+  'settings.about.updates.action.afdian': '愛發電',
+  'settings.about.updates.action.history': '查看歷史更新日誌',
+  'settings.about.updates.action.qq': '加入 QQ 群聊',
+  'settings.about.updates.action.discord': '加入 Discord',
+  'settings.about.updates.progress.ready': '下載完成，準備安裝',
+  'settings.about.updates.progress.downloading': '正在下載更新',
+  'settings.about.updates.progress.aria': 'OTA 更新下載進度 {percent}%',
+  'settings.about.updates.releaseNotes': '更新日誌',
+  'settings.about.updates.releaseNotesPending': '更新日誌稍後顯示...',
+  'settings.about.updates.releaseNotesEmpty': '更新日誌會在 GitHub Release 回傳 release notes 後顯示。',
+  'settings.about.updates.state.idle': '待檢查',
+  'settings.about.updates.state.checking': '正在檢查',
+  'settings.about.updates.state.available': '發現新版本',
+  'settings.about.updates.state.downloading': '下載中',
+  'settings.about.updates.state.downloaded': '下載完成，正在安裝',
+  'settings.about.updates.state.notAvailable': '已是最新',
+  'settings.about.updates.state.error': '檢查失敗',
+  'settings.about.updates.state.disabled': '已關閉',
+  'settings.general.dataBackup.title': '自動資料備份',
+  'settings.general.dataBackup.description': '備份設定、曲庫索引、播放記憶、帳號本機狀態、桌布、封面快取與中繼資料；備份前會檢查曲庫資料庫，損壞資料會被拒絕。',
+  'settings.general.dataBackup.status.enabled': '自動備份已開啟',
+  'settings.general.dataBackup.status.disabled': '自動備份未開啟',
+  'settings.general.dataBackup.hint.directoryReady': '目錄已設定，可手動備份或開啟定期備份',
+  'settings.general.dataBackup.hint.chooseDirectory': '請先選擇備份目錄',
+  'settings.general.dataBackup.frequency.aria': '自動備份週期',
+  'settings.general.dataBackup.frequency.days': '{days} 天',
+  'settings.general.dataBackup.frequency.monthly': '每月',
+  'settings.general.dataBackup.meta.directory': '目錄',
+  'settings.general.dataBackup.meta.lastBackup': '上次備份',
+  'settings.general.dataBackup.meta.nextRun': '下次執行',
+  'settings.general.dataBackup.meta.notSet': '未設定',
+  'settings.general.dataBackup.meta.noneYet': '暫無自動備份',
+  'settings.general.dataBackup.meta.nextRunPending': '選擇目錄並開啟後生效',
+  'settings.general.dataBackup.meta.atPath': '{time} · {path}',
+  'settings.general.dataBackup.action.chooseDirectory': '選擇目錄',
+  'settings.general.dataBackup.action.choosingDirectory': '選擇中...',
+  'settings.general.dataBackup.action.backupNow': '立即備份',
+  'settings.general.dataBackup.action.backingUp': '備份中...',
+  'settings.general.dataBackup.action.importBackup': '匯入備份',
+  'settings.general.dataBackup.action.importingBackup': '匯入中...',
+  'settings.general.dataBackup.action.openDirectory': '開啟目錄',
+  'settings.general.dataPackage.title': '一鍵匯出 / 遷移 ECHO 資料包',
+  'settings.general.dataPackage.description': '匯出設定、曲庫索引、歌單快照、封面快取路徑與帳號狀態說明。不會複製音樂檔案，也不會匯出登入金鑰。',
+  'settings.general.dataPackage.action.export': '匯出 ECHO 資料包',
+  'settings.general.dataPackage.action.exporting': '打包中...',
+  'settings.general.dataPackage.action.recovery': '恢復入口',
+  'settings.general.dataPackage.note': '恢復前請先在危險區建立健康快照；遷移包裡的 RESTORE.md 會說明每個檔案的用途。',
   'settings.header.searchPlaceholder': '搜尋設定...',
   'settings.nav.general.label': '一般',
   'settings.nav.general.description': '語言、視窗與基礎行為',
@@ -5718,6 +7329,21 @@ const zhTW: TranslationMap = {
   'settings.nav.library.label': '媒體庫',
   'settings.nav.plugins.label': '外掛',
   'settings.nav.plugins.description': '本機擴充、權限和腳本',
+  'settings.plugins.card.title': '本地外掛',
+  'settings.plugins.card.description': '外掛預設放在 userData/plugins 下，使用者可以直接編輯 echo.plugin.json、plugin.js 和面板檔案。',
+  'settings.plugins.meta.runtime': '執行方式',
+  'settings.plugins.meta.runtimeValue': '本地沙箱',
+  'settings.plugins.meta.defaultState': '預設狀態',
+  'settings.plugins.meta.defaultStateValue': '手動啟用',
+  'settings.plugins.meta.permissions': '權限',
+  'settings.plugins.meta.permissionsValue': '啟用時確認',
+  'settings.plugins.meta.playbackSafety': '播放安全',
+  'settings.plugins.meta.playbackSafetyValue': '不進入音訊熱路徑',
+  'settings.plugins.action.openPage': '打開外掛頁',
+  'settings.plugins.action.openDirectory': '打開外掛目錄',
+  'settings.plugins.action.createExample': '新建示例外掛',
+  'settings.plugins.action.openDocs': '查看外掛文件',
+  'settings.plugins.note': '外掛頁負責啟用、停用、重新載入、命令和日誌；這裡保留入口與安全邊界說明，避免兩套管理 UI 分岔。',
   'settings.nav.about.label': '關於 / 進階',
   'settings.nav.danger.label': '危險操作',
   'settings.eq.action.autoPreamp': '自動 {value}',
@@ -5781,6 +7407,60 @@ const zhTW: TranslationMap = {
   'settings.eq.warning.channelClipping': '存在削波風險：降低增益或前級可獲得更安全的餘量。',
   'settings.eq.warning.lowerPreamp': '降低前級可避免削波。',
   'settings.general.artistInfoSources.description': '選擇重新整理藝人簡介時使用的百科來源；百度百科更適合中文網路環境，Wikipedia 可作為國際藝人備援。',
+  'settings.nav.shortcuts.label': '快捷鍵',
+  'settings.nav.shortcuts.description': '一般快捷鍵、全域快捷鍵、播放控制',
+  'settings.shortcuts.action.clear': '清除',
+  'settings.shortcuts.action.bossKey.description': '立即隱藏視窗，並把 ECHO 音量降到 0。',
+  'settings.shortcuts.action.bossKey.title': '老闆鍵',
+  'settings.shortcuts.action.nextTrack.description': '切到目前播放佇列裡的下一首。',
+  'settings.shortcuts.action.nextTrack.title': '下一首',
+  'settings.shortcuts.action.openAudioSettings.description': '打開底部播放器的音訊設定抽屜。',
+  'settings.shortcuts.action.openAudioSettings.title': '打開音訊設定',
+  'settings.shortcuts.action.openLyricsSettings.description': '打開歌詞設定抽屜。',
+  'settings.shortcuts.action.openLyricsSettings.title': '打開歌詞設定',
+  'settings.shortcuts.action.openMvSettings.description': '打開 MV 設定抽屜。',
+  'settings.shortcuts.action.openMvSettings.title': '打開 MV 設定',
+  'settings.shortcuts.action.playPause.description': '在全域範圍切換播放與暫停。',
+  'settings.shortcuts.action.playPause.title': '播放 / 暫停',
+  'settings.shortcuts.action.previousTrack.description': '切到目前播放佇列裡的上一首。',
+  'settings.shortcuts.action.previousTrack.title': '上一首',
+  'settings.shortcuts.action.record': '錄製',
+  'settings.shortcuts.action.restoreRecommended': '恢復推薦',
+  'settings.shortcuts.action.seekBackward.description': '目前歌曲向後退 10 秒。',
+  'settings.shortcuts.action.seekBackward.title': '快退 10 秒',
+  'settings.shortcuts.action.seekForward.description': '目前歌曲向前進 10 秒。',
+  'settings.shortcuts.action.seekForward.title': '快進 10 秒',
+  'settings.shortcuts.action.showMainWindow.description': '把 ECHO 主視窗帶回前景。',
+  'settings.shortcuts.action.showMainWindow.title': '顯示主視窗',
+  'settings.shortcuts.action.speedDown.description': '每次把播放速度降低 0.1x。',
+  'settings.shortcuts.action.speedDown.title': '播放減速',
+  'settings.shortcuts.action.speedUp.description': '每次把播放速度提高 0.1x。',
+  'settings.shortcuts.action.speedUp.title': '播放加速',
+  'settings.shortcuts.action.stop.description': '停止目前播放並釋放播放狀態。',
+  'settings.shortcuts.action.stop.title': '停止播放',
+  'settings.shortcuts.action.toggleDesktopLyricsLock.description': '切換桌面歌詞滑鼠穿透鎖定狀態。',
+  'settings.shortcuts.action.toggleDesktopLyricsLock.title': '鎖定 / 解鎖歌詞',
+  'settings.shortcuts.action.volumeDown.description': '把 ECHO 音量降低 5%。',
+  'settings.shortcuts.action.volumeDown.title': '音量降低',
+  'settings.shortcuts.action.volumeUp.description': '把 ECHO 音量提高 5%。',
+  'settings.shortcuts.action.volumeUp.title': '音量提高',
+  'settings.shortcuts.column.function': '功能說明',
+  'settings.shortcuts.column.local': '一般快捷鍵',
+  'settings.shortcuts.column.global': '全域快捷鍵',
+  'settings.shortcuts.description': '一般快捷鍵只有 ECHO 視窗聚焦時生效；全域快捷鍵在背景也生效，啟用前會檢查系統占用。',
+  'settings.shortcuts.empty': '未綁定',
+  'settings.shortcuts.localUnavailable': '僅全域',
+  'settings.shortcuts.message.duplicate': '這個快捷鍵已經綁定到其他動作。',
+  'settings.shortcuts.message.empty': '請先錄製一個快捷鍵。',
+  'settings.shortcuts.message.invalid': '這個按鍵目前不能作為快捷鍵。',
+  'settings.shortcuts.message.safe': '這個快捷鍵可以使用。',
+  'settings.shortcuts.message.unavailable': '這個快捷鍵已被系統或其他應用占用，因此保持關閉。',
+  'settings.shortcuts.message.unsafe': '這個按鍵目前不能作為快捷鍵；可以讓巨集鍵盤輸出標準鍵盤鍵或媒體鍵。',
+  'settings.shortcuts.note': '支援單鍵、組合鍵、媒體鍵、巨集鍵盤鍵與滑鼠側鍵；一般快捷鍵不會在輸入框裡觸發。',
+  'settings.shortcuts.recording': '按下新的快捷鍵...',
+  'settings.shortcuts.scope.local': '一般快捷鍵',
+  'settings.shortcuts.scope.global': '全域快捷鍵',
+  'settings.shortcuts.title': '快捷鍵',
   'settings.general.artistInfoSources.title': '藝人資訊來源',
   'settings.general.artistStreamingAlbums.description': '開啟後，藝人詳情的專輯頁會在本地專輯下方按需搜尋並顯示串流專輯；預設關閉，避免增加頁面與網路壓力。',
   'settings.general.artistStreamingAlbums.title': '串流專輯',
@@ -5808,6 +7488,11 @@ const zhTW: TranslationMap = {
   'settings.playback.outputMode.shared': 'Shared',
   'settings.playback.outputMode.system': '標準輸出（推薦）',
   'settings.playback.outputMode.title': '輸出模式',
+  'settings.playback.advancedPanel.action.collapse': '收起進階播放設定',
+  'settings.playback.advancedPanel.action.expand': '展開進階播放設定',
+  'settings.playback.advancedPanel.description': '低負載、診斷、JUCE / DSD、匯出和細節播放控制預設收起，避免干擾常用輸出設定。',
+  'settings.playback.advancedPanel.memory': '會記住展開狀態',
+  'settings.playback.advancedPanel.title': '進階播放設定',
   'settings.playback.asioNativeDsd.description': '預設關閉。僅在 ASIO + 本地 DSF + DoP 開啟且沒有 EQ/音量/變速/DSP 時嘗試；失敗會退回現有 DoP/PCM。',
   'settings.playback.asioNativeDsd.title': 'ASIO 原生 DSD 實驗',
   'settings.playback.dsdDop.description': '預設關閉。本地 DSF 在 ASIO 下嘗試 DoP 直出；失敗會自動退回 FFmpeg PCM，最終以 DAC 顯示為準。',
@@ -5952,6 +7637,8 @@ const zhTW: TranslationMap = {
   'settings.integrations.discord.action.refresh': '重新整理狀態',
   'settings.integrations.discord.title': 'Discord 狀態',
   'settings.integrations.smtc.description': '把目前播放資訊、封面、進度和媒體鍵動作發布到 Windows 音量浮層與鎖定畫面媒體控制。',
+  'settings.integrations.smtc.action.restart': '重新啟動 SMTC',
+  'settings.integrations.smtc.action.restarting': '重新啟動中...',
   'settings.integrations.taskbarPlayback.description': '在 Windows 工作列圖示上顯示播放進度，並在懸停縮圖中提供上一首、播放暫停和下一首按鈕。',
   'settings.integrations.taskbarPlayback.title': '工作列音樂控制',
   'settings.integrations.smtc.title': 'Windows 媒體控制',
@@ -6010,6 +7697,16 @@ const zhTW: TranslationMap = {
   'settings.integrations.accountPanel.refreshAll': '全部重新整理',
   'settings.integrations.accountStartupRefresh.title': '啟動時重新整理帳號登入狀態',
   'settings.integrations.accountStartupRefresh.description': '只檢查以前登入過的帳號，從未登入過的平台會保持靜默。',
+  'settings.integrations.accountExpiryNotices.title': '關閉帳號失效通知',
+  'settings.integrations.accountExpiryNotices.description': '開啟後，帳號失效時不再彈出左上角提醒；帳號狀態仍可在這裡查看。',
+  'settings.integrations.credentialPanel.title': '開發者 / API 設定',
+  'settings.integrations.credentialPanel.description': 'Spotify、TIDAL、Discogs、線上歌手與 Last.fm；用不到時可以保持收起。',
+  'settings.integrations.credentialPanel.expand': '展開 API 設定',
+  'settings.integrations.credentialPanel.collapse': '收起 API 設定',
+  'settings.integrations.smtcLyrics.title': 'SMTC 歌詞顯示',
+  'settings.integrations.smtcLyrics.description': '允許把目前歌詞行附加到 Windows 媒體資訊裡；預設關閉，避免污染歌手欄位。',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.title': 'Spotify 自動啟動官方播放器',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.description': '播放 Spotify 時，如果 ECHO 內建 SDK 因 DRM 不可用，會自動打開 Spotify 桌面端或網頁版並接管 Connect 裝置。',
   'settings.integrations.networkProxy.title': '網路代理',
   'settings.integrations.networkProxy.description': '給登入頁、網路封面、歌詞、MV 搜尋和中繼資料補全使用。媒體播放流預設不走代理，避免影響緩衝和 Range 請求。',
   'settings.integrations.networkProxy.mode': '模式',
@@ -6026,6 +7723,40 @@ const zhTW: TranslationMap = {
   'settings.integrations.networkProxy.test': '測試連線',
   'settings.integrations.networkProxy.testBusy': '測試中...',
   'settings.integrations.networkProxy.note': '第一版只預設代理一般聯網能力；遠端曲庫和播放位元組流保持直連，避免影響正在播放的穩定性。',
+  'settings.remote.hero.title': '網路硬碟 / 遠端音樂庫',
+  'settings.remote.hero.summary': '網路硬碟 / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby',
+  'settings.remote.hero.description': '可連接 AList、堅果雲、Nextcloud 等 WebDAV 網路硬碟，也能把 Jellyfin、Emby、Navidrome、NAS 或 SSHFS 當成獨立音樂來源瀏覽。ECHO 會為遠端歌曲建立本地索引，讓歌詞、MV、播放進度、收藏與歷史記錄正常運作。',
+  'settings.remote.guardrail.aria': '遠端庫同步邊界',
+  'settings.remote.guardrail.title': '本地播放優先',
+  'settings.remote.guardrail.description': '遠端同步與封面/中繼資料補齊都會在背景限速執行；播放活躍時會降低並發。當前離線邊界是索引、封面和小型中繼資料快取，不會靜默鏡像整個音樂庫檔案。',
+  'settings.remote.coverPerformance.aria': '遠端封面載入性能',
+  'settings.remote.coverPerformance.title': '載入性能',
+  'settings.remote.coverPerformance.description': '控制遠端封面預熱強度；只影響清單封面載入，不會改變播放取流。',
+  'settings.remote.coverPerformance.groupAria': '遠端封面載入性能檔位',
+  'settings.remote.coverPerformance.option.low': '省流量',
+  'settings.remote.coverPerformance.option.low.description': '只預熱目前可見封面，適合公網或較弱的伺服器。',
+  'settings.remote.coverPerformance.option.balanced': '均衡',
+  'settings.remote.coverPerformance.option.balanced.description': '預熱目前與後方約半屏到一屏的封面，預設推薦。',
+  'settings.remote.coverPerformance.option.aggressive': '積極預熱',
+  'settings.remote.coverPerformance.option.aggressive.description': '滾動停頓時提前拉取更多封面，適合區域網內的 Navidrome。',
+  'settings.remote.coverPerformance.option.lan': '區域網極速',
+  'settings.remote.coverPerformance.option.lan.description': '把遠端封面預熱與背景載入並發拉滿，適合本機、NAS 或穩定的千兆區域網。',
+  'settings.remote.albumMerge.aria': '遠端專輯合併策略',
+  'settings.remote.albumMerge.title': '專輯合併',
+  'settings.remote.albumMerge.description': '只影響網路硬碟 / 遠端專輯列表的展示分組；不改本地庫、不改檔案標籤、不影響播放。',
+  'settings.remote.albumMerge.groupAria': '遠端專輯合併檔位',
+  'settings.remote.albumMerge.option.conservative': '保守合併',
+  'settings.remote.albumMerge.option.conservative.description': '優先使用伺服器專輯 ID；一般網路硬碟只合併同來源、同資料夾、同專輯的曲目。',
+  'settings.remote.albumMerge.option.standard': '一般合併',
+  'settings.remote.albumMerge.option.standard.description': '在保守邊界上放寬標題差異，會合併大小寫、符號與 - Single 這類遠端專輯拆分。',
+  'settings.remote.albumMerge.stat.current': '原專輯數量',
+  'settings.remote.albumMerge.stat.target': '合併後數量',
+  'settings.remote.albumMerge.stat.tracks': '已索引遠端歌曲',
+  'settings.remote.albumMerge.pending': '待掃描',
+  'settings.remote.albumMerge.action.scan': '掃描遠端曲庫',
+  'settings.remote.albumMerge.action.scanning': '掃描中...',
+  'settings.remote.albumMerge.action.apply': '套用並重新整理分組',
+  'settings.remote.albumMerge.action.applying': '重新整理中...',
   'settings.remote.library.title': '遠端音樂庫',
   'settings.remote.library.description': '本階段禁止網路硬碟 / 遠端 / 串流，只保留設定分組佔位。',
   'segmentLoop.action.clear': '清除目前 A-B 點',
@@ -6056,6 +7787,46 @@ const zhTW: TranslationMap = {
   'settings.appearance.theme.light': '淺色',
   'settings.appearance.theme.dark': '深色',
   'settings.appearance.theme.followSystem': '跟隨系統',
+  'settings.appearance.themeSchedule.title': '定時切換深色模式',
+  'settings.appearance.themeSchedule.description': '依照系統時間，到點自動切到深色，再按設定時間切回淺色。',
+  'settings.appearance.themeSchedule.toggle': '啟用定時',
+  'settings.appearance.themeSchedule.toggleAria': '啟用定時切換深色模式',
+  'settings.appearance.themeSchedule.darkAt': '切到深色',
+  'settings.appearance.themeSchedule.lightAt': '切回淺色',
+  'settings.appearance.themeSchedule.status.enabled': '已啟用：{darkAt} 切到{mode}，{lightAt} 自動切回淺色。目前依本機時間使用{mode}。',
+  'settings.appearance.themeSchedule.status.disabled': '關閉後仍使用上面的手動主題模式。',
+  'settings.appearance.sidebar.title': '側邊欄',
+  'settings.appearance.sidebar.description': '調整側邊入口的順序與顯示狀態，不會改動頁面或播放鏈路。',
+  'settings.appearance.sidebar.mainGroup': '主導覽',
+  'settings.appearance.sidebar.utilityGroup': '底部入口',
+  'settings.appearance.sidebar.reset': '恢復預設',
+  'settings.appearance.sidebar.visible': '顯示',
+  'settings.appearance.sidebar.hidden': '隱藏',
+  'settings.appearance.sidebar.fixed': '固定顯示',
+  'settings.appearance.sidebar.noItems': '這一組沒有可調整的入口。',
+  'settings.appearance.sidebar.summary.allVisible': '全部顯示',
+  'settings.appearance.sidebar.summary.hidden': '已隱藏 {count} 個入口',
+  'settings.appearance.sidebar.count': '{count} 項',
+  'settings.appearance.sidebar.moveUp': '上移',
+  'settings.appearance.sidebar.moveDown': '下移',
+  'settings.appearance.sidebar.moveUpAria': '上移 {label}',
+  'settings.appearance.sidebar.moveDownAria': '下移 {label}',
+  'settings.appearance.sidebar.hideAria': '隱藏 {label}',
+  'settings.appearance.sidebar.showAria': '顯示 {label}',
+  'settings.appearance.wallpaper.title': '自訂背景',
+  'settings.appearance.wallpaper.description': '支援圖片與本地影片；影片會靜音循環，不會進入音訊鏈路。',
+  'settings.appearance.wallpaper.choose': '選擇背景',
+  'settings.appearance.wallpaper.clear': '清除背景',
+  'settings.appearance.wallpaper.videoStatus': '影片桌布 · 靜音循環',
+  'settings.appearance.wallpaper.videoPause.smart': '智慧暫停',
+  'settings.appearance.wallpaper.videoPause.minimized': '最小化暫停',
+  'settings.appearance.wallpaper.videoPause.never': '持續播放',
+  'settings.appearance.wallpaper.scale': '桌布縮放',
+  'settings.appearance.wallpaper.blur': '桌布模糊度',
+  'settings.appearance.wallpaper.brightness': '桌布亮度',
+  'settings.appearance.wallpaper.uiOpacity': 'UI 透明度',
+  'settings.appearance.wallpaper.visualProtection': '可視化保護',
+  'settings.appearance.wallpaper.unifiedOpacity': '統一透明度',
   'settings.appearance.themePreset.title': '主題預設',
   'settings.appearance.themePreset.description': '選擇一套全域漸層色板；目前的明暗模式仍會保留。',
   'settings.appearance.themePreset.classic': '經典 ECHO Next',
@@ -6243,6 +8014,74 @@ const zhTW: TranslationMap = {
   'settings.appearance.artistAvatars.toggle': '自動取得歌手頭像',
   'settings.devices.title': '裝置列表',
   'settings.devices.empty': 'echo-audio-host 暫未回傳輸出裝置。',
+  'settings.danger.database.kicker': '曲庫資料庫安全',
+  'settings.danger.database.title': '恢復助手',
+  'settings.danger.database.badge.quarantined': '已隔離',
+  'settings.danger.database.description.loading': '正在讀取資料庫健康狀態、健康快照與最近維護記錄。',
+  'settings.danger.database.description.quarantined': '曲庫因損壞嵌入標籤或超大文字已被隔離。ECHO 會先打開恢復介面，音樂檔案不會被刪除。',
+  'settings.danger.database.description.healthy': '目前資料庫檢查正常。這裡會保留健康快照、壞庫歸檔與最近維護記錄。',
+  'settings.danger.database.description.unrecoverable': '資料庫無法從健康快照恢復。音樂檔案不會被刪除；請先匯出診斷並查看保護目錄，再確認歸檔壞庫並重建空庫。',
+  'settings.danger.database.description.recoverable': '偵測到資料庫不可用時，會先嘗試恢復健康快照；恢復前會先歸檔目前資料庫，音樂檔案不會被刪除。',
+  'settings.danger.database.health.ok': '健康',
+  'settings.danger.database.health.corrupt': '疑似損壞',
+  'settings.danger.database.health.unreadable': '無法讀取',
+  'settings.danger.database.health.idle': '待檢查',
+  'settings.danger.database.steps.quarantined.1': '目前曲庫已被移出活動位置，ECHO 不會再讀取那批危險標籤。',
+  'settings.danger.database.steps.quarantined.2': '優先使用「修復隔離庫副本」，它只處理歸檔副本，驗證通過後才恢復。',
+  'settings.danger.database.steps.quarantined.3': '若修復失敗，再選擇恢復健康快照或歸檔並重建空曲庫；音樂檔案不會被刪除。',
+  'settings.danger.database.steps.unrecoverable.1': '先確認掃描沒有執行；掃描中會拒絕恢復、重建與刪除。',
+  'settings.danger.database.steps.unrecoverable.2': '優先匯出診斷並打開保護目錄，保留壞庫歸檔線索。',
+  'settings.danger.database.steps.unrecoverable.3': '輸入確認詞「重建空庫」後，歸檔壞庫並重建空庫，再重新加入曲庫資料夾並掃描。',
+  'settings.danger.database.steps.recoverable.1': '先確認掃描沒有執行；掃描中會拒絕恢復、重建與刪除。',
+  'settings.danger.database.steps.recoverable.2': '優先點「恢復最近健康快照」，它只接受主程序列舉出的快照。',
+  'settings.danger.database.steps.recoverable.3': '沒有健康快照或恢復後仍損壞時，使用「歸檔壞庫並重建空庫」。',
+  'settings.danger.database.action.check': '檢查健康',
+  'settings.danger.database.action.checking': '檢查中...',
+  'settings.danger.database.action.create': '建立健康快照',
+  'settings.danger.database.action.creating': '建立中...',
+  'settings.danger.database.action.restore': '恢復最近健康快照',
+  'settings.danger.database.action.restoring': '恢復中...',
+  'settings.danger.database.action.scrub': '修復隔離庫副本',
+  'settings.danger.database.action.scrubbing': '修復中...',
+  'settings.danger.database.action.rebuild': '歸檔壞庫並重建空庫',
+  'settings.danger.database.action.rebuilding': '重建中...',
+  'settings.danger.database.action.discard': '歸檔問題曲目',
+  'settings.danger.database.action.discarding': '歸檔中...',
+  'settings.danger.database.action.relaunch': '重新啟動到恢復模式',
+  'settings.danger.database.action.relaunching': '重新啟動中...',
+  'settings.danger.database.action.open': '打開保護目錄',
+  'settings.danger.database.action.export': '匯出診斷',
+  'settings.danger.database.action.exporting': '匯出中...',
+  'settings.danger.database.meta.current': '目前資料庫',
+  'settings.danger.database.meta.snapshot': '最近健康快照',
+  'settings.danger.database.meta.snapshotHint': '可手動建立',
+  'settings.danger.database.meta.archive': '最近壞庫歸檔',
+  'settings.danger.database.meta.archiveHint': '恢復/重建前會自動歸檔',
+  'settings.danger.database.meta.pending': '待載入',
+  'settings.danger.database.meta.noSnapshot': '暫無健康快照',
+  'settings.danger.database.meta.noArchive': '暫無壞庫歸檔',
+  'settings.danger.database.unavailable.scrub': '找不到可修復的隔離庫副本；請打開保護目錄確認歸檔是否存在，或直接匯出診斷。',
+  'settings.danger.database.unavailable.restore': '暫無健康快照可恢復。可以先建立健康快照；若目前曲庫不可用，請匯出診斷。',
+  'settings.danger.database.confirmWord': '危險操作確認詞',
+  'settings.danger.database.confirmPlaceholder': '先輸入按鈕提示的確認詞，再執行危險操作',
+  'settings.danger.database.scanRunning': '曲庫掃描正在執行，恢復、重建與刪除會被拒絕。請等掃描結束後再操作。',
+  'settings.danger.duplicates.title': '掃描重複歌曲並清理',
+  'settings.danger.duplicates.description': '先掃描並列出重複組；清理時優先把低音質、低評分副本移入系統資源回收筒，每組保留評分最高的一首。',
+  'settings.danger.duplicates.meta.result': '掃描結果',
+  'settings.danger.duplicates.meta.resultValue': '{groups} 組 / {tracks} 首待清理',
+  'settings.danger.duplicates.meta.release': '預計釋放',
+  'settings.danger.duplicates.meta.scanTime': '掃描時間',
+  'settings.danger.duplicates.meta.notScanned': '尚未掃描',
+  'settings.danger.duplicates.action.scan': '掃描重複歌曲',
+  'settings.danger.duplicates.action.scanning': '掃描中...',
+  'settings.danger.duplicates.action.clean': '清理掃描結果',
+  'settings.danger.duplicates.action.cleaning': '清理中...',
+  'settings.danger.duplicates.progress.scan.title': '正在掃描重複歌曲',
+  'settings.danger.duplicates.progress.scan.description': '分批處理，避免擠占播放',
+  'settings.danger.duplicates.progress.scan.aria': '重複歌曲掃描中',
+  'settings.danger.duplicates.progress.clean.title': '正在清理掃描結果',
+  'settings.danger.duplicates.progress.clean.description': '移入資源回收筒並更新曲庫索引',
+  'settings.danger.duplicates.progress.clean.aria': '重複歌曲清理中',
   'settings.danger.clearCache.title': '清空媒體庫快取',
   'common.unavailable': '暫不可用',
   'common.ready': '就緒',
@@ -6770,6 +8609,7 @@ const jaJP: TranslationMap = {
   'app.window.maximize': '最大化',
   'app.window.restore': '元に戻す',
   'app.window.close': '閉じる',
+  'albumDetail.action.addToQueue': 'キューに追加',
   'albumDetail.action.back': 'アルバム',
   'albumDetail.action.likeAlbum': 'アルバムをお気に入りに追加',
   'albumDetail.action.more': 'その他のアルバム操作',
@@ -6777,6 +8617,7 @@ const jaJP: TranslationMap = {
   'albumDetail.action.playNow': '今すぐ再生',
   'albumDetail.action.readingAlbum': 'アルバムを読み込み中',
   'albumDetail.action.refresh': '更新',
+  'albumDetail.action.showInFolder': 'フォルダで表示',
   'albumDetail.action.unlikeAlbum': 'アルバムのお気に入りを解除',
   'albumDetail.aria.details': '{album} のアルバム詳細',
   'albumDetail.aria.info': 'アルバム情報',
@@ -6859,6 +8700,7 @@ const jaJP: TranslationMap = {
   'albumDetail.sources.linksAria': 'アルバム外部ソースリンク',
   'albumDetail.sources.releaseAria': '現在一致したリリース情報',
   'albumDetail.sources.releaseDetails': '現在のリリース',
+  'albumDetail.status.addedToQueue': '{count} 曲をキューに追加しました。',
   'albumDetail.status.libraryReady': '{value} 準備完了',
   'albumDetail.status.readingSignal': '信号を読み込み中',
   'albumDetail.status.unknownGenre': '不明なジャンル',
@@ -6966,10 +8808,6 @@ const jaJP: TranslationMap = {
   'audioDrawer.mode.directSound': 'DirectSound 互換',
   'audioDrawer.mode.shared': '共有',
   'audioDrawer.note.asio': '低遅延のプロ向け音声インターフェイスです。ドライバー対応が必要です。',
-  'audioDrawer.note.asioWarning': 'ASIO を有効にすると音声チャンネルを占有します。メーカー純正または信頼できる ASIO ドライバーがない場合は使わないでください。ASIO 対応のために出所不明の仮想ドライバーを入れることも推奨しません。効果は限定的で、不安定になる可能性があります。また、ASIO4ALL などのサードパーティ製ドライバーで問題が起きた場合、それをソフトウェアのバグとして扱わないでください。この種の問題は受け付けません。ネイティブ ASIO ドライバーを使用してください。',
-  'audioDrawer.note.outputResponsibilityTitle': '排他 / ASIO 使用時の注意',
-  'audioDrawer.note.outputResponsibilityPrimary': 'ヘッドホンやスピーカーを直挿ししている場合、通常は排他を有効にする必要はありません。排他 / ASIO で問題が出て共有モードでは正常な場合は、まず DAC、オーディオデバイス、ドライバー、接続経路を確認してください。すぐにソフトウェアの不具合と判断しないでください。手間を避けたい場合は独立した DAC の使用を推奨します。',
-  'audioDrawer.note.outputResponsibilitySecondary': '独立 DAC でも問題が続く場合は、設定 - 再生 でエンジンをリセットしてください。それでも解決しない場合は、グループチャットへエラーレポートを送信してください。',
   'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO と WASAPI 排他は金色で表示されます。',
   'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
   'audioDrawer.note.juceOutput': '既定ではオフです。FFmpeg 互換経路を既定の出力にし、必要な場合だけ JUCE 出力を手動で有効化します。失敗時は自動で戻します。',
@@ -7217,17 +9055,281 @@ const jaJP: TranslationMap = {
   'route.audioSettings.description': '出力とデコーダー設定。',
   'route.audioSettings.label': '音声設定',
   'route.connect.description': 'DLNA / AirPlay ワイヤレス再生。',
-  'route.connect.label': 'Connect',
+  'route.connect.label': '接続',
+  'connectPage.controls.aria': 'Connect controls',
+  'connectPage.controls.disconnect': '切断',
+  'connectPage.controls.pause': '一時停止',
+  'connectPage.controls.play': '再生',
+  'connectPage.controls.stop': '停止',
+  'connectPage.controls.volume': 'キャスト音量',
+  'connectPage.deviceState.available': '利用可能',
+  'connectPage.deviceState.connected': '接続済み',
+  'connectPage.deviceState.unavailable': 'オフライン',
+  'connectPage.deviceState.unsupported': '実験',
+  'connectPage.devices.allHidden': '現在のデバイスはすべて非表示です',
+  'connectPage.devices.aria': 'デバイス一覧',
+  'connectPage.devices.collapse': 'ローカルネットワークストリーマーを折りたたむ',
+  'connectPage.devices.empty': 'ローカルネットワーク機器は見つかりません',
+  'connectPage.devices.emptyHint': '更新すると、ここにストリーマー、TV、HQPlayer、AirPlay の入口が表示されます。',
+  'connectPage.devices.expand': 'ローカルネットワークストリーマーを展開',
+  'connectPage.devices.hiddenAria': '非表示のローカルネットワーク機器',
+  'connectPage.devices.hiddenTitle': '非表示の機器',
+  'connectPage.devices.kicker': 'NETWORK STREAMERS',
+  'connectPage.devices.restoreAll': 'すべて再表示',
+  'connectPage.devices.restoreHint': '上で非表示の機器を再表示できます。',
+  'connectPage.devices.summary': '{streamers} 台のストリーマー · {entries} 個の入口 · 非表示 {hidden}',
+  'connectPage.devices.title': 'ローカルネットワーク再生',
+  'connectPage.header.autoStart': '起動時に AirPlay / DLNA を自動で有効化',
+  'connectPage.header.description': 'DLNA / AirPlay / HQPlayer の外部再生をまとめて管理します。HQPlayer は現在、安全な引き継ぎ確認を主目的にしています。',
+  'connectPage.header.kicker': 'WIRELESS PLAYBACK',
+  'connectPage.header.refresh': 'デバイスを更新',
+  'connectPage.hqplayer.enable': 'HQPlayer を有効化',
+  'connectPage.hqplayer.kicker': 'EXTERNAL RENDERER',
+  'connectPage.hqplayer.localDesktop': 'この PC の HQPlayer Desktop',
+  'connectPage.hqplayer.state.available': '接続可能',
+  'connectPage.hqplayer.state.checking': '確認中',
+  'connectPage.hqplayer.state.disabled': '無効',
+  'connectPage.hqplayer.state.notConfigured': 'ポート未設定',
+  'connectPage.hqplayer.state.unavailable': '利用不可',
+  'connectPage.hqplayer.test': 'HQPlayer を検出',
+  'connectPage.nowPlaying.aria': '現在のキャスト',
+  'connectPage.nowPlaying.chooseDevice': 'ローカルネットワークストリーマーを選ぶとキャストを開始できます',
+  'connectPage.nowPlaying.coverReady': 'カバー URL 送信済み',
+  'connectPage.nowPlaying.coverWaiting': 'カバー URL を待機中',
+  'connectPage.nowPlaying.dlnaPolling': '状態ポーリングは約 3 秒',
+  'connectPage.nowPlaying.emptyTitle': '現在の曲はありません',
+  'connectPage.nowPlaying.infoAria': '現在のキャスト情報',
+  'connectPage.nowPlaying.infoWaiting': 'キャスト情報を待機中',
+  'connectPage.nowPlaying.latency': 'キャスト握手 {ms}ms',
+  'connectPage.nowPlaying.noOutput': '出力未接続',
+  'connectPage.nowPlaying.progressAria': 'キャスト進行状況',
+  'connectPage.outgoing.aria': 'DLNA outgoing request log',
+  'connectPage.outgoing.empty': 'No pulls yet',
+  'connectPage.outgoing.note': 'デバイスがカバーや音声を取得すると、ここに表示されます。',
+  'connectPage.outgoing.recent': '{count} recent',
+  'connectPage.outgoing.title': 'DLNA Out',
+  'connectPage.receiver.aria': 'スマホから受信',
+  'connectPage.receiver.disable': '受信を停止',
+  'connectPage.receiver.discoveryHint': '有効にするとスマホから見つけられます',
+  'connectPage.receiver.enable': '受信を開始',
+  'connectPage.receiver.fromClient': '{address} から',
+  'connectPage.receiver.kicker': 'RECEIVER',
+  'connectPage.receiver.noClient': 'スマホ未接続',
+  'connectPage.receiver.preparing': 'ローカルネットワークのアドレスを準備中',
+  'connectPage.receiver.progressAria': '受信再生の進行状況',
+  'connectPage.receiver.state.disabled': '未開始',
+  'connectPage.receiver.state.idle': 'スマホ待機中',
+  'connectPage.receiver.state.loading': '読み込み中',
+  'connectPage.receiver.state.playing': 'スマホから再生中',
+  'connectPage.receiver.state.ready': 'メディアを受信済み',
+  'connectPage.receiver.stop': '受信再生を停止',
+  'connectPage.receiver.title': 'スマホから受信',
+  'connectPage.receiver.waitingTitle': 'スマホからの送信を待機中',
+  'connectPage.stage.aria': 'クイックキャスト',
+  'connectPage.state.connecting': '接続中',
+  'connectPage.state.discovering': '機器をスキャン中',
+  'connectPage.state.error': 'エラー',
+  'connectPage.state.idle': '待機',
+  'connectPage.state.paused': '一時停止中',
+  'connectPage.state.playing': 'キャスト中',
+  'connectPage.state.stopped': '停止済み',
+  'connectPage.airplay.state.idle': 'iPhone を待機中',
+  'connectPage.airplay.state.playing': 'AirPlay 再生中',
+  'connectPage.airplay.state.starting': '起動中',
+  'connectPage.airplay.state.unavailable': 'ネイティブバックエンド利用不可',
+  'connectPage.airplay.waitingTitle': 'iPhone からの送信を待機中',
   'route.downloads.description': 'ダウンロードタスクのプレースホルダー。',
   'route.downloads.label': 'ダウンロード',
   'route.folders.description': 'ローカル取り込み元。',
   'route.folders.label': 'フォルダ',
   'route.history.description': '再生履歴。',
   'route.history.label': '履歴',
+  'historyPage.action.clear': '履歴を消去',
+  'historyPage.confirm.clear': '再生履歴を消去しますか？音楽ファイルやライブラリ自体は削除されません。',
+  'historyPage.date.none': 'まだありません',
+  'historyPage.duration.hoursMinutes': '{hours} 時間 {minutes} 分',
+  'historyPage.duration.minutes': '{count} 分',
+  'historyPage.empty.description': '1 曲再生すると、ここに最近のリスニングが記録されます。',
+  'historyPage.empty.title': '再生履歴はまだありません。',
+  'historyPage.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.',
+  'historyPage.filter.all': 'すべて',
+  'historyPage.filter.completed': '完走のみ',
+  'historyPage.filter.month': '今月',
+  'historyPage.filter.today': '今日',
+  'historyPage.filter.week': '今週',
+  'historyPage.header.kicker': '最近の再生履歴',
+  'historyPage.header.title': '履歴',
+  'historyPage.list.aria': '再生履歴一覧',
+  'historyPage.list.doubleClick': 'ダブルクリックで再生',
+  'historyPage.list.source': '{source} から',
+  'historyPage.list.unknownAlbum': '不明なアルバム',
+  'historyPage.list.unknownArtist': '不明なアーティスト',
+  'historyPage.list.unknownSource': 'ソース不明',
+  'historyPage.loadMore': 'さらに読み込む',
+  'historyPage.loading': '再生履歴を読み込んでいます...',
+  'historyPage.loadingMore': '読み込み中...',
+  'historyPage.metric.plays': '{count} 回',
+  'historyPage.metric.tracks': '{count} 曲',
+  'historyPage.search.placeholder': 'タイトル、アーティスト、アルバム、パスを検索',
+  'historyPage.summary.all.count': '総再生',
+  'historyPage.summary.all.duration': '総再生時間',
+  'historyPage.summary.all.group': '再生回数順',
+  'historyPage.summary.all.latest': '最近の再生日時',
+  'historyPage.summary.all.tracks': '履歴の曲数',
+  'historyPage.summary.aria': '履歴の概要',
+  'historyPage.summary.completed.count': '完走再生',
+  'historyPage.summary.completed.duration': '完走再生時間',
+  'historyPage.summary.completed.group': '完走回数順',
+  'historyPage.summary.completed.latest': '最近の完走再生',
+  'historyPage.summary.completed.tracks': '完走した曲数',
+  'historyPage.summary.month.count': '今月の再生',
+  'historyPage.summary.month.duration': '今月の再生時間',
+  'historyPage.summary.month.group': '今月の再生回数順',
+  'historyPage.summary.month.latest': '今月の最新再生',
+  'historyPage.summary.month.tracks': '今月の曲数',
+  'historyPage.summary.today.count': '今日の再生',
+  'historyPage.summary.today.duration': '今日の再生時間',
+  'historyPage.summary.today.group': '今日の再生回数順',
+  'historyPage.summary.today.latest': '今日の最新再生',
+  'historyPage.summary.today.tracks': '今日の曲数',
+  'historyPage.summary.week.count': '今週の再生',
+  'historyPage.summary.week.duration': '今週の再生時間',
+  'historyPage.summary.week.group': '今週の再生回数順',
+  'historyPage.summary.week.latest': '今週の最新再生',
+  'historyPage.summary.week.tracks': '今週の曲数',
+  'historyPage.toolbar.aria': '履歴フィルター',
   'route.home.description': 'ライブラリ概要と最近のリスニング。',
   'route.home.label': 'ホーム',
+  'home.artistLeaderboard.aria': 'アーティストランキング',
+  'home.artistLeaderboard.completionRate': '完走 {rate}%',
+  'home.artistLeaderboard.emptyDescription': 'もっと再生すると、ここにあなたの高頻度アーティストが並びます。',
+  'home.artistLeaderboard.emptyTitle': 'アーティストランキングはまだありません',
+  'home.artistLeaderboard.playCount': '{count} 回',
+  'home.artistLeaderboard.title': 'アーティストランキング',
+  'home.count.tracks': '{count} 曲',
+  'home.date.none': 'まだ記録はありません',
+  'home.date.unknown': '日時不明',
+  'home.duration.hoursMinutes': '{hours} 時間 {minutes} 分',
+  'home.duration.hoursOnly': '{hours} 時間',
+  'home.duration.minutes': '{count} 分',
+  'home.duration.zeroMinutes': '0 分',
+  'home.error.albumNotFound': 'アルバムが見つかりません: {album}',
+  'home.error.artistNotFound': 'アーティストが見つかりません: {artist}',
+  'home.error.desktopBridgeRandom': 'デスクトップライブラリブリッジを利用できません。ECHO Next デスクトップ版でランダムキューを作成してください。',
+  'home.error.desktopBridgeRecommend': 'デスクトップライブラリブリッジを利用できません。ECHO Next デスクトップ版でおすすめを更新してください。',
+  'home.error.desktopBridgeView': 'デスクトップライブラリブリッジを利用できません。ECHO Next デスクトップ版でホームを開いてください。',
+  'home.favoriteAlbums.aria': 'お気に入りのアルバム',
+  'home.favoriteAlbums.emptyDescription': 'もっとアルバムを再生すると、再生回数上位 4 枚がここに表示されます。',
+  'home.favoriteAlbums.emptyTitle': 'まだよく聴くアルバムはありません',
+  'home.favoriteAlbums.title': 'お気に入りのアルバム',
+  'home.hero.action.continue': '再開',
+  'home.hero.action.viewQueue': 'キューを見る',
+  'home.hero.aria': 'Today Echo',
+  'home.hero.defaultTitle': 'あなたのライブラリから再生を始めましょう。',
+  'home.hero.description.empty': '音楽を取り込むと、ここがライブラリの入口と最近の再生、本週のリスニングパルスになります。',
+  'home.hero.description.resume': '{artist} の「{title}」から再開するか、最近追加したカバーから始めましょう。',
+  'home.hero.kicker': 'Today Echo',
+  'home.hero.nowPlaying': '再生中',
+  'home.hero.recentSignal': '最近のシグナル',
+  'home.hero.statsAria': 'ライブラリ統計',
+  'home.metric.albums': 'アルバム',
+  'home.metric.albumsDetail': '作品単位で集計',
+  'home.metric.artists': 'アーティスト',
+  'home.metric.folders': 'フォルダ',
+  'home.metric.foldersDetail': '最近のスキャン {date}',
+  'home.metric.openAria': '{label} を開く',
+  'home.metric.songs': '曲',
+  'home.metric.songsDetail': '合計 {duration}',
+  'home.month.label': '{month}月',
+  'home.nowMeta.empty': 'ライブラリの準備ができると最近の内容がここに表示されます',
+  'home.preferences.aria': '再生傾向',
+  'home.recent.emptyAddedDescription': 'フォルダを取り込むと、最新で追加されたアルバムカバーがここに表示されます。',
+  'home.recent.emptyAddedTitle': '最近追加した作品はまだありません',
+  'home.recent.emptyPlayedDescription': '再生を始めると、最近聴いたアルバムがここに並びます。',
+  'home.recent.emptyPlayedTitle': '最近の再生はまだありません',
+  'home.recent.nextPage': '次のページ',
+  'home.recent.prevPage': '前のページ',
+  'home.recent.tab.added': '追加日',
+  'home.recent.tab.played': '再生済み',
+  'home.recent.tabsAria': '最近の内容',
+  'home.recent.title': '最近のアクティビティ',
+  'home.recommend.emptyDescription': 'アルバムを取り込むと、ここにおすすめのアルバムが並びます。',
+  'home.recommend.emptyTitle': 'おすすめできるアルバムはまだありません',
+  'home.recommend.refresh': '更新',
+  'home.recommend.refreshing': '更新中',
+  'home.recommend.title': 'おすすめ',
+  'home.signalVisualizer.aria': 'オーディオビジュアライザー',
+  'home.status.loading': 'ホームを整えています...',
+  'home.week.emptyHint': '再生すると、週ごとのリズムでマスが光ります。',
+  'home.week.listenDuration': '再生時間',
+  'home.week.playCount': '今週の再生',
+  'home.week.times': '回',
+  'home.week.title': '今週の Echo',
+  'home.weekday.fri': '金',
+  'home.weekday.mon': '月',
+  'home.weekday.wed': '水',
+  'home.weeklyHeatmap.activeWeeks': '{count} 週間アクティブ',
+  'home.weeklyHeatmap.aria': '直近 {weeks} 週間の再生ヒートマップ',
+  'home.weeklyHeatmap.dayAria': '{date}、{playCount} 回再生',
+  'home.weeklyHeatmap.dayTitle': '{date} · {playCount} 回 · {duration}',
   'route.inbox.description': '各スキャンで追加された新しい曲。',
   'route.inbox.label': '受信箱',
+  'inboxPage.action.addToQueue': 'キューに追加',
+  'inboxPage.action.generatePlaylist': 'あとで聴くプレイリストを作成',
+  'inboxPage.batch.latest': '最新スキャン',
+  'inboxPage.batch.recentAll': '最近の全スキャン',
+  'inboxPage.batch.selected': '指定したスキャン',
+  'inboxPage.date.none': 'まだ記録はありません',
+  'inboxPage.empty.description': 'ライブラリを一度スキャンすると、ここに新しく追加された曲が表示されます。',
+  'inboxPage.empty.noMatch': '一致する新着曲はありません',
+  'inboxPage.empty.title': '追加記録はまだありません',
+  'inboxPage.empty.tryFilter': '別の条件で試してみてください。',
+  'inboxPage.error.desktopBridgeRead': 'デスクトップブリッジを利用できないため、新曲受信箱を読み取れません。',
+  'inboxPage.facets.allAlbums': 'すべてのアルバム',
+  'inboxPage.facets.allArtists': 'すべてのアーティスト',
+  'inboxPage.facets.allFolders': 'すべてのフォルダ',
+  'inboxPage.facets.aria': '新曲受信箱の軸フィルター',
+  'inboxPage.filter.all': 'すべての新着',
+  'inboxPage.filter.aria': '問題分類フィルター',
+  'inboxPage.filter.clear': 'フィルターをクリア',
+  'inboxPage.filter.metadataIssue': 'メタデータ異常',
+  'inboxPage.filter.missingCover': 'カバー不足',
+  'inboxPage.filter.suspiciousFile': '疑わしいファイル',
+  'inboxPage.filter.unknownAlbum': '不明なアルバム',
+  'inboxPage.filter.unknownArtist': '不明なアーティスト',
+  'inboxPage.hero.kicker': 'LIBRARY INBOX',
+  'inboxPage.loading': '受信箱を読み込んでいます...',
+  'inboxPage.processing.aria': '今回の保留項目',
+  'inboxPage.processing.pending': 'あとで聴く / 未処理',
+  'inboxPage.quality.aria': '取り込み品質の概要',
+  'inboxPage.quality.coverCompleteness': 'カバー完全率',
+  'inboxPage.quality.metadataCompleteness': '情報完全率',
+  'inboxPage.quality.unknownArtistAlbum': '不明なアーティスト / アルバム',
+  'inboxPage.search.aria': '新曲受信箱を検索',
+  'inboxPage.search.placeholder': 'タイトル、アーティスト、アルバム、パスを検索',
+  'inboxPage.stats.aria': '新曲受信箱の概要',
+  'inboxPage.stats.currentResults': '現在の結果',
+  'inboxPage.stats.newSongs': '新着曲',
+  'inboxPage.status.all': 'すべての状態',
+  'inboxPage.status.aria': '処理状態フィルター',
+  'inboxPage.status.ignored': '無視済み',
+  'inboxPage.status.pending': '未処理',
+  'inboxPage.status.processed': '処理済み',
+  'inboxPage.story.aria': '取り込みストーリー',
+  'inboxPage.story.clean': '{summary}。全体としてきれいに整っています。',
+  'inboxPage.story.empty': 'スキャンが完了すると、ECHO が新着曲、アルバム、メタデータの問題をここに整理します。',
+  'inboxPage.story.kicker': 'IMPORT STORY',
+  'inboxPage.story.newAlbums': '新着アルバム',
+  'inboxPage.story.newArtists': '新着アーティスト',
+  'inboxPage.story.summaryAlbums': '{count} 枚のアルバム',
+  'inboxPage.story.summaryArtists': '{count} 人のアーティスト',
+  'inboxPage.story.summaryTracks': '{scope}で {count} 曲追加',
+  'inboxPage.story.totalDuration': '総再生時間',
+  'inboxPage.story.warningMetadataIssue': '{count} 曲でメタデータ異常',
+  'inboxPage.story.warningMissingCover': '{count} 曲でカバー不足',
+  'inboxPage.story.withWarnings': '{summary}。このうち {warnings}。',
+  'inboxPage.toolbar.aria': '新曲受信箱フィルター',
+  'inboxPage.toolbar.batch': 'バッチ',
   'route.importFile.description': '音声ファイルを 1 件取り込む。',
   'route.importFile.label': 'ファイルを取り込む',
   'route.importFolder.description': 'ローカル音楽フォルダを選択。',
@@ -7562,6 +9664,32 @@ const jaJP: TranslationMap = {
   'trackMenu.action.deleteSong': '曲を削除',
   'route.playlists.description': 'ユーザープレイリスト。',
   'route.playlists.label': 'プレイリスト',
+  'playlistsPage.action.importFile': 'M3U/M3U8 プレイリストを取り込む',
+  'playlistsPage.action.newLocal': 'ローカルプレイリストを新規作成',
+  'playlistsPage.daily.subtitle': 'NetEase Cloud Music のおすすめ',
+  'playlistsPage.daily.title': 'デイリーおすすめ',
+  'playlistsPage.empty.create': 'プレイリストを作成',
+  'playlistsPage.empty.createFirst': '最初のローカルプレイリストを作成',
+  'playlistsPage.empty.local': 'ローカルプレイリストはまだありません。',
+  'playlistsPage.error.desktopBridgeDailyRecommend': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.',
+  'playlistsPage.form.cancel': '作成をキャンセル',
+  'playlistsPage.form.create': '作成',
+  'playlistsPage.form.nameAria': 'ローカルプレイリスト名',
+  'playlistsPage.form.placeholder': '新しいローカルプレイリスト',
+  'playlistsPage.importStreaming.add': 'プレイリストを追加',
+  'playlistsPage.importStreaming.adding': '追加中',
+  'playlistsPage.importStreaming.placeholder': 'NetEase / QQ Music / Spotify のプレイリストリンクを貼り付け',
+  'playlistsPage.importStreaming.title': 'ストリーミングプレイリストを追加',
+  'playlistsPage.prompt.newLocalName': 'ローカルプレイリスト名',
+  'playlistsPage.status.createdLocal': 'ローカルプレイリストを作成しました',
+  'playlistsPage.status.importedStreamingPlaylist': 'プレイリストを追加しました: {name}、{count} 曲',
+  'playlistsPage.status.importingStreamingPlaylist': 'ストリーミングプレイリストを追加しています...',
+  'playlistsPage.status.loading': 'プレイリストを読み込んでいます...',
+  'playlistsPage.status.refreshedDaily': 'デイリーおすすめを更新しました: {count} 曲',
+  'playlistsPage.status.refreshingDaily': 'NetEase のデイリーおすすめを更新しています...',
+  'playlistsPage.view.aria': 'プレイリスト表示',
+  'playlistsPage.view.local': 'ローカルプレイリスト',
+  'playlistsPage.view.streamingFavorites': 'ストリーミングお気に入り',
   'route.plugins.description': 'ローカルで編集できるプラグイン。',
   'route.plugins.label': 'プラグイン',
   'route.queue.description': '再生キュー。',
@@ -7614,8 +9742,82 @@ const jaJP: TranslationMap = {
   'route.settings.label': '設定',
   'route.songs.description': 'ローカルライブラリの曲一覧。',
   'route.songs.label': '曲',
+  'songs.action.clearList': 'リストをクリア',
+  'songs.action.openRecovery': '復旧アシスタントへ',
+  'songs.duplicatesOnly': '重複曲のみ表示',
+  'songs.error.albumNotFound': 'アルバムが見つかりません: {album}',
+  'songs.error.artistNotFound': 'アーティストが見つかりません: {artist}',
+  'songs.error.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.',
+  'songs.error.desktopBridgeFileActions': 'Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.',
+  'songs.error.desktopBridgeLyricsCache': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.',
+  'songs.error.desktopBridgeMaintain': 'Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.',
+  'songs.error.desktopBridgePlay': 'Desktop bridge unavailable. Open ECHO Next in Electron to play local files.',
+  'songs.error.desktopBridgePlaylists': 'Desktop bridge unavailable. Open ECHO Next in Electron to use playlists.',
+  'songs.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read the library.',
+  'songs.error.desktopBridgeVersions': 'Desktop bridge unavailable. Open ECHO Next in Electron to inspect duplicate versions.',
+  'songs.importHint': '音楽ファイルやフォルダーをそのままウィンドウにドラッグできます。MP3、FLAC、WAV、ALAC、AAC、OPUS、OGG、APE、WV、DSF、DFF、CUE などに対応し、その他の形式も自動認識されます。',
+  'songs.queueSource.local': '曲リスト',
+  'songs.queueSource.remote': 'クラウド曲',
+  'songs.search.placeholder': '曲 / アーティスト / アルバムを検索...',
+  'songs.sort.album': 'アルバム順',
+  'songs.sort.artist': 'アーティスト順',
+  'songs.sort.createdAsc': '作成日時（昇順）',
+  'songs.sort.createdDesc': '作成日時（降順）',
+  'songs.sort.default': 'デフォルト順',
+  'songs.sort.durationAsc': '再生時間（短い順）',
+  'songs.sort.durationDesc': '再生時間（長い順）',
+  'songs.sort.fileModifiedAsc': '更新日時（古い順）',
+  'songs.sort.fileModifiedDesc': '更新日時（新しい順）',
+  'songs.sort.frequent': 'よく聴く順',
+  'songs.sort.menuAria': '曲の並び替え',
+  'songs.sort.qualityAsc': '音質/サイズ（小さい順）',
+  'songs.sort.qualityDesc': '音質/サイズ（大きい順）',
+  'songs.sort.random': 'ランダム順',
+  'songs.sort.recent': '最近更新',
+  'songs.sort.titleAsc': '曲名（A-Z）',
+  'songs.sort.titleDesc': '曲名（Z-A）',
+  'songs.trackList.aria': '曲一覧',
+  'songs.trackList.empty': '表示できる曲がありません。音楽フォルダーを取り込むと、ここにライブラリ一覧が表示されます。',
   'route.streaming.description': 'ストリーミング音楽ソース。',
   'route.streaming.label': 'ストリーミング',
+  'streaming.empty.notFoundAlbum': '一致するアルバムが見つかりません。',
+  'streaming.empty.notFoundArtist': '一致するアーティストが見つかりません。',
+  'streaming.empty.notFoundPlaylist': '一致するプレイリストが見つかりません。',
+  'streaming.empty.notFoundTrack': '一致するストリーミング楽曲が見つかりません。',
+  'streaming.empty.searchHint': 'キーワードを入力して検索を開始します。実際の音声 URL は再生時にだけ解決され、キューには保存されません。',
+  'streaming.hero.currentProvider': '現在のソース',
+  'streaming.hero.description': 'オンラインカタログを検索し、再生前に一時的に音声 URL を解決します。',
+  'streaming.hero.meterAria': '現在のストリーミング状態',
+  'streaming.hero.preparingSearch': '検索待機中',
+  'streaming.hero.title': 'ストリーミング音楽',
+  'streaming.provider.available': '利用可能',
+  'streaming.provider.disabled': '無効',
+  'streaming.provider.loggedIn': '{name} でログイン済み',
+  'streaming.provider.notLoggedIn': '未ログイン',
+  'streaming.providers.aria': 'ストリーミングプラットフォーム',
+  'streaming.quality.high': '高音質',
+  'streaming.quality.highDescription': '320kbps を優先',
+  'streaming.quality.hires': 'Hi-Res',
+  'streaming.quality.hiresDescription': 'プラットフォームで使える時に有効',
+  'streaming.quality.label': '音質',
+  'streaming.quality.lossless': 'ロスレス',
+  'streaming.quality.losslessDescription': 'FLAC を優先',
+  'streaming.quality.max': 'Max',
+  'streaming.quality.maxDescription': '既定の最高音質',
+  'streaming.quality.menuAria': '音質',
+  'streaming.quality.standard': '標準',
+  'streaming.quality.standardDescription': '互換性を優先',
+  'streaming.quality.switchFailed': '音質の切り替えに失敗しました',
+  'streaming.quality.switched': '音質を切り替えました: {quality}',
+  'streaming.result.count': '{count} 件の結果',
+  'streaming.result.searching': '検索中',
+  'streaming.result.searchingEllipsis': '検索中...',
+  'streaming.search.placeholder': '曲、アーティスト、アルバムを検索',
+  'streaming.tab.album': 'アルバム',
+  'streaming.tab.artist': 'アーティスト',
+  'streaming.tab.playlist': 'プレイリスト',
+  'streaming.tab.track': '曲',
+  'streaming.tabs.aria': '結果タイプ',
   'settings.header.searchPlaceholder': '設定を検索...',
   'settings.nav.general.label': '一般',
   'settings.nav.general.description': '言語、ウィンドウ、基本動作',
@@ -7727,16 +9929,114 @@ const jaJP: TranslationMap = {
   'settings.nav.library.description': '取り込み、スキャン、整理',
   'settings.nav.plugins.label': 'プラグイン',
   'settings.nav.plugins.description': 'ローカル拡張、権限、スクリプト',
+  'settings.plugins.card.title': 'ローカルプラグイン',
+  'settings.plugins.card.description': 'プラグインは既定で userData/plugins に置かれ、echo.plugin.json、plugin.js、パネルファイルを直接編集できます。',
+  'settings.plugins.meta.runtime': '実行方式',
+  'settings.plugins.meta.runtimeValue': 'ローカルサンドボックス',
+  'settings.plugins.meta.defaultState': '既定状態',
+  'settings.plugins.meta.defaultStateValue': '手動で有効化',
+  'settings.plugins.meta.permissions': '権限',
+  'settings.plugins.meta.permissionsValue': '有効化時に確認',
+  'settings.plugins.meta.playbackSafety': '再生安全性',
+  'settings.plugins.meta.playbackSafetyValue': '音声ホットパスに入らない',
+  'settings.plugins.action.openPage': 'プラグインページを開く',
+  'settings.plugins.action.openDirectory': 'プラグインフォルダーを開く',
+  'settings.plugins.action.createExample': 'サンプルプラグインを作成',
+  'settings.plugins.action.openDocs': 'プラグイン文書を見る',
+  'settings.plugins.note': 'プラグインページで有効化、無効化、再読み込み、コマンド、ログを扱います。ここでは入口と安全境界の説明だけを残し、管理 UI が二重化しないようにします。',
   'settings.nav.about.label': '情報 / 詳細',
   'settings.nav.about.description': 'バージョン、更新、開発ツール',
   'settings.nav.danger.label': '危険な操作',
   'settings.nav.danger.description': '復元とネットワーク安全性',
   'settings.general.artistInfoSources.description': 'アーティスト紹介を更新するときに使う百科ソースを選びます。百度百科は中国語圏向け、Wikipedia は海外アーティストの補完に使えます。',
+  'settings.nav.shortcuts.label': 'ショートカット',
+  'settings.nav.shortcuts.description': '通常ショートカット、グローバルショートカット、再生操作',
+  'settings.shortcuts.action.clear': 'クリア',
+  'settings.shortcuts.action.bossKey.description': 'ウィンドウを即座に隠し、ECHO の音量を 0 に下げます。',
+  'settings.shortcuts.action.bossKey.title': 'ボスキー',
+  'settings.shortcuts.action.nextTrack.description': '現在の再生キューの次の曲へ移動します。',
+  'settings.shortcuts.action.nextTrack.title': '次の曲',
+  'settings.shortcuts.action.openAudioSettings.description': '下部プレイヤーの音声設定ドロワーを開きます。',
+  'settings.shortcuts.action.openAudioSettings.title': '音声設定を開く',
+  'settings.shortcuts.action.openLyricsSettings.description': '歌詞設定ドロワーを開きます。',
+  'settings.shortcuts.action.openLyricsSettings.title': '歌詞設定を開く',
+  'settings.shortcuts.action.openMvSettings.description': 'MV 設定ドロワーを開きます。',
+  'settings.shortcuts.action.openMvSettings.title': 'MV 設定を開く',
+  'settings.shortcuts.action.playPause.description': 'グローバルで再生と一時停止を切り替えます。',
+  'settings.shortcuts.action.playPause.title': '再生 / 一時停止',
+  'settings.shortcuts.action.previousTrack.description': '現在の再生キューの前の曲へ移動します。',
+  'settings.shortcuts.action.previousTrack.title': '前の曲',
+  'settings.shortcuts.action.record': '記録',
+  'settings.shortcuts.action.restoreRecommended': 'おすすめを復元',
+  'settings.shortcuts.action.seekBackward.description': '現在の曲を 10 秒戻します。',
+  'settings.shortcuts.action.seekBackward.title': '10 秒戻る',
+  'settings.shortcuts.action.seekForward.description': '現在の曲を 10 秒進めます。',
+  'settings.shortcuts.action.seekForward.title': '10 秒進む',
+  'settings.shortcuts.action.showMainWindow.description': 'ECHO のメインウィンドウを前面に戻します。',
+  'settings.shortcuts.action.showMainWindow.title': 'メインウィンドウを表示',
+  'settings.shortcuts.action.speedDown.description': '再生速度を毎回 0.1x 下げます。',
+  'settings.shortcuts.action.speedDown.title': '再生速度を下げる',
+  'settings.shortcuts.action.speedUp.description': '再生速度を毎回 0.1x 上げます。',
+  'settings.shortcuts.action.speedUp.title': '再生速度を上げる',
+  'settings.shortcuts.action.stop.description': '現在の再生を停止し、再生状態を解放します。',
+  'settings.shortcuts.action.stop.title': '再生停止',
+  'settings.shortcuts.action.toggleDesktopLyricsLock.description': 'デスクトップ歌詞のマウス透過ロックを切り替えます。',
+  'settings.shortcuts.action.toggleDesktopLyricsLock.title': '歌詞をロック / 解除',
+  'settings.shortcuts.action.volumeDown.description': 'ECHO の音量を 5% 下げます。',
+  'settings.shortcuts.action.volumeDown.title': '音量を下げる',
+  'settings.shortcuts.action.volumeUp.description': 'ECHO の音量を 5% 上げます。',
+  'settings.shortcuts.action.volumeUp.title': '音量を上げる',
+  'settings.shortcuts.column.function': '機能',
+  'settings.shortcuts.column.local': '通常ショートカット',
+  'settings.shortcuts.column.global': 'グローバルショートカット',
+  'settings.shortcuts.description': '通常ショートカットは ECHO ウィンドウがフォーカスされている時だけ有効です。グローバルショートカットはバックグラウンドでも動作し、有効化前にシステム競合を確認します。',
+  'settings.shortcuts.empty': '未割り当て',
+  'settings.shortcuts.localUnavailable': 'グローバルのみ',
+  'settings.shortcuts.message.duplicate': 'このショートカットは別の操作にすでに割り当てられています。',
+  'settings.shortcuts.message.empty': '先にショートカットを記録してください。',
+  'settings.shortcuts.message.invalid': 'このキーは現在ショートカットとして使えません。',
+  'settings.shortcuts.message.safe': 'このショートカットは使用できます。',
+  'settings.shortcuts.message.unavailable': 'このショートカットはシステムまたは他のアプリで使用中のため、無効のままです。',
+  'settings.shortcuts.message.unsafe': 'このキーは現在ショートカットとして使えません。マクロパッド側で標準キーボードキーかメディアキーを出力してください。',
+  'settings.shortcuts.note': '単独キー、組み合わせ、メディアキー、マクロパッドキー、マウス側面ボタンに対応します。通常ショートカットは入力欄では発火しません。',
+  'settings.shortcuts.recording': '新しいショートカットを押してください...',
+  'settings.shortcuts.scope.local': '通常ショートカット',
+  'settings.shortcuts.scope.global': 'グローバルショートカット',
+  'settings.shortcuts.title': 'ショートカット',
   'settings.general.artistInfoSources.title': 'アーティスト情報ソース',
   'settings.general.artistStreamingAlbums.description': '有効にすると、アーティスト詳細のアルバムページでローカルアルバムの下にストリーミングアルバムを必要に応じて検索して表示します。ページとネットワーク負荷を抑えるため既定ではオフです。',
   'settings.general.artistStreamingAlbums.title': 'ストリーミングアルバム',
   'settings.general.language.title': '表示言語',
   'settings.general.language.description': 'メニュー、アプリ内設定、システムダイアログの表示言語を選択します。',
+  'settings.general.dataBackup.title': '自動データバックアップ',
+  'settings.general.dataBackup.description': '設定、ライブラリ索引、再生履歴、アカウントのローカル状態、壁紙、カバーキャッシュ、メタデータを保存します。バックアップ前にライブラリデータベースを検証し、破損データは拒否されます。',
+  'settings.general.dataBackup.status.enabled': '自動バックアップは有効です',
+  'settings.general.dataBackup.status.disabled': '自動バックアップは無効です',
+  'settings.general.dataBackup.hint.directoryReady': '保存先が設定済みです。手動バックアップや定期バックアップを開始できます',
+  'settings.general.dataBackup.hint.chooseDirectory': '先にバックアップ保存先を選択してください',
+  'settings.general.dataBackup.frequency.aria': '自動バックアップ周期',
+  'settings.general.dataBackup.frequency.days': '{days} 日',
+  'settings.general.dataBackup.frequency.monthly': '毎月',
+  'settings.general.dataBackup.meta.directory': '保存先',
+  'settings.general.dataBackup.meta.lastBackup': '前回のバックアップ',
+  'settings.general.dataBackup.meta.nextRun': '次回実行',
+  'settings.general.dataBackup.meta.notSet': '未設定',
+  'settings.general.dataBackup.meta.noneYet': '自動バックアップはまだありません',
+  'settings.general.dataBackup.meta.nextRunPending': '保存先を選んで有効にすると反映されます',
+  'settings.general.dataBackup.meta.atPath': '{time} · {path}',
+  'settings.general.dataBackup.action.chooseDirectory': '保存先を選択',
+  'settings.general.dataBackup.action.choosingDirectory': '選択中...',
+  'settings.general.dataBackup.action.backupNow': '今すぐバックアップ',
+  'settings.general.dataBackup.action.backingUp': 'バックアップ中...',
+  'settings.general.dataBackup.action.importBackup': 'バックアップを読み込む',
+  'settings.general.dataBackup.action.importingBackup': '読み込み中...',
+  'settings.general.dataBackup.action.openDirectory': 'フォルダーを開く',
+  'settings.general.dataPackage.title': 'ECHO データパッケージを書き出し / 移行',
+  'settings.general.dataPackage.description': '設定、ライブラリ索引、プレイリストのスナップショット、カバーキャッシュのパス、アカウント状態の説明を書き出します。音楽ファイルやログインキーは含まれません。',
+  'settings.general.dataPackage.action.export': 'ECHO データパッケージを書き出す',
+  'settings.general.dataPackage.action.exporting': 'パッケージ中...',
+  'settings.general.dataPackage.action.recovery': '復元入口',
+  'settings.general.dataPackage.note': '復元前に危険な操作エリアで健全スナップショットを作成してください。移行パッケージ内の RESTORE.md に各ファイルの用途が書かれています。',
   'settings.general.closeToTray': '閉じる時にトレイへ隠す',
   'settings.general.fastStartup.description': '有効にすると、起動時は軽量な読み取り専用のライブラリ確認だけを行い、完全なデータ保護スナップショットはウィンドウ表示後にバックグラウンドで完了します。既定ではオフです。',
   'settings.general.fastStartup.title': '高速起動',
@@ -7758,6 +10058,11 @@ const jaJP: TranslationMap = {
   'settings.general.backup.import': '設定を読み込む',
   'settings.playback.outputMode.asio': 'ASIO',
   'settings.playback.outputMode.title': '出力モード',
+  'settings.playback.advancedPanel.action.collapse': '高度な再生設定を閉じる',
+  'settings.playback.advancedPanel.action.expand': '高度な再生設定を開く',
+  'settings.playback.advancedPanel.description': '低負荷、診断、JUCE / DSD、書き出し、細かな再生制御は既定で折りたたみ、通常の出力設定を見やすくします。',
+  'settings.playback.advancedPanel.memory': '開閉状態を記憶します',
+  'settings.playback.advancedPanel.title': '高度な再生設定',
   'settings.playback.asioNativeDsd.description': '既定ではオフです。ASIO + ローカル DSF + DoP が有効で、EQ/音量/変速/DSP がない場合のみ試行します。失敗時は既存の DoP/PCM に戻ります。',
   'settings.playback.asioNativeDsd.title': 'ASIO ネイティブ DSD 実験',
   'settings.playback.dsdDop.description': '既定ではオフです。ローカル DSF を ASIO で DoP 直出しし、失敗時は FFmpeg PCM に自動で戻します。最終確認は DAC 表示を基準にしてください。',
@@ -7909,6 +10214,8 @@ const jaJP: TranslationMap = {
   'settings.integrations.discord.title': 'Discord ステータス',
   'settings.integrations.discord.description': '現在の再生状態を Discord Rich Presence に同期し、曲名、アーティスト、進行状況、再生状態を表示します。',
   'settings.integrations.smtc.description': '現在の再生情報、アートワーク、進行状況、メディアキー操作を Windows の音量フライアウトとロック画面へ公開します。',
+  'settings.integrations.smtc.action.restart': 'SMTC を再起動',
+  'settings.integrations.smtc.action.restarting': '再起動中...',
   'settings.integrations.taskbarPlayback.description': 'Windows タスクバー アイコンに再生進行状況を表示し、プレビューに前へ、再生/一時停止、次へのボタンを出します。',
   'settings.integrations.taskbarPlayback.title': 'タスクバー音楽コントロール',
   'settings.integrations.smtc.title': 'Windows メディア コントロール',
@@ -7967,6 +10274,16 @@ const jaJP: TranslationMap = {
   'settings.integrations.accountPanel.refreshAll': 'すべて更新',
   'settings.integrations.accountStartupRefresh.title': '起動時にアカウント状態を更新',
   'settings.integrations.accountStartupRefresh.description': '以前ログインしたことがあるアカウントだけを確認します。一度もログインしていないプラットフォームは静かなままです。',
+  'settings.integrations.accountExpiryNotices.title': 'アカウント失効通知をオフにする',
+  'settings.integrations.accountExpiryNotices.description': '有効にすると、アカウント失効時に左上の通知を出さなくなります。アカウント状態はここで引き続き確認できます。',
+  'settings.integrations.credentialPanel.title': '開発者 / API 設定',
+  'settings.integrations.credentialPanel.description': 'Spotify、TIDAL、Discogs、オンライン歌手、Last.fm の設定です。使わないなら折りたたんだままにできます。',
+  'settings.integrations.credentialPanel.expand': 'API 設定を展開',
+  'settings.integrations.credentialPanel.collapse': 'API 設定を折りたたむ',
+  'settings.integrations.smtcLyrics.title': 'SMTC 歌詞表示',
+  'settings.integrations.smtcLyrics.description': '現在の歌詞行を Windows のメディア情報へ追加できます。既定ではオフで、アーティスト欄が汚れるのを避けます。',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.title': 'Spotify で公式プレイヤーを自動起動',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.description': 'Spotify 再生時に、ECHO 内蔵 SDK が DRM の都合で使えない場合は、Spotify デスクトップ版または Web 版を自動で開いて Connect デバイスを引き継ぎます。',
   'settings.integrations.networkProxy.title': 'ネットワークプロキシ',
   'settings.integrations.networkProxy.description': 'ログインページ、ネットワーク取得のカバー、歌詞、MV 検索、メタデータ補完で使います。メディア再生ストリームは既定でプロキシを通さず、バッファや Range リクエストへの影響を避けます。',
   'settings.integrations.networkProxy.mode': 'モード',
@@ -7983,6 +10300,40 @@ const jaJP: TranslationMap = {
   'settings.integrations.networkProxy.test': '接続テスト',
   'settings.integrations.networkProxy.testBusy': 'テスト中...',
   'settings.integrations.networkProxy.note': '初版では通常のネットワーク機能だけを既定でプロキシします。リモートライブラリと再生バイトストリームは直結のままにして、再生中の安定性を守ります。',
+  'settings.remote.hero.title': 'クラウド / リモート音楽ライブラリ',
+  'settings.remote.hero.summary': 'クラウド / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby',
+  'settings.remote.hero.description': 'AList、Nutstore、Nextcloud などの WebDAV ストレージに接続でき、Jellyfin、Emby、Navidrome、NAS、SSHFS を独立した音楽ソースとして閲覧することもできます。ECHO はリモート楽曲のローカル索引を作成し、歌詞、MV、再生位置、お気に入り、履歴が正常に動作するようにします。',
+  'settings.remote.guardrail.aria': 'リモートライブラリ同期の境界',
+  'settings.remote.guardrail.title': 'ローカル再生を優先',
+  'settings.remote.guardrail.description': 'リモート同期とジャケット/メタデータ補完はすべてバックグラウンドで帯域制限付き実行されます。再生が活発なときは並列数を下げます。現在のオフライン境界は索引、ジャケット、小さなメタデータキャッシュまでで、ライブラリ全体の音楽ファイルを無言でミラーしません。',
+  'settings.remote.coverPerformance.aria': 'リモートジャケット読み込み性能',
+  'settings.remote.coverPerformance.title': '読み込み性能',
+  'settings.remote.coverPerformance.description': 'リモートジャケットの先読み強度を調整します。リストのジャケット読み込みにだけ影響し、再生ストリーム取得は変えません。',
+  'settings.remote.coverPerformance.groupAria': 'リモートジャケット読み込み性能プリセット',
+  'settings.remote.coverPerformance.option.low': '省データ',
+  'settings.remote.coverPerformance.option.low.description': '現在見えているジャケットだけ先読みします。公衆回線や非力なサーバー向けです。',
+  'settings.remote.coverPerformance.option.balanced': 'バランス',
+  'settings.remote.coverPerformance.option.balanced.description': '現在位置とその先およそ半画面から1画面分を先読みします。既定の推奨設定です。',
+  'settings.remote.coverPerformance.option.aggressive': '積極先読み',
+  'settings.remote.coverPerformance.option.aggressive.description': 'スクロール停止時により多くのジャケットを先に取得します。LAN 内の Navidrome 向けです。',
+  'settings.remote.coverPerformance.option.lan': 'LAN 最速',
+  'settings.remote.coverPerformance.option.lan.description': 'リモートジャケット先読みとバックグラウンド読み込みの並列度を最大にします。ローカル、NAS、安定したギガビット LAN 向けです。',
+  'settings.remote.albumMerge.aria': 'リモートアルバム統合ポリシー',
+  'settings.remote.albumMerge.title': 'アルバム統合',
+  'settings.remote.albumMerge.description': 'クラウド / リモートのアルバム一覧での表示グループ化にだけ影響します。ローカルライブラリもファイルタグも変えず、再生にも影響しません。',
+  'settings.remote.albumMerge.groupAria': 'リモートアルバム統合プリセット',
+  'settings.remote.albumMerge.option.conservative': '保守的に統合',
+  'settings.remote.albumMerge.option.conservative.description': 'まずサーバー側のアルバム ID を優先します。通常のクラウドでは同じソース、同じフォルダー、同じアルバムの曲だけを統合します。',
+  'settings.remote.albumMerge.option.standard': '標準統合',
+  'settings.remote.albumMerge.option.standard.description': '保守的な境界を保ちつつタイトル差異の許容を広げ、大小文字、記号、- Single のようなリモート側の分割を統合します。',
+  'settings.remote.albumMerge.stat.current': '元のアルバム数',
+  'settings.remote.albumMerge.stat.target': '統合後の数',
+  'settings.remote.albumMerge.stat.tracks': '索引済みリモート楽曲',
+  'settings.remote.albumMerge.pending': '未スキャン',
+  'settings.remote.albumMerge.action.scan': 'リモート楽曲をスキャン',
+  'settings.remote.albumMerge.action.scanning': 'スキャン中...',
+  'settings.remote.albumMerge.action.apply': '適用して再整理',
+  'settings.remote.albumMerge.action.applying': '再整理中...',
   'settings.remote.library.title': 'リモート音楽ライブラリ',
   'settings.remote.library.description': 'この段階ではクラウド / リモート / ストリーミングを禁止し、設定グループの場所だけ残します。',
   'segmentLoop.action.clear': '現在の A-B 点をクリア',
@@ -8006,6 +10357,46 @@ const jaJP: TranslationMap = {
   'settings.appearance.theme.light': 'ライト',
   'settings.appearance.theme.dark': 'ダーク',
   'settings.appearance.theme.followSystem': 'システムに合わせる',
+  'settings.appearance.themeSchedule.title': 'ダークモードの自動切り替え',
+  'settings.appearance.themeSchedule.description': 'システム時刻に合わせて指定時刻にダークへ切り替え、設定した時刻にライトへ戻します。',
+  'settings.appearance.themeSchedule.toggle': 'スケジュールを有効化',
+  'settings.appearance.themeSchedule.toggleAria': 'ダークモード自動切り替えを有効化',
+  'settings.appearance.themeSchedule.darkAt': 'ダークに切り替え',
+  'settings.appearance.themeSchedule.lightAt': 'ライトに戻す',
+  'settings.appearance.themeSchedule.status.enabled': '有効です: {darkAt} に{mode}へ切り替え、{lightAt} に自動でライトへ戻します。現在はローカル時刻に従って{mode}を使用中です。',
+  'settings.appearance.themeSchedule.status.disabled': 'オフのときは上の手動テーマ設定をそのまま使います。',
+  'settings.appearance.sidebar.title': 'サイドバー',
+  'settings.appearance.sidebar.description': 'サイドバー項目の順序と表示状態を調整します。ページ内容や再生経路は変更しません。',
+  'settings.appearance.sidebar.mainGroup': 'メインナビ',
+  'settings.appearance.sidebar.utilityGroup': '下部項目',
+  'settings.appearance.sidebar.reset': '初期状態に戻す',
+  'settings.appearance.sidebar.visible': '表示',
+  'settings.appearance.sidebar.hidden': '非表示',
+  'settings.appearance.sidebar.fixed': '固定表示',
+  'settings.appearance.sidebar.noItems': 'このグループには調整できる項目がありません。',
+  'settings.appearance.sidebar.summary.allVisible': 'すべて表示',
+  'settings.appearance.sidebar.summary.hidden': '{count} 個を非表示',
+  'settings.appearance.sidebar.count': '{count} 件',
+  'settings.appearance.sidebar.moveUp': '上へ移動',
+  'settings.appearance.sidebar.moveDown': '下へ移動',
+  'settings.appearance.sidebar.moveUpAria': '{label} を上へ移動',
+  'settings.appearance.sidebar.moveDownAria': '{label} を下へ移動',
+  'settings.appearance.sidebar.hideAria': '{label} を隠す',
+  'settings.appearance.sidebar.showAria': '{label} を表示',
+  'settings.appearance.wallpaper.title': 'カスタム背景',
+  'settings.appearance.wallpaper.description': '画像とローカル動画に対応します。動画はミュートでループし、音声経路には入りません。',
+  'settings.appearance.wallpaper.choose': '背景を選択',
+  'settings.appearance.wallpaper.clear': '背景をクリア',
+  'settings.appearance.wallpaper.videoStatus': '動画壁紙 ・ ミュートループ',
+  'settings.appearance.wallpaper.videoPause.smart': '自動一時停止',
+  'settings.appearance.wallpaper.videoPause.minimized': '最小化で停止',
+  'settings.appearance.wallpaper.videoPause.never': '常に再生',
+  'settings.appearance.wallpaper.scale': '壁紙スケール',
+  'settings.appearance.wallpaper.blur': '壁紙ぼかし',
+  'settings.appearance.wallpaper.brightness': '壁紙の明るさ',
+  'settings.appearance.wallpaper.uiOpacity': 'UI 透明度',
+  'settings.appearance.wallpaper.visualProtection': '視認性保護',
+  'settings.appearance.wallpaper.unifiedOpacity': '透明度を統一',
   'settings.appearance.themePreset.title': 'テーマプリセット',
   'settings.appearance.themePreset.description': 'アプリ全体のグラデーション色板を選びます。ライト/ダーク設定はそのまま使われます。',
   'settings.appearance.themePreset.classic': 'Classic ECHO Next',
@@ -8200,6 +10591,103 @@ const jaJP: TranslationMap = {
   'settings.about.nativeSqlite.description': 'better-sqlite3 は dev 前に Electron ABI へ rebuild し、スキャン時のモジュール不一致を避けます。',
   'settings.about.audioHost.title': '音声ホスト',
   'settings.about.audioHost.description': 'echo-audio-host.exe は現在ローカル移行検証用です。正式リリース後は extraResources に含めます。',
+  'settings.about.version.title': 'バージョン',
+  'settings.about.version.description': '現在インストールされている ECHO Next のバージョンです。',
+  'settings.about.updates.title': '自動更新',
+  'settings.about.updates.description': '起動後に GitHub Release を自動確認し、ダウンロード完了後は自動で再起動してインストールします。',
+  'settings.about.updates.currentVersion': '現在のバージョン',
+  'settings.about.updates.latestVersion': '最新バージョン',
+  'settings.about.updates.status': '状態',
+  'settings.about.updates.lastChecked': '前回確認',
+  'settings.about.updates.autoCheck': '更新を自動確認',
+  'settings.about.updates.action.check': '更新を確認',
+  'settings.about.updates.action.checking': '確認中...',
+  'settings.about.updates.action.afdian': '愛発電',
+  'settings.about.updates.action.history': '過去の更新履歴を見る',
+  'settings.about.updates.action.qq': 'QQ グループに参加',
+  'settings.about.updates.action.discord': 'Discord に参加',
+  'settings.about.updates.progress.ready': 'ダウンロード完了、インストール準備中',
+  'settings.about.updates.progress.downloading': '更新をダウンロード中',
+  'settings.about.updates.progress.aria': 'OTA 更新ダウンロード進捗 {percent}%',
+  'settings.about.updates.releaseNotes': '更新履歴',
+  'settings.about.updates.releaseNotesPending': '更新履歴をまもなく表示します...',
+  'settings.about.updates.releaseNotesEmpty': '更新履歴は GitHub Release から release notes が返ってきた後に表示されます。',
+  'settings.about.updates.state.idle': '確認待ち',
+  'settings.about.updates.state.checking': '確認中',
+  'settings.about.updates.state.available': '新しいバージョンがあります',
+  'settings.about.updates.state.downloading': 'ダウンロード中',
+  'settings.about.updates.state.downloaded': 'ダウンロード完了、インストール中',
+  'settings.about.updates.state.notAvailable': '最新です',
+  'settings.about.updates.state.error': '確認失敗',
+  'settings.about.updates.state.disabled': 'オフ',
+  'settings.danger.database.kicker': 'ライブラリ DB 保護',
+  'settings.danger.database.title': '復旧アシスタント',
+  'settings.danger.database.badge.quarantined': '隔離済み',
+  'settings.danger.database.description.loading': 'データベースの健康状態、健康スナップショット、最近の保守記録を読み込み中です。',
+  'settings.danger.database.description.quarantined': '壊れた埋め込みタグや巨大テキストのためライブラリが隔離されました。ECHO は先に復旧画面を開き、音楽ファイルは削除しません。',
+  'settings.danger.database.description.healthy': '現在のデータベース検査は正常です。ここに健康スナップショット、破損 DB のアーカイブ、最近の保守記録を残します。',
+  'settings.danger.database.description.unrecoverable': 'データベースは健康スナップショットから復旧できません。音楽ファイルは削除されません。まず診断をエクスポートし、保護フォルダーを確認してから、破損 DB をアーカイブして空のライブラリを再構築してください。',
+  'settings.danger.database.description.recoverable': 'データベースが使えない場合は、まず健康スナップショットからの復旧を試します。復旧前に現在のデータベースをアーカイブし、音楽ファイルは削除しません。',
+  'settings.danger.database.health.ok': '正常',
+  'settings.danger.database.health.corrupt': '破損の疑い',
+  'settings.danger.database.health.unreadable': '読み取れません',
+  'settings.danger.database.health.idle': '確認待ち',
+  'settings.danger.database.steps.quarantined.1': '現在のライブラリはアクティブ位置から退避されており、ECHO はその危険なタグ群を読み続けません。',
+  'settings.danger.database.steps.quarantined.2': 'まず「隔離ライブラリ副本を修復」を使ってください。これはアーカイブ副本だけを処理し、検証後にのみ復元します。',
+  'settings.danger.database.steps.quarantined.3': '修復に失敗したら、健康スナップショットの復旧か、破損 DB をアーカイブして空ライブラリを再構築してください。音楽ファイルは削除されません。',
+  'settings.danger.database.steps.unrecoverable.1': 'まずスキャンが動いていないことを確認してください。スキャン中は復旧、再構築、削除を拒否します。',
+  'settings.danger.database.steps.unrecoverable.2': 'まず診断をエクスポートし、保護フォルダーを開いて破損 DB の手掛かりを残してください。',
+  'settings.danger.database.steps.unrecoverable.3': '確認語「空ライブラリを再構築」を入力したあと、破損 DB をアーカイブして空ライブラリを再構築し、ライブラリフォルダーを再追加してスキャンします。',
+  'settings.danger.database.steps.recoverable.1': 'まずスキャンが動いていないことを確認してください。スキャン中は復旧、再構築、削除を拒否します。',
+  'settings.danger.database.steps.recoverable.2': 'まず「最新の健康スナップショットを復元」を試してください。主プロセスが列挙したスナップショットだけを受け付けます。',
+  'settings.danger.database.steps.recoverable.3': '健康スナップショットがない、または復旧後も壊れている場合は「破損 DB をアーカイブして空ライブラリを再構築」を使ってください。',
+  'settings.danger.database.action.check': '健康状態を確認',
+  'settings.danger.database.action.checking': '確認中...',
+  'settings.danger.database.action.create': '健康スナップショットを作成',
+  'settings.danger.database.action.creating': '作成中...',
+  'settings.danger.database.action.restore': '最新の健康スナップショットを復元',
+  'settings.danger.database.action.restoring': '復元中...',
+  'settings.danger.database.action.scrub': '隔離ライブラリ副本を修復',
+  'settings.danger.database.action.scrubbing': '修復中...',
+  'settings.danger.database.action.rebuild': '破損 DB をアーカイブして空ライブラリを再構築',
+  'settings.danger.database.action.rebuilding': '再構築中...',
+  'settings.danger.database.action.discard': '問題曲をアーカイブ',
+  'settings.danger.database.action.discarding': 'アーカイブ中...',
+  'settings.danger.database.action.relaunch': '復旧モードで再起動',
+  'settings.danger.database.action.relaunching': '再起動中...',
+  'settings.danger.database.action.open': '保護フォルダーを開く',
+  'settings.danger.database.action.export': '診断をエクスポート',
+  'settings.danger.database.action.exporting': 'エクスポート中...',
+  'settings.danger.database.meta.current': '現在の DB',
+  'settings.danger.database.meta.snapshot': '最新の健康スナップショット',
+  'settings.danger.database.meta.snapshotHint': '手動で作成できます',
+  'settings.danger.database.meta.archive': '最新の破損 DB アーカイブ',
+  'settings.danger.database.meta.archiveHint': '復元/再構築の前に自動でアーカイブします',
+  'settings.danger.database.meta.pending': '読み込み待ち',
+  'settings.danger.database.meta.noSnapshot': '健康スナップショットなし',
+  'settings.danger.database.meta.noArchive': '破損 DB アーカイブなし',
+  'settings.danger.database.unavailable.scrub': '修復可能な隔離ライブラリ副本が見つかりません。保護フォルダーを開いてアーカイブが存在するか確認するか、そのまま診断をエクスポートしてください。',
+  'settings.danger.database.unavailable.restore': '復元できる健康スナップショットがありません。先に健康スナップショットを作成できます。現在のライブラリが使えない場合は診断をエクスポートしてください。',
+  'settings.danger.database.confirmWord': '危険操作の確認語',
+  'settings.danger.database.confirmPlaceholder': '先にボタンに表示された確認語を入力してから危険操作を実行してください',
+  'settings.danger.database.scanRunning': 'ライブラリスキャンが実行中です。復旧、再構築、削除は拒否されます。スキャン終了後に操作してください。',
+  'settings.danger.duplicates.title': '重複曲をスキャンして整理',
+  'settings.danger.duplicates.description': '先に重複グループをスキャンして一覧化します。整理時は音質や評価の低い副本を優先してごみ箱へ移し、各グループで最も評価の高い 1 曲を残します。',
+  'settings.danger.duplicates.meta.result': 'スキャン結果',
+  'settings.danger.duplicates.meta.resultValue': '{groups} 組 / {tracks} 曲を整理予定',
+  'settings.danger.duplicates.meta.release': '解放見込み',
+  'settings.danger.duplicates.meta.scanTime': 'スキャン時刻',
+  'settings.danger.duplicates.meta.notScanned': '未スキャン',
+  'settings.danger.duplicates.action.scan': '重複曲をスキャン',
+  'settings.danger.duplicates.action.scanning': 'スキャン中...',
+  'settings.danger.duplicates.action.clean': 'スキャン結果を整理',
+  'settings.danger.duplicates.action.cleaning': '整理中...',
+  'settings.danger.duplicates.progress.scan.title': '重複曲をスキャン中',
+  'settings.danger.duplicates.progress.scan.description': '再生を圧迫しないよう分割処理しています',
+  'settings.danger.duplicates.progress.scan.aria': '重複曲をスキャン中',
+  'settings.danger.duplicates.progress.clean.title': 'スキャン結果を整理中',
+  'settings.danger.duplicates.progress.clean.description': 'ごみ箱へ移動し、ライブラリ索引を更新しています',
+  'settings.danger.duplicates.progress.clean.aria': '重複曲を整理中',
   'settings.danger.clearCache.title': 'ライブラリキャッシュを消去',
   'settings.danger.clearCache.description': 'ライブラリ索引、スキャン履歴、カバーキャッシュを削除します。音楽ファイルやライブラリフォルダーは削除しません。',
 };
@@ -8723,6 +11211,7 @@ const enUS: TranslationMap = {
   'app.window.maximize': 'Maximize',
   'app.window.restore': 'Restore',
   'app.window.close': 'Close',
+  'albumDetail.action.addToQueue': 'Add to queue',
   'albumDetail.action.back': 'Albums',
   'albumDetail.action.likeAlbum': 'Like album',
   'albumDetail.action.more': 'More album actions',
@@ -8730,6 +11219,7 @@ const enUS: TranslationMap = {
   'albumDetail.action.playNow': 'Play Now',
   'albumDetail.action.readingAlbum': 'Reading album',
   'albumDetail.action.refresh': 'Refresh',
+  'albumDetail.action.showInFolder': 'Show in folder',
   'albumDetail.action.unlikeAlbum': 'Unlike album',
   'albumDetail.aria.details': '{album} album details',
   'albumDetail.aria.info': 'Album info',
@@ -8812,6 +11302,7 @@ const enUS: TranslationMap = {
   'albumDetail.sources.linksAria': 'Album external source links',
   'albumDetail.sources.releaseAria': 'Current matched release info',
   'albumDetail.sources.releaseDetails': 'Current release',
+  'albumDetail.status.addedToQueue': 'Added {count} tracks to queue.',
   'albumDetail.status.libraryReady': '{value} ready',
   'albumDetail.status.readingSignal': 'Reading signal',
   'albumDetail.status.unknownGenre': 'Unknown genre',
@@ -8919,10 +11410,6 @@ const enUS: TranslationMap = {
   'audioDrawer.mode.directSound': 'DirectSound Compatibility',
   'audioDrawer.mode.shared': 'Shared',
   'audioDrawer.note.asio': 'Low-latency professional audio interface support requires a driver.',
-  'audioDrawer.note.asioWarning': 'ASIO takes over your audio channels. Use it only with an official or trusted ASIO driver; installing obscure virtual drivers just to force ASIO is not recommended, has limited benefit, and may make playback unstable. Also, if you use third-party drivers such as ASIO4ALL and run into any issue, do not call it a software bug; these issues are not accepted. Use the device native ASIO driver.',
-  'audioDrawer.note.outputResponsibilityTitle': 'Exclusive / ASIO Note',
-  'audioDrawer.note.outputResponsibilityPrimary': 'If you are driving headphones or speakers directly, Exclusive mode is usually unnecessary. If Exclusive / ASIO causes problems while Shared mode is fine, check your DAC, sound card, driver, and connection path first instead of treating it as a software bug immediately. If you want less hassle, use a dedicated DAC.',
-  'audioDrawer.note.outputResponsibilitySecondary': 'If problems still happen with a dedicated DAC, try Settings - Playback - Reset engine. If it still fails, send an error report in the group chat.',
   'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO and WASAPI Exclusive are highlighted in gold.',
   'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
   'audioDrawer.note.juceOutput': 'Off by default. The FFmpeg compatibility path is the default output; enable JUCE output manually when needed, with automatic fallback on failure.',
@@ -9171,16 +11658,280 @@ const enUS: TranslationMap = {
   'route.audioSettings.label': 'Audio Settings',
   'route.connect.description': 'DLNA / AirPlay wireless playback.',
   'route.connect.label': 'Connect',
+  'connectPage.controls.aria': 'Connect controls',
+  'connectPage.controls.disconnect': 'Disconnect',
+  'connectPage.controls.pause': 'Pause',
+  'connectPage.controls.play': 'Play',
+  'connectPage.controls.stop': 'Stop',
+  'connectPage.controls.volume': 'Cast volume',
+  'connectPage.deviceState.available': 'Available',
+  'connectPage.deviceState.connected': 'Connected',
+  'connectPage.deviceState.unavailable': 'Offline',
+  'connectPage.deviceState.unsupported': 'Experimental',
+  'connectPage.devices.allHidden': 'All current devices are hidden',
+  'connectPage.devices.aria': 'Device list',
+  'connectPage.devices.collapse': 'Collapse network streamers',
+  'connectPage.devices.empty': 'No network devices found',
+  'connectPage.devices.emptyHint': 'Refresh to show streamers, TVs, HQPlayer, and AirPlay endpoints here.',
+  'connectPage.devices.expand': 'Expand network streamers',
+  'connectPage.devices.hiddenAria': 'Hidden network devices',
+  'connectPage.devices.hiddenTitle': 'Hidden devices',
+  'connectPage.devices.kicker': 'NETWORK STREAMERS',
+  'connectPage.devices.restoreAll': 'Restore all',
+  'connectPage.devices.restoreHint': 'You can restore hidden devices above.',
+  'connectPage.devices.summary': '{streamers} streamers · {entries} endpoints · hidden {hidden}',
+  'connectPage.devices.title': 'Network streamers',
+  'connectPage.header.autoStart': 'Auto-enable AirPlay / DLNA on startup',
+  'connectPage.header.description': 'Centralized control for DLNA / AirPlay / HQPlayer external playback. HQPlayer is currently focused on safe handoff validation.',
+  'connectPage.header.kicker': 'WIRELESS PLAYBACK',
+  'connectPage.header.refresh': 'Refresh devices',
+  'connectPage.hqplayer.enable': 'Enable HQPlayer',
+  'connectPage.hqplayer.kicker': 'EXTERNAL RENDERER',
+  'connectPage.hqplayer.localDesktop': 'Local HQPlayer Desktop',
+  'connectPage.hqplayer.state.available': 'Reachable',
+  'connectPage.hqplayer.state.checking': 'Checking',
+  'connectPage.hqplayer.state.disabled': 'Disabled',
+  'connectPage.hqplayer.state.notConfigured': 'Port not configured',
+  'connectPage.hqplayer.state.unavailable': 'Unavailable',
+  'connectPage.hqplayer.test': 'Check HQPlayer',
+  'connectPage.nowPlaying.aria': 'Current cast',
+  'connectPage.nowPlaying.chooseDevice': 'Choose a network streamer to start casting',
+  'connectPage.nowPlaying.coverReady': 'Cover URL sent',
+  'connectPage.nowPlaying.coverWaiting': 'Waiting for cover URL',
+  'connectPage.nowPlaying.dlnaPolling': 'Status polling about every 3s',
+  'connectPage.nowPlaying.emptyTitle': 'No current track',
+  'connectPage.nowPlaying.infoAria': 'Current cast details',
+  'connectPage.nowPlaying.infoWaiting': 'Waiting for cast details',
+  'connectPage.nowPlaying.latency': 'Cast handshake {ms}ms',
+  'connectPage.nowPlaying.noOutput': 'No output connected',
+  'connectPage.nowPlaying.progressAria': 'Cast progress',
+  'connectPage.outgoing.aria': 'DLNA outgoing request log',
+  'connectPage.outgoing.empty': 'No pulls yet',
+  'connectPage.outgoing.note': 'Device cover or audio pulls will show here.',
+  'connectPage.outgoing.recent': '{count} recent',
+  'connectPage.outgoing.title': 'DLNA Out',
+  'connectPage.receiver.aria': 'Receive from phone',
+  'connectPage.receiver.disable': 'Disable receiver',
+  'connectPage.receiver.discoveryHint': 'Phones can discover this after enabling it',
+  'connectPage.receiver.enable': 'Enable receiver',
+  'connectPage.receiver.fromClient': 'From {address}',
+  'connectPage.receiver.kicker': 'RECEIVER',
+  'connectPage.receiver.noClient': 'No phone connected',
+  'connectPage.receiver.preparing': 'Preparing local network address',
+  'connectPage.receiver.progressAria': 'Receiver playback progress',
+  'connectPage.receiver.state.disabled': 'Disabled',
+  'connectPage.receiver.state.idle': 'Waiting for phone',
+  'connectPage.receiver.state.loading': 'Loading',
+  'connectPage.receiver.state.playing': 'Receiving from phone',
+  'connectPage.receiver.state.ready': 'Media received',
+  'connectPage.receiver.stop': 'Stop receiver playback',
+  'connectPage.receiver.title': 'Receive from phone',
+  'connectPage.receiver.waitingTitle': 'Waiting for phone casting',
+  'connectPage.stage.aria': 'Quick cast',
+  'connectPage.state.connecting': 'Connecting',
+  'connectPage.state.discovering': 'Scanning devices',
+  'connectPage.state.error': 'Error',
+  'connectPage.state.idle': 'Idle',
+  'connectPage.state.paused': 'Paused',
+  'connectPage.state.playing': 'Casting',
+  'connectPage.state.stopped': 'Stopped',
+  'connectPage.airplay.state.idle': 'Waiting for iPhone',
+  'connectPage.airplay.state.playing': 'AirPlay playing',
+  'connectPage.airplay.state.starting': 'Starting',
+  'connectPage.airplay.state.unavailable': 'Native backend unavailable',
+  'connectPage.airplay.waitingTitle': 'Waiting for iPhone casting',
   'route.downloads.description': 'Download queue placeholder.',
   'route.downloads.label': 'Downloads',
   'route.folders.description': 'Local import roots.',
   'route.folders.label': 'Folders',
   'route.history.description': 'Playback history.',
   'route.history.label': 'History',
+  'historyPage.action.clear': 'Clear history',
+  'historyPage.confirm.clear': 'Clear playback history? This will not delete your music files or empty the library.',
+  'historyPage.date.none': 'None yet',
+  'historyPage.duration.hoursMinutes': '{hours} hr {minutes} min',
+  'historyPage.duration.minutes': '{count} min',
+  'historyPage.empty.description': 'Play a song and your recent listening will show up here.',
+  'historyPage.empty.title': 'No playback history yet.',
+  'historyPage.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.',
+  'historyPage.filter.all': 'All',
+  'historyPage.filter.completed': 'Completed only',
+  'historyPage.filter.month': 'This month',
+  'historyPage.filter.today': 'Today',
+  'historyPage.filter.week': 'This week',
+  'historyPage.header.kicker': 'Recent playback history',
+  'historyPage.header.title': 'History',
+  'historyPage.list.aria': 'Playback history list',
+  'historyPage.list.doubleClick': 'Double-click to play',
+  'historyPage.list.source': 'From {source}',
+  'historyPage.list.unknownAlbum': 'Unknown album',
+  'historyPage.list.unknownArtist': 'Unknown artist',
+  'historyPage.list.unknownSource': 'Unknown source',
+  'historyPage.loadMore': 'Load more',
+  'historyPage.loading': 'Loading playback history...',
+  'historyPage.loadingMore': 'Loading...',
+  'historyPage.metric.plays': '{count} plays',
+  'historyPage.metric.tracks': '{count} tracks',
+  'historyPage.search.placeholder': 'Search title, artist, album, or path',
+  'historyPage.summary.all.count': 'Total plays',
+  'historyPage.summary.all.duration': 'Total time',
+  'historyPage.summary.all.group': 'Sorted by play count',
+  'historyPage.summary.all.latest': 'Last played',
+  'historyPage.summary.all.tracks': 'History tracks',
+  'historyPage.summary.aria': 'History overview',
+  'historyPage.summary.completed.count': 'Completed plays',
+  'historyPage.summary.completed.duration': 'Completed play time',
+  'historyPage.summary.completed.group': 'Sorted by completed plays',
+  'historyPage.summary.completed.latest': 'Last completed play',
+  'historyPage.summary.completed.tracks': 'Completed tracks',
+  'historyPage.summary.month.count': 'Monthly plays',
+  'historyPage.summary.month.duration': 'Monthly time',
+  'historyPage.summary.month.group': 'Sorted by monthly plays',
+  'historyPage.summary.month.latest': 'Last played this month',
+  'historyPage.summary.month.tracks': 'Monthly tracks',
+  'historyPage.summary.today.count': 'Today plays',
+  'historyPage.summary.today.duration': 'Today time',
+  'historyPage.summary.today.group': 'Sorted by today plays',
+  'historyPage.summary.today.latest': 'Last played today',
+  'historyPage.summary.today.tracks': 'Today tracks',
+  'historyPage.summary.week.count': 'Weekly plays',
+  'historyPage.summary.week.duration': 'Weekly time',
+  'historyPage.summary.week.group': 'Sorted by weekly plays',
+  'historyPage.summary.week.latest': 'Last played this week',
+  'historyPage.summary.week.tracks': 'Weekly tracks',
+  'historyPage.toolbar.aria': 'History filters',
   'route.home.description': 'Library overview and recent listening.',
   'route.home.label': 'Home',
+  'home.artistLeaderboard.aria': 'Artist leaderboard',
+  'home.artistLeaderboard.completionRate': '{rate}% completed',
+  'home.artistLeaderboard.emptyDescription': 'Play more music and your most frequent artists will show up here.',
+  'home.artistLeaderboard.emptyTitle': 'No artist leaderboard yet',
+  'home.artistLeaderboard.playCount': '{count} plays',
+  'home.artistLeaderboard.title': 'Artist leaderboard',
+  'home.count.tracks': '{count} tracks',
+  'home.date.none': 'No history yet',
+  'home.date.unknown': 'Unknown time',
+  'home.duration.hoursMinutes': '{hours} hr {minutes} min',
+  'home.duration.hoursOnly': '{hours} hr',
+  'home.duration.minutes': '{count} min',
+  'home.duration.zeroMinutes': '0 min',
+  'home.error.albumNotFound': 'Album not found: {album}',
+  'home.error.artistNotFound': 'Artist not found: {artist}',
+  'home.error.desktopBridgeRandom': 'Desktop library bridge unavailable. Generate a random queue from the ECHO Next desktop app.',
+  'home.error.desktopBridgeRecommend': 'Desktop library bridge unavailable. Refresh recommendations from the ECHO Next desktop app.',
+  'home.error.desktopBridgeView': 'Desktop library bridge unavailable. Open Home in the ECHO Next desktop app.',
+  'home.favoriteAlbums.aria': 'Albums you like',
+  'home.favoriteAlbums.emptyDescription': 'Play more albums and the top four by play count will appear here.',
+  'home.favoriteAlbums.emptyTitle': 'No frequent albums yet',
+  'home.favoriteAlbums.title': 'Albums you like',
+  'home.hero.action.continue': 'Resume playback',
+  'home.hero.action.viewQueue': 'View queue',
+  'home.hero.aria': 'Today Echo',
+  'home.hero.defaultTitle': 'Start from your music library.',
+  'home.hero.description.empty': 'After you import music, this becomes your library entry point, recent plays, and weekly listening pulse.',
+  'home.hero.description.resume': 'Pick up with "{title}" by {artist}, or start from one of your recent additions.',
+  'home.hero.kicker': 'Today Echo',
+  'home.hero.nowPlaying': 'Now playing',
+  'home.hero.recentSignal': 'Recent signal',
+  'home.hero.statsAria': 'Library stats',
+  'home.metric.albums': 'Albums',
+  'home.metric.albumsDetail': 'Grouped by release',
+  'home.metric.artists': 'Artists',
+  'home.metric.folders': 'Folders',
+  'home.metric.foldersDetail': 'Last scanned {date}',
+  'home.metric.openAria': 'Open {label}',
+  'home.metric.songs': 'Songs',
+  'home.metric.songsDetail': 'Total {duration}',
+  'home.month.label': '{month} mo',
+  'home.nowMeta.empty': 'Recent items will appear here once your library is ready',
+  'home.preferences.aria': 'Playback preferences',
+  'home.recent.emptyAddedDescription': 'After you import a folder, the newest covers added to your library will show here.',
+  'home.recent.emptyAddedTitle': 'No recent additions yet',
+  'home.recent.emptyPlayedDescription': 'Once playback starts, albums you listened to recently will show up here.',
+  'home.recent.emptyPlayedTitle': 'No recent playback yet',
+  'home.recent.nextPage': 'Next page',
+  'home.recent.prevPage': 'Previous page',
+  'home.recent.tab.added': 'Added',
+  'home.recent.tab.played': 'Played',
+  'home.recent.tabsAria': 'Recent content',
+  'home.recent.title': 'Recent activity',
+  'home.recommend.emptyDescription': 'Import albums and this area will fill with your library right away.',
+  'home.recommend.emptyTitle': 'No albums to recommend yet',
+  'home.recommend.refresh': 'Refresh',
+  'home.recommend.refreshing': 'Refreshing',
+  'home.recommend.title': 'Recommended for you',
+  'home.signalVisualizer.aria': 'Audio visualizer',
+  'home.status.loading': 'Preparing Home...',
+  'home.week.emptyHint': 'After playback starts, the grid lights up to your weekly rhythm.',
+  'home.week.listenDuration': 'Listening time',
+  'home.week.playCount': 'This week',
+  'home.week.times': 'plays',
+  'home.week.title': 'Weekly Echo',
+  'home.weekday.fri': 'F',
+  'home.weekday.mon': 'M',
+  'home.weekday.wed': 'W',
+  'home.weeklyHeatmap.activeWeeks': '{count} active weeks',
+  'home.weeklyHeatmap.aria': 'Playback heatmap for the last {weeks} weeks',
+  'home.weeklyHeatmap.dayAria': '{date}, {playCount} plays',
+  'home.weeklyHeatmap.dayTitle': '{date} · {playCount} plays · {duration}',
   'route.inbox.description': 'New tracks from each scan.',
   'route.inbox.label': 'Inbox',
+  'inboxPage.action.addToQueue': 'Add to queue',
+  'inboxPage.action.generatePlaylist': 'Create later playlist',
+  'inboxPage.batch.latest': 'Latest scan',
+  'inboxPage.batch.recentAll': 'Recent all scans',
+  'inboxPage.batch.selected': 'Selected scan',
+  'inboxPage.date.none': 'No record yet',
+  'inboxPage.empty.description': 'After one library scan, newly added songs will appear here.',
+  'inboxPage.empty.noMatch': 'No matching new songs',
+  'inboxPage.empty.title': 'No new additions yet',
+  'inboxPage.empty.tryFilter': 'Try a different filter.',
+  'inboxPage.error.desktopBridgeRead': 'Desktop bridge is temporarily unavailable, so the library inbox cannot be read.',
+  'inboxPage.facets.allAlbums': 'All albums',
+  'inboxPage.facets.allArtists': 'All artists',
+  'inboxPage.facets.allFolders': 'All folders',
+  'inboxPage.facets.aria': 'Library inbox dimension filters',
+  'inboxPage.filter.all': 'All additions',
+  'inboxPage.filter.aria': 'Issue category filters',
+  'inboxPage.filter.clear': 'Clear filters',
+  'inboxPage.filter.metadataIssue': 'Metadata issues',
+  'inboxPage.filter.missingCover': 'Missing covers',
+  'inboxPage.filter.suspiciousFile': 'Suspicious files',
+  'inboxPage.filter.unknownAlbum': 'Unknown album',
+  'inboxPage.filter.unknownArtist': 'Unknown artist',
+  'inboxPage.hero.kicker': 'LIBRARY INBOX',
+  'inboxPage.loading': 'Loading inbox...',
+  'inboxPage.processing.aria': 'Items needing attention',
+  'inboxPage.processing.pending': 'Listen later / pending',
+  'inboxPage.quality.aria': 'Import quality summary',
+  'inboxPage.quality.coverCompleteness': 'Cover completeness',
+  'inboxPage.quality.metadataCompleteness': 'Metadata completeness',
+  'inboxPage.quality.unknownArtistAlbum': 'Unknown artist / album',
+  'inboxPage.search.aria': 'Search library inbox',
+  'inboxPage.search.placeholder': 'Search title, artist, album, path',
+  'inboxPage.stats.aria': 'Library inbox summary',
+  'inboxPage.stats.currentResults': 'Current results',
+  'inboxPage.stats.newSongs': 'New songs',
+  'inboxPage.status.all': 'All states',
+  'inboxPage.status.aria': 'Processing state filters',
+  'inboxPage.status.ignored': 'Ignored',
+  'inboxPage.status.pending': 'Pending',
+  'inboxPage.status.processed': 'Processed',
+  'inboxPage.story.aria': 'Import story',
+  'inboxPage.story.clean': '{summary}. Everything looks pretty clean.',
+  'inboxPage.story.empty': 'After a scan completes, ECHO will organize newly added songs, albums, and metadata issues here.',
+  'inboxPage.story.kicker': 'IMPORT STORY',
+  'inboxPage.story.newAlbums': 'New albums',
+  'inboxPage.story.newArtists': 'New artists',
+  'inboxPage.story.summaryAlbums': '{count} albums',
+  'inboxPage.story.summaryArtists': '{count} artists',
+  'inboxPage.story.summaryTracks': '{scope} added {count} tracks',
+  'inboxPage.story.totalDuration': 'Total duration',
+  'inboxPage.story.warningMetadataIssue': '{count} tracks with metadata issues',
+  'inboxPage.story.warningMissingCover': '{count} tracks missing covers',
+  'inboxPage.story.withWarnings': '{summary}. Including {warnings}.',
+  'inboxPage.toolbar.aria': 'Library inbox filters',
+  'inboxPage.toolbar.batch': 'Batch',
   'route.importFile.description': 'Import a single audio file.',
   'route.importFile.label': 'Import File',
   'route.importFolder.description': 'Choose a local music folder.',
@@ -9515,6 +12266,32 @@ const enUS: TranslationMap = {
   'trackMenu.action.deleteSong': 'Delete song',
   'route.playlists.description': 'User playlists.',
   'route.playlists.label': 'Playlists',
+  'playlistsPage.action.importFile': 'Import M3U/M3U8 playlist',
+  'playlistsPage.action.newLocal': 'Create local playlist',
+  'playlistsPage.daily.subtitle': 'NetEase Cloud account recommendations',
+  'playlistsPage.daily.title': 'Daily recommendations',
+  'playlistsPage.empty.create': 'Create playlist',
+  'playlistsPage.empty.createFirst': 'Create your first local playlist',
+  'playlistsPage.empty.local': 'No local playlists yet.',
+  'playlistsPage.error.desktopBridgeDailyRecommend': 'Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.',
+  'playlistsPage.form.cancel': 'Cancel create',
+  'playlistsPage.form.create': 'Create',
+  'playlistsPage.form.nameAria': 'Local playlist name',
+  'playlistsPage.form.placeholder': 'New local playlist',
+  'playlistsPage.importStreaming.add': 'Add playlist',
+  'playlistsPage.importStreaming.adding': 'Adding',
+  'playlistsPage.importStreaming.placeholder': 'Paste a NetEase / QQ Music / Spotify playlist link',
+  'playlistsPage.importStreaming.title': 'Add streaming playlist',
+  'playlistsPage.prompt.newLocalName': 'New local playlist name',
+  'playlistsPage.status.createdLocal': 'Local playlist created',
+  'playlistsPage.status.importedStreamingPlaylist': 'Added playlist: {name}, {count} tracks',
+  'playlistsPage.status.importingStreamingPlaylist': 'Adding streaming playlist...',
+  'playlistsPage.status.loading': 'Loading playlists...',
+  'playlistsPage.status.refreshedDaily': 'Daily recommendations refreshed: {count} tracks',
+  'playlistsPage.status.refreshingDaily': 'Refreshing NetEase daily recommendations...',
+  'playlistsPage.view.aria': 'Playlist view',
+  'playlistsPage.view.local': 'Local playlists',
+  'playlistsPage.view.streamingFavorites': 'Streaming favorites',
   'route.plugins.description': 'Local editable plugins.',
   'route.plugins.label': 'Plugins',
   'route.queue.description': 'Playback queue.',
@@ -9567,8 +12344,82 @@ const enUS: TranslationMap = {
   'route.settings.label': 'Settings',
   'route.songs.description': 'Local library song list.',
   'route.songs.label': 'Songs',
+  'songs.action.clearList': 'Clear list',
+  'songs.action.openRecovery': 'Open recovery assistant',
+  'songs.duplicatesOnly': 'Duplicates only',
+  'songs.error.albumNotFound': 'Album not found: {album}',
+  'songs.error.artistNotFound': 'Artist not found: {artist}',
+  'songs.error.desktopBridgeClear': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.',
+  'songs.error.desktopBridgeFileActions': 'Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.',
+  'songs.error.desktopBridgeLyricsCache': 'Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.',
+  'songs.error.desktopBridgeMaintain': 'Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.',
+  'songs.error.desktopBridgePlay': 'Desktop bridge unavailable. Open ECHO Next in Electron to play local files.',
+  'songs.error.desktopBridgePlaylists': 'Desktop bridge unavailable. Open ECHO Next in Electron to use playlists.',
+  'songs.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read the library.',
+  'songs.error.desktopBridgeVersions': 'Desktop bridge unavailable. Open ECHO Next in Electron to inspect duplicate versions.',
+  'songs.importHint': 'You can also drag music files or folders directly into the window. Supports MP3, FLAC, WAV, ALAC, AAC, OPUS, OGG, APE, WV, DSF, DFF, and CUE, with more formats detected automatically.',
+  'songs.queueSource.local': 'Song list',
+  'songs.queueSource.remote': 'Cloud songs',
+  'songs.search.placeholder': 'Search songs / artists / albums...',
+  'songs.sort.album': 'By album',
+  'songs.sort.artist': 'By artist',
+  'songs.sort.createdAsc': 'Created time (ascending)',
+  'songs.sort.createdDesc': 'Created time (descending)',
+  'songs.sort.default': 'Default sort',
+  'songs.sort.durationAsc': 'Duration (short to long)',
+  'songs.sort.durationDesc': 'Duration (long to short)',
+  'songs.sort.fileModifiedAsc': 'File modified (old to new)',
+  'songs.sort.fileModifiedDesc': 'File modified (new to old)',
+  'songs.sort.frequent': 'Most played',
+  'songs.sort.menuAria': 'Song sort',
+  'songs.sort.qualityAsc': 'Quality/size (small to large)',
+  'songs.sort.qualityDesc': 'Quality/size (large to small)',
+  'songs.sort.random': 'Random sort',
+  'songs.sort.recent': 'Recently updated',
+  'songs.sort.titleAsc': 'Song title (A-Z)',
+  'songs.sort.titleDesc': 'Song title (Z-A)',
+  'songs.trackList.aria': 'Song list',
+  'songs.trackList.empty': 'No songs to display. After importing a music folder, your library list will appear here.',
   'route.streaming.description': 'Streaming music sources.',
   'route.streaming.label': 'Streaming',
+  'streaming.empty.notFoundAlbum': 'No matching albums were found.',
+  'streaming.empty.notFoundArtist': 'No matching artists were found.',
+  'streaming.empty.notFoundPlaylist': 'No matching playlists were found.',
+  'streaming.empty.notFoundTrack': 'No matching streaming tracks were found.',
+  'streaming.empty.searchHint': 'Enter keywords to start searching. Real audio URLs are resolved only during playback, and the queue does not store temporary URLs.',
+  'streaming.hero.currentProvider': 'Current source',
+  'streaming.hero.description': 'Search online catalogs and resolve audio URLs temporarily before playback.',
+  'streaming.hero.meterAria': 'Current streaming status',
+  'streaming.hero.preparingSearch': 'Preparing search',
+  'streaming.hero.title': 'Streaming music',
+  'streaming.provider.available': 'Available',
+  'streaming.provider.disabled': 'Disabled',
+  'streaming.provider.loggedIn': 'Signed in as {name}',
+  'streaming.provider.notLoggedIn': 'Not signed in',
+  'streaming.providers.aria': 'Streaming platforms',
+  'streaming.quality.high': 'High',
+  'streaming.quality.highDescription': 'Prefer 320kbps',
+  'streaming.quality.hires': 'Hi-Res',
+  'streaming.quality.hiresDescription': 'Enable when the provider supports it',
+  'streaming.quality.label': 'Quality',
+  'streaming.quality.lossless': 'Lossless',
+  'streaming.quality.losslessDescription': 'Prefer FLAC',
+  'streaming.quality.max': 'Max',
+  'streaming.quality.maxDescription': 'Default highest quality',
+  'streaming.quality.menuAria': 'Quality',
+  'streaming.quality.standard': 'Standard',
+  'streaming.quality.standardDescription': 'Better compatibility',
+  'streaming.quality.switchFailed': 'Failed to switch quality',
+  'streaming.quality.switched': 'Switched quality: {quality}',
+  'streaming.result.count': '{count} results',
+  'streaming.result.searching': 'Searching',
+  'streaming.result.searchingEllipsis': 'Searching...',
+  'streaming.search.placeholder': 'Search songs, artists, albums',
+  'streaming.tab.album': 'Albums',
+  'streaming.tab.artist': 'Artists',
+  'streaming.tab.playlist': 'Playlists',
+  'streaming.tab.track': 'Tracks',
+  'streaming.tabs.aria': 'Result types',
   'settings.header.searchPlaceholder': 'Search settings...',
   'settings.nav.general.label': 'General',
   'settings.nav.general.description': 'Language, window, and basic behavior',
@@ -9802,6 +12653,21 @@ const enUS: TranslationMap = {
   'settings.nav.library.description': 'Import, scan, and cleanup',
   'settings.nav.plugins.label': 'Plugins',
   'settings.nav.plugins.description': 'Local extensions, permissions, and scripts',
+  'settings.plugins.card.title': 'Local Plugins',
+  'settings.plugins.card.description': 'Plugins live under userData/plugins by default, and users can edit echo.plugin.json, plugin.js, and panel files directly.',
+  'settings.plugins.meta.runtime': 'Runtime',
+  'settings.plugins.meta.runtimeValue': 'Local sandbox',
+  'settings.plugins.meta.defaultState': 'Default state',
+  'settings.plugins.meta.defaultStateValue': 'Manually enabled',
+  'settings.plugins.meta.permissions': 'Permissions',
+  'settings.plugins.meta.permissionsValue': 'Confirm on enable',
+  'settings.plugins.meta.playbackSafety': 'Playback safety',
+  'settings.plugins.meta.playbackSafetyValue': 'Does not enter the audio hot path',
+  'settings.plugins.action.openPage': 'Open Plugins Page',
+  'settings.plugins.action.openDirectory': 'Open Plugin Directory',
+  'settings.plugins.action.createExample': 'Create Example Plugin',
+  'settings.plugins.action.openDocs': 'View Plugin Docs',
+  'settings.plugins.note': 'The plugins page handles enable, disable, reload, commands, and logs. This card keeps the entry points and safety-boundary notes here so the management UI does not split in two.',
   'settings.nav.about.label': 'About / Advanced',
   'settings.nav.about.description': 'Version, updates, and developer tools',
   'settings.nav.danger.label': 'Danger Zone',
@@ -9812,6 +12678,35 @@ const enUS: TranslationMap = {
   'settings.general.artistStreamingAlbums.title': 'Streaming Albums',
   'settings.general.language.title': 'Display Language',
   'settings.general.language.description': 'Choose the language used by menus, in-app settings, and system dialogs.',
+  'settings.general.dataBackup.title': 'Automatic Data Backup',
+  'settings.general.dataBackup.description': 'Back up settings, library indexes, playback memory, local account state, wallpapers, cover cache, and metadata. The library database is validated before backup, and corrupted data is rejected.',
+  'settings.general.dataBackup.status.enabled': 'Automatic backup is on',
+  'settings.general.dataBackup.status.disabled': 'Automatic backup is off',
+  'settings.general.dataBackup.hint.directoryReady': 'Directory is set. You can back up now or turn on scheduled backups.',
+  'settings.general.dataBackup.hint.chooseDirectory': 'Choose a backup directory first',
+  'settings.general.dataBackup.frequency.aria': 'Automatic backup interval',
+  'settings.general.dataBackup.frequency.days': '{days} days',
+  'settings.general.dataBackup.frequency.monthly': 'Monthly',
+  'settings.general.dataBackup.meta.directory': 'Directory',
+  'settings.general.dataBackup.meta.lastBackup': 'Last backup',
+  'settings.general.dataBackup.meta.nextRun': 'Next run',
+  'settings.general.dataBackup.meta.notSet': 'Not set',
+  'settings.general.dataBackup.meta.noneYet': 'No automatic backups yet',
+  'settings.general.dataBackup.meta.nextRunPending': 'Takes effect after you choose a directory and turn it on',
+  'settings.general.dataBackup.meta.atPath': '{time} · {path}',
+  'settings.general.dataBackup.action.chooseDirectory': 'Choose Directory',
+  'settings.general.dataBackup.action.choosingDirectory': 'Choosing...',
+  'settings.general.dataBackup.action.backupNow': 'Back Up Now',
+  'settings.general.dataBackup.action.backingUp': 'Backing Up...',
+  'settings.general.dataBackup.action.importBackup': 'Import Backup',
+  'settings.general.dataBackup.action.importingBackup': 'Importing...',
+  'settings.general.dataBackup.action.openDirectory': 'Open Directory',
+  'settings.general.dataPackage.title': 'Export / Migrate ECHO Data Package',
+  'settings.general.dataPackage.description': 'Export settings, library indexes, playlist snapshots, cover cache paths, and account-state notes. Music files and login secrets are not included.',
+  'settings.general.dataPackage.action.export': 'Export ECHO Data Package',
+  'settings.general.dataPackage.action.exporting': 'Packaging...',
+  'settings.general.dataPackage.action.recovery': 'Recovery Entry',
+  'settings.general.dataPackage.note': 'Create a healthy snapshot in Danger Zone before restoring. The RESTORE.md file inside the package explains what each file is for.',
   'settings.general.closeToTray': 'Hide to tray on close',
   'settings.general.fastStartup.description': 'When enabled, startup only runs a lightweight read-only library check; the full data protection snapshot finishes in the background after the window opens. Off by default.',
   'settings.general.fastStartup.title': 'Fast Startup',
@@ -9833,6 +12728,11 @@ const enUS: TranslationMap = {
   'settings.general.backup.import': 'Import Settings',
   'settings.playback.outputMode.asio': 'ASIO',
   'settings.playback.outputMode.title': 'Output Mode',
+  'settings.playback.advancedPanel.action.collapse': 'Collapse Advanced Playback Settings',
+  'settings.playback.advancedPanel.action.expand': 'Expand Advanced Playback Settings',
+  'settings.playback.advancedPanel.description': 'Low-load mode, diagnostics, JUCE / DSD, export, and detailed playback controls stay folded by default so everyday output settings stay quiet.',
+  'settings.playback.advancedPanel.memory': 'Expansion is remembered',
+  'settings.playback.advancedPanel.title': 'Advanced Playback Settings',
   'settings.playback.asioNativeDsd.description': 'Off by default. Only tries ASIO + local DSF + DoP when EQ, volume, speed, and DSP are inactive; failures fall back to the existing DoP/PCM path.',
   'settings.playback.asioNativeDsd.title': 'ASIO Native DSD Experiment',
   'settings.playback.dsdDop.description': 'Off by default. Attempts DoP passthrough for local DSF on ASIO; failures automatically fall back to FFmpeg PCM. Trust the DAC display as the final source of truth.',
@@ -10034,6 +12934,8 @@ const enUS: TranslationMap = {
   'settings.integrations.discord.title': 'Discord Status',
   'settings.integrations.discord.description': 'Sync the current playback state to Discord Rich Presence, including track, artist, progress, and play state.',
   'settings.integrations.smtc.description': 'Publish the current track, artwork, timeline, and media-key actions to the Windows volume flyout and lock screen.',
+  'settings.integrations.smtc.action.restart': 'Restart SMTC',
+  'settings.integrations.smtc.action.restarting': 'Restarting...',
   'settings.integrations.taskbarPlayback.description': 'Show playback progress on the Windows taskbar icon and add previous, play/pause, and next buttons to the hover preview.',
   'settings.integrations.taskbarPlayback.title': 'Taskbar Music Controls',
   'settings.integrations.smtc.title': 'Windows Media Controls',
@@ -10092,6 +12994,16 @@ const enUS: TranslationMap = {
   'settings.integrations.accountPanel.refreshAll': 'Refresh All',
   'settings.integrations.accountStartupRefresh.title': 'Refresh account login state on startup',
   'settings.integrations.accountStartupRefresh.description': 'Only checks accounts that have logged in before; platforms never used before stay quiet.',
+  'settings.integrations.accountExpiryNotices.title': 'Disable account expiry notices',
+  'settings.integrations.accountExpiryNotices.description': 'When enabled, expired accounts no longer trigger the top-left reminder; you can still check account status here.',
+  'settings.integrations.credentialPanel.title': 'Developer / API Setup',
+  'settings.integrations.credentialPanel.description': 'Spotify, TIDAL, Discogs, online artist sources, and Last.fm. Leave it collapsed if you do not need it.',
+  'settings.integrations.credentialPanel.expand': 'Expand API Setup',
+  'settings.integrations.credentialPanel.collapse': 'Collapse API Setup',
+  'settings.integrations.smtcLyrics.title': 'SMTC Lyrics Display',
+  'settings.integrations.smtcLyrics.description': 'Allows the current lyric line to be appended to Windows media info. Off by default to avoid polluting the artist field.',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.title': 'Auto-launch the official Spotify player',
+  'settings.integrations.spotifyAutoLaunchOfficialPlayer.description': 'When playing Spotify, if the built-in ECHO SDK cannot be used because DRM is unavailable, ECHO automatically opens the Spotify desktop app or web player and hands off the Connect device.',
   'settings.integrations.networkProxy.title': 'Network Proxy',
   'settings.integrations.networkProxy.description': 'Used for login pages, online covers, lyrics, MV search, and metadata enrichment. Media playback streams bypass the proxy by default to avoid affecting buffering and Range requests.',
   'settings.integrations.networkProxy.mode': 'Mode',
@@ -10142,6 +13054,40 @@ const enUS: TranslationMap = {
   'settings.library.networkPanel.trackNotFound': 'Track not found. Play a track first, or enter a track ID.',
   'settings.library.networkPanel.unknownArtist': 'Unknown Artist',
   'settings.library.networkPanel.untitled': 'Untitled',
+  'settings.remote.hero.title': 'Cloud / Remote Music Library',
+  'settings.remote.hero.summary': 'Cloud / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby',
+  'settings.remote.hero.description': 'Connect WebDAV drives such as AList, Nutstore, and Nextcloud, or browse Jellyfin, Emby, Navidrome, NAS, or SSHFS as standalone music sources. ECHO builds a local index for remote tracks so lyrics, MVs, playback progress, favorites, and history keep working.',
+  'settings.remote.guardrail.aria': 'Remote library sync boundary',
+  'settings.remote.guardrail.title': 'Local playback first',
+  'settings.remote.guardrail.description': 'Remote sync plus artwork and metadata completion always run in the background with rate limits. Concurrency is lowered while playback is active. The current offline boundary only covers indexes, artwork, and small metadata caches, and never silently mirrors the full music files.',
+  'settings.remote.coverPerformance.aria': 'Remote artwork loading performance',
+  'settings.remote.coverPerformance.title': 'Loading Performance',
+  'settings.remote.coverPerformance.description': 'Controls how aggressively remote artwork is prefetched. This only affects list artwork loading and never changes audio streaming.',
+  'settings.remote.coverPerformance.groupAria': 'Remote artwork loading preset',
+  'settings.remote.coverPerformance.option.low': 'Data Saver',
+  'settings.remote.coverPerformance.option.low.description': 'Only prefetch the artwork that is currently visible. Best for public networks or weaker servers.',
+  'settings.remote.coverPerformance.option.balanced': 'Balanced',
+  'settings.remote.coverPerformance.option.balanced.description': 'Prefetch the current area plus roughly half to one extra screen ahead. Recommended by default.',
+  'settings.remote.coverPerformance.option.aggressive': 'Aggressive Prefetch',
+  'settings.remote.coverPerformance.option.aggressive.description': 'Fetch more artwork ahead when scrolling pauses. Best for Navidrome on a local network.',
+  'settings.remote.coverPerformance.option.lan': 'LAN Speed',
+  'settings.remote.coverPerformance.option.lan.description': 'Max out remote artwork prefetch and background loading concurrency. Best for local machines, NAS, or a stable gigabit LAN.',
+  'settings.remote.albumMerge.aria': 'Remote album merge strategy',
+  'settings.remote.albumMerge.title': 'Album Merge',
+  'settings.remote.albumMerge.description': 'Only affects how cloud / remote albums are grouped in the list. It does not touch the local library, file tags, or playback.',
+  'settings.remote.albumMerge.groupAria': 'Remote album merge preset',
+  'settings.remote.albumMerge.option.conservative': 'Conservative Merge',
+  'settings.remote.albumMerge.option.conservative.description': 'Prefer the server album ID first. For standard cloud drives, only merge tracks from the same source, folder, and album.',
+  'settings.remote.albumMerge.option.standard': 'Standard Merge',
+  'settings.remote.albumMerge.option.standard.description': 'Keeps the conservative boundary but tolerates more title differences, merging case changes, symbols, and remote splits like - Single.',
+  'settings.remote.albumMerge.stat.current': 'Original albums',
+  'settings.remote.albumMerge.stat.target': 'Merged albums',
+  'settings.remote.albumMerge.stat.tracks': 'Indexed remote tracks',
+  'settings.remote.albumMerge.pending': 'Pending Scan',
+  'settings.remote.albumMerge.action.scan': 'Scan Remote Library',
+  'settings.remote.albumMerge.action.scanning': 'Scanning...',
+  'settings.remote.albumMerge.action.apply': 'Apply And Regroup',
+  'settings.remote.albumMerge.action.applying': 'Regrouping...',
   'settings.remote.library.title': 'Remote Music Library',
   'settings.remote.library.description': 'Cloud / remote / streaming sources are blocked in this phase; only the settings group remains.',
   'segmentLoop.action.clear': 'Clear current A-B points',
@@ -10165,6 +13111,46 @@ const enUS: TranslationMap = {
   'settings.appearance.theme.light': 'Light',
   'settings.appearance.theme.dark': 'Dark',
   'settings.appearance.theme.followSystem': 'Follow System',
+  'settings.appearance.themeSchedule.title': 'Scheduled Dark Mode',
+  'settings.appearance.themeSchedule.description': 'Use the system clock to switch to dark mode at the chosen time, then switch back to light mode later.',
+  'settings.appearance.themeSchedule.toggle': 'Enable Schedule',
+  'settings.appearance.themeSchedule.toggleAria': 'Enable scheduled dark mode switching',
+  'settings.appearance.themeSchedule.darkAt': 'Switch To Dark',
+  'settings.appearance.themeSchedule.lightAt': 'Switch Back To Light',
+  'settings.appearance.themeSchedule.status.enabled': 'Enabled: switch to {mode} at {darkAt}, then automatically switch back to light at {lightAt}. The current local time is using {mode}.',
+  'settings.appearance.themeSchedule.status.disabled': 'When disabled, the manual theme mode above stays in effect.',
+  'settings.appearance.sidebar.title': 'Sidebar',
+  'settings.appearance.sidebar.description': 'Adjust the order and visibility of sidebar entries without affecting pages or playback.',
+  'settings.appearance.sidebar.mainGroup': 'Main Navigation',
+  'settings.appearance.sidebar.utilityGroup': 'Bottom Entries',
+  'settings.appearance.sidebar.reset': 'Reset',
+  'settings.appearance.sidebar.visible': 'Visible',
+  'settings.appearance.sidebar.hidden': 'Hidden',
+  'settings.appearance.sidebar.fixed': 'Always Visible',
+  'settings.appearance.sidebar.noItems': 'There are no adjustable entries in this group.',
+  'settings.appearance.sidebar.summary.allVisible': 'All Visible',
+  'settings.appearance.sidebar.summary.hidden': '{count} entries hidden',
+  'settings.appearance.sidebar.count': '{count} items',
+  'settings.appearance.sidebar.moveUp': 'Move Up',
+  'settings.appearance.sidebar.moveDown': 'Move Down',
+  'settings.appearance.sidebar.moveUpAria': 'Move up {label}',
+  'settings.appearance.sidebar.moveDownAria': 'Move down {label}',
+  'settings.appearance.sidebar.hideAria': 'Hide {label}',
+  'settings.appearance.sidebar.showAria': 'Show {label}',
+  'settings.appearance.wallpaper.title': 'Custom Background',
+  'settings.appearance.wallpaper.description': 'Supports images and local videos. Videos loop silently and never enter the audio pipeline.',
+  'settings.appearance.wallpaper.choose': 'Choose Background',
+  'settings.appearance.wallpaper.clear': 'Clear Background',
+  'settings.appearance.wallpaper.videoStatus': 'Video Wallpaper · Muted Loop',
+  'settings.appearance.wallpaper.videoPause.smart': 'Smart Pause',
+  'settings.appearance.wallpaper.videoPause.minimized': 'Pause When Minimized',
+  'settings.appearance.wallpaper.videoPause.never': 'Always Play',
+  'settings.appearance.wallpaper.scale': 'Wallpaper Scale',
+  'settings.appearance.wallpaper.blur': 'Wallpaper Blur',
+  'settings.appearance.wallpaper.brightness': 'Wallpaper Brightness',
+  'settings.appearance.wallpaper.uiOpacity': 'UI Opacity',
+  'settings.appearance.wallpaper.visualProtection': 'Visual Protection',
+  'settings.appearance.wallpaper.unifiedOpacity': 'Unified Opacity',
   'settings.appearance.themePreset.title': 'Theme Presets',
   'settings.appearance.themePreset.description': 'Choose a global gradient palette; your light, dark, or system mode stays separate.',
   'settings.appearance.themePreset.classic': 'Classic ECHO Next',
@@ -10375,6 +13361,103 @@ const enUS: TranslationMap = {
   'settings.about.nativeSqlite.description': 'better-sqlite3 is rebuilt to the Electron ABI before dev to avoid module mismatches during scanning.',
   'settings.about.audioHost.title': 'Audio Host',
   'settings.about.audioHost.description': 'echo-audio-host.exe is currently used for local migration validation. Production builds will ship it through extraResources.',
+  'settings.about.version.title': 'Version',
+  'settings.about.version.description': 'The currently installed ECHO Next version.',
+  'settings.about.updates.title': 'Automatic Updates',
+  'settings.about.updates.description': 'Check GitHub Release automatically after launch, then restart and install after the download completes.',
+  'settings.about.updates.currentVersion': 'Current Version',
+  'settings.about.updates.latestVersion': 'Latest Version',
+  'settings.about.updates.status': 'Status',
+  'settings.about.updates.lastChecked': 'Last Checked',
+  'settings.about.updates.autoCheck': 'Automatically Check For Updates',
+  'settings.about.updates.action.check': 'Check For Updates',
+  'settings.about.updates.action.checking': 'Checking...',
+  'settings.about.updates.action.afdian': 'Afdian',
+  'settings.about.updates.action.history': 'View Update History',
+  'settings.about.updates.action.qq': 'Join QQ Group',
+  'settings.about.updates.action.discord': 'Join Discord',
+  'settings.about.updates.progress.ready': 'Download complete, preparing to install',
+  'settings.about.updates.progress.downloading': 'Downloading update',
+  'settings.about.updates.progress.aria': 'OTA update download progress {percent}%',
+  'settings.about.updates.releaseNotes': 'Release Notes',
+  'settings.about.updates.releaseNotesPending': 'Release notes will appear shortly...',
+  'settings.about.updates.releaseNotesEmpty': 'Release notes will appear after GitHub Release returns release notes.',
+  'settings.about.updates.state.idle': 'Pending Check',
+  'settings.about.updates.state.checking': 'Checking',
+  'settings.about.updates.state.available': 'New version available',
+  'settings.about.updates.state.downloading': 'Downloading',
+  'settings.about.updates.state.downloaded': 'Downloaded, installing',
+  'settings.about.updates.state.notAvailable': 'Up To Date',
+  'settings.about.updates.state.error': 'Check Failed',
+  'settings.about.updates.state.disabled': 'Disabled',
+  'settings.danger.database.kicker': 'Library Database Safety',
+  'settings.danger.database.title': 'Recovery Assistant',
+  'settings.danger.database.badge.quarantined': 'Quarantined',
+  'settings.danger.database.description.loading': 'Reading the database health state, healthy snapshots, and recent maintenance records.',
+  'settings.danger.database.description.quarantined': 'The library was quarantined because of damaged embedded tags or oversized text. ECHO will open the recovery flow first, and no music files will be deleted.',
+  'settings.danger.database.description.healthy': 'The current database check is healthy. Healthy snapshots, bad-database archives, and recent maintenance records are kept here.',
+  'settings.danger.database.description.unrecoverable': 'The database cannot be restored from a healthy snapshot. Music files will not be deleted. Export diagnostics and inspect the protection folder first, then confirm archiving the bad database and rebuilding an empty library.',
+  'settings.danger.database.description.recoverable': 'When the database is unavailable, ECHO tries restoring from a healthy snapshot first. The current database is archived before recovery, and music files are not deleted.',
+  'settings.danger.database.health.ok': 'Healthy',
+  'settings.danger.database.health.corrupt': 'Possibly Corrupt',
+  'settings.danger.database.health.unreadable': 'Unreadable',
+  'settings.danger.database.health.idle': 'Pending Check',
+  'settings.danger.database.steps.quarantined.1': 'The current library has been moved out of the active location, and ECHO will not keep reading those risky tags.',
+  'settings.danger.database.steps.quarantined.2': 'Prefer "Repair Quarantined Copy" first. It only touches the archived copy and restores it only after validation passes.',
+  'settings.danger.database.steps.quarantined.3': 'If repair fails, then choose to restore a healthy snapshot or archive the bad database and rebuild an empty library. Music files will not be deleted.',
+  'settings.danger.database.steps.unrecoverable.1': 'First confirm that no library scan is running. Recovery, rebuild, and delete actions are rejected while scanning.',
+  'settings.danger.database.steps.unrecoverable.2': 'Export diagnostics and open the protection folder first so the bad-database archive trail is preserved.',
+  'settings.danger.database.steps.unrecoverable.3': 'After entering the confirmation phrase "rebuild empty library", archive the bad database, rebuild an empty library, then add your library folders again and rescan.',
+  'settings.danger.database.steps.recoverable.1': 'First confirm that no library scan is running. Recovery, rebuild, and delete actions are rejected while scanning.',
+  'settings.danger.database.steps.recoverable.2': 'Try "Restore Latest Healthy Snapshot" first. It only accepts snapshots enumerated by the main process.',
+  'settings.danger.database.steps.recoverable.3': 'If no healthy snapshot exists, or recovery still leaves corruption, use "Archive Bad Database And Rebuild Empty Library".',
+  'settings.danger.database.action.check': 'Check Health',
+  'settings.danger.database.action.checking': 'Checking...',
+  'settings.danger.database.action.create': 'Create Healthy Snapshot',
+  'settings.danger.database.action.creating': 'Creating...',
+  'settings.danger.database.action.restore': 'Restore Latest Healthy Snapshot',
+  'settings.danger.database.action.restoring': 'Restoring...',
+  'settings.danger.database.action.scrub': 'Repair Quarantined Copy',
+  'settings.danger.database.action.scrubbing': 'Repairing...',
+  'settings.danger.database.action.rebuild': 'Archive Bad Database And Rebuild Empty Library',
+  'settings.danger.database.action.rebuilding': 'Rebuilding...',
+  'settings.danger.database.action.discard': 'Archive Problem Tracks',
+  'settings.danger.database.action.discarding': 'Archiving...',
+  'settings.danger.database.action.relaunch': 'Restart Into Recovery Mode',
+  'settings.danger.database.action.relaunching': 'Restarting...',
+  'settings.danger.database.action.open': 'Open Protection Folder',
+  'settings.danger.database.action.export': 'Export Diagnostics',
+  'settings.danger.database.action.exporting': 'Exporting...',
+  'settings.danger.database.meta.current': 'Current Database',
+  'settings.danger.database.meta.snapshot': 'Latest Healthy Snapshot',
+  'settings.danger.database.meta.snapshotHint': 'Can be created manually',
+  'settings.danger.database.meta.archive': 'Latest Bad-Database Archive',
+  'settings.danger.database.meta.archiveHint': 'Automatically archived before recovery or rebuild',
+  'settings.danger.database.meta.pending': 'Pending Load',
+  'settings.danger.database.meta.noSnapshot': 'No Healthy Snapshot Yet',
+  'settings.danger.database.meta.noArchive': 'No Bad-Database Archive Yet',
+  'settings.danger.database.unavailable.scrub': 'No repairable quarantined copy was found. Open the protection folder to confirm the archive exists, or export diagnostics directly.',
+  'settings.danger.database.unavailable.restore': 'There is no healthy snapshot available to restore. You can create one first. If the current library is unavailable, export diagnostics.',
+  'settings.danger.database.confirmWord': 'Danger Confirmation Phrase',
+  'settings.danger.database.confirmPlaceholder': 'Enter the confirmation phrase shown by the button before running dangerous actions',
+  'settings.danger.database.scanRunning': 'A library scan is still running. Recovery, rebuild, and delete actions are blocked until the scan finishes.',
+  'settings.danger.duplicates.title': 'Scan And Clean Duplicate Songs',
+  'settings.danger.duplicates.description': 'Scan and list duplicate groups first. Cleanup prioritizes lower-quality, lower-score copies into the system recycle bin, while keeping the highest-scored track in each group.',
+  'settings.danger.duplicates.meta.result': 'Scan Result',
+  'settings.danger.duplicates.meta.resultValue': '{groups} groups / {tracks} tracks to clean',
+  'settings.danger.duplicates.meta.release': 'Estimated Release',
+  'settings.danger.duplicates.meta.scanTime': 'Scan Time',
+  'settings.danger.duplicates.meta.notScanned': 'Not Scanned Yet',
+  'settings.danger.duplicates.action.scan': 'Scan Duplicate Songs',
+  'settings.danger.duplicates.action.scanning': 'Scanning...',
+  'settings.danger.duplicates.action.clean': 'Clean Scan Result',
+  'settings.danger.duplicates.action.cleaning': 'Cleaning...',
+  'settings.danger.duplicates.progress.scan.title': 'Scanning Duplicate Songs',
+  'settings.danger.duplicates.progress.scan.description': 'Processing in batches to avoid disrupting playback',
+  'settings.danger.duplicates.progress.scan.aria': 'Duplicate song scan in progress',
+  'settings.danger.duplicates.progress.clean.title': 'Cleaning Scan Result',
+  'settings.danger.duplicates.progress.clean.description': 'Moving files to the recycle bin and updating the library index',
+  'settings.danger.duplicates.progress.clean.aria': 'Duplicate song cleanup in progress',
   'settings.danger.clearCache.title': 'Clear Library Cache',
   'settings.danger.clearCache.description': 'Removes the library index, scan records, and cover cache without deleting music files or library folders.',
 };

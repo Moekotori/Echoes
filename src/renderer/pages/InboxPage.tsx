@@ -11,6 +11,7 @@ import type {
   LibraryInboxTrackItem,
   LibraryInboxTrackPage,
 } from '../../shared/types/library';
+import { useI18n } from '../i18n/I18nProvider';
 import { getLibraryBridge } from '../utils/echoBridge';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
@@ -101,9 +102,9 @@ const statusLabels: Record<LibraryInboxItemStatus, string> = {
   ignored: '已忽略',
 };
 
-const formatDateTime = (value: string | null | undefined): string => {
+const formatDateTime = (value: string | null | undefined, emptyLabel = '尚无记录'): string => {
   if (!value) {
-    return '尚无记录';
+    return emptyLabel;
   }
 
   const date = new Date(value);
@@ -133,22 +134,25 @@ const formatDurationHours = (seconds: number): string => {
 const buildStoryLine = (
   scopeLabel: string,
   story: LibraryInboxTrackPage['story'],
+  t: ReturnType<typeof useI18n>['t'],
 ): string => {
   if (story.trackCount <= 0) {
-    return '完成一次扫描后，ECHO 会把新增歌曲、专辑和资料问题整理在这里。';
+    return t('inboxPage.story.empty');
   }
 
   const pieces = [
-    `${scopeLabel}新增 ${story.trackCount} 首`,
-    `${story.albumCount} 张专辑`,
-    `${story.artistCount} 位艺人`,
+    t('inboxPage.story.summaryTracks', { scope: scopeLabel, count: story.trackCount }),
+    t('inboxPage.story.summaryAlbums', { count: story.albumCount }),
+    t('inboxPage.story.summaryArtists', { count: story.artistCount }),
   ];
   const warnings = [
-    story.missingCoverCount > 0 ? `${story.missingCoverCount} 首缺封面` : null,
-    story.metadataIssueCount > 0 ? `${story.metadataIssueCount} 首资料异常` : null,
+    story.missingCoverCount > 0 ? t('inboxPage.story.warningMissingCover', { count: story.missingCoverCount }) : null,
+    story.metadataIssueCount > 0 ? t('inboxPage.story.warningMetadataIssue', { count: story.metadataIssueCount }) : null,
   ].filter((value): value is string => Boolean(value));
 
-  return `${pieces.join('、')}。${warnings.length > 0 ? `其中 ${warnings.join('、')}。` : '资料看起来很干净。'}`;
+  return warnings.length > 0
+    ? t('inboxPage.story.withWarnings', { summary: pieces.join('、'), warnings: warnings.join('、') })
+    : t('inboxPage.story.clean', { summary: pieces.join('、') });
 };
 
 const albumKey = (album: LibraryInboxAlbumSummary): string => `${album.album}\0${album.albumArtist}`;
@@ -158,6 +162,7 @@ const inboxItemKey = (item: Pick<LibraryInboxTrackItem, 'batchId' | 'track'>): s
 const formatPercent = (value: number): string => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 
 export const InboxPage = (): JSX.Element => {
+  const { t } = useI18n();
   const queue = usePlaybackQueue();
   const [scope, setScope] = useState<LibraryInboxScope>('latest');
   const [batchId, setBatchId] = useState<string | null>(null);
@@ -183,13 +188,35 @@ export const InboxPage = (): JSX.Element => {
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
+  const localizedFilterOptions = useMemo<Array<{ value: LibraryInboxFilterKind; label: string }>>(
+    () => [
+      { value: 'all', label: t('inboxPage.filter.all') },
+      { value: 'missing_cover', label: t('inboxPage.filter.missingCover') },
+      { value: 'metadata_issue', label: t('inboxPage.filter.metadataIssue') },
+      { value: 'unknown_artist', label: t('inboxPage.filter.unknownArtist') },
+      { value: 'unknown_album', label: t('inboxPage.filter.unknownAlbum') },
+      { value: 'suspicious_file', label: t('inboxPage.filter.suspiciousFile') },
+    ],
+    [t],
+  );
+
+  const localizedStatusOptions = useMemo<Array<{ value: LibraryInboxStatusFilter; label: string }>>(
+    () => [
+      { value: 'all', label: t('inboxPage.status.all') },
+      { value: 'pending', label: t('inboxPage.status.pending') },
+      { value: 'processed', label: t('inboxPage.status.processed') },
+      { value: 'ignored', label: t('inboxPage.status.ignored') },
+    ],
+    [t],
+  );
+
   const loadInbox = useCallback(
     async (nextPage: number, mode: 'replace' | 'append'): Promise<void> => {
       const library = getLibraryBridge();
       if (!library?.getLibraryInboxTracks) {
         setPageData(emptyInboxPage(scope, filter));
         setItems([]);
-        setError('桌面桥接暂不可用，无法读取新歌收件箱。');
+        setError(t('inboxPage.error.desktopBridgeRead'));
         return;
       }
 
@@ -230,7 +257,7 @@ export const InboxPage = (): JSX.Element => {
         }
       }
     },
-    [album, artist, batchId, filter, folderId, scope, search, status],
+    [album, artist, batchId, filter, folderId, scope, search, status, t],
   );
 
   useEffect(() => {
@@ -274,15 +301,15 @@ export const InboxPage = (): JSX.Element => {
 
   const selectedScopeLabel = useMemo(() => {
     if (scope === 'all') {
-      return '最近全部扫描';
+      return t('inboxPage.batch.recentAll');
     }
     if (scope === 'latest') {
-      return '最新扫描';
+      return t('inboxPage.batch.latest');
     }
-    return selectedBatch ? folderLabel(selectedBatch) : '指定扫描';
-  }, [scope, selectedBatch]);
+    return selectedBatch?.folderName ?? t('inboxPage.batch.selected');
+  }, [scope, selectedBatch, t]);
 
-  const storyLine = useMemo(() => buildStoryLine(selectedScopeLabel, story), [selectedScopeLabel, story]);
+  const storyLine = useMemo(() => buildStoryLine(selectedScopeLabel, story, t), [selectedScopeLabel, story, t]);
 
   const handleSelectBatch = (value: string): void => {
     setMessage(null);
@@ -472,32 +499,32 @@ export const InboxPage = (): JSX.Element => {
     <div className="inbox-page">
       <header className="inbox-hero">
         <div className="inbox-hero-copy">
-          <span className="panel-kicker">Library Inbox</span>
-          <h1>新歌收件箱</h1>
+          <span className="panel-kicker">{t('inboxPage.hero.kicker')}</span>
+          <h1>{t('route.inbox.label')}</h1>
           <div className="inbox-hero-meta">
             <span>{selectedScopeLabel}</span>
-            <span>{formatDateTime(selectedBatch?.finishedAt ?? pageData.batches[0]?.finishedAt)}</span>
+            <span>{formatDateTime(selectedBatch?.finishedAt ?? pageData.batches[0]?.finishedAt, t('inboxPage.date.none'))}</span>
           </div>
         </div>
-        <div className="inbox-stats" aria-label="新歌收件箱摘要">
+        <div className="inbox-stats" aria-label={t('inboxPage.stats.aria')}>
           <span>
             <strong>{pageData.total}</strong>
-            <em>当前结果</em>
+            <em>{t('inboxPage.stats.currentResults')}</em>
           </span>
           <span>
             <strong>{selectedBatch?.addedCount ?? pageData.batches.reduce((sum, batch) => sum + batch.addedCount, 0)}</strong>
-            <em>新增歌曲</em>
+            <em>{t('inboxPage.stats.newSongs')}</em>
           </span>
           <span>
             <strong>{selectedBatch?.missingCoverCount ?? pageData.batches.reduce((sum, batch) => sum + batch.missingCoverCount, 0)}</strong>
-            <em>缺封面</em>
+            <em>{t('inboxPage.filter.missingCover')}</em>
           </span>
         </div>
       </header>
 
-      <section className="inbox-story-panel" aria-label="入库故事">
+      <section className="inbox-story-panel" aria-label={t('inboxPage.story.aria')}>
         <div className="inbox-story-copy">
-          <span className="panel-kicker">Import Story</span>
+          <span className="panel-kicker">{t('inboxPage.story.kicker')}</span>
           <strong>{storyLine}</strong>
           <div className="inbox-story-tags">
             {story.topFolders.slice(0, 3).map((folder) => (
@@ -515,20 +542,20 @@ export const InboxPage = (): JSX.Element => {
         <div className="inbox-story-numbers">
           <span>
             <strong>{story.albumCount}</strong>
-            <em>新增专辑</em>
+            <em>{t('inboxPage.story.newAlbums')}</em>
           </span>
           <span>
             <strong>{story.artistCount}</strong>
-            <em>新增艺人</em>
+            <em>{t('inboxPage.story.newArtists')}</em>
           </span>
           <span>
             <strong>{formatDurationHours(story.totalDuration)}</strong>
-            <em>总时长</em>
+            <em>{t('inboxPage.story.totalDuration')}</em>
           </span>
         </div>
       </section>
 
-      <section className="inbox-processing-panel" aria-label="本批待处理">
+      <section className="inbox-processing-panel" aria-label={t('inboxPage.processing.aria')}>
         <div className="inbox-processing-cards">
           <button
             className="inbox-processing-card"
@@ -542,7 +569,7 @@ export const InboxPage = (): JSX.Element => {
             <Clock3 size={18} />
             <span>
               <strong>{story.pendingCount}</strong>
-              <em>待听 / 待处理</em>
+              <em>{t('inboxPage.processing.pending')}</em>
             </span>
           </button>
           <button
@@ -554,7 +581,7 @@ export const InboxPage = (): JSX.Element => {
             <Disc3 size={18} />
             <span>
               <strong>{story.missingCoverCount}</strong>
-              <em>缺封面</em>
+              <em>{t('inboxPage.filter.missingCover')}</em>
             </span>
           </button>
           <button
@@ -566,7 +593,7 @@ export const InboxPage = (): JSX.Element => {
             <CheckCircle2 size={18} />
             <span>
               <strong>{story.metadataIssueCount}</strong>
-              <em>资料异常</em>
+              <em>{t('inboxPage.filter.metadataIssue')}</em>
             </span>
           </button>
           <button
@@ -578,36 +605,36 @@ export const InboxPage = (): JSX.Element => {
             <AlertTriangle size={18} />
             <span>
               <strong>{story.suspiciousCount}</strong>
-              <em>疑似异常文件</em>
+              <em>{t('inboxPage.filter.suspiciousFile')}</em>
             </span>
           </button>
         </div>
-        <div className="inbox-quality-summary" aria-label="入库质量摘要">
+        <div className="inbox-quality-summary" aria-label={t('inboxPage.quality.aria')}>
           <span>
             <strong>{formatPercent(story.coverCompleteness)}</strong>
-            <em>封面完整率</em>
+            <em>{t('inboxPage.quality.coverCompleteness')}</em>
           </span>
           <span>
             <strong>{formatPercent(story.metadataCompleteness)}</strong>
-            <em>资料完整率</em>
+            <em>{t('inboxPage.quality.metadataCompleteness')}</em>
           </span>
           <span>
             <strong>{story.unknownArtistCount + story.unknownAlbumCount}</strong>
-            <em>未知艺人 / 专辑</em>
+            <em>{t('inboxPage.quality.unknownArtistAlbum')}</em>
           </span>
           <span>
             <strong>{story.processedCount}</strong>
-            <em>已处理</em>
+            <em>{t('inboxPage.status.processed')}</em>
           </span>
         </div>
       </section>
 
-      <section className="inbox-toolbar" aria-label="新歌收件箱筛选">
+      <section className="inbox-toolbar" aria-label={t('inboxPage.toolbar.aria')}>
         <label className="inbox-select-field">
-          <span>批次</span>
+          <span>{t('inboxPage.toolbar.batch')}</span>
           <select value={batchSelectValue(scope, batchId)} onChange={(event) => handleSelectBatch(event.target.value)}>
-            <option value="__latest__">最新扫描</option>
-            <option value="__all__">最近全部扫描</option>
+            <option value="__latest__">{t('inboxPage.batch.latest')}</option>
+            <option value="__all__">{t('inboxPage.batch.recentAll')}</option>
             {pageData.batches.map((batch) => (
               <option key={batch.id} value={batch.id}>
                 {batch.folderName} · {batch.addedCount}
@@ -619,14 +646,14 @@ export const InboxPage = (): JSX.Element => {
         <label className="inbox-search-field">
           <Search size={16} />
           <input
-            aria-label="搜索新歌收件箱"
-            placeholder="搜索标题、艺人、专辑、路径"
+            aria-label={t('inboxPage.search.aria')}
+            placeholder={t('inboxPage.search.placeholder')}
             type="search"
             {...searchInputProps}
           />
         </label>
 
-        <button className="inbox-icon-button" disabled={isLoading} onClick={() => void loadInbox(1, 'replace')} title="刷新收件箱" type="button">
+        <button className="inbox-icon-button" disabled={isLoading} onClick={() => void loadInbox(1, 'replace')} title={t('home.recommend.refresh')} type="button">
           <RefreshCw size={17} />
         </button>
         <button
@@ -636,7 +663,7 @@ export const InboxPage = (): JSX.Element => {
           type="button"
         >
           <ListPlus size={17} />
-          <span>生成待听歌单</span>
+          <span>{t('inboxPage.action.generatePlaylist')}</span>
         </button>
         <button
           className="inbox-command-button"
@@ -645,12 +672,12 @@ export const InboxPage = (): JSX.Element => {
           type="button"
         >
           <ListMusic size={17} />
-          <span>加入队列</span>
+          <span>{t('inboxPage.action.addToQueue')}</span>
         </button>
       </section>
 
-      <section className="inbox-filter-row" aria-label="问题分类筛选">
-        {filterOptions.map((option) => (
+      <section className="inbox-filter-row" aria-label={t('inboxPage.filter.aria')}>
+        {localizedFilterOptions.map((option) => (
           <button
             className="list-filter-chip"
             data-active={filter === option.value ? 'true' : undefined}
@@ -666,13 +693,13 @@ export const InboxPage = (): JSX.Element => {
         ))}
         {hasFilters ? (
           <button className="list-filter-chip" onClick={clearFilters} type="button">
-            清空筛选
+            {t('inboxPage.filter.clear')}
           </button>
         ) : null}
       </section>
 
-      <section className="inbox-filter-row" aria-label="处理状态筛选">
-        {statusOptions.map((option) => (
+      <section className="inbox-filter-row" aria-label={t('inboxPage.status.aria')}>
+        {localizedStatusOptions.map((option) => (
           <button
             className="list-filter-chip"
             data-active={status === option.value ? 'true' : undefined}
@@ -688,11 +715,11 @@ export const InboxPage = (): JSX.Element => {
         ))}
       </section>
 
-      <section className="inbox-facet-row" aria-label="新歌收件箱维度筛选">
+      <section className="inbox-facet-row" aria-label={t('inboxPage.facets.aria')}>
         <label>
           <Folder size={15} />
           <select value={folderId ?? ''} onChange={(event) => setFolderId(event.target.value || null)}>
-            <option value="">全部文件夹</option>
+            <option value="">{t('inboxPage.facets.allFolders')}</option>
             {pageData.facets.folders.map((facet) => (
               <option key={facet.value} value={facet.value}>
                 {facet.label} · {facet.count}
@@ -703,7 +730,7 @@ export const InboxPage = (): JSX.Element => {
         <label>
           <Disc3 size={15} />
           <select value={album ?? ''} onChange={(event) => setAlbum(event.target.value || null)}>
-            <option value="">全部专辑</option>
+            <option value="">{t('inboxPage.facets.allAlbums')}</option>
             {pageData.facets.albums.map((facet) => (
               <option key={facet.value} value={facet.value}>
                 {facet.label} · {facet.count}
@@ -714,7 +741,7 @@ export const InboxPage = (): JSX.Element => {
         <label>
           <UserRound size={15} />
           <select value={artist ?? ''} onChange={(event) => setArtist(event.target.value || null)}>
-            <option value="">全部艺人</option>
+            <option value="">{t('inboxPage.facets.allArtists')}</option>
             {pageData.facets.artists.map((facet) => (
               <option key={facet.value} value={facet.value}>
                 {facet.label} · {facet.count}
@@ -791,8 +818,8 @@ export const InboxPage = (): JSX.Element => {
       <section className="inbox-list" aria-label="新歌列表" data-loading={isLoading ? 'true' : undefined}>
         {items.length === 0 ? (
           <div className="inbox-empty-state">
-            <strong>{isLoading ? '正在读取收件箱...' : pageData.batches.length === 0 ? '还没有新增记录' : '没有匹配的新歌'}</strong>
-            <span>{pageData.batches.length === 0 ? '完成一次曲库扫描后，这里会出现新增歌曲。' : '换个筛选条件再看看。'}</span>
+            <strong>{isLoading ? t('inboxPage.loading') : pageData.batches.length === 0 ? t('inboxPage.empty.title') : t('inboxPage.empty.noMatch')}</strong>
+            <span>{pageData.batches.length === 0 ? t('inboxPage.empty.description') : t('inboxPage.empty.tryFilter')}</span>
           </div>
         ) : (
           items.map((item) => (

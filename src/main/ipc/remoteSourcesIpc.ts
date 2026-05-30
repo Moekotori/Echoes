@@ -355,6 +355,7 @@ export const registerRemoteSourcesIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.RemoteSourcesCreate, (_event, input: unknown) => getRemoteSourceService().createSource(normalizeInput(input)));
   ipcMain.handle(IpcChannels.RemoteSourcesUpdate, (_event, input: unknown) => getRemoteSourceService().updateSource(normalizeUpdate(input)));
+  ipcMain.handle(IpcChannels.RemoteSourcesDisconnect, (_event, sourceId: unknown) => getRemoteSourceService().disconnectSource(requireText(sourceId, 'sourceId')));
   ipcMain.handle(IpcChannels.RemoteSourcesDelete, (_event, sourceId: unknown) => getRemoteSourceService().deleteSource(requireText(sourceId, 'sourceId')));
   ipcMain.handle(IpcChannels.RemoteSourcesTest, (_event, input: unknown) =>
     typeof input === 'string' ? getRemoteSourceService().testSource(requireText(input, 'sourceId')) : getRemoteSourceService().testSource(normalizeInput(input)),

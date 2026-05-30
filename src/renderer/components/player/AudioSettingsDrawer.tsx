@@ -103,6 +103,7 @@ type AudioDrawerCopy = {
 const hiddenDeviceStorageKey = 'echo-next.hidden-audio-devices';
 const showAsioPanelSettingsStorageKey = 'echo-next.show-asio-panel-settings';
 const advancedOutputOpenStorageKey = 'echo-next.audio-advanced-output-open';
+const audioEngineMeterOpenStorageKey = 'echo-next.audio-engine-meter-open';
 const drawerExitAnimationMs = 320;
 const outputApplyTimeoutMs = 20_000;
 const lowLatencyMaxBufferSizeFrames = 2048;
@@ -308,6 +309,22 @@ const readAdvancedOutputOpen = (): boolean => {
 const writeAdvancedOutputOpen = (enabled: boolean): void => {
   try {
     window.localStorage.setItem(advancedOutputOpenStorageKey, enabled ? 'true' : 'false');
+  } catch {
+    // UI preference only; failure should never block audio settings.
+  }
+};
+
+const readAudioEngineMeterOpen = (): boolean => {
+  try {
+    return window.localStorage.getItem(audioEngineMeterOpenStorageKey) !== 'false';
+  } catch {
+    return true;
+  }
+};
+
+const writeAudioEngineMeterOpen = (enabled: boolean): void => {
+  try {
+    window.localStorage.setItem(audioEngineMeterOpenStorageKey, enabled ? 'true' : 'false');
   } catch {
     // UI preference only; failure should never block audio settings.
   }
@@ -794,6 +811,7 @@ export const AudioSettingsDrawer = ({
   const [forceRestartBusy, setForceRestartBusy] = useState(false);
   const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
   const [troubleshootingMessage, setTroubleshootingMessage] = useState<string | null>(null);
+  const [isAudioEngineMeterOpen, setIsAudioEngineMeterOpen] = useState(() => readAudioEngineMeterOpen());
   const [isAdvancedOutputOpen, setIsAdvancedOutputOpen] = useState(() => readAdvancedOutputOpen());
   const [isBufferOptionsOpen, setIsBufferOptionsOpen] = useState(false);
   const [showAsioPanelSettings, setShowAsioPanelSettings] = useState(() => readShowAsioPanelSettings());
@@ -1432,6 +1450,14 @@ export const AudioSettingsDrawer = ({
     });
   };
 
+  const toggleAudioEngineMeterOpen = (): void => {
+    setIsAudioEngineMeterOpen((current) => {
+      const next = !current;
+      writeAudioEngineMeterOpen(next);
+      return next;
+    });
+  };
+
   const toggleRememberOutput = (enabled: boolean): void => {
     setRememberOutput(enabled);
     persistOutput(
@@ -1765,8 +1791,17 @@ export const AudioSettingsDrawer = ({
             </button>
           </header>
 
-        <button className="audio-engine-meter" type="button" onClick={() => void refresh()} disabled={isBusy}>
+        <section
+          className={['audio-engine-meter', isAudioEngineMeterOpen ? 'audio-engine-meter--open' : ''].filter(Boolean).join(' ')}
+          aria-label="HiFi Engine"
+        >
           <div className="audio-engine-meter__top">
+            <button
+              className="audio-engine-meter__summary"
+              type="button"
+              aria-expanded={isAudioEngineMeterOpen}
+              onClick={toggleAudioEngineMeterOpen}
+            >
             <span className="audio-engine-meter__icon">
               <Zap size={17} />
             </span>
@@ -1774,8 +1809,21 @@ export const AudioSettingsDrawer = ({
               <span>HiFi Engine</span>
               <strong>{hqPlayerTakeoverEnabled ? formatHqPlayerTrackLine(hqPlayerTrack, 'HQPlayer 接管中') : formatCodecLine(status, copy)}</strong>
             </div>
-            <RefreshCw size={15} />
+              <ChevronDown size={16} aria-hidden="true" />
+            </button>
+            <button
+              className="audio-engine-meter__refresh"
+              type="button"
+              aria-label={t('audioProfessional.action.refresh')}
+              title={t('audioProfessional.action.refresh')}
+              onClick={() => void refresh()}
+              disabled={isBusy}
+            >
+              <RefreshCw size={15} />
+            </button>
           </div>
+          {isAudioEngineMeterOpen ? (
+            <>
           <div className="audio-engine-meter__grid">
             <span>
               <em>{t('audioDrawer.meter.output')}</em>
@@ -1808,7 +1856,9 @@ export const AudioSettingsDrawer = ({
             </div>
           ) : null}
           <span className="audio-engine-meter__hint">{t('audioDrawer.note.engine')}</span>
-        </button>
+            </>
+          ) : null}
+        </section>
 
         <section className="audio-drawer-section audio-current-output-section">
           <div className="audio-drawer-section-title">
@@ -1971,7 +2021,6 @@ export const AudioSettingsDrawer = ({
               <h3>{t('audioDrawer.section.asioDevices')}</h3>
             </div>
             <p className="audio-section-note">{t('audioDrawer.note.asio')}</p>
-            <p className="audio-section-note audio-section-note--warning">{t('audioDrawer.note.asioWarning')}</p>
             {asioDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.asioDevices')}</p> : null}
             {asioDevices.map((device) => {
               const defaultRouteDevice = createAsioRouteDevice(device, 0);
@@ -2378,15 +2427,6 @@ export const AudioSettingsDrawer = ({
               <p>{t('audioDrawer.option.showAsioPanelSettingsDescription')}</p>
             </section>
           ) : null}
-
-          <section className="audio-drawer-section audio-output-user-note">
-            <div className="audio-drawer-section-title">
-              <Headphones size={17} />
-              <h3>{t('audioDrawer.note.outputResponsibilityTitle')}</h3>
-            </div>
-            <p>{t('audioDrawer.note.outputResponsibilityPrimary')}</p>
-            <p>{t('audioDrawer.note.outputResponsibilitySecondary')}</p>
-          </section>
 
           <section className="audio-drawer-section audio-drawer-troubleshooting">
             <div className="audio-drawer-section-title">

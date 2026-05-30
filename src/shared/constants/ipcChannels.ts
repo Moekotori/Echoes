@@ -277,6 +277,7 @@ export const IpcChannels = {
   RemoteSourcesListIssues: 'remoteSources:listIssues',
   RemoteSourcesCreate: 'remoteSources:create',
   RemoteSourcesUpdate: 'remoteSources:update',
+  RemoteSourcesDisconnect: 'remoteSources:disconnect',
   RemoteSourcesDelete: 'remoteSources:delete',
   RemoteSourcesTest: 'remoteSources:test',
   RemoteSourcesBrowse: 'remoteSources:browse',

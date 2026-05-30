@@ -380,6 +380,7 @@ const defaultTidalRedirectUri = 'http://127.0.0.1:43880/tidal/callback';
 const spotifyDeveloperDashboardUrl = 'https://developer.spotify.com/dashboard';
 const tidalDeveloperDashboardUrl = 'https://developer.tidal.com/dashboard';
 const discogsDeveloperSettingsUrl = 'https://www.discogs.com/settings/developers';
+const playbackAdvancedPanelExpandedStorageKey = 'echo:settings:playback:advanced-panel-expanded';
 const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
 const integrationsCredentialPanelExpandedStorageKey = 'echo:settings:integrations:credential-panel-expanded';
 const integrationCredentialSettingIds = new Set([
@@ -533,10 +534,10 @@ const mvImmersiveBackgroundDefaults = {
   immersiveBackgroundOverlayOpacityPercent: 0,
 } satisfies Partial<MvSettings>;
 const appVideoWallpaperPauseModes = ['smart', 'minimized', 'never'] satisfies Array<NonNullable<AppSettings['appVideoWallpaperPauseMode']>>;
-const appVideoWallpaperPauseModeLabels: Record<NonNullable<AppSettings['appVideoWallpaperPauseMode']>, string> = {
-  smart: '智能暂停',
-  minimized: '最小化暂停',
-  never: '始终播放',
+const appVideoWallpaperPauseModeLabels: Record<NonNullable<AppSettings['appVideoWallpaperPauseMode']>, TranslationKey> = {
+  smart: 'settings.appearance.wallpaper.videoPause.smart',
+  minimized: 'settings.appearance.wallpaper.videoPause.minimized',
+  never: 'settings.appearance.wallpaper.videoPause.never',
 };
 
 const inferAppWallpaperMediaType = (filePath: string): NonNullable<AppSettings['appWallpaperMediaType']> =>
@@ -876,16 +877,16 @@ type SidebarSettingsRouteItem = {
 };
 
 const sidebarSettingsCopy = {
-  title: '\u5de6\u4fa7\u680f',
-  description: '\u8c03\u6574\u5de6\u4fa7\u5165\u53e3\u7684\u987a\u5e8f\u548c\u663e\u793a\u72b6\u6001\uff0c\u4e0d\u4f1a\u6539\u52a8\u9875\u9762\u6216\u64ad\u653e\u94fe\u8def\u3002',
-  mainGroup: '\u4e3b\u5bfc\u822a',
-  utilityGroup: '\u5e95\u90e8\u5165\u53e3',
-  reset: '\u6062\u590d\u9ed8\u8ba4',
-  visible: '\u663e\u793a',
-  hidden: '\u9690\u85cf',
-  fixed: '\u56fa\u5b9a\u663e\u793a',
-  noItems: '\u8fd9\u4e00\u7ec4\u6ca1\u6709\u53ef\u8c03\u6574\u7684\u5165\u53e3\u3002',
-};
+  titleKey: 'settings.appearance.sidebar.title',
+  descriptionKey: 'settings.appearance.sidebar.description',
+  mainGroupKey: 'settings.appearance.sidebar.mainGroup',
+  utilityGroupKey: 'settings.appearance.sidebar.utilityGroup',
+  resetKey: 'settings.appearance.sidebar.reset',
+  visibleKey: 'settings.appearance.sidebar.visible',
+  hiddenKey: 'settings.appearance.sidebar.hidden',
+  fixedKey: 'settings.appearance.sidebar.fixed',
+  noItemsKey: 'settings.appearance.sidebar.noItems',
+} as const satisfies Record<string, TranslationKey>;
 
 const sidebarSettingsRouteItems: SidebarSettingsRouteItem[] = [
   { id: 'home', labelKey: 'route.home.label', placement: 'main' },
@@ -3216,24 +3217,24 @@ const getThemeContrastWarnings = (values: ThemeEditorDefaults): string[] => {
   return warnings;
 };
 
-const getUpdateStateLabel = (state: UpdateStatus['state']): string => {
+const getUpdateStateLabel = (state: UpdateStatus['state']): TranslationKey => {
   switch (state) {
     case 'checking':
-      return '正在检查';
+      return 'settings.about.updates.state.checking';
     case 'available':
-      return '发现新版本';
+      return 'settings.about.updates.state.available';
     case 'downloading':
-      return '下载中';
+      return 'settings.about.updates.state.downloading';
     case 'downloaded':
-      return '下载完成，正在安装';
+      return 'settings.about.updates.state.downloaded';
     case 'not-available':
-      return '已是最新';
+      return 'settings.about.updates.state.notAvailable';
     case 'error':
-      return '检查失败';
+      return 'settings.about.updates.state.error';
     case 'disabled':
-      return '已关闭';
+      return 'settings.about.updates.state.disabled';
     default:
-      return '待检查';
+      return 'settings.about.updates.state.idle';
   }
 };
 
@@ -3300,16 +3301,16 @@ const formatProtectionTimestamp = (value: string | null | undefined): string => 
   return new Date(timestamp).toLocaleString();
 };
 
-const getDatabaseHealthLabel = (status: LibraryDatabaseProtectionStatus['health']['status'] | undefined): string => {
+const getDatabaseHealthLabel = (status: LibraryDatabaseProtectionStatus['health']['status'] | undefined): TranslationKey => {
   switch (status) {
     case 'ok':
-      return '健康';
+      return 'settings.danger.database.health.ok';
     case 'corrupt':
-      return '疑似损坏';
+      return 'settings.danger.database.health.corrupt';
     case 'unreadable':
-      return '无法读取';
+      return 'settings.danger.database.health.unreadable';
     default:
-      return '待检查';
+      return 'settings.danger.database.health.idle';
   }
 };
 
@@ -3875,6 +3876,9 @@ export const SettingsPage = (): JSX.Element => {
   const [replayGainAnalysisJob, setReplayGainAnalysisJob] = useState<ReplayGainAnalysisJobStatus | null>(null);
   const [replayGainAnalysisBusy, setReplayGainAnalysisBusy] = useState(false);
   const [replayGainAnalysisMessage, setReplayGainAnalysisMessage] = useState<string | null>(null);
+  const [playbackAdvancedPanelExpanded, setPlaybackAdvancedPanelExpanded] = useState(() =>
+    readBooleanStoragePreference(playbackAdvancedPanelExpandedStorageKey, false),
+  );
   const [replayGainAdvancedOpen, setReplayGainAdvancedOpen] = useState(false);
   const [audioStatusPanelOpen, setAudioStatusPanelOpen] = useState(false);
   const [channelBalanceState, setChannelBalanceState] = useState<ChannelBalanceState>(defaultSettingsChannelBalance);
@@ -4021,11 +4025,11 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-sidebar-layout',
         sectionKey: 'appearance',
         targetId: 'settings-row-sidebar-layout',
-        title: sidebarSettingsCopy.title,
-        description: sidebarSettingsCopy.description,
+        title: '左侧栏',
+        description: '调整左侧入口的顺序和显示状态，不会改动页面或播放链路。',
         terms: [
-          sidebarSettingsCopy.title,
-          sidebarSettingsCopy.description,
+          '左侧栏',
+          '调整左侧入口的顺序和显示状态，不会改动页面或播放链路。',
           'sidebar',
           'left sidebar',
           'navigation order',
@@ -6548,6 +6552,18 @@ export const SettingsPage = (): JSX.Element => {
       .finally(() => setNetworkProxyBusy(null));
   }, [appSettings?.networkProxyMode]);
 
+  const togglePlaybackAdvancedPanelExpanded = useCallback((): void => {
+    setPlaybackAdvancedPanelExpanded((expanded) => {
+      const next = !expanded;
+      try {
+        window.localStorage.setItem(playbackAdvancedPanelExpandedStorageKey, next ? 'true' : 'false');
+      } catch {
+        // Local storage can be unavailable in privacy-restricted shells; the in-memory toggle still works.
+      }
+      return next;
+    });
+  }, []);
+
   const toggleAccountPanelExpanded = useCallback((): void => {
     setAccountPanelExpanded((expanded) => {
       const next = !expanded;
@@ -8935,51 +8951,60 @@ export const SettingsPage = (): JSX.Element => {
   const dataBackupIntervalDays = appSettings?.autoDataBackupIntervalDays ?? dataBackupStatus?.intervalDays ?? 7;
   const dataBackupRunning = dataBackupBusy !== null || dataBackupStatus?.running === true;
   const dataBackupLastLabel = dataBackupStatus?.lastBackupAt
-    ? `${formatProtectionTimestamp(dataBackupStatus.lastBackupAt)}${dataBackupStatus.lastBackupPath ? ` · ${dataBackupStatus.lastBackupPath}` : ''}`
-    : '暂无自动备份';
+    ? dataBackupStatus.lastBackupPath
+      ? t('settings.general.dataBackup.meta.atPath', {
+          time: formatProtectionTimestamp(dataBackupStatus.lastBackupAt),
+          path: dataBackupStatus.lastBackupPath,
+        })
+      : formatProtectionTimestamp(dataBackupStatus.lastBackupAt)
+    : t('settings.general.dataBackup.meta.noneYet');
   const dataBackupNextLabel = dataBackupEnabled && dataBackupDirectory
     ? formatProtectionTimestamp(dataBackupStatus?.nextBackupAt)
-    : '选择目录并开启后生效';
+    : t('settings.general.dataBackup.meta.nextRunPending');
   const databaseHealthStatus = databaseProtectionStatus?.health.status;
   const latestHealthySnapshot = databaseProtectionStatus?.latestHealthySnapshot ?? null;
   const databaseProtectionBusy = databaseProtectionBusyAction !== null || dangerBusy;
   const databaseRecommendedAction = databaseProtectionStatus?.recommendedAction ?? 'none';
   const databaseQuarantined = databaseRecommendedAction === 'scrub-quarantined-database';
   const databaseUnrecoverable = databaseRecommendedAction === 'rebuild-empty-database';
-  const databaseHealthLabel = getDatabaseHealthLabel(databaseHealthStatus);
-  const databaseHealthBadgeLabel = databaseQuarantined ? '已隔离' : databaseHealthLabel;
+  const databaseHealthLabel = t(getDatabaseHealthLabel(databaseHealthStatus));
+  const databaseHealthBadgeLabel = databaseQuarantined ? t('settings.danger.database.badge.quarantined') : databaseHealthLabel;
   const databaseProtectionDescription = !databaseProtectionStatus
-    ? '正在读取数据库健康状态、健康快照和最近维护记录。'
+    ? t('settings.danger.database.description.loading')
     : databaseQuarantined
-    ? '曲库因损坏嵌入标签或超大文本已被隔离。ECHO 会先打开恢复界面，音乐文件不会被删除。'
+    ? t('settings.danger.database.description.quarantined')
     : databaseHealthStatus === 'ok'
-    ? '当前数据库检查正常。这里会保留健康快照、坏库归档和最近维护记录。'
+    ? t('settings.danger.database.description.healthy')
     : databaseUnrecoverable
-    ? '数据库无法从健康快照恢复。音乐文件不会被删除；请先导出诊断和查看保护目录，再确认归档坏库并重建空库。'
-    : '检测到数据库不可用时，先尝试恢复健康快照；恢复会先归档当前数据库，音乐文件不会被删除。';
+    ? t('settings.danger.database.description.unrecoverable')
+    : t('settings.danger.database.description.recoverable');
   const databaseRecoverySteps = databaseQuarantined
     ? [
-        '当前曲库已被移出活动位置，ECHO 不会继续读取那批危险标签。',
-        '优先使用“修复隔离库副本”，它只处理归档副本，验证通过后才恢复。',
-        '如果修复失败，再选择恢复健康快照或归档并重建空曲库；音乐文件不会被删除。',
+        t('settings.danger.database.steps.quarantined.1'),
+        t('settings.danger.database.steps.quarantined.2'),
+        t('settings.danger.database.steps.quarantined.3'),
       ]
     : databaseUnrecoverable
     ? [
-        '先确认扫描没有运行；扫描中会拒绝恢复、重建和删除。',
-        '优先导出诊断并打开保护目录，保留坏库归档线索。',
-        '输入确认词“重建空库”后，归档坏库并重建空库，再重新添加曲库文件夹并扫描。',
+        t('settings.danger.database.steps.unrecoverable.1'),
+        t('settings.danger.database.steps.unrecoverable.2'),
+        t('settings.danger.database.steps.unrecoverable.3'),
       ]
     : [
-        '先确认扫描没有运行；扫描中会拒绝恢复、重建和删除。',
-        '优先点“恢复最近健康快照”，它只接受主进程枚举出的快照。',
-        '没有健康快照或恢复后仍损坏时，使用“归档坏库并重建空库”。',
+        t('settings.danger.database.steps.recoverable.1'),
+        t('settings.danger.database.steps.recoverable.2'),
+        t('settings.danger.database.steps.recoverable.3'),
       ];
   const databasePrimaryActionLabel = databaseQuarantined
-    ? '修复隔离库副本'
+    ? t('settings.danger.database.action.scrub')
     : databaseUnrecoverable
-    ? '归档坏库并重建空库'
-    : '恢复最近健康快照';
-  const databasePrimaryActionBusyLabel = databaseQuarantined ? '修复中...' : databaseUnrecoverable ? '重建中...' : '恢复中...';
+    ? t('settings.danger.database.action.rebuild')
+    : t('settings.danger.database.action.restore');
+  const databasePrimaryActionBusyLabel = databaseQuarantined
+    ? t('settings.danger.database.action.scrubbing')
+    : databaseUnrecoverable
+      ? t('settings.danger.database.action.rebuilding')
+      : t('settings.danger.database.action.restoring');
   const databasePrimaryActionDisabled =
     databaseProtectionBusy ||
     databaseProtectionStatus?.hasRunningScan ||
@@ -8989,20 +9014,20 @@ export const SettingsPage = (): JSX.Element => {
     : databaseUnrecoverable
     ? handleRebuildEmptyLibraryDatabase
     : handleRestoreDatabaseSnapshot;
-  const databasePathLabel = databaseProtectionStatus?.databasePath ?? '待加载';
+  const databasePathLabel = databaseProtectionStatus?.databasePath ?? t('settings.danger.database.meta.pending');
   const databaseSnapshotLabel = latestHealthySnapshot
     ? `${formatProtectionTimestamp(latestHealthySnapshot.createdAt)} · ${formatUpdateBytes(latestHealthySnapshot.databaseSizeBytes)}`
-    : '暂无健康快照';
+    : t('settings.danger.database.meta.noSnapshot');
   const databaseArchiveLabel = databaseProtectionStatus?.latestArchive
     ? `${formatProtectionTimestamp(databaseProtectionStatus.latestArchive.createdAt)} · ${formatUpdateBytes(databaseProtectionStatus.latestArchive.databaseSizeBytes)}`
-    : '暂无坏库归档';
+    : t('settings.danger.database.meta.noArchive');
   const databasePrimaryActionUnavailableReason =
     databaseProtectionStatus?.hasRunningScan
       ? null
       : databaseQuarantined && !databaseProtectionStatus?.canScrubQuarantinedDatabase
-      ? '没有找到可修复的隔离库副本；请打开保护目录确认归档是否存在，或直接导出诊断。'
+      ? t('settings.danger.database.unavailable.scrub')
       : !databaseQuarantined && !databaseUnrecoverable && !latestHealthySnapshot
-      ? '暂无健康快照可恢复。可以先创建健康快照；如果当前库不可用，请导出诊断。'
+      ? t('settings.danger.database.unavailable.restore')
       : null;
   const formatLastFmTimestamp = (value: string | null | undefined): string => {
     if (!value) {
@@ -9031,7 +9056,7 @@ export const SettingsPage = (): JSX.Element => {
           ? 'Enabled'
           : 'Discord not running';
   const smtcLabel = !appSettings?.smtcEnabled
-    ? 'Disabled'
+    ? t('common.disabled')
     : smtcDiagnostics?.recoveryInFlight
       ? 'Recovering'
       : smtcDiagnostics?.hostState ?? 'Not checked';
@@ -9061,9 +9086,26 @@ export const SettingsPage = (): JSX.Element => {
     appearanceThemeScheduleDarkAt: themeScheduleDarkAt,
     appearanceThemeScheduleLightAt: themeScheduleLightAt,
   });
+  const sidebarSettingsText = {
+    title: t(sidebarSettingsCopy.titleKey),
+    description: t(sidebarSettingsCopy.descriptionKey),
+    mainGroup: t(sidebarSettingsCopy.mainGroupKey),
+    utilityGroup: t(sidebarSettingsCopy.utilityGroupKey),
+    reset: t(sidebarSettingsCopy.resetKey),
+    visible: t(sidebarSettingsCopy.visibleKey),
+    hidden: t(sidebarSettingsCopy.hiddenKey),
+    fixed: t(sidebarSettingsCopy.fixedKey),
+    noItems: t(sidebarSettingsCopy.noItemsKey),
+  };
   const themeScheduleStatus = themeScheduleEnabled
-    ? `已启用：${themeScheduleDarkAt} 切到深色，${themeScheduleLightAt} 自动切回浅色。当前按本机时间使用${scheduledThemeMode === 'dark' ? '深色' : '浅色'}。`
-    : '关闭后仍使用上面的手动主题模式。';
+    ? t('settings.appearance.themeSchedule.status.enabled', {
+        darkAt: themeScheduleDarkAt,
+        lightAt: themeScheduleLightAt,
+        mode: scheduledThemeMode === 'dark'
+          ? t('settings.appearance.theme.dark')
+          : t('settings.appearance.theme.light'),
+      })
+    : t('settings.appearance.themeSchedule.status.disabled');
   const transportFadeInMs = appSettings?.audioTransportFadeInMs ?? 80;
   const transportFadeOutMs = appSettings?.audioTransportFadeOutMs ?? transportFadeInMs;
   const transportFadeDurationMs = appSettings?.audioTransportFadeEnabled
@@ -9465,8 +9507,8 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--compact-panel"
                 id="settings-row-data-backup"
                 highlighted={highlightedSettingId === 'settings-row-data-backup'}
-                title="自动数据备份"
-                description="备份设置、曲库索引、播放记忆、账号本地状态、壁纸、封面缓存和元数据；备份前会校验曲库数据库，坏数据会被拒绝。"
+                title={t('settings.general.dataBackup.title')}
+                description={t('settings.general.dataBackup.description')}
               >
                 <div className="settings-data-backup-panel">
                   <div className="settings-data-backup-primary">
@@ -9481,42 +9523,42 @@ export const SettingsPage = (): JSX.Element => {
                         }
                       />
                       <div>
-                        <strong>{dataBackupEnabled ? '自动备份已开启' : '自动备份未开启'}</strong>
+                        <strong>{dataBackupEnabled ? t('settings.general.dataBackup.status.enabled') : t('settings.general.dataBackup.status.disabled')}</strong>
                         <StatusText tone={dataBackupEnabled ? 'good' : 'muted'}>
-                          {dataBackupDirectory ? '目录已设置，可手动备份或开启定期备份' : '请先选择备份目录'}
+                          {dataBackupDirectory ? t('settings.general.dataBackup.hint.directoryReady') : t('settings.general.dataBackup.hint.chooseDirectory')}
                         </StatusText>
                       </div>
                     </div>
-                    <div className="settings-data-backup-frequency" aria-label="自动备份周期">
+                    <div className="settings-data-backup-frequency" aria-label={t('settings.general.dataBackup.frequency.aria')}>
                       {([3, 7, 30] as const).map((days) => (
                         <ChipButton
                           active={dataBackupIntervalDays === days}
                           key={days}
                           onClick={() => patchAppSettings({ autoDataBackupIntervalDays: days })}
                         >
-                          {days === 30 ? '每月' : `${days} 天`}
+                          {days === 30 ? t('settings.general.dataBackup.frequency.monthly') : t('settings.general.dataBackup.frequency.days', { days })}
                         </ChipButton>
                       ))}
                     </div>
                   </div>
                   <div className="settings-data-backup-meta">
                     <span>
-                      <em>目录</em>
-                      <strong>{dataBackupDirectory ?? '未设置'}</strong>
+                      <em>{t('settings.general.dataBackup.meta.directory')}</em>
+                      <strong>{dataBackupDirectory ?? t('settings.general.dataBackup.meta.notSet')}</strong>
                     </span>
                     <span>
-                      <em>上次备份</em>
+                      <em>{t('settings.general.dataBackup.meta.lastBackup')}</em>
                       <strong>{dataBackupLastLabel}</strong>
                     </span>
                     <span>
-                      <em>下次执行</em>
+                      <em>{t('settings.general.dataBackup.meta.nextRun')}</em>
                       <strong>{dataBackupNextLabel}</strong>
                     </span>
                   </div>
                   <div className="settings-data-backup-actions">
                     <button className="settings-action-button" type="button" disabled={dataBackupRunning} onClick={() => void handleChooseDataBackupDirectory()}>
                       <FolderOpen size={15} />
-                      {dataBackupBusy === 'choose' ? '选择中...' : '选择目录'}
+                      {dataBackupBusy === 'choose' ? t('settings.general.dataBackup.action.choosingDirectory') : t('settings.general.dataBackup.action.chooseDirectory')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -9525,11 +9567,11 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleRunDataBackupNow()}
                     >
                       <Download size={15} />
-                      {dataBackupBusy === 'run' ? '备份中...' : '立即备份'}
+                      {dataBackupBusy === 'run' ? t('settings.general.dataBackup.action.backingUp') : t('settings.general.dataBackup.action.backupNow')}
                     </button>
                     <button className="settings-action-button" type="button" disabled={dataBackupRunning} onClick={() => void handleImportDataBackup()}>
                       <FileText size={15} />
-                      {dataBackupBusy === 'import' ? '导入中...' : '导入备份'}
+                      {dataBackupBusy === 'import' ? t('settings.general.dataBackup.action.importingBackup') : t('settings.general.dataBackup.action.importBackup')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -9538,7 +9580,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleOpenDataBackupDirectory()}
                     >
                       <FolderOpen size={15} />
-                      打开目录
+                      {t('settings.general.dataBackup.action.openDirectory')}
                     </button>
                   </div>
                   {dataBackupStatus?.lastError ? <StatusText tone="muted">{dataBackupStatus.lastError}</StatusText> : null}
@@ -9547,8 +9589,8 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow
                 className="setting-row--package-export"
-                title="一键导出 / 迁移 ECHO 数据包"
-                description="导出设置、曲库索引、歌单快照、封面缓存路径和账号状态说明。不会复制音乐文件，也不会导出登录密钥。"
+                title={t('settings.general.dataPackage.title')}
+                description={t('settings.general.dataPackage.description')}
               >
                 <div className="settings-package-export-panel">
                   <div className="settings-chip-row">
@@ -9559,14 +9601,14 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleExportDataPackage()}
                     >
                       <Download size={15} />
-                      {settingsBackupBusy === 'dataPackage' ? '打包中...' : '导出 ECHO 数据包'}
+                      {settingsBackupBusy === 'dataPackage' ? t('settings.general.dataPackage.action.exporting') : t('settings.general.dataPackage.action.export')}
                     </button>
                     <button className="settings-action-button" type="button" disabled={databaseProtectionBusy} onClick={() => void handleOpenDataProtectionFolder()}>
                       <FolderOpen size={15} />
-                      恢复入口
+                      {t('settings.general.dataPackage.action.recovery')}
                     </button>
                   </div>
-                  <p className="settings-inline-note">恢复前请先在危险区创建健康快照；迁移包里的 RESTORE.md 会说明每个文件的用途。</p>
+                  <p className="settings-inline-note">{t('settings.general.dataPackage.note')}</p>
                 </div>
               </SettingRow>
             </SettingSection>
@@ -9608,6 +9650,26 @@ export const SettingsPage = (): JSX.Element => {
                   showFilterIcon={false}
                 />
               </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title={t('settings.playback.advancedPanel.title')}
+                description={t('settings.playback.advancedPanel.description')}
+              >
+                <button
+                  className="settings-collapse-toggle settings-playback-advanced-toggle"
+                  type="button"
+                  aria-expanded={playbackAdvancedPanelExpanded}
+                  onClick={togglePlaybackAdvancedPanelExpanded}
+                >
+                  <ChevronDown size={15} />
+                  <span>
+                    <strong>{playbackAdvancedPanelExpanded ? t('settings.playback.advancedPanel.action.collapse') : t('settings.playback.advancedPanel.action.expand')}</strong>
+                    <small>{t('settings.playback.advancedPanel.memory')}</small>
+                  </span>
+                </button>
+              </SettingRow>
+              {playbackAdvancedPanelExpanded ? (
+                <>
               <SettingRow
                 id="settings-row-low-load-playback"
                 highlighted={highlightedSettingId === 'settings-row-low-load-playback'}
@@ -10127,6 +10189,8 @@ export const SettingsPage = (): JSX.Element => {
                 )}
               </SettingRow>
               <PlaybackStabilityDiagnosticsPanel />
+                </>
+              ) : null}
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Keyboard} id="shortcuts" title={t('settings.nav.shortcuts.label')}>
@@ -10518,17 +10582,17 @@ export const SettingsPage = (): JSX.Element => {
               <div className="settings-credential-panel" data-expanded={credentialPanelVisible}>
                 <header className="settings-credential-panel-header">
                   <div>
-                    <h3>开发者 / API 配置</h3>
-                    <p>Spotify、TIDAL、Discogs、在线歌手和 Last.fm；用不到可以保持收起。</p>
+                    <h3>{t('settings.integrations.credentialPanel.title')}</h3>
+                    <p>{t('settings.integrations.credentialPanel.description')}</p>
                   </div>
                   <button
                     className="settings-action-button settings-credential-panel-toggle"
                     type="button"
                     aria-expanded={credentialPanelVisible}
-                    aria-label={credentialPanelVisible ? '收起 API 配置' : '展开 API 配置'}
+                    aria-label={credentialPanelVisible ? t('settings.integrations.credentialPanel.collapse') : t('settings.integrations.credentialPanel.expand')}
                     onClick={toggleCredentialPanelExpanded}
                   >
-                    {credentialPanelVisible ? '收起 API 配置' : '展开 API 配置'}
+                    {credentialPanelVisible ? t('settings.integrations.credentialPanel.collapse') : t('settings.integrations.credentialPanel.expand')}
                     <ChevronDown size={15} />
                   </button>
                 </header>
@@ -10685,7 +10749,7 @@ export const SettingsPage = (): JSX.Element => {
                   <StatusText tone={smtcDiagnostics?.hostState === 'running' ? 'good' : 'muted'}>{smtcLabel}</StatusText>
                   <button className="settings-action-button" type="button" onClick={() => void refreshSmtcDiagnostics()}>
                     <RefreshCw size={15} />
-                    刷新状态
+                    {t('settings.integrations.discord.action.refresh')}
                   </button>
                   <button
                     className="settings-action-button"
@@ -10694,7 +10758,7 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => void restartSmtcSupport()}
                   >
                     <RotateCw size={15} />
-                    {smtcRestarting ? '重启中...' : '重启 SMTC'}
+                    {smtcRestarting ? t('settings.integrations.smtc.action.restarting') : t('settings.integrations.smtc.action.restart')}
                   </button>
                   <ToggleButton
                     active={appSettings?.smtcEnabled ?? true}
@@ -10706,8 +10770,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-smtc-lyrics"
                 highlighted={highlightedSettingId === 'settings-row-smtc-lyrics'}
-                title="SMTC 歌词显示"
-                description="允许把当前歌词行附加到 Windows 媒体信息里；默认关闭，避免污染歌手字段。"
+                title={t('settings.integrations.smtcLyrics.title')}
+                description={t('settings.integrations.smtcLyrics.description')}
               >
                 <ToggleButton
                   active={appSettings?.smtcLyricsEnabled ?? false}
@@ -10836,8 +10900,8 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-account-expiry-notices"
                 highlighted={highlightedSettingId === 'settings-row-account-expiry-notices'}
-                title="关闭账号失效通知"
-                description="开启后，账号失效时不再弹出左上角提醒；账号状态仍可在这里查看。"
+                title={t('settings.integrations.accountExpiryNotices.title')}
+                description={t('settings.integrations.accountExpiryNotices.description')}
               >
                 <ToggleButton
                   active={appSettings?.suppressAccountExpiryNotices === true}
@@ -10845,7 +10909,10 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => patchAppSettings({ suppressAccountExpiryNotices: appSettings?.suppressAccountExpiryNotices !== true })}
                 />
               </SettingRow>
-              <SettingRow title="Spotify 自动启动官方播放器" description="播放 Spotify 时，如果 ECHO 内置 SDK 因 DRM 不可用，会自动打开 Spotify 桌面端或网页版并接管 Connect 设备。">
+              <SettingRow
+                title={t('settings.integrations.spotifyAutoLaunchOfficialPlayer.title')}
+                description={t('settings.integrations.spotifyAutoLaunchOfficialPlayer.description')}
+              >
                 <ToggleButton
                   active={appSettings?.spotifyAutoLaunchOfficialPlayer ?? true}
                   disabled={!appSettings}
@@ -11071,48 +11138,48 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-plugins"
                 highlighted={highlightedSettingId === 'settings-row-plugins'}
-                title="本地插件"
-                description="插件默认放在 userData/plugins 下，用户可以直接编辑 echo.plugin.json、plugin.js 和面板文件。"
+                title={t('settings.plugins.card.title')}
+                description={t('settings.plugins.card.description')}
               >
                 <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--plugins">
                   <div className="settings-status-grid">
                     <span>
-                      <em>运行方式</em>
-                      <strong>本地沙箱</strong>
+                      <em>{t('settings.plugins.meta.runtime')}</em>
+                      <strong>{t('settings.plugins.meta.runtimeValue')}</strong>
                     </span>
                     <span>
-                      <em>默认状态</em>
-                      <strong>手动启用</strong>
+                      <em>{t('settings.plugins.meta.defaultState')}</em>
+                      <strong>{t('settings.plugins.meta.defaultStateValue')}</strong>
                     </span>
                     <span>
-                      <em>权限</em>
-                      <strong>启用时确认</strong>
+                      <em>{t('settings.plugins.meta.permissions')}</em>
+                      <strong>{t('settings.plugins.meta.permissionsValue')}</strong>
                     </span>
                     <span>
-                      <em>播放安全</em>
-                      <strong>不进入音频热路径</strong>
+                      <em>{t('settings.plugins.meta.playbackSafety')}</em>
+                      <strong>{t('settings.plugins.meta.playbackSafetyValue')}</strong>
                     </span>
                   </div>
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" onClick={handleOpenPluginsPage}>
                       <Code2 size={15} />
-                      打开插件页
+                      {t('settings.plugins.action.openPage')}
                     </button>
                     <button className="settings-action-button" type="button" onClick={() => void handleOpenPluginDirectory()}>
                       <FolderOpen size={15} />
-                      打开插件目录
+                      {t('settings.plugins.action.openDirectory')}
                     </button>
                     <button className="settings-action-button" type="button" onClick={() => void handleCreatePlaybackPanelExample()}>
                       <FileText size={15} />
-                      新建示例插件
+                      {t('settings.plugins.action.createExample')}
                     </button>
                     <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(pluginsDocumentationUrl)}>
                       <ExternalLink size={15} />
-                      查看插件文档
+                      {t('settings.plugins.action.openDocs')}
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    插件页负责启用、禁用、重载、命令和日志；这里保留入口和安全边界说明，避免两套管理 UI 分叉。
+                    {t('settings.plugins.note')}
                   </p>
                   {pluginSettingsMessage ? <p className="settings-inline-note">{pluginSettingsMessage}</p> : null}
                 </div>
@@ -11147,14 +11214,14 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
-                title="定时切换深色模式"
-                description="以用户系统时间为准，到点自动切到深色，再按设定时间切回浅色。"
+                title={t('settings.appearance.themeSchedule.title')}
+                description={t('settings.appearance.themeSchedule.description')}
               >
                 <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions settings-theme-schedule">
                   <div className="settings-inline-toggle">
-                    <span>启用定时</span>
+                    <span>{t('settings.appearance.themeSchedule.toggle')}</span>
                     <button
-                      aria-label="启用定时切换深色模式"
+                      aria-label={t('settings.appearance.themeSchedule.toggleAria')}
                       aria-pressed={themeScheduleEnabled}
                       className={`toggle-btn ${themeScheduleEnabled ? 'active' : ''}`}
                       type="button"
@@ -11164,7 +11231,7 @@ export const SettingsPage = (): JSX.Element => {
                     </button>
                   </div>
                   <label className="settings-time-field">
-                    <span>切到深色</span>
+                    <span>{t('settings.appearance.themeSchedule.darkAt')}</span>
                     <input
                       type="time"
                       value={themeScheduleDarkAt}
@@ -11173,7 +11240,7 @@ export const SettingsPage = (): JSX.Element => {
                     />
                   </label>
                   <label className="settings-time-field">
-                    <span>切回浅色</span>
+                    <span>{t('settings.appearance.themeSchedule.lightAt')}</span>
                     <input
                       type="time"
                       value={themeScheduleLightAt}
@@ -11188,15 +11255,15 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full"
                 id="settings-row-sidebar-layout"
                 highlighted={highlightedSettingId === 'settings-row-sidebar-layout'}
-                title={sidebarSettingsCopy.title}
-                description={sidebarSettingsCopy.description}
+                title={sidebarSettingsText.title}
+                description={sidebarSettingsText.description}
               >
                 <div className="settings-sidebar-layout-panel">
                   <div className="settings-sidebar-layout-toolbar">
-                    <span>{sidebarHiddenRouteIds.length > 0 ? `\u5df2\u9690\u85cf ${sidebarHiddenRouteIds.length} \u4e2a\u5165\u53e3` : '\u5168\u90e8\u663e\u793a'}</span>
+                    <span>{sidebarHiddenRouteIds.length > 0 ? t('settings.appearance.sidebar.summary.hidden', { count: sidebarHiddenRouteIds.length }) : t('settings.appearance.sidebar.summary.allVisible')}</span>
                     <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleSidebarRoutesReset}>
                       <RotateCcw size={15} />
-                      {sidebarSettingsCopy.reset}
+                      {sidebarSettingsText.reset}
                     </button>
                   </div>
                   {(['main', 'utility'] as const).map((placement) => {
@@ -11205,8 +11272,8 @@ export const SettingsPage = (): JSX.Element => {
                     return (
                       <section className="settings-sidebar-layout-group" key={placement}>
                         <div className="settings-sidebar-layout-group-title">
-                          <strong>{placement === 'main' ? sidebarSettingsCopy.mainGroup : sidebarSettingsCopy.utilityGroup}</strong>
-                          <span>{`${groupItems.length} \u9879`}</span>
+                          <strong>{placement === 'main' ? sidebarSettingsText.mainGroup : sidebarSettingsText.utilityGroup}</strong>
+                          <span>{t('settings.appearance.sidebar.count', { count: groupItems.length })}</span>
                         </div>
                         <div className="settings-sidebar-route-list">
                           {groupItems.length > 0 ? (
@@ -11219,35 +11286,35 @@ export const SettingsPage = (): JSX.Element => {
                                 <div className="settings-sidebar-route-item" data-hidden={isVisible ? undefined : 'true'} key={item.id}>
                                   <span className="settings-sidebar-route-copy">
                                     <strong>{label}</strong>
-                                    <em>{isLockedVisible ? sidebarSettingsCopy.fixed : isVisible ? sidebarSettingsCopy.visible : sidebarSettingsCopy.hidden}</em>
+                                    <em>{isLockedVisible ? sidebarSettingsText.fixed : isVisible ? sidebarSettingsText.visible : sidebarSettingsText.hidden}</em>
                                   </span>
                                   <span className="settings-sidebar-route-actions">
                                     <button
-                                      aria-label={`Move up ${label}`}
+                                      aria-label={t('settings.appearance.sidebar.moveUpAria', { label })}
                                       className="settings-icon-button"
                                       disabled={!appSettings || index === 0}
-                                      title="Move up"
+                                      title={t('settings.appearance.sidebar.moveUp')}
                                       type="button"
                                       onClick={() => handleSidebarRouteMove(item.id, -1)}
                                     >
                                       <ArrowUp size={15} />
                                     </button>
                                     <button
-                                      aria-label={`Move down ${label}`}
+                                      aria-label={t('settings.appearance.sidebar.moveDownAria', { label })}
                                       className="settings-icon-button"
                                       disabled={!appSettings || index === groupItems.length - 1}
-                                      title="Move down"
+                                      title={t('settings.appearance.sidebar.moveDown')}
                                       type="button"
                                       onClick={() => handleSidebarRouteMove(item.id, 1)}
                                     >
                                       <ArrowDown size={15} />
                                     </button>
                                     <button
-                                      aria-label={`${isVisible ? 'Hide' : 'Show'} ${label}`}
+                                      aria-label={isVisible ? t('settings.appearance.sidebar.hideAria', { label }) : t('settings.appearance.sidebar.showAria', { label })}
                                       aria-pressed={isVisible}
                                       className="settings-icon-button settings-sidebar-visibility-button"
                                       disabled={!appSettings || isLockedVisible}
-                                      title={isVisible ? sidebarSettingsCopy.visible : sidebarSettingsCopy.hidden}
+                                      title={isVisible ? sidebarSettingsText.visible : sidebarSettingsText.hidden}
                                       type="button"
                                       onClick={() => handleSidebarRouteVisibilityToggle(item.id)}
                                     >
@@ -11258,7 +11325,7 @@ export const SettingsPage = (): JSX.Element => {
                               );
                             })
                           ) : (
-                            <p className="settings-sidebar-layout-empty">{sidebarSettingsCopy.noItems}</p>
+                            <p className="settings-sidebar-layout-empty">{sidebarSettingsText.noItems}</p>
                           )}
                         </div>
                       </section>
@@ -11688,19 +11755,19 @@ export const SettingsPage = (): JSX.Element => {
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-wallpaper"
                 highlighted={highlightedSettingId === 'settings-row-wallpaper'}
-                title="自定义背景"
-                description="支持图片和本地视频；视频静音循环，不进入音频链路。"
+                title={t('settings.appearance.wallpaper.title')}
+                description={t('settings.appearance.wallpaper.description')}
               >
                 {appSettings?.appCustomWallpaperPath ? (
                   <div className="settings-cache-panel settings-cache-panel--app-wallpaper">
                     <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                       <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
                         <FolderOpen size={15} />
-                        选择背景
+                        {t('settings.appearance.wallpaper.choose')}
                       </button>
                       <button className="settings-danger-button" type="button" onClick={handleAppWallpaperClear}>
                         <Trash2 size={15} />
-                        清除背景
+                        {t('settings.appearance.wallpaper.clear')}
                       </button>
                     </div>
                     <p className="settings-wallpaper-path" title={appSettings.appCustomWallpaperPath}>
@@ -11708,21 +11775,21 @@ export const SettingsPage = (): JSX.Element => {
                     </p>
                     {appSettings.appWallpaperMediaType === 'video' ? (
                       <div className="settings-chip-row settings-chip-row--left">
-                        <StatusText tone="good">视频壁纸 · 静音循环</StatusText>
+                        <StatusText tone="good">{t('settings.appearance.wallpaper.videoStatus')}</StatusText>
                         {appVideoWallpaperPauseModes.map((mode) => (
                           <ChipButton
                             active={(appSettings.appVideoWallpaperPauseMode ?? 'smart') === mode}
                             key={mode}
                             onClick={() => previewAndPersistAppWallpaperSettings({ appVideoWallpaperPauseMode: mode })}
                           >
-                            {appVideoWallpaperPauseModeLabels[mode]}
+                            {t(appVideoWallpaperPauseModeLabels[mode])}
                           </ChipButton>
                         ))}
                       </div>
                     ) : null}
                     <div className="settings-wallpaper-controls">
                         <div className="settings-wallpaper-control">
-                          <span>壁纸缩放</span>
+                          <span>{t('settings.appearance.wallpaper.scale')}</span>
                           <NumberRangeField
                             min={100}
                             max={220}
@@ -11733,7 +11800,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-wallpaper-control">
-                          <span>壁纸模糊度</span>
+                          <span>{t('settings.appearance.wallpaper.blur')}</span>
                           <NumberRangeField
                             min={0}
                             max={40}
@@ -11744,7 +11811,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-wallpaper-control">
-                          <span>壁纸亮度</span>
+                          <span>{t('settings.appearance.wallpaper.brightness')}</span>
                           <NumberRangeField
                             min={40}
                             max={140}
@@ -11755,7 +11822,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-wallpaper-control">
-                          <span>UI 透明度</span>
+                          <span>{t('settings.appearance.wallpaper.uiOpacity')}</span>
                           <NumberRangeField
                             min={0}
                             max={100}
@@ -11766,7 +11833,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-wallpaper-control settings-wallpaper-control--toggle">
-                          <span>可视化保护</span>
+                          <span>{t('settings.appearance.wallpaper.visualProtection')}</span>
                           <ToggleButton
                             active={appSettings.appWallpaperVisualProtectionEnabled !== false}
                             onClick={() =>
@@ -11777,7 +11844,7 @@ export const SettingsPage = (): JSX.Element => {
                           />
                         </div>
                         <div className="settings-wallpaper-control settings-wallpaper-control--toggle">
-                          <span>统一透明度</span>
+                          <span>{t('settings.appearance.wallpaper.unifiedOpacity')}</span>
                           <ToggleButton
                             active={appSettings.appWallpaperUnifiedOpacityEnabled ?? false}
                             onClick={() =>
@@ -11793,7 +11860,7 @@ export const SettingsPage = (): JSX.Element => {
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions settings-wallpaper-empty-actions">
                     <button className="settings-action-button" type="button" disabled={!appSettings} onClick={() => void handleAppWallpaperChoose()}>
                       <FolderOpen size={15} />
-                      选择背景
+                      {t('settings.appearance.wallpaper.choose')}
                     </button>
                   </div>
                 )}
@@ -12424,41 +12491,41 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Info} id="about" title={t('settings.nav.about.label')}>
-              <SettingRow title="版本号" description="当前安装的 ECHO Next 版本。">
+              <SettingRow title={t('settings.about.version.title')} description={t('settings.about.version.description')}>
                 <StatusText tone={appVersion ? 'neutral' : 'muted'}>{appVersion ?? t('common.checking')}</StatusText>
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
-                title="自动更新"
-                description="启动后自动检查 GitHub Release，下载完成后自动重启安装。"
+                title={t('settings.about.updates.title')}
+                description={t('settings.about.updates.description')}
               >
                 <div className="settings-cache-panel settings-cache-panel--updates">
                   <div className="settings-status-grid settings-status-grid--updates">
                     <span>
-                      <em>当前版本</em>
+                      <em>{t('settings.about.updates.currentVersion')}</em>
                       <strong>{appVersion ?? updateStatus?.currentVersion ?? t('common.checking')}</strong>
                     </span>
                     <span>
-                      <em>最新版本</em>
+                      <em>{t('settings.about.updates.latestVersion')}</em>
                       <strong>{updateStatus?.latestVersion ?? 'n/a'}</strong>
                     </span>
                     <span>
-                      <em>状态</em>
-                      <strong>{getUpdateStateLabel(updateStatus?.state ?? (appSettings?.autoUpdateEnabled === false ? 'disabled' : 'idle'))}</strong>
+                      <em>{t('settings.about.updates.status')}</em>
+                      <strong>{t(getUpdateStateLabel(updateStatus?.state ?? (appSettings?.autoUpdateEnabled === false ? 'disabled' : 'idle')))}</strong>
                     </span>
                     <span>
-                      <em>上次检查</em>
+                      <em>{t('settings.about.updates.lastChecked')}</em>
                       <strong>{updateStatus?.checkedAt ? new Date(updateStatus.checkedAt).toLocaleString() : 'n/a'}</strong>
                     </span>
                   </div>
                   {showUpdateDownloadProgress ? (
                     <div className="settings-update-progress" role="status" aria-live="polite">
                       <div className="settings-update-progress-label">
-                        <span>{updateStatus?.state === 'downloaded' ? '下载完成，准备安装' : '正在下载更新'}</span>
+                        <span>{updateStatus?.state === 'downloaded' ? t('settings.about.updates.progress.ready') : t('settings.about.updates.progress.downloading')}</span>
                         <strong>{updateDownloadPercent}%</strong>
                       </div>
                       <div
-                        aria-label={`OTA 更新下载进度 ${updateDownloadPercent}%`}
+                        aria-label={t('settings.about.updates.progress.aria', { percent: updateDownloadPercent })}
                         aria-valuemax={100}
                         aria-valuemin={0}
                         aria-valuenow={updateDownloadPercent}
@@ -12475,7 +12542,7 @@ export const SettingsPage = (): JSX.Element => {
                   ) : null}
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
                     <div className="settings-inline-toggle">
-                      <span>自动检查更新</span>
+                      <span>{t('settings.about.updates.autoCheck')}</span>
                       <ToggleButton
                         active={appSettings?.autoUpdateEnabled ?? true}
                         disabled={!appSettings}
@@ -12489,7 +12556,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleCheckForUpdates()}
                     >
                       <RotateCw className={updateBusy ? 'spinning-icon' : undefined} size={15} />
-                      {updateBusy ? '检查中...' : '检查更新'}
+                      {updateBusy ? t('settings.about.updates.action.checking') : t('settings.about.updates.action.check')}
                     </button>
                     <button className="settings-action-button" type="button" onClick={() => void handleOpenRepository()}>
                       <Github size={15} />
@@ -12501,7 +12568,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleOpenExternalUrl('https://afdian.com/a/echonext')}
                     >
                       <ExternalLink size={15} />
-                      爱发电
+                      {t('settings.about.updates.action.afdian')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -12509,7 +12576,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleOpenExternalUrl('https://github.com/moekotori/echo/releases')}
                     >
                       <History size={15} />
-                      查看历史更新日志
+                      {t('settings.about.updates.action.history')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -12517,7 +12584,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleOpenExternalUrl('https://qm.qq.com/q/KrJE8PIqSQ')}
                     >
                       <ExternalLink size={15} />
-                      加入 QQ 群聊
+                      {t('settings.about.updates.action.qq')}
                     </button>
                     <button
                       className="settings-action-button"
@@ -12525,20 +12592,20 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleOpenExternalUrl('https://discord.gg/g7v4WMRq3K')}
                     >
                       <ExternalLink size={15} />
-                      加入 Discord
+                      {t('settings.about.updates.action.discord')}
                     </button>
                   </div>
                   {updateStatus?.releaseNotes ? (
                     <div className="settings-update-notes">
-                      <em>更新日志</em>
+                      <em>{t('settings.about.updates.releaseNotes')}</em>
                       {deferredAboutReleaseNotes === updateStatus.releaseNotes ? (
                         <ReleaseNotesMarkdown markdown={updateStatus.releaseNotes} />
                       ) : (
-                        <p className="settings-inline-note">更新日志稍后显示...</p>
+                        <p className="settings-inline-note">{t('settings.about.updates.releaseNotesPending')}</p>
                       )}
                     </div>
                   ) : (
-                    <p className="settings-inline-note">更新日志会在 GitHub Release 返回 release notes 后显示。</p>
+                    <p className="settings-inline-note">{t('settings.about.updates.releaseNotesEmpty')}</p>
                   )}
                   {updateStatus?.error ? <p className="settings-inline-error">{updateStatus.error}</p> : null}
                 </div>
@@ -12680,8 +12747,8 @@ export const SettingsPage = (): JSX.Element => {
               <div className="settings-database-protection" data-health={databaseHealthStatus ?? 'unknown'}>
                 <header>
                   <div>
-                    <span className="section-kicker">曲库数据库安全</span>
-                    <h3>恢复助手</h3>
+                    <span className="section-kicker">{t('settings.danger.database.kicker')}</span>
+                    <h3>{t('settings.danger.database.title')}</h3>
                     <p>{databaseProtectionDescription}</p>
                   </div>
                   <span className={`settings-database-health settings-database-health--${databaseHealthStatus ?? 'unknown'}`}>
@@ -12690,19 +12757,19 @@ export const SettingsPage = (): JSX.Element => {
                 </header>
                 <div className="settings-database-grid">
                   <span>
-                    <em>当前数据库</em>
+                    <em>{t('settings.danger.database.meta.current')}</em>
                     <strong>{formatUpdateBytes(databaseProtectionStatus?.databaseSizeBytes)}</strong>
                     <small title={databasePathLabel}>{databasePathLabel}</small>
                   </span>
                   <span>
-                    <em>最近健康快照</em>
+                    <em>{t('settings.danger.database.meta.snapshot')}</em>
                     <strong>{databaseSnapshotLabel}</strong>
-                    <small>{latestHealthySnapshot?.id ?? '可手动创建'}</small>
+                    <small>{latestHealthySnapshot?.id ?? t('settings.danger.database.meta.snapshotHint')}</small>
                   </span>
                   <span>
-                    <em>最近坏库归档</em>
+                    <em>{t('settings.danger.database.meta.archive')}</em>
                     <strong>{databaseArchiveLabel}</strong>
-                    <small>{databaseProtectionStatus?.latestArchive?.id ?? '恢复/重建前会自动归档'}</small>
+                    <small>{databaseProtectionStatus?.latestArchive?.id ?? t('settings.danger.database.meta.archiveHint')}</small>
                   </span>
                 </div>
                 {databaseQuarantined || (databaseHealthStatus && databaseHealthStatus !== 'ok') ? (
@@ -12718,11 +12785,11 @@ export const SettingsPage = (): JSX.Element => {
                 <div className="settings-database-actions">
                   <button className="settings-action-button" type="button" disabled={databaseProtectionBusyAction === 'refresh'} onClick={() => void handleRefreshDatabaseProtectionStatus()}>
                     <RotateCw size={15} />
-                    {databaseProtectionBusyAction === 'refresh' ? '检查中...' : '检查健康'}
+                    {databaseProtectionBusyAction === 'refresh' ? t('settings.danger.database.action.checking') : t('settings.danger.database.action.check')}
                   </button>
                   <button className="settings-action-button" type="button" disabled={databaseProtectionBusy || appSettings?.dataProtectionDisabled === true} onClick={() => void handleCreateDatabaseSnapshot()}>
                     <Save size={15} />
-                    {databaseProtectionBusyAction === 'snapshot' ? '创建中...' : '创建健康快照'}
+                    {databaseProtectionBusyAction === 'snapshot' ? t('settings.danger.database.action.creating') : t('settings.danger.database.action.create')}
                   </button>
                   <button
                     className="settings-danger-button"
@@ -12741,29 +12808,29 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleDiscardQuarantinedProblemTracks()}
                     >
                       <Trash2 size={15} />
-                      {databaseProtectionBusyAction === 'discard' ? '归档中...' : '归档问题曲目'}
+                      {databaseProtectionBusyAction === 'discard' ? t('settings.danger.database.action.discarding') : t('settings.danger.database.action.discard')}
                     </button>
                   ) : null}
                   <button className="settings-danger-button" type="button" disabled={databaseProtectionBusy} onClick={() => void handleRelaunchLibraryRecoveryMode()}>
                     <Power size={15} />
-                    {databaseProtectionBusyAction === 'relaunch' ? '重启中...' : '重启到恢复模式'}
+                    {databaseProtectionBusyAction === 'relaunch' ? t('settings.danger.database.action.relaunching') : t('settings.danger.database.action.relaunch')}
                   </button>
                   <button className="settings-action-button" type="button" disabled={databaseProtectionBusyAction === 'open'} onClick={() => void handleOpenDataProtectionFolder()}>
                     <FolderOpen size={15} />
-                    打开保护目录
+                    {t('settings.danger.database.action.open')}
                   </button>
                   <button className="settings-action-button" type="button" disabled={diagnosticsBusy} onClick={() => void handleDiagnosticsExport()}>
                     <FileText size={15} />
-                    {diagnosticsBusy ? '导出中...' : '导出诊断'}
+                    {diagnosticsBusy ? t('settings.danger.database.action.exporting') : t('settings.danger.database.action.export')}
                   </button>
                 </div>
                 <label className="settings-danger-confirm-field" htmlFor="settings-danger-confirm-word">
-                  <span>危险操作确认词</span>
+                  <span>{t('settings.danger.database.confirmWord')}</span>
                   <input
                     id="settings-danger-confirm-word"
                     type="text"
                     value={dangerConfirmWord}
-                    placeholder="先输入按钮提示的确认词，再执行危险操作"
+                    placeholder={t('settings.danger.database.confirmPlaceholder')}
                     autoComplete="off"
                     onChange={(event) => setDangerConfirmWord(event.target.value)}
                   />
@@ -12771,7 +12838,7 @@ export const SettingsPage = (): JSX.Element => {
                 {databasePrimaryActionUnavailableReason ? <p className="settings-inline-note">{databasePrimaryActionUnavailableReason}</p> : null}
                 {databaseProtectionError ? <p className="settings-inline-error" role="alert">{databaseProtectionError}</p> : null}
                 {databaseProtectionMessage ? <p className="settings-inline-note" role="status">{databaseProtectionMessage}</p> : null}
-                {databaseProtectionStatus?.hasRunningScan ? <p className="settings-inline-error">曲库扫描正在运行，恢复、重建和删除会被拒绝。请等扫描结束后再操作。</p> : null}
+                {databaseProtectionStatus?.hasRunningScan ? <p className="settings-inline-error">{t('settings.danger.database.scanRunning')}</p> : null}
                 {databaseProtectionStatus?.maintenanceEvents.length ? (
                   <div className="settings-database-events">
                     {databaseProtectionStatus.maintenanceEvents.slice(0, 3).map((event) => (
@@ -12785,28 +12852,28 @@ export const SettingsPage = (): JSX.Element => {
               </div>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
-                title="扫描重复歌曲并清理"
-                description="先扫描并列出重复组；清理时优先把低音质、低评分副本移入系统回收站，每组保留评分最高的一首。"
+                title={t('settings.danger.duplicates.title')}
+                description={t('settings.danger.duplicates.description')}
               >
                 <div className="settings-cache-panel settings-cache-panel--duplicates">
                   <div className="settings-status-grid">
                     <span>
-                      <em>扫描结果</em>
+                      <em>{t('settings.danger.duplicates.meta.result')}</em>
                       <strong>
                         {duplicateCleanupBusyAction === 'scan'
-                          ? '扫描中...'
+                          ? t('settings.danger.duplicates.action.scanning')
                           : duplicateCleanupPreview
-                          ? `${duplicateCleanupPreview.groups.length} 组 / ${duplicateCleanupPreview.totalTracksToRemove} 首待清理`
-                          : '尚未扫描'}
+                          ? t('settings.danger.duplicates.meta.resultValue', { groups: duplicateCleanupPreview.groups.length, tracks: duplicateCleanupPreview.totalTracksToRemove })
+                          : t('settings.danger.duplicates.meta.notScanned')}
                       </strong>
                     </span>
                     <span>
-                      <em>预计释放</em>
+                      <em>{t('settings.danger.duplicates.meta.release')}</em>
                       <strong>{duplicateCleanupPreview ? formatUpdateBytes(duplicateCleanupPreview.totalBytesToRemove) : 'n/a'}</strong>
                     </span>
                     <span>
-                      <em>扫描时间</em>
-                      <strong>{duplicateCleanupPreview?.generatedAt ? new Date(duplicateCleanupPreview.generatedAt).toLocaleString() : '尚未扫描'}</strong>
+                      <em>{t('settings.danger.duplicates.meta.scanTime')}</em>
+                      <strong>{duplicateCleanupPreview?.generatedAt ? new Date(duplicateCleanupPreview.generatedAt).toLocaleString() : t('settings.danger.duplicates.meta.notScanned')}</strong>
                     </span>
                   </div>
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
@@ -12817,7 +12884,7 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleScanDuplicateTrackCleanup()}
                     >
                       <RotateCw className={duplicateCleanupBusyAction === 'scan' ? 'spinning-icon' : undefined} size={15} />
-                      {duplicateCleanupBusyAction === 'scan' ? '扫描中...' : '扫描重复歌曲'}
+                      {duplicateCleanupBusyAction === 'scan' ? t('settings.danger.duplicates.action.scanning') : t('settings.danger.duplicates.action.scan')}
                     </button>
                     <button
                       className="settings-danger-button"
@@ -12831,20 +12898,20 @@ export const SettingsPage = (): JSX.Element => {
                       onClick={() => void handleApplyDuplicateTrackCleanup()}
                     >
                       <Trash2 size={15} />
-                      {duplicateCleanupBusyAction === 'clean' ? '清理中...' : '清理扫描结果'}
+                      {duplicateCleanupBusyAction === 'clean' ? t('settings.danger.duplicates.action.cleaning') : t('settings.danger.duplicates.action.clean')}
                     </button>
                   </div>
                   {duplicateCleanupBusyAction ? (
                     <div className="settings-update-progress settings-duplicate-cleanup-progress" role="status" aria-live="polite">
                       <div className="settings-update-progress-label">
-                        <strong>{duplicateCleanupBusyAction === 'scan' ? '正在扫描重复歌曲' : '正在清理扫描结果'}</strong>
-                        <span>{duplicateCleanupBusyAction === 'scan' ? '分批处理，避免挤占播放' : '移入回收站并更新曲库索引'}</span>
+                        <strong>{duplicateCleanupBusyAction === 'scan' ? t('settings.danger.duplicates.progress.scan.title') : t('settings.danger.duplicates.progress.clean.title')}</strong>
+                        <span>{duplicateCleanupBusyAction === 'scan' ? t('settings.danger.duplicates.progress.scan.description') : t('settings.danger.duplicates.progress.clean.description')}</span>
                       </div>
                       <div
                         className="settings-update-progress-track"
                         data-indeterminate="true"
                         role="progressbar"
-                        aria-label={duplicateCleanupBusyAction === 'scan' ? '重复歌曲扫描中' : '重复歌曲清理中'}
+                        aria-label={duplicateCleanupBusyAction === 'scan' ? t('settings.danger.duplicates.progress.scan.aria') : t('settings.danger.duplicates.progress.clean.aria')}
                       >
                         <span />
                       </div>

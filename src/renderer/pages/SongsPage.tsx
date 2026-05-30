@@ -11,6 +11,8 @@ import { TrackList } from '../components/library/TrackList';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
 import { likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
 import { useRemoteCoverPreloader } from '../hooks/useRemoteCoverPreloader';
+import { useI18n } from '../i18n/I18nProvider';
+import type { TranslationKey } from '../i18n/locales';
 import {
   beginSongsStartupLoadDiagnostics,
   canUseSongsFirstPageSnapshot,
@@ -44,23 +46,23 @@ const isPreserveScrollLibraryEvent = (event: Event): boolean =>
 const dispatchLibraryChangedPreservingScroll = (): void => {
   window.dispatchEvent(new CustomEvent('library:changed', { detail: { preserveScroll: true } }));
 };
-const sortOptions: Array<{ value: LibrarySort; label: string }> = [
-  { value: 'default', label: '默认排序' },
-  { value: 'createdAsc', label: '创建时间 (正序)' },
-  { value: 'createdDesc', label: '创建时间 (倒序)' },
-  { value: 'titleAsc', label: '歌曲名 (A-Z)' },
-  { value: 'titleDesc', label: '歌曲名 (Z-A)' },
-  { value: 'durationAsc', label: '音乐时间 (短到长)' },
-  { value: 'durationDesc', label: '音乐时间 (长到短)' },
-  { value: 'fileModifiedAsc', label: '文件修改时间 (旧到新)' },
-  { value: 'fileModifiedDesc', label: '文件修改时间 (新到旧)' },
-  { value: 'qualityAsc', label: '歌曲质量/大小 (小到大)' },
-  { value: 'qualityDesc', label: '歌曲质量/大小 (大到小)' },
-  { value: 'frequent', label: '根据常听歌曲排序' },
-  { value: 'random', label: '随机排序' },
-  { value: 'artist', label: '按艺术家' },
-  { value: 'album', label: '按专辑' },
-  { value: 'recent', label: '最近更新' },
+const sortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
+  { value: 'default', labelKey: 'songs.sort.default' },
+  { value: 'createdAsc', labelKey: 'songs.sort.createdAsc' },
+  { value: 'createdDesc', labelKey: 'songs.sort.createdDesc' },
+  { value: 'titleAsc', labelKey: 'songs.sort.titleAsc' },
+  { value: 'titleDesc', labelKey: 'songs.sort.titleDesc' },
+  { value: 'durationAsc', labelKey: 'songs.sort.durationAsc' },
+  { value: 'durationDesc', labelKey: 'songs.sort.durationDesc' },
+  { value: 'fileModifiedAsc', labelKey: 'songs.sort.fileModifiedAsc' },
+  { value: 'fileModifiedDesc', labelKey: 'songs.sort.fileModifiedDesc' },
+  { value: 'qualityAsc', labelKey: 'songs.sort.qualityAsc' },
+  { value: 'qualityDesc', labelKey: 'songs.sort.qualityDesc' },
+  { value: 'frequent', labelKey: 'songs.sort.frequent' },
+  { value: 'random', labelKey: 'songs.sort.random' },
+  { value: 'artist', labelKey: 'songs.sort.artist' },
+  { value: 'album', labelKey: 'songs.sort.album' },
+  { value: 'recent', labelKey: 'songs.sort.recent' },
 ];
 
 const songsSortStorageKey = 'echo-next.songs.sort';
@@ -172,6 +174,7 @@ type TrackMenuState = {
 };
 
 export const SongsPage = (): JSX.Element => {
+  const { t } = useI18n();
   const initialSongsStateRef = useRef<InitialSongsState | null>(null);
   if (!initialSongsStateRef.current) {
     initialSongsStateRef.current = readInitialSongsState();
@@ -230,20 +233,20 @@ export const SongsPage = (): JSX.Element => {
   const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
   const visibleTrackIdsKey = useMemo(() => visibleTrackIds.join('\0'), [visibleTrackIds]);
   const loadedTrackIdsKey = useMemo(() => uniqueIds(tracks.map((track) => track.id)).join('\0'), [tracks]);
-  const activeSortLabel = sortOptions.find((option) => option.value === sort)?.label ?? '默认排序';
+  const activeSortLabel = t(sortOptions.find((option) => option.value === sort)?.labelKey ?? 'songs.sort.default');
   const effectiveHideDuplicates = showDuplicatesOnly ? false : hideDuplicates;
   const hasRemoteSources = remoteSources.length > 0;
   const sourceLoadGate = sourceMode === 'remote' ? `${remoteSourcesLoaded}:${hasRemoteSources}` : 'local';
   const queueSource = useMemo(
     () => ({
       type: 'songs' as const,
-      label: showDuplicatesOnly ? '重复歌曲' : sourceMode === 'remote' ? '网盘歌曲' : '歌曲列表',
+      label: showDuplicatesOnly ? t('songs.duplicatesOnly') : sourceMode === 'remote' ? t('songs.queueSource.remote') : t('songs.queueSource.local'),
       search: search || undefined,
       sort,
       hideDuplicates: effectiveHideDuplicates,
       showDuplicatesOnly,
     }),
-    [effectiveHideDuplicates, search, showDuplicatesOnly, sort, sourceMode],
+    [effectiveHideDuplicates, search, showDuplicatesOnly, sort, sourceMode, t],
   );
   const reportSongsError = useCallback((value: unknown): void => {
     if (isLibraryDatabaseCorruptionError(value)) {
@@ -470,7 +473,7 @@ export const SongsPage = (): JSX.Element => {
           setTotal(0);
           setHasMore(false);
           clearListMetadataCache();
-          setError('Desktop bridge unavailable. Open ECHO Next in Electron to read the library.');
+          setError(t('songs.error.desktopBridgeRead'));
           setDatabaseRecoveryAvailable(false);
           return;
         }
@@ -663,7 +666,7 @@ export const SongsPage = (): JSX.Element => {
       setError(null);
       const artist = await openArtistDetailForTrack(track, { returnTo: 'songs' });
       if (!artist) {
-        setError(`未找到艺术家：${track.artist || 'Unknown Artist'}`);
+        setError(t('songs.error.artistNotFound', { artist: track.artist || t('queue.unknownArtist') }));
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
@@ -678,7 +681,7 @@ export const SongsPage = (): JSX.Element => {
       setError(null);
       const album = await openAlbumDetailForTrack(track, { returnTo: 'songs' });
       if (!album) {
-        setError(`未找到专辑：${track.album || 'Unknown Album'}`);
+        setError(t('songs.error.albumNotFound', { album: track.album || t('queue.unknownAlbum') }));
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
@@ -692,7 +695,7 @@ export const SongsPage = (): JSX.Element => {
     const library = window.echo?.library;
 
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to maintain the library.');
+      setError(t('songs.error.desktopBridgeMaintain'));
       return;
     }
 
@@ -744,7 +747,7 @@ export const SongsPage = (): JSX.Element => {
     const library = window.echo?.library;
 
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.');
+      setError(t('songs.error.desktopBridgeClear'));
       return;
     }
 
@@ -778,7 +781,7 @@ export const SongsPage = (): JSX.Element => {
       const playback = window.echo?.playback;
 
       if (!playback) {
-        setError('Desktop bridge unavailable. Open ECHO Next in Electron to play local files.');
+        setError(t('songs.error.desktopBridgePlay'));
         return;
       }
 
@@ -1021,7 +1024,7 @@ export const SongsPage = (): JSX.Element => {
     const library = window.echo?.library;
 
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to inspect duplicate versions.');
+      setError(t('songs.error.desktopBridgeVersions'));
       return;
     }
 
@@ -1065,7 +1068,7 @@ export const SongsPage = (): JSX.Element => {
   const resolveTargetLocalPlaylist = useCallback(async () => {
     const library = window.echo?.library;
     if (!library) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to use playlists.');
+      setError(t('songs.error.desktopBridgePlaylists'));
       return null;
     }
 
@@ -1205,7 +1208,7 @@ export const SongsPage = (): JSX.Element => {
       if (action === 'clear-lyrics-cache') {
         const lyricsApi = window.echo?.lyrics;
         if (!lyricsApi?.clearCache) {
-          setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          setError(t('songs.error.desktopBridgeLyricsCache'));
           return;
         }
 
@@ -1221,7 +1224,7 @@ export const SongsPage = (): JSX.Element => {
       }
 
       if (!library && action !== 'play-next' && action !== 'add-to-queue' && action !== 'remove-from-queue' && action !== 'edit-tags' && action !== 'reload-embedded-tags' && action !== 'open-osu-timing') {
-        setError('Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.');
+        setError(t('songs.error.desktopBridgeFileActions'));
         return;
       }
 
@@ -1420,14 +1423,14 @@ export const SongsPage = (): JSX.Element => {
           >
             <RotateCw className={isMaintainingLibrary ? 'spinning-icon' : undefined} size={17} />
           </button>
-          <button className="tool-button" type="button" aria-label="下载" title="下载">
+          <button className="tool-button" type="button" aria-label={t('route.downloads.label')} title={t('route.downloads.label')}>
             <Download size={17} />
           </button>
           <button
             className="tool-button danger"
             type="button"
-            aria-label="清空列表"
-            title="清空列表"
+            aria-label={t('songs.action.clearList')}
+            title={t('songs.action.clearList')}
             onClick={() => void handleClearTracks()}
             disabled={isClearing || total === 0}
           >
@@ -1441,7 +1444,7 @@ export const SongsPage = (): JSX.Element => {
           <Search size={18} aria-hidden="true" />
           <input
             type="search"
-            placeholder="搜索曲目 / 艺人 / 专辑..."
+            placeholder={t('songs.search.placeholder')}
             {...searchInputProps}
           />
         </label>
@@ -1461,11 +1464,11 @@ export const SongsPage = (): JSX.Element => {
               onClick={() => setIsSortOpen((current) => !current)}
             >
               <ListFilter className="sort-button-icon" size={16} aria-hidden="true" />
-              <span className="sort-button-label">{showDuplicatesOnly ? '只看重复歌曲' : activeSortLabel}</span>
+              <span className="sort-button-label">{showDuplicatesOnly ? t('songs.duplicatesOnly') : activeSortLabel}</span>
               <ChevronDown className="sort-button-chevron" size={15} aria-hidden="true" />
             </button>
             {isSortOpen ? (
-              <div className="sort-menu" role="listbox" aria-label="歌曲排序">
+              <div className="sort-menu" role="listbox" aria-label={t('songs.sort.menuAria')}>
                 <button
                   className="sort-option sort-option--filter"
                   type="button"
@@ -1473,7 +1476,7 @@ export const SongsPage = (): JSX.Element => {
                   aria-selected={showDuplicatesOnly}
                   onClick={handleToggleDuplicateFilter}
                 >
-                  <span>只看重复歌曲</span>
+                  <span>{t('songs.duplicatesOnly')}</span>
                   {showDuplicatesOnly ? <Check size={14} /> : null}
                 </button>
                 <div className="sort-menu-divider" role="presentation" />
@@ -1489,7 +1492,7 @@ export const SongsPage = (): JSX.Element => {
                       setIsSortOpen(false);
                     }}
                   >
-                    <span>{option.label}</span>
+                    <span>{t(option.labelKey)}</span>
                     {sort === option.value ? <Check size={14} /> : null}
                   </button>
                 ))}
@@ -1502,7 +1505,7 @@ export const SongsPage = (): JSX.Element => {
       {total === 0 && !isLoading ? (
         <div className="songs-import-hint">
           <FolderPlus size={17} aria-hidden="true" />
-          <span>也可以直接把音乐文件或文件夹拖入窗口。支持 MP3, FLAC, WAV, ALAC, AAC, OPUS, OGG, APE, WV, DSF, DFF, CUE 等格式，更多格式会自动识别。</span>
+          <span>{t('songs.importHint')}</span>
         </div>
       ) : null}
 
@@ -1511,7 +1514,7 @@ export const SongsPage = (): JSX.Element => {
           <p className="audio-error">{error}</p>
           {databaseRecoveryAvailable ? (
             <button className="settings-action-button" type="button" onClick={openLibraryDatabaseRecoverySettings}>
-              去恢复助手
+              {t('songs.action.openRecovery')}
             </button>
           ) : null}
         </div>

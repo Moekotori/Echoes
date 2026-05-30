@@ -36,6 +36,8 @@ import type {
 import type { LibraryTrack } from '../../shared/types/library';
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, type StreamingProviderName } from '../../shared/types/streaming';
+import { useI18n } from '../i18n/I18nProvider';
+import type { TranslationKey } from '../i18n/locales';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 
@@ -86,47 +88,47 @@ const defaultAirPlayReceiverStatus: AirPlayReceiverStatus = {
   updatedAt: new Date(0).toISOString(),
 };
 
-const stateLabel: Record<ConnectSessionStatus['state'], string> = {
-  idle: '待机',
-  discovering: '扫描设备',
-  connecting: '连接中',
-  ready: '就绪',
-  playing: '投送中',
-  paused: '已暂停',
-  stopped: '已停止',
-  error: '错误',
-  unsupported: '暂不可用',
+const stateLabel: Record<ConnectSessionStatus['state'], TranslationKey> = {
+  idle: 'connectPage.state.idle',
+  discovering: 'connectPage.state.discovering',
+  connecting: 'connectPage.state.connecting',
+  ready: 'common.ready',
+  playing: 'connectPage.state.playing',
+  paused: 'connectPage.state.paused',
+  stopped: 'connectPage.state.stopped',
+  error: 'connectPage.state.error',
+  unsupported: 'common.unavailable',
 };
 
-const deviceStateLabel: Record<ConnectDevice['state'], string> = {
-  available: '可用',
-  connecting: '连接中',
-  connected: '已连接',
-  unavailable: '离线',
-  unsupported: '实验',
+const deviceStateLabel: Record<ConnectDevice['state'], TranslationKey> = {
+  available: 'connectPage.deviceState.available',
+  connecting: 'connectPage.state.connecting',
+  connected: 'connectPage.deviceState.connected',
+  unavailable: 'connectPage.deviceState.unavailable',
+  unsupported: 'connectPage.deviceState.unsupported',
 };
 
-const receiverStateLabel: Record<ConnectReceiverStatus['state'], string> = {
-  disabled: '未开启',
-  idle: '等待手机',
-  ready: '已接收媒体',
-  loading: '加载中',
-  playing: '手机投送中',
-  paused: '已暂停',
-  stopped: '已停止',
-  error: '错误',
+const receiverStateLabel: Record<ConnectReceiverStatus['state'], TranslationKey> = {
+  disabled: 'connectPage.receiver.state.disabled',
+  idle: 'connectPage.receiver.state.idle',
+  ready: 'connectPage.receiver.state.ready',
+  loading: 'connectPage.receiver.state.loading',
+  playing: 'connectPage.receiver.state.playing',
+  paused: 'connectPage.state.paused',
+  stopped: 'connectPage.state.stopped',
+  error: 'connectPage.state.error',
 };
 
-const airPlayStateLabel: Record<AirPlayReceiverStatus['state'], string> = {
-  disabled: '未开启',
-  unavailable: '原生后端不可用',
-  idle: '等待 iPhone',
-  starting: '启动中',
-  ready: '已连接',
-  playing: 'AirPlay 播放中',
-  paused: '已暂停',
-  stopped: '已停止',
-  error: '错误',
+const airPlayStateLabel: Record<AirPlayReceiverStatus['state'], TranslationKey> = {
+  disabled: 'connectPage.receiver.state.disabled',
+  unavailable: 'connectPage.airplay.state.unavailable',
+  idle: 'connectPage.airplay.state.idle',
+  starting: 'connectPage.airplay.state.starting',
+  ready: 'connectPage.deviceState.connected',
+  playing: 'connectPage.airplay.state.playing',
+  paused: 'connectPage.state.paused',
+  stopped: 'connectPage.state.stopped',
+  error: 'connectPage.state.error',
 };
 
 const defaultHqPlayerSettings: HqPlayerSettings = {
@@ -150,12 +152,12 @@ const connectDeviceSectionCollapsedStorageKey = 'echo.connect.deviceSectionColla
 const hqPlayerConnectionModes: HqPlayerConnectionMode[] = ['localDesktop', 'remote'];
 const hqPlayerDefaultBackends: HqPlayerDefaultPlaybackBackend[] = ['echoNative', 'ask', 'hqplayer'];
 
-const hqPlayerStateLabel: Record<HqPlayerStatus['state'], string> = {
-  disabled: '未启用',
-  'not-configured': '未配置端口',
-  checking: '检测中',
-  available: '可连接',
-  unavailable: '不可用',
+const hqPlayerStateLabel: Record<HqPlayerStatus['state'], TranslationKey> = {
+  disabled: 'connectPage.hqplayer.state.disabled',
+  'not-configured': 'connectPage.hqplayer.state.notConfigured',
+  checking: 'connectPage.hqplayer.state.checking',
+  available: 'connectPage.hqplayer.state.available',
+  unavailable: 'connectPage.hqplayer.state.unavailable',
 };
 
 const hqPlayerModeLabel: Record<HqPlayerConnectionMode, string> = {
@@ -594,6 +596,7 @@ const toHqPlayerPlayableTrack = (track: LibraryTrack | null, fallbackPath: strin
 };
 
 export const ConnectPage = (): JSX.Element => {
+  const { t } = useI18n();
   const queue = usePlaybackQueue();
   const playbackStatus = useSharedPlaybackStatus();
   const [devices, setDevices] = useState<ConnectDevice[]>([]);
@@ -646,8 +649,8 @@ export const ConnectPage = (): JSX.Element => {
   const currentPositionSeconds =
     playbackStatus.audioStatus?.positionSeconds ??
     (playbackStatus.playbackStatus?.positionMs ?? 0) / 1000;
-  const previewTitle = status.metadata?.title ?? currentTrack?.title ?? (currentFilePath ? currentFilePath.split(/[\\/]/u).pop() : '没有当前歌曲');
-  const previewArtist = status.metadata?.artist ?? currentTrack?.artist ?? currentTrack?.albumArtist ?? 'Unknown Artist';
+  const previewTitle = status.metadata?.title ?? currentTrack?.title ?? (currentFilePath ? currentFilePath.split(/[\\/]/u).pop() : t('connectPage.nowPlaying.emptyTitle'));
+  const previewArtist = status.metadata?.artist ?? currentTrack?.artist ?? currentTrack?.albumArtist ?? t('miniPlayer.artist.unknown');
   const previewAlbum = status.metadata?.album ?? currentTrack?.album ?? null;
   const previewCover = status.metadata?.coverHttpUrl ?? currentTrack?.coverThumb ?? null;
   const progressPercent =
@@ -655,16 +658,16 @@ export const ConnectPage = (): JSX.Element => {
   const receiverTitle =
     receiverStatus.metadata?.title ??
     (receiverStatus.currentUri ? receiverStatus.currentUri.split(/[?#]/u)[0]?.split(/[\\/]/u).pop() : null) ??
-    '等待手机投送';
-  const receiverArtist = receiverStatus.metadata?.artist ?? 'Unknown Artist';
+    t('connectPage.receiver.waitingTitle');
+  const receiverArtist = receiverStatus.metadata?.artist ?? t('miniPlayer.artist.unknown');
   const receiverAlbum = receiverStatus.metadata?.album ?? null;
   const receiverCover = receiverStatus.metadata?.coverHttpUrl || null;
   const receiverProgressPercent =
     receiverStatus.durationSeconds > 0
       ? Math.min(100, Math.max(0, (receiverStatus.positionSeconds / receiverStatus.durationSeconds) * 100))
       : 0;
-  const airPlayTitle = airPlayReceiverStatus.metadata?.title ?? '等待 iPhone 投送';
-  const airPlayArtist = airPlayReceiverStatus.metadata?.artist ?? 'Unknown Artist';
+  const airPlayTitle = airPlayReceiverStatus.metadata?.title ?? t('connectPage.airplay.waitingTitle');
+  const airPlayArtist = airPlayReceiverStatus.metadata?.artist ?? t('miniPlayer.artist.unknown');
   const airPlayAlbum = airPlayReceiverStatus.metadata?.album ?? null;
   const airPlayCover = airPlayReceiverStatus.artworkUrl || airPlayReceiverStatus.metadata?.coverHttpUrl || null;
   const airPlayProgressPercent =
@@ -704,14 +707,14 @@ export const ConnectPage = (): JSX.Element => {
     ? `${formatProtocol(activeDevice)} · ${activeDevice.name}`
     : status.deviceId
       ? status.deviceId
-      : '未连接输出';
+      : t('connectPage.nowPlaying.noOutput');
   const activeDeviceInfoLabel = activeDevice
     ? `${formatDeviceProduct(activeDevice)} · ${formatDeviceAddress(activeDevice)}`
-    : '选择一台局域网数播后开始投送';
+    : t('connectPage.nowPlaying.chooseDevice');
   const activeMediaInfoLabel = [
-    status.metadata?.coverHttpUrl ? '封面 URL 已发送' : '等待封面 URL',
-    status.latencyMs != null ? `投送握手 ${status.latencyMs}ms` : null,
-    activeDevice?.protocol === 'dlna' ? '状态轮询约 3s' : null,
+    status.metadata?.coverHttpUrl ? t('connectPage.nowPlaying.coverReady') : t('connectPage.nowPlaying.coverWaiting'),
+    status.latencyMs != null ? t('connectPage.nowPlaying.latency', { ms: status.latencyMs }) : null,
+    activeDevice?.protocol === 'dlna' ? t('connectPage.nowPlaying.dlnaPolling') : null,
   ].filter(Boolean).join(' · ');
   const outgoingHttpEvents = status.httpEvents ?? [];
 
@@ -1104,15 +1107,15 @@ export const ConnectPage = (): JSX.Element => {
     <div className="connect-page">
       <header className="connect-header">
         <div>
-          <p className="section-kicker">Wireless Playback</p>
-          <h1>连接</h1>
-          <p>DLNA / AirPlay / HQPlayer 外部播放集中管理；HQPlayer 当前以安全交接预演为主。</p>
+          <p className="section-kicker">{t('connectPage.header.kicker')}</p>
+          <h1>{t('route.connect.label')}</h1>
+          <p>{t('connectPage.header.description')}</p>
         </div>
         <div className="connect-header-actions">
           <div className="settings-inline-toggle connect-autostart-toggle">
-            <span>启动时自动开启 AirPlay / DLNA</span>
+            <span>{t('connectPage.header.autoStart')}</span>
             <button
-              aria-label="启动时自动开启 AirPlay / DLNA"
+              aria-label={t('connectPage.header.autoStart')}
               aria-pressed={autoStartReceiversEnabled}
               className={`toggle-btn ${autoStartReceiversEnabled ? 'active' : ''}`}
               disabled={isAutoStartBusy}
@@ -1124,7 +1127,7 @@ export const ConnectPage = (): JSX.Element => {
           </div>
           <button className="settings-action-button" type="button" onClick={() => void refreshDevices()} disabled={isRefreshing}>
             {isRefreshing ? <Loader2 className="spinning-icon" size={16} /> : <RefreshCw size={16} />}
-            刷新设备
+            {t('connectPage.header.refresh')}
           </button>
         </div>
       </header>
@@ -1136,36 +1139,36 @@ export const ConnectPage = (): JSX.Element => {
         </div>
       ) : null}
 
-      <section className="connect-stage" aria-label="快速投送">
-        <section className="connect-now connect-now--stage" aria-label="当前投送">
+      <section className="connect-stage" aria-label={t('connectPage.stage.aria')}>
+        <section className="connect-now connect-now--stage" aria-label={t('connectPage.nowPlaying.aria')}>
           <div className="connect-artwork" data-empty={!previewCover}>
             {previewCover ? <img alt="" src={previewCover} /> : <Cast size={42} />}
           </div>
           <div className="connect-now-copy">
-            <span>{stateLabel[status.state]}</span>
+            <span>{t(stateLabel[status.state])}</span>
             <h2>{previewTitle}</h2>
             <p>{previewArtist}{previewAlbum ? ` · ${previewAlbum}` : ''}</p>
-            <div className="connect-now-facts" aria-label="当前投送信息">
+            <div className="connect-now-facts" aria-label={t('connectPage.nowPlaying.infoAria')}>
               <small>{activeTargetLabel}</small>
               <small>{activeDeviceInfoLabel}</small>
-              <small>{activeMediaInfoLabel || '等待投送信息'}</small>
+              <small>{activeMediaInfoLabel || t('connectPage.nowPlaying.infoWaiting')}</small>
             </div>
-            <div className="connect-progress" aria-label="投送进度">
+            <div className="connect-progress" aria-label={t('connectPage.nowPlaying.progressAria')}>
               <span style={{ width: `${progressPercent}%` }} />
             </div>
             <small>{formatTime(status.positionSeconds)} / {formatTime(status.durationSeconds || currentTrack?.duration || 0)}</small>
           </div>
-          <div className="connect-controls" aria-label="Connect 控制">
-            <button className="icon-button" type="button" aria-label="播放" title="播放" onClick={() => void runCommand('play')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canPlay !== true}>
+          <div className="connect-controls" aria-label={t('connectPage.controls.aria')}>
+            <button className="icon-button" type="button" aria-label={t('connectPage.controls.play')} title={t('connectPage.controls.play')} onClick={() => void runCommand('play')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canPlay !== true}>
               <Play size={17} />
             </button>
-            <button className="icon-button" type="button" aria-label="暂停" title="暂停" onClick={() => void runCommand('pause')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canPause !== true}>
+            <button className="icon-button" type="button" aria-label={t('connectPage.controls.pause')} title={t('connectPage.controls.pause')} onClick={() => void runCommand('pause')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canPause !== true}>
               <Pause size={17} />
             </button>
-            <button className="icon-button" type="button" aria-label="停止" title="停止" onClick={() => void runCommand('stop')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canStop !== true}>
+            <button className="icon-button" type="button" aria-label={t('connectPage.controls.stop')} title={t('connectPage.controls.stop')} onClick={() => void runCommand('stop')} disabled={isCommandBusy || !status.deviceId || activeDeviceCapabilities?.canStop !== true}>
               <Square size={16} />
             </button>
-            <button className="icon-button" type="button" aria-label="断开" title="断开" onClick={() => void runCommand('disconnect')} disabled={isCommandBusy || !status.deviceId}>
+            <button className="icon-button" type="button" aria-label={t('connectPage.controls.disconnect')} title={t('connectPage.controls.disconnect')} onClick={() => void runCommand('disconnect')} disabled={isCommandBusy || !status.deviceId}>
               <Unplug size={17} />
             </button>
             <label className="connect-volume">
@@ -1183,16 +1186,16 @@ export const ConnectPage = (): JSX.Element => {
                   }
                 }}
                 disabled={activeDeviceCapabilities?.canSetVolume !== true}
-                aria-label="投送音量"
+                aria-label={t('connectPage.controls.volume')}
               />
             </label>
           </div>
         </section>
 
-        <details className="connect-receiver-debug connect-outgoing-debug" aria-label="DLNA outgoing request log">
+        <details className="connect-receiver-debug connect-outgoing-debug" aria-label={t('connectPage.outgoing.aria')}>
           <summary>
-            <span>DLNA Out</span>
-            <small>{outgoingHttpEvents.length > 0 ? `${outgoingHttpEvents.length} recent` : 'No pulls yet'}</small>
+            <span>{t('connectPage.outgoing.title')}</span>
+            <small>{outgoingHttpEvents.length > 0 ? t('connectPage.outgoing.recent', { count: outgoingHttpEvents.length }) : t('connectPage.outgoing.empty')}</small>
           </summary>
           <div className="connect-receiver-debug__items">
             {outgoingHttpEvents.length > 0 ? (
@@ -1204,27 +1207,30 @@ export const ConnectPage = (): JSX.Element => {
                 </code>
               ))
             ) : (
-              <small>Matrix 拉封面/音频后会显示在这里</small>
+              <small>{t('connectPage.outgoing.note')}</small>
             )}
           </div>
         </details>
 
-        <section className="connect-device-section connect-device-section--stage" aria-label="设备列表">
+        <section className="connect-device-section connect-device-section--stage" aria-label={t('connectPage.devices.aria')}>
           <div className="connect-section-title">
             <div>
-              <span>Network Streamers</span>
-              <h2>局域网数播</h2>
+              <span>{t('connectPage.devices.kicker')}</span>
+              <h2>{t('connectPage.devices.title')}</h2>
             </div>
             <div className="connect-section-actions">
               <small>
-                {visibleDevices.filter((device) => device.protocol === 'dlna').length} 台数播 · {visibleDevices.length} 个入口
-                {hiddenDeviceCount > 0 ? ` · 已隐藏 ${hiddenDeviceCount}` : ''}
+                {t('connectPage.devices.summary', {
+                  streamers: visibleDevices.filter((device) => device.protocol === 'dlna').length,
+                  entries: visibleDevices.length,
+                  hidden: hiddenDeviceCount,
+                })}
               </small>
               <button
                 className="icon-button connect-collapse-button"
                 type="button"
-                aria-label={isDeviceSectionCollapsed ? '展开局域网数播' : '折叠局域网数播'}
-                title={isDeviceSectionCollapsed ? '展开局域网数播' : '折叠局域网数播'}
+                aria-label={isDeviceSectionCollapsed ? t('connectPage.devices.expand') : t('connectPage.devices.collapse')}
+                title={isDeviceSectionCollapsed ? t('connectPage.devices.expand') : t('connectPage.devices.collapse')}
                 aria-expanded={!isDeviceSectionCollapsed}
                 onClick={toggleDeviceSectionCollapsed}
               >
@@ -1235,10 +1241,10 @@ export const ConnectPage = (): JSX.Element => {
           {!isDeviceSectionCollapsed ? (
             <>
               {hiddenDeviceCount > 0 ? (
-                <div className="connect-hidden-devices" aria-label="隐藏的局域网设备">
+                <div className="connect-hidden-devices" aria-label={t('connectPage.devices.hiddenAria')}>
                   <div>
                     <EyeOff size={15} />
-                    <span>已隐藏设备</span>
+                    <span>{t('connectPage.devices.hiddenTitle')}</span>
                   </div>
                   <div className="connect-hidden-device-actions">
                     {hiddenDeviceEntries.map((device) => (
@@ -1248,7 +1254,7 @@ export const ConnectPage = (): JSX.Element => {
                       </button>
                     ))}
                     <button className="settings-action-button" type="button" onClick={restoreAllDevices}>
-                      全部恢复
+                      {t('connectPage.devices.restoreAll')}
                     </button>
                   </div>
                 </div>
@@ -1257,8 +1263,8 @@ export const ConnectPage = (): JSX.Element => {
                 {visibleDevices.length === 0 ? (
                   <div className="connect-device-empty">
                     <StreamerGlyph />
-                    <strong>{devices.length > 0 ? '当前设备都已隐藏' : '未发现局域网设备'}</strong>
-                    <span>{devices.length > 0 ? '可在上方恢复隐藏设备。' : '刷新后会在这里显示数播、TV、HQPlayer 和 AirPlay 入口。'}</span>
+                    <strong>{devices.length > 0 ? t('connectPage.devices.allHidden') : t('connectPage.devices.empty')}</strong>
+                    <span>{devices.length > 0 ? t('connectPage.devices.restoreHint') : t('connectPage.devices.emptyHint')}</span>
                   </div>
                 ) : visibleDevices.map((device) => {
                   const isActive = device.id === status.deviceId;
@@ -1321,12 +1327,12 @@ export const ConnectPage = (): JSX.Element => {
               <HqPlayerGlyph />
             </div>
             <div>
-              <span>External Renderer</span>
+              <span>{t('connectPage.hqplayer.kicker')}</span>
               <h2>HQPlayer</h2>
             </div>
           </div>
           <div className="connect-hqplayer-actions">
-            <span className="connect-hqplayer-state" data-state={hqPlayerState}>{hqPlayerStateLabel[hqPlayerState]}</span>
+            <span className="connect-hqplayer-state" data-state={hqPlayerState}>{t(hqPlayerStateLabel[hqPlayerState])}</span>
             <button
               className="settings-action-button"
               type="button"
@@ -1334,7 +1340,7 @@ export const ConnectPage = (): JSX.Element => {
               onClick={() => void handleHqPlayerTestConnection()}
             >
               <RefreshCw className={hqPlayerBusy === 'test' ? 'spinning-icon' : undefined} size={15} />
-              检测 HQPlayer
+              {t('connectPage.hqplayer.test')}
             </button>
           </div>
         </div>
@@ -1343,14 +1349,14 @@ export const ConnectPage = (): JSX.Element => {
           <div className="connect-hqplayer-layout" data-expanded={isHqPlayerExpanded ? 'true' : 'false'}>
           <div className="connect-hqplayer-config">
             <div className="connect-hqplayer-local-card">
-              <strong>本机 HQPlayer Desktop</strong>
+              <strong>{t('connectPage.hqplayer.localDesktop')}</strong>
               <span>{formatHqEndpoint({ host: hqPlayerLocalHost, port: hqPlayerDefaultPort })}</span>
             </div>
             <div className="connect-hqplayer-toggle-row">
               <div className="settings-inline-toggle">
-                <span>启用 HQPlayer</span>
+                <span>{t('connectPage.hqplayer.enable')}</span>
                 <button
-                  aria-label="启用 HQPlayer"
+                  aria-label={t('connectPage.hqplayer.enable')}
                   aria-pressed={hqPlayerDraft.enabled}
                   className={`toggle-btn ${hqPlayerDraft.enabled ? 'active' : ''}`}
                   disabled={hqPlayerBusy === 'settings'}
@@ -1539,13 +1545,13 @@ export const ConnectPage = (): JSX.Element => {
         {!isHqPlayerExpanded ? (
           <div className="connect-hqplayer-collapsed">
             <div className="connect-hqplayer-local-card">
-              <strong>本机 HQPlayer Desktop</strong>
+              <strong>{t('connectPage.hqplayer.localDesktop')}</strong>
               <span>{formatHqEndpoint({ host: hqPlayerLocalHost, port: hqPlayerDefaultPort })}</span>
             </div>
             <div className="settings-inline-toggle">
-              <span>启用 HQPlayer</span>
+              <span>{t('connectPage.hqplayer.enable')}</span>
               <button
-                aria-label="启用 HQPlayer"
+                aria-label={t('connectPage.hqplayer.enable')}
                 aria-pressed={hqPlayerDraft.enabled}
                 className={`toggle-btn ${hqPlayerDraft.enabled ? 'active' : ''}`}
                 disabled={hqPlayerBusy === 'settings'}
@@ -1559,15 +1565,15 @@ export const ConnectPage = (): JSX.Element => {
         ) : null}
       </section>
 
-      <section className="connect-receiver-panel" aria-label="接收来自手机">
+      <section className="connect-receiver-panel" aria-label={t('connectPage.receiver.aria')}>
         <div className="connect-section-title">
           <div>
-            <span>Receiver</span>
-            <h2>接收来自手机</h2>
+            <span>{t('connectPage.receiver.kicker')}</span>
+            <h2>{t('connectPage.receiver.title')}</h2>
           </div>
           <button className="settings-action-button" type="button" onClick={() => void toggleReceiver()} disabled={isReceiverBusy}>
             {isReceiverBusy ? <Loader2 className="spinning-icon" size={16} /> : <Power size={16} />}
-            {receiverStatus.enabled ? '关闭接收' : '开启接收'}
+            {receiverStatus.enabled ? t('connectPage.receiver.disable') : t('connectPage.receiver.enable')}
           </button>
         </div>
         <div className="connect-receiver-body">
@@ -1575,10 +1581,10 @@ export const ConnectPage = (): JSX.Element => {
             {receiverCover ? <img alt="" src={receiverCover} /> : <Smartphone size={42} />}
           </div>
           <div className="connect-now-copy">
-            <span>{receiverStateLabel[receiverStatus.state]}</span>
+            <span>{t(receiverStateLabel[receiverStatus.state])}</span>
             <h2>{receiverTitle}</h2>
             <p>{receiverArtist}{receiverAlbum ? ` · ${receiverAlbum}` : ''}</p>
-            <div className="connect-progress" aria-label="接收播放进度">
+            <div className="connect-progress" aria-label={t('connectPage.receiver.progressAria')}>
               <span style={{ width: `${receiverProgressPercent}%` }} />
             </div>
             <small>
@@ -1587,13 +1593,13 @@ export const ConnectPage = (): JSX.Element => {
           </div>
           <div className="connect-receiver-meta">
             <span>{receiverStatus.advertisedName}</span>
-            <small>{receiverStatus.currentClient ? `来自 ${receiverStatus.currentClient.address}` : '未连接手机'}</small>
+            <small>{receiverStatus.currentClient ? t('connectPage.receiver.fromClient', { address: receiverStatus.currentClient.address }) : t('connectPage.receiver.noClient')}</small>
             <small>
               {receiverStatus.addresses.length > 0
                 ? receiverStatus.addresses.map(formatReceiverAddress).join(' / ')
                 : receiverStatus.enabled
-                  ? '正在准备局域网地址'
-                  : '开启后手机可发现'}
+                  ? t('connectPage.receiver.preparing')
+                  : t('connectPage.receiver.discoveryHint')}
             </small>
           </div>
           <button
@@ -1603,7 +1609,7 @@ export const ConnectPage = (): JSX.Element => {
             disabled={isReceiverBusy || !receiverStatus.currentUri}
           >
             <Square size={15} />
-            停止接收播放
+            {t('connectPage.receiver.stop')}
           </button>
         </div>
         <details className="connect-receiver-debug" aria-label="DLNA request log">

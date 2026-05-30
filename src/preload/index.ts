@@ -1751,6 +1751,7 @@ const echoApi: EchoApi = {
     listIssues: (sourceId, kind, limit) => ipcRenderer.invoke(IpcChannels.RemoteSourcesListIssues, sourceId, kind, limit),
     create: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesCreate, input),
     update: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesUpdate, input),
+    disconnect: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesDisconnect, sourceId),
     delete: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesDelete, sourceId),
     test: (sourceIdOrInput) => ipcRenderer.invoke(IpcChannels.RemoteSourcesTest, sourceIdOrInput),
     browse: (sourceId, path) => ipcRenderer.invoke(IpcChannels.RemoteSourcesBrowse, sourceId, path),

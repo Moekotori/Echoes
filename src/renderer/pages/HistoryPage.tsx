@@ -12,6 +12,7 @@ import type {
   PlaybackStatsDay,
   PlaybackStatsTrack,
 } from '../../shared/types/library';
+import { useI18n } from '../i18n/I18nProvider';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
 import { openArtistDetailByName } from '../utils/artistNavigation';
@@ -43,49 +44,51 @@ type StoredHistoryPageCache = {
   version: typeof historyPageCacheVersion;
 };
 
-const filterLabels: Record<HistoryFilter, string> = {
-  all: '全部',
-  today: '今天',
-  week: '本周',
-  month: '本月',
-  completed: '只看完整播放',
+type HistoryPageTranslationKey = Parameters<ReturnType<typeof useI18n>['t']>[0];
+
+const filterLabelKeys: Record<HistoryFilter, HistoryPageTranslationKey> = {
+  all: 'historyPage.filter.all',
+  today: 'historyPage.filter.today',
+  week: 'historyPage.filter.week',
+  month: 'historyPage.filter.month',
+  completed: 'historyPage.filter.completed',
 };
 
-const filterSummaryLabels: Record<HistoryFilter, { count: string; duration: string; tracks: string; latest: string; group: string }> = {
+const filterSummaryLabelKeys: Record<HistoryFilter, { count: HistoryPageTranslationKey; duration: HistoryPageTranslationKey; tracks: HistoryPageTranslationKey; latest: HistoryPageTranslationKey; group: HistoryPageTranslationKey }> = {
   all: {
-    count: '总播放',
-    duration: '总时长',
-    tracks: '历史曲目',
-    latest: '最近播放时间',
-    group: '按播放次数排序',
+    count: 'historyPage.summary.all.count',
+    duration: 'historyPage.summary.all.duration',
+    tracks: 'historyPage.summary.all.tracks',
+    latest: 'historyPage.summary.all.latest',
+    group: 'historyPage.summary.all.group',
   },
   today: {
-    count: '今日播放',
-    duration: '今日时长',
-    tracks: '今日曲目',
-    latest: '今日最近播放',
-    group: '今日按播放次数排序',
+    count: 'historyPage.summary.today.count',
+    duration: 'historyPage.summary.today.duration',
+    tracks: 'historyPage.summary.today.tracks',
+    latest: 'historyPage.summary.today.latest',
+    group: 'historyPage.summary.today.group',
   },
   week: {
-    count: '本周播放',
-    duration: '本周时长',
-    tracks: '本周曲目',
-    latest: '本周最近播放',
-    group: '本周按播放次数排序',
+    count: 'historyPage.summary.week.count',
+    duration: 'historyPage.summary.week.duration',
+    tracks: 'historyPage.summary.week.tracks',
+    latest: 'historyPage.summary.week.latest',
+    group: 'historyPage.summary.week.group',
   },
   month: {
-    count: '本月播放',
-    duration: '本月时长',
-    tracks: '本月曲目',
-    latest: '本月最近播放',
-    group: '本月按播放次数排序',
+    count: 'historyPage.summary.month.count',
+    duration: 'historyPage.summary.month.duration',
+    tracks: 'historyPage.summary.month.tracks',
+    latest: 'historyPage.summary.month.latest',
+    group: 'historyPage.summary.month.group',
   },
   completed: {
-    count: '完整播放',
-    duration: '完整播放时长',
-    tracks: '完整播放曲目',
-    latest: '最近完整播放',
-    group: '按完整播放次数排序',
+    count: 'historyPage.summary.completed.count',
+    duration: 'historyPage.summary.completed.duration',
+    tracks: 'historyPage.summary.completed.tracks',
+    latest: 'historyPage.summary.completed.latest',
+    group: 'historyPage.summary.completed.group',
   },
 };
 
@@ -316,10 +319,16 @@ const formatDuration = (seconds: number): string => {
   return `${minutes}:${remainder.toString().padStart(2, '0')}`;
 };
 
-const formatLongDuration = (seconds: number): string => {
+const formatLongDuration = (seconds: number, t?: ReturnType<typeof useI18n>['t']): string => {
   const totalMinutes = Math.round(Math.max(0, seconds) / 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
+
+  if (t) {
+    return hours > 0
+      ? t('historyPage.duration.hoursMinutes', { hours, minutes })
+      : t('historyPage.duration.minutes', { count: minutes });
+  }
 
   return hours > 0 ? `${hours} 小时 ${minutes} 分钟` : `${minutes} 分钟`;
 };
@@ -334,9 +343,9 @@ const formatPlayCount = (count: number): string => {
 
 const formatCompactCount = (count: number): string => Math.max(0, Math.round(count)).toLocaleString();
 
-const formatDate = (iso: string | null): string => {
+const formatDate = (iso: string | null, t?: ReturnType<typeof useI18n>['t']): string => {
   if (!iso) {
-    return '暂无';
+    return t ? t('historyPage.date.none') : '暂无';
   }
 
   return new Intl.DateTimeFormat(undefined, {
@@ -406,6 +415,7 @@ const trackFromStatsTrack = (track: PlaybackStatsTrack): LibraryTrack => ({
 });
 
 export const HistoryPage = (): JSX.Element => {
+  const { t } = useI18n();
   const queue = usePlaybackQueue();
   const initialHistoryDataRef = useRef<HistoryPageData | null>(null);
   if (initialHistoryDataRef.current === null) {
@@ -491,7 +501,7 @@ export const HistoryPage = (): JSX.Element => {
         setItems([]);
         setSummary(null);
         setStats(null);
-        setError('Desktop bridge unavailable. Open ECHO Next in Electron to read playback history.');
+        setError(t('historyPage.error.desktopBridgeRead'));
         setIsLoading(false);
         return;
       }
@@ -545,7 +555,7 @@ export const HistoryPage = (): JSX.Element => {
         }
       }
     },
-    [clearStatsRefreshTimer, filter, scheduleStatsRefresh, search],
+    [clearStatsRefreshTimer, filter, scheduleStatsRefresh, search, t],
   );
 
   useEffect(() => {
@@ -572,8 +582,23 @@ export const HistoryPage = (): JSX.Element => {
     return () => observer.disconnect();
   }, [hasMore, isLoading, loadHistory, page]);
 
-  const summaryLabels = filterSummaryLabels[filter];
-  const groupedItems = useMemo(() => (items.length > 0 ? [[filterSummaryLabels[filter].group, items] as const] : []), [filter, items]);
+  const summaryLabels = useMemo(() => {
+    const keys = filterSummaryLabelKeys[filter];
+    return {
+      count: t(keys.count),
+      duration: t(keys.duration),
+      tracks: t(keys.tracks),
+      latest: t(keys.latest),
+    };
+  }, [filter, t]);
+
+  const groupedItems = useMemo(() => {
+    if (items.length === 0) {
+      return [];
+    }
+
+    return [[t(filterSummaryLabelKeys[filter].group), items] as const];
+  }, [filter, items, t]);
 
   const handleDeleteEntry = useCallback(
     async (entry: PlaybackHistoryEntry): Promise<void> => {
@@ -609,7 +634,7 @@ export const HistoryPage = (): JSX.Element => {
   );
 
   const handleClearHistory = useCallback(async (): Promise<void> => {
-    if (!window.confirm('清空播放历史？这不会删除你的音乐文件，也不会清空曲库。')) {
+    if (!window.confirm(t('historyPage.confirm.clear'))) {
       return;
     }
 
@@ -642,7 +667,7 @@ export const HistoryPage = (): JSX.Element => {
     } catch (clearError) {
       setError(clearError instanceof Error ? clearError.message : String(clearError));
     }
-  }, [filter, search]);
+  }, [filter, search, t]);
 
   const handlePlay = useCallback(
     async (entry: PlaybackHistoryEntry): Promise<void> => {
@@ -714,39 +739,39 @@ export const HistoryPage = (): JSX.Element => {
     <div className="history-page">
       <header className="history-header">
         <div>
-          <span className="section-kicker">最近播放记录</span>
-          <h1>历史</h1>
+          <span className="section-kicker">{t('historyPage.header.kicker')}</span>
+          <h1>{t('historyPage.header.title')}</h1>
         </div>
         <button className="history-danger-button" type="button" disabled={total === 0} onClick={() => void handleClearHistory()}>
           <ListX size={16} />
-          清空历史
+          {t('historyPage.action.clear')}
         </button>
       </header>
 
-      <section className="history-toolbar" aria-label="历史筛选">
+      <section className="history-toolbar" aria-label={t('historyPage.toolbar.aria')}>
         <label className="history-search">
           <Search size={17} />
-          <input type="search" placeholder="搜索标题、艺术家、专辑或路径" {...searchInputProps} />
+          <input type="search" placeholder={t('historyPage.search.placeholder')} {...searchInputProps} />
         </label>
         <div className="history-filter-tabs">
-          {(Object.keys(filterLabels) as HistoryFilter[]).map((value) => (
+          {(Object.keys(filterLabelKeys) as HistoryFilter[]).map((value) => (
             <button key={value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>
-              {filterLabels[value]}
+              {t(filterLabelKeys[value])}
             </button>
           ))}
         </div>
       </section>
 
-      <section className="history-summary-grid" aria-label="历史概览">
-        <HistoryMetric icon={<CalendarDays size={18} />} label={summaryLabels.count} value={`${summary?.rangeCount ?? 0} 次`} />
-        <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.duration} value={formatLongDuration(summary?.rangePlayedSeconds ?? 0)} />
-        <HistoryMetric icon={<Music2 size={18} />} label={summaryLabels.tracks} value={`${total.toLocaleString()} 首`} />
-        <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.latest} value={formatDate(summary?.rangeLatestPlayedAt ?? null)} />
+      <section className="history-summary-grid" aria-label={t('historyPage.summary.aria')}>
+        <HistoryMetric icon={<CalendarDays size={18} />} label={summaryLabels.count} value={t('historyPage.metric.plays', { count: summary?.rangeCount ?? 0 })} />
+        <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.duration} value={formatLongDuration(summary?.rangePlayedSeconds ?? 0, t)} />
+        <HistoryMetric icon={<Music2 size={18} />} label={summaryLabels.tracks} value={t('historyPage.metric.tracks', { count: total.toLocaleString() })} />
+        <HistoryMetric icon={<Clock3 size={18} />} label={summaryLabels.latest} value={formatDate(summary?.rangeLatestPlayedAt ?? null, t)} />
       </section>
 
       <PlaybackStatsDashboardView stats={stats} onOpenArtist={handleOpenTopArtist} onOpenTrack={handleOpenTopTrack} />
 
-      <section className="history-list-section" aria-label="播放历史列表">
+      <section className="history-list-section" aria-label={t('historyPage.list.aria')}>
         {groupedItems.length > 0 ? (
           groupedItems.map(([label, entries]) => (
             <div className="history-day-group" key={label}>
@@ -757,7 +782,7 @@ export const HistoryPage = (): JSX.Element => {
                     className="history-row"
                     key={entry.id}
                     role="listitem"
-                    title="双击播放"
+                    title={t('historyPage.list.doubleClick')}
                     onDoubleClick={() => void handlePlay(entry)}
                   >
                     <div className="history-cover" data-empty={!entry.coverThumb}>
@@ -765,12 +790,14 @@ export const HistoryPage = (): JSX.Element => {
                     </div>
                     <div className="history-copy">
                       <strong>{entry.title}</strong>
-                      <span>{entry.artist || 'Unknown artist'} - {entry.album || 'Unknown album'}</span>
+                      <span>{entry.artist || t('historyPage.list.unknownArtist')} - {entry.album || t('historyPage.list.unknownAlbum')}</span>
                     </div>
                     <span className="history-time">{formatTime(entry.startedAt)}</span>
                     <span className="history-duration">{formatDuration(entry.playedSeconds)} / {formatDuration(entry.durationSeconds)}</span>
                     <span className="history-play-count">{formatPlayCount(entry.playCount)}</span>
-                    <span className="history-source">{entry.sourceLabel ? `来自 ${entry.sourceLabel}` : '来源未知'}</span>
+                    <span className="history-source">
+                      {entry.sourceLabel ? t('historyPage.list.source', { source: entry.sourceLabel }) : t('historyPage.list.unknownSource')}
+                    </span>
                     <div className="history-actions">
                       <button type="button" aria-label={`播放 ${entry.title}`} title="播放" onClick={() => void handlePlay(entry)}>
                         <Play size={15} fill="currentColor" />
@@ -790,8 +817,8 @@ export const HistoryPage = (): JSX.Element => {
         ) : (
           <div className="history-empty">
             <Music2 size={28} />
-            <strong>还没有播放历史。</strong>
-            <span>播放一首歌后，这里会记录你的最近收听。</span>
+            <strong>{t('historyPage.empty.title')}</strong>
+            <span>{t('historyPage.empty.description')}</span>
           </div>
         )}
       </section>
@@ -799,12 +826,12 @@ export const HistoryPage = (): JSX.Element => {
       {hasMore ? (
         <div className="history-load-more-sentinel" ref={loadMoreRef}>
           <button className="history-load-more" type="button" disabled={isLoading} onClick={() => void loadHistory(page + 1, 'append')}>
-            {isLoading ? '正在加载...' : '加载更多'}
+            {isLoading ? t('historyPage.loadingMore') : t('historyPage.loadMore')}
           </button>
         </div>
       ) : null}
 
-      {error || isLoading ? <p className="history-footer">{error ?? '正在读取播放历史...'}</p> : null}
+      {error || isLoading ? <p className="history-footer">{error ?? t('historyPage.loading')}</p> : null}
     </div>
   );
 };

@@ -268,6 +268,32 @@ describe('LyricsSettingsDrawer', () => {
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsEnabledProviders: ['local', 'lrclib', 'qqmusic'] }));
   });
 
+  it('remembers the lyrics display panel collapse state', async () => {
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings: vi.fn(),
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const firstRender = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(firstRender.container.querySelector('.lyrics-display-collapse-button')).toBeTruthy());
+    expect(firstRender.container.querySelector('.lyrics-display-panel .audio-toggle-row')).toBeTruthy();
+
+    fireEvent.click(firstRender.container.querySelector('.lyrics-display-collapse-button') as HTMLButtonElement);
+
+    expect(firstRender.container.querySelector('.lyrics-display-panel .audio-toggle-row')).toBeNull();
+    expect(window.localStorage.getItem('echo-next.lyrics.display-panel-open')).toBe('false');
+
+    firstRender.unmount();
+    const secondRender = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(secondRender.container.querySelector('.lyrics-display-collapse-button')).toBeTruthy());
+    expect(secondRender.container.querySelector('.lyrics-display-panel .audio-toggle-row')).toBeNull();
+  });
+
   it('controls desktop lyrics from the lyrics settings drawer', async () => {
     const show = vi.fn().mockResolvedValue(makeDesktopLyricsState({ visible: true }));
     const setLocked = vi.fn().mockResolvedValue(makeDesktopLyricsState({ visible: true, locked: true }));

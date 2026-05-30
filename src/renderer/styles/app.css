@@ -6173,7 +6173,7 @@
 
 .audio-device-pill:disabled,
 .audio-engine-strip:disabled,
-.audio-engine-meter:disabled {
+.audio-engine-meter__refresh:disabled {
   cursor: default;
   opacity: 0.58;
 }
@@ -6191,7 +6191,6 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     0 18px 42px rgba(18, 24, 36, 0.18);
-  cursor: pointer;
   text-align: left;
 }
 
@@ -6204,9 +6203,50 @@
 
 .audio-engine-meter__top {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   align-items: center;
   gap: 11px;
+}
+
+.audio-engine-meter__summary,
+.audio-engine-meter__refresh {
+  display: grid;
+  align-items: center;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.audio-engine-meter__summary {
+  grid-template-columns: 34px minmax(0, 1fr) 18px;
+  gap: 11px;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.audio-engine-meter__summary > svg:last-child {
+  color: var(--audio-drawer-muted-text);
+  transition: transform 150ms ease, color 150ms ease;
+}
+
+.audio-engine-meter--open .audio-engine-meter__summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.audio-engine-meter__refresh {
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.audio-engine-meter__refresh:hover,
+.audio-engine-meter__summary:hover > svg:last-child {
+  color: var(--theme-overlay-text);
 }
 
 .audio-engine-meter__icon {
@@ -6220,7 +6260,7 @@
   background: var(--theme-glass-bg);
 }
 
-.audio-engine-meter__top div,
+.audio-engine-meter__summary div,
 .audio-engine-meter__grid span,
 .audio-current-output-card__body,
 .audio-device-pill span {
@@ -6788,27 +6828,6 @@
 
 .settings-inline-warning-text {
   color: var(--theme-warning-text);
-}
-
-.audio-output-user-note {
-  gap: 8px;
-  margin-top: 2px;
-  padding: 12px;
-  color: var(--audio-drawer-muted-text);
-  border: 1px solid var(--theme-glass-bg-soft);
-  border-radius: 14px;
-  background: var(--theme-glass-bg-muted);
-}
-
-.audio-output-user-note .audio-drawer-section-title {
-  margin: 0 0 2px;
-}
-
-.audio-output-user-note p {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.55;
 }
 
 .audio-drawer-options {
@@ -9629,6 +9648,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button,
+.lyrics-settings-panel .lyrics-display-collapse-button,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button,
 .lyrics-settings-panel .lyrics-source-collapse-button,
 .lyrics-settings-panel .lyrics-style-collapse-button {
@@ -9648,12 +9668,14 @@
 }
 
 .lyrics-settings-panel .lyrics-style-collapse-button,
+.lyrics-settings-panel .lyrics-display-collapse-button,
 .lyrics-settings-panel .lyrics-source-collapse-button,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button:hover,
+.lyrics-settings-panel .lyrics-display-collapse-button:hover,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button:hover,
 .lyrics-settings-panel .lyrics-source-collapse-button:hover,
 .lyrics-settings-panel .lyrics-style-collapse-button:hover {
@@ -9662,6 +9684,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button > span,
+.lyrics-settings-panel .lyrics-display-collapse-button > span,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button > span,
 .lyrics-settings-panel .lyrics-source-collapse-button > span,
 .lyrics-settings-panel .lyrics-style-collapse-button > span {
@@ -9672,6 +9695,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button strong,
+.lyrics-settings-panel .lyrics-display-collapse-button strong,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button strong,
 .lyrics-settings-panel .lyrics-source-collapse-button strong,
 .lyrics-settings-panel .lyrics-style-collapse-button strong {
@@ -9681,6 +9705,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button small,
+.lyrics-settings-panel .lyrics-display-collapse-button small,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button small,
 .lyrics-settings-panel .lyrics-source-collapse-button small,
 .lyrics-settings-panel .lyrics-style-collapse-button small {
@@ -9704,6 +9729,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-collapse-button > svg:last-child,
+.lyrics-settings-panel .lyrics-display-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-background-tuning-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-source-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-style-collapse-button > svg:last-child {
@@ -9712,6 +9738,7 @@
 }
 
 .lyrics-settings-panel .lyrics-desktop-font-panel--open .lyrics-desktop-font-collapse-button > svg:last-child,
+.lyrics-settings-panel .lyrics-display-panel--open .lyrics-display-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-cover-tuning--open .lyrics-background-tuning-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-source-panel--open .lyrics-source-collapse-button > svg:last-child,
 .lyrics-settings-panel .lyrics-style-collapse-button--open > svg:last-child {
@@ -13378,42 +13405,72 @@ html[data-theme="dark"] .history-play-count {
   gap: 8px;
 }
 
-.remote-browser-source-list button {
+.remote-browser-source-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
   min-height: 58px;
-  padding: 10px;
   border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
   border-radius: 8px;
   background: var(--color-bg);
-  color: var(--color-text);
-  text-align: left;
 }
 
-.remote-browser-source-list button.active {
+.remote-browser-source-item.active {
   border-color: var(--color-accent);
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
-.remote-browser-source-list button span,
-.remote-browser-source-list button strong,
-.remote-browser-source-list button small {
+.remote-browser-source-select {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.remote-browser-source-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-right: 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.remote-browser-source-delete:hover {
+  border-color: var(--theme-danger-border);
+  background: var(--theme-danger-panel-bg);
+  color: var(--theme-danger-text);
+}
+
+.remote-browser-source-select span,
+.remote-browser-source-select strong,
+.remote-browser-source-select small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.remote-browser-source-list button span {
+.remote-browser-source-select span {
   display: grid;
   gap: 3px;
 }
 
-.remote-browser-source-list button small,
-.remote-browser-source-list button em {
+.remote-browser-source-select small,
+.remote-browser-source-select em {
   color: var(--color-muted);
   font-size: 12px;
   font-style: normal;
@@ -14254,22 +14311,68 @@ html[data-theme="dark"] .history-play-count {
   justify-content: flex-start;
 }
 
+.remote-background-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.34fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.remote-background-editor,
+.remote-background-effective {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg-elevated) 82%, var(--color-bg));
+}
+
+.remote-background-effective {
+  align-content: start;
+}
+
+.remote-background-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.remote-background-section-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.remote-background-section-head strong {
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.remote-background-section-head span {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .remote-background-concurrency-controls {
   display: grid;
-  grid-template-columns: repeat(5, minmax(148px, 1fr)) minmax(128px, auto);
-  gap: 10px;
+  grid-template-columns: repeat(5, minmax(124px, 1fr));
+  gap: 8px;
   align-items: stretch;
 }
 
 .remote-background-concurrency-item {
   display: grid;
   min-width: 0;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 12%, var(--color-border));
   border-radius: 8px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg-elevated) 92%, var(--color-accent) 8%), var(--color-bg));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+  background: var(--color-bg);
 }
 
 .remote-background-concurrency-item > span {
@@ -14280,7 +14383,7 @@ html[data-theme="dark"] .history-play-count {
 
 .remote-background-concurrency-item > strong {
   color: var(--color-text);
-  font-size: 19px;
+  font-size: 17px;
   line-height: 1;
 }
 
@@ -14333,15 +14436,15 @@ html[data-theme="dark"] .history-play-count {
 }
 
 .remote-background-apply {
-  min-height: 100%;
-  align-self: stretch;
-  border: 0;
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
   border-radius: 8px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 92%, white), var(--color-accent));
-  color: white;
-  font-weight: 820;
+  background: color-mix(in srgb, var(--color-bg-elevated) 74%, var(--color-accent) 26%);
+  color: var(--color-text);
+  font-weight: 760;
   justify-content: center;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-accent) 24%, transparent);
 }
 
 .remote-background-apply:disabled {
@@ -14352,6 +14455,24 @@ html[data-theme="dark"] .history-play-count {
 .remote-background-effective-grid span {
   border: 1px solid color-mix(in srgb, var(--color-accent) 10%, transparent);
   background: color-mix(in srgb, var(--color-bg) 88%, var(--color-accent) 12%);
+}
+
+.remote-background-effective .remote-job-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.remote-background-pause {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  justify-content: center;
+}
+
+.remote-background-pause[data-state="paused"] {
+  border-color: rgba(245, 158, 11, 0.42);
+  background: rgba(245, 158, 11, 0.12);
 }
 
 .connect-page {
@@ -15640,8 +15761,15 @@ html[data-theme="dark"] .history-play-count {
   .remote-source-health-strip,
   .remote-sync-status,
   .remote-job-grid,
+  .remote-background-effective .remote-job-grid,
+  .remote-background-panel,
   .remote-background-concurrency-controls {
     grid-template-columns: 1fr;
+  }
+
+  .remote-background-section-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .remote-source-navidrome-guide {
@@ -15987,6 +16115,8 @@ html[data-theme="dark"] .history-play-count {
   .remote-source-health-strip,
   .remote-sync-status,
   .remote-job-grid,
+  .remote-background-effective .remote-job-grid,
+  .remote-background-panel,
   .remote-background-concurrency-controls {
     grid-template-columns: 1fr;
   }

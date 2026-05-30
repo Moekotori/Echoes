@@ -13,6 +13,7 @@ import type {
 } from '../../shared/types/library';
 import { albumDetailNavigationEvent } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent } from '../utils/artistNavigation';
+import { translations, isLocale, localeOptions } from '../i18n/locales';
 import { HomePage, defaultHomeHeroTitle, homeHeroTitleOptions, resetHomePageCacheForTest } from './HomePage';
 
 const queueState = vi.hoisted(() => ({
@@ -41,6 +42,33 @@ vi.mock('../stores/PlaybackQueueProvider', () => ({
 vi.mock('../stores/playbackStatusStore', () => ({
   useSharedPlaybackStatus: () => sharedPlaybackState.value,
 }));
+
+vi.mock('../i18n/I18nProvider', async () => {
+  const actual = await vi.importActual<typeof import('../i18n/I18nProvider')>('../i18n/I18nProvider');
+  const fallbackLocale = 'zh-CN' as const;
+  const interpolate = (text: string, options?: Record<string, string | number>): string =>
+    options
+      ? Object.entries(options).reduce((current, [key, value]) => current.replaceAll(`{${key}}`, String(value)), text)
+      : text;
+  const resolveLocale = (): keyof typeof translations => {
+    const stored = window.localStorage.getItem('echo-next.locale');
+    return isLocale(stored) ? stored : fallbackLocale;
+  };
+
+  return {
+    ...actual,
+    useI18n: () => {
+      const locale = resolveLocale();
+      return {
+        locale,
+        localeOptions,
+        setLocale: vi.fn(),
+        t: (key: keyof (typeof translations)[typeof fallbackLocale], options?: Record<string, string | number>) =>
+          interpolate(translations[locale][key] ?? translations[fallbackLocale][key] ?? String(key), options),
+      };
+    },
+  };
+});
 
 const summary = (overrides: Partial<LibrarySummary> = {}): LibrarySummary => ({
   songCount: 12,
@@ -424,6 +452,18 @@ describe('HomePage', () => {
     expect(cached.version).toBe(1);
     expect(cached.data?.summary?.songCount).toBe(12);
     expect(cached.data?.recommendedAlbums).toHaveLength(7);
+  });
+
+  it('renders translated home copy when locale is English', async () => {
+    window.localStorage.setItem('echo-next.locale', 'en-US');
+    installLibraryMock();
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    expect(screen.getByText('Today Echo')).toBeTruthy();
+    expect(screen.getByText('Weekly Echo')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'View queue' })).toBeTruthy();
   });
 
   it('caches recent playback history before album card resolution finishes', async () => {

@@ -133,6 +133,11 @@ export class RemoteSourceService {
     this.store.deleteSource(id);
   }
 
+  disconnectSource(id: string): void {
+    this.proxy.clearSourceTokens(id);
+    this.store.disconnectSource(id);
+  }
+
   async testSource(sourceIdOrInput: string | RemoteSourceInput): Promise<TestRemoteSourceResult> {
     const source = typeof sourceIdOrInput === 'string' ? this.store.getSourceWithSecret(sourceIdOrInput) : this.inputToTransientSource(sourceIdOrInput);
     if (!source) {

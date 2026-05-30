@@ -4,6 +4,16 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TrackList } from './TrackList';
 import type { LibraryTrack } from '../../../shared/types/library';
 
+vi.mock('../../i18n/I18nProvider', () => ({
+  useI18n: () => ({
+    t: (key: string) =>
+      ({
+        'songs.trackList.aria': '歌曲列表',
+        'songs.trackList.empty': '没有可显示的歌曲。导入音乐文件夹后，这里会显示曲库列表。',
+      }[key] ?? key),
+  }),
+}));
+
 const track = (index: number): LibraryTrack => ({
   id: `track-${index}`,
   path: `D:\\Music\\song-${index}.flac`,

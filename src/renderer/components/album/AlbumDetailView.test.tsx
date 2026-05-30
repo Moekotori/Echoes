@@ -5,6 +5,7 @@ import type { AlbumOnlineInfo, LibraryAlbum, LibraryArtist, LibraryTrack } from 
 import { AlbumDetailView } from './AlbumDetailView';
 
 const queueMock = {
+  appendTracksToQueue: vi.fn(),
   currentTrackId: null as string | null,
   playTrack: vi.fn().mockResolvedValue({}),
   replaceQueue: vi.fn(),
@@ -19,6 +20,9 @@ vi.mock('../../stores/PlaybackQueueProvider', () => ({
 vi.mock('../../i18n/I18nProvider', () => {
   const strings: Record<string, string> = {
     'albumDetail.action.back': 'Albums',
+    'albumDetail.action.addToQueue': 'Add to queue',
+    'albumDetail.action.more': 'More album actions',
+    'albumDetail.action.showInFolder': 'Show in folder',
     'albumDetail.action.openSource': 'Open source',
     'albumDetail.aria.openArtist': 'Open artist {artist}',
     'albumDetail.online.match': 'MusicBrainz match',
@@ -38,6 +42,7 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.sources.releaseDetails': 'Current release',
     'albumDetail.related.heading': 'My Library',
     'albumDetail.related.thisAlbum': 'This album',
+    'albumDetail.status.addedToQueue': 'Added {count} tracks to queue.',
     'albumDetail.tab.credits': 'Credits',
     'albumDetail.tab.information': 'Information',
     'albumDetail.tab.releases': 'Versions',
@@ -323,10 +328,18 @@ const installLibrary = (): {
     },
     library: {
       getAlbum: vi.fn().mockResolvedValue({ coverLarge: null }),
+      getAlbumTracks: vi.fn().mockResolvedValue({
+        items: mockAlbumTracks.length > 0 ? mockAlbumTracks : [track()],
+        page: 1,
+        pageSize: 500,
+        total: mockAlbumTracks.length > 0 ? mockAlbumTracks.length : 1,
+        hasMore: false,
+      }),
       getAlbumOnlineInfo,
       getArtists,
       getArtistAlbums,
       getLikedAlbumIds: vi.fn().mockResolvedValue({}),
+      openTrackInFolder: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Window['echo'];
   return { getAlbumOnlineInfo, getArtists, getArtistAlbums };
@@ -336,6 +349,7 @@ afterEach(() => {
   vi.useRealTimers();
   cleanup();
   vi.restoreAllMocks();
+  queueMock.appendTracksToQueue.mockReset();
   queueMock.playTrack.mockReset();
   queueMock.playTrack.mockResolvedValue({});
   queueMock.replaceQueue.mockReset();
@@ -497,6 +511,32 @@ describe('AlbumDetailView', () => {
     fireEvent.click(await screen.findByRole('link', { name: /album official/i }));
 
     await waitFor(() => expect(window.echo?.app?.openExternalUrl).toHaveBeenCalledWith('https://example.test/album-official'));
+  });
+
+  it('adds the album tracks to the queue from the hero more menu', async () => {
+    mockAlbumTracks = [track({ id: 'track-1', title: 'First Track' }), track({ id: 'track-2', title: 'Second Track' })];
+    installLibrary();
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    await screen.findByText('Mock album tracks');
+    fireEvent.click(screen.getByRole('button', { name: 'More album actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }));
+
+    await waitFor(() => expect(queueMock.appendTracksToQueue).toHaveBeenCalledWith(mockAlbumTracks, { type: 'album', label: 'Mock Album', albumId: 'album-1' }));
+    expect(screen.getByText('Added 2 tracks to queue.')).toBeTruthy();
+  });
+
+  it('shows the first album track in its folder from the hero more menu', async () => {
+    const { getAlbumOnlineInfo } = installLibrary();
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    await waitFor(() => expect(getAlbumOnlineInfo).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'More album actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Show in folder' }));
+
+    await waitFor(() => expect(window.echo?.library?.openTrackInFolder).toHaveBeenCalledWith('track-1'));
   });
 
   it('opens the album artist detail from the hero artist name', async () => {

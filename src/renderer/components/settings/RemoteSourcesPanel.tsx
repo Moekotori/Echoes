@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Trash2,
   Wifi,
+  WifiOff,
 } from 'lucide-react';
 import type {
   RemoteBackgroundGlobalStatus,
@@ -52,6 +53,8 @@ import type {
   RemoteCoverLoadPerformanceMode,
 } from '../../../shared/types/appSettings';
 import type { LibraryTrack } from '../../../shared/types/library';
+import { useI18n } from '../../i18n/I18nProvider';
+import type { TranslationKey } from '../../i18n/locales';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getAppBridge, getRemoteSourcesBridge } from '../../utils/echoBridge';
 
@@ -86,11 +89,15 @@ const syncModeLabels: Record<RemoteSourceSyncMode, string> = {
   mirror: '镜像缓存尚未开放，不会静默复制整库音频',
 };
 
-const remoteCoverLoadPerformanceOptions: Array<{ value: RemoteCoverLoadPerformanceMode; label: string; description: string }> = [
-  { value: 'low', label: '省流量', description: '只预热当前可见封面，适合公网或弱服务器。' },
-  { value: 'balanced', label: '均衡', description: '预热当前和后面约半屏到一屏，默认推荐。' },
-  { value: 'aggressive', label: '积极预热', description: '滚动停顿时提前拉取更多封面，适合局域网 Navidrome。' },
-  { value: 'lan', label: '局域网极速', description: '拉满远程封面预热和后台加载并发，适合本机、NAS 或稳定千兆局域网。' },
+const remoteCoverLoadPerformanceOptions: Array<{
+  value: RemoteCoverLoadPerformanceMode;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}> = [
+  { value: 'low', labelKey: 'settings.remote.coverPerformance.option.low', descriptionKey: 'settings.remote.coverPerformance.option.low.description' },
+  { value: 'balanced', labelKey: 'settings.remote.coverPerformance.option.balanced', descriptionKey: 'settings.remote.coverPerformance.option.balanced.description' },
+  { value: 'aggressive', labelKey: 'settings.remote.coverPerformance.option.aggressive', descriptionKey: 'settings.remote.coverPerformance.option.aggressive.description' },
+  { value: 'lan', labelKey: 'settings.remote.coverPerformance.option.lan', descriptionKey: 'settings.remote.coverPerformance.option.lan.description' },
 ];
 
 const remoteCoverBackgroundLimits: Record<RemoteCoverLoadPerformanceMode, Pick<RemoteBackgroundGlobalStatus['concurrency'], 'cover'>> = {
@@ -171,9 +178,13 @@ const remoteBackgroundConcurrencyToJobConcurrency = (
   };
 };
 
-const remoteAlbumMergeOptions: Array<{ value: RemoteAlbumMergeStrategy; label: string; description: string }> = [
-  { value: 'conservative', label: '保守合并', description: '优先使用服务器专辑 ID；普通网盘只合并同来源、同文件夹、同专辑的曲目。' },
-  { value: 'standard', label: '普通合并', description: '在保守边界上放宽标题差异，会合并大小写、符号和 - Single 这类远程专辑拆分。' },
+const remoteAlbumMergeOptions: Array<{
+  value: RemoteAlbumMergeStrategy;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}> = [
+  { value: 'conservative', labelKey: 'settings.remote.albumMerge.option.conservative', descriptionKey: 'settings.remote.albumMerge.option.conservative.description' },
+  { value: 'standard', labelKey: 'settings.remote.albumMerge.option.standard', descriptionKey: 'settings.remote.albumMerge.option.standard.description' },
 ];
 
 const normalizeRemoteCoverLoadPerformanceMode = (value: unknown): RemoteCoverLoadPerformanceMode =>
@@ -759,6 +770,7 @@ const credentialTextForSource = (source: RemoteSource): string => {
 export const RemoteSourcesPanel = (): JSX.Element => {
   const appApi = getAppBridge();
   const remoteApi = getRemoteSourcesBridge();
+  const { t } = useI18n();
   const { appendToQueue, playTrack } = usePlaybackQueue();
   const [activeProvider, setActiveProvider] = useState<RemoteSourceProvider>('webdav');
   const [sources, setSources] = useState<RemoteSource[]>([]);
@@ -1534,7 +1546,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
 
   const runSourceAction = useCallback(async (
     source: RemoteSource,
-    action: 'test' | 'sync' | 'metadata' | 'cover' | 'match' | 'retryFailed' | 'pauseJobs' | 'toggle' | 'delete' | 'cancel' | 'browse',
+    action: 'test' | 'sync' | 'metadata' | 'cover' | 'match' | 'retryFailed' | 'pauseJobs' | 'toggle' | 'disconnect' | 'delete' | 'cancel' | 'browse',
   ): Promise<void> => {
     if (!remoteApi) {
       return;
@@ -1591,11 +1603,11 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         return;
       } else if (action === 'toggle') {
         await remoteApi.update({ id: source.id, status: source.status === 'disabled' ? 'enabled' : 'disabled' });
-      } else if (action === 'delete') {
+      } else if (action === 'disconnect') {
         if (!window.confirm(`断开远程来源“${source.displayName}”？本地远程索引会移除，但连接 URL、用户名和密钥会保留，之后可以直接启用并重新同步。`)) {
           return;
         }
-        await remoteApi.delete(source.id);
+        await remoteApi.disconnect(source.id);
         setSources((current) => current.map((item) => (
           item.id === source.id
             ? { ...item, status: 'disabled', indexedTrackCount: 0, lastError: null }
@@ -1609,6 +1621,22 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         setOverview((current) => removeOverviewSource(current, source.id));
         window.dispatchEvent(new Event('library:changed'));
         setMessage('来源已断开，连接信息已保留，本地远程索引已移除。');
+        await refreshSources().catch(() => undefined);
+        return;
+      } else if (action === 'delete') {
+        if (!window.confirm(`删除远程来源“${source.displayName}”？本地远程索引和连接配置都会移除；不会删除服务器上的音乐文件。`)) {
+          return;
+        }
+        await remoteApi.delete(source.id);
+        setSources((current) => current.filter((item) => item.id !== source.id));
+        setSyncStatuses((current) => withoutSourceKey(source.id, current));
+        setJobStatuses((current) => withoutSourceKey(source.id, current));
+        setBrowserStates((current) => withoutSourceKey(source.id, current));
+        setSelectedSourceId(null);
+        setIssuePreviews((current) => withoutSourceKey(source.id, current));
+        setOverview((current) => removeOverviewSource(current, source.id));
+        window.dispatchEvent(new Event('library:changed'));
+        setMessage('来源已删除，本地远程索引和连接配置已移除；服务器文件不会被删除。');
         await refreshSources().catch(() => undefined);
         return;
       } else if (action === 'cancel') {
@@ -1774,23 +1802,33 @@ export const RemoteSourcesPanel = (): JSX.Element => {
               const state = browserStates[source.id];
               const selected = source.id === selectedSource.id;
               return (
-                <button
-                  key={source.id}
-                  type="button"
-                  className={selected ? 'active' : ''}
-                  onClick={() => {
-                    setSelectedSourceId(source.id);
-                    if (!state?.loaded && !state?.loading) {
-                      void loadBrowserDirectory(source, null);
-                    }
-                  }}
-                >
-                  <span>
-                    <strong>{source.displayName}</strong>
-                    <small>{providerLabels[source.provider]} · {sourceStatusLabels[source.status]}</small>
-                  </span>
-                  <em>{formatCount(itemOverview.trackCount)} 首</em>
-                </button>
+                <div key={source.id} className={selected ? 'remote-browser-source-item active' : 'remote-browser-source-item'}>
+                  <button
+                    type="button"
+                    className="remote-browser-source-select"
+                    onClick={() => {
+                      setSelectedSourceId(source.id);
+                      if (!state?.loaded && !state?.loading) {
+                        void loadBrowserDirectory(source, null);
+                      }
+                    }}
+                  >
+                    <span>
+                      <strong>{source.displayName}</strong>
+                      <small>{providerLabels[source.provider]} · {sourceStatusLabels[source.status]}</small>
+                    </span>
+                    <em>{formatCount(itemOverview.trackCount)} 首</em>
+                  </button>
+                  <button
+                    type="button"
+                    className="remote-browser-source-delete"
+                    aria-label={`删除来源 ${source.displayName}`}
+                    title="删除来源"
+                    onClick={() => void runSourceAction(source, 'delete')}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -2235,74 +2273,76 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     <div className="remote-sources-panel">
       <section className="remote-sources-hero">
         <div>
-          <h3>网盘 / 远程音乐库</h3>
-          <strong>网盘 / WebDAV / AList / NAS / Subsonic / Jellyfin / Emby</strong>
-          <p>
-            连接 AList、坚果云、Nextcloud 等 WebDAV 网盘，也可以把 Jellyfin、Emby、Navidrome、NAS 或 SSHFS
-            作为独立音乐来源浏览。ECHO 会为远程歌曲建立本地索引，使歌词、MV、播放进度、收藏和历史记录正常工作。
-          </p>
+          <h3>{t('settings.remote.hero.title')}</h3>
+          <strong>{t('settings.remote.hero.summary')}</strong>
+          <p>{t('settings.remote.hero.description')}</p>
         </div>
         <Server size={28} />
       </section>
 
-      <section className="remote-source-guardrail" aria-label="远程库同步边界">
-        <strong>本地播放优先</strong>
-        <span>
-          远程同步和封面/元数据补齐都在后台限速执行；播放活跃时会降并发。当前离线边界是索引、封面和小型元数据缓存，不会静默镜像整库音乐文件。
-        </span>
+      <section className="remote-source-guardrail" aria-label={t('settings.remote.guardrail.aria')}>
+        <strong>{t('settings.remote.guardrail.title')}</strong>
+        <span>{t('settings.remote.guardrail.description')}</span>
       </section>
 
-      <section className="remote-source-card remote-cover-performance-card" aria-label="远程封面加载性能">
+      <section className="remote-source-card remote-cover-performance-card" aria-label={t('settings.remote.coverPerformance.aria')}>
         <div className="remote-source-card-head">
           <div>
-            <h3>加载性能</h3>
-            <p>控制远程封面预热强度；只影响列表封面加载，不会改变播放取流。</p>
+            <h3>{t('settings.remote.coverPerformance.title')}</h3>
+            <p>{t('settings.remote.coverPerformance.description')}</p>
           </div>
           <span className="remote-source-status">
-            {remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)?.label ?? '均衡'}
+            {remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)
+              ? t(remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)!.labelKey)
+              : t('settings.remote.coverPerformance.option.balanced')}
           </span>
         </div>
         <div className="remote-source-actions">
-          <div className="remote-source-action-group" aria-label="远程封面加载性能档位">
+          <div className="remote-source-action-group" aria-label={t('settings.remote.coverPerformance.groupAria')}>
             {remoteCoverLoadPerformanceOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
                 data-state={remoteCoverLoadPerformanceMode === option.value ? 'active' : undefined}
                 aria-pressed={remoteCoverLoadPerformanceMode === option.value}
-                title={option.description}
+                title={t(option.descriptionKey)}
                 onClick={() => void updateRemoteCoverLoadPerformanceMode(option.value)}
               >
                 <Gauge size={15} />
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>
         </div>
         <p className="settings-inline-note">
-          {remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)?.description}
+          {t(
+            remoteCoverLoadPerformanceOptions.find((option) => option.value === remoteCoverLoadPerformanceMode)?.descriptionKey
+              ?? 'settings.remote.coverPerformance.option.balanced.description',
+          )}
         </p>
       </section>
 
-      <section className="remote-source-card remote-cover-performance-card" aria-label="远程专辑合并策略">
+      <section className="remote-source-card remote-cover-performance-card" aria-label={t('settings.remote.albumMerge.aria')}>
         <div className="remote-source-card-head">
           <div>
-            <h3>专辑合并</h3>
-            <p>只影响网盘 / 远程专辑列表的展示分组；不改本地库、不改文件标签、不影响播放。</p>
+            <h3>{t('settings.remote.albumMerge.title')}</h3>
+            <p>{t('settings.remote.albumMerge.description')}</p>
           </div>
           <span className="remote-source-status">
-            {remoteAlbumMergeOptions.find((option) => option.value === remoteAlbumMergeStrategy)?.label ?? '保守合并'}
+            {remoteAlbumMergeOptions.find((option) => option.value === remoteAlbumMergeStrategy)
+              ? t(remoteAlbumMergeOptions.find((option) => option.value === remoteAlbumMergeStrategy)!.labelKey)
+              : t('settings.remote.albumMerge.option.conservative')}
           </span>
         </div>
         <div className="remote-source-actions">
-          <div className="remote-source-action-group" aria-label="远程专辑合并策略">
+          <div className="remote-source-action-group" aria-label={t('settings.remote.albumMerge.groupAria')}>
             {remoteAlbumMergeOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
                 data-state={pendingRemoteAlbumMergeStrategy === option.value ? 'active' : undefined}
                 aria-pressed={pendingRemoteAlbumMergeStrategy === option.value}
-                title={option.description}
+                title={t(option.descriptionKey)}
                 onClick={() => {
                   setPendingRemoteAlbumMergeStrategy(option.value);
                   setRemoteAlbumGroupingMessage(null);
@@ -2310,37 +2350,40 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 }}
               >
                 <Database size={15} />
-                {option.label}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>
         </div>
         <div className="settings-status-grid">
           <span>
-            <em>原专辑数量</em>
-            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.currentAlbumCount) : '待扫描'}</strong>
+            <em>{t('settings.remote.albumMerge.stat.current')}</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.currentAlbumCount) : t('settings.remote.albumMerge.pending')}</strong>
           </span>
           <span>
-            <em>合并后数量</em>
-            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.targetAlbumCount) : '待扫描'}</strong>
+            <em>{t('settings.remote.albumMerge.stat.target')}</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.targetAlbumCount) : t('settings.remote.albumMerge.pending')}</strong>
           </span>
           <span>
-            <em>已索引远程歌曲</em>
-            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.trackCount) : '待扫描'}</strong>
+            <em>{t('settings.remote.albumMerge.stat.tracks')}</em>
+            <strong>{remoteAlbumGroupingPreview ? formatCount(remoteAlbumGroupingPreview.trackCount) : t('settings.remote.albumMerge.pending')}</strong>
           </span>
         </div>
         <div className="remote-source-actions">
           <button type="button" onClick={() => void scanRemoteAlbumsForGrouping()} disabled={remoteAlbumScanBusy}>
             <RefreshCw className={remoteAlbumScanBusy ? 'spinning-icon' : undefined} size={15} />
-            {remoteAlbumScanBusy ? '扫描中...' : '扫描远程曲库'}
+            {remoteAlbumScanBusy ? t('settings.remote.albumMerge.action.scanning') : t('settings.remote.albumMerge.action.scan')}
           </button>
           <button type="button" onClick={() => void applyRemoteAlbumMergeStrategy()} disabled={remoteAlbumGroupingBusy}>
             <Check size={15} />
-            {remoteAlbumGroupingBusy ? '重新整理中...' : '应用并重新整理分组'}
+            {remoteAlbumGroupingBusy ? t('settings.remote.albumMerge.action.applying') : t('settings.remote.albumMerge.action.apply')}
           </button>
         </div>
         <p className="settings-inline-note">
-          {remoteAlbumMergeOptions.find((option) => option.value === pendingRemoteAlbumMergeStrategy)?.description}
+          {t(
+            remoteAlbumMergeOptions.find((option) => option.value === pendingRemoteAlbumMergeStrategy)?.descriptionKey
+              ?? 'settings.remote.albumMerge.option.conservative.description',
+          )}
         </p>
         {remoteAlbumGroupingMessage ? <p className="settings-inline-note">{remoteAlbumGroupingMessage}</p> : null}
       </section>
@@ -2592,8 +2635,11 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                   <button type="button" data-state={sourceDisabled ? 'off' : undefined} aria-pressed={sourceDisabled} onClick={() => void runSourceAction(source, 'toggle')}>
                     <Check size={15} />{source.status === 'disabled' ? '启用' : '禁用'}
                   </button>
+                  <button type="button" onClick={() => void runSourceAction(source, 'disconnect')}>
+                    <WifiOff size={15} />断开
+                  </button>
                   <button type="button" onClick={() => void runSourceAction(source, 'delete')}>
-                    <Trash2 size={15} />断开
+                    <Trash2 size={15} />删除
                   </button>
                 </div>
               </div>
@@ -2629,55 +2675,71 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           <span><Gauge size={15} />队列 {formatCount(queuedJobCount)}</span>
           <span><ShieldCheck size={15} />{playbackLoadReduced ? '播放保护中' : '常规限速'}</span>
         </div>
-        <div className="remote-background-concurrency-controls" aria-label="后台任务并发设置">
-          {remoteBackgroundConcurrencyFields.map((field) => (
-            <div className="remote-background-concurrency-item" key={field.key}>
-              <span>{field.label}</span>
-              <strong>并发 {remoteBackgroundConcurrency[field.key]}</strong>
-              <div className="remote-background-stepper">
-                <button
-                  type="button"
-                  aria-label={`${field.label}并发减一`}
-                  disabled={remoteBackgroundConcurrency[field.key] <= field.min}
-                  onClick={() => stepRemoteBackgroundConcurrencyDraft(field.key, -1)}
-                >
-                  <Minus size={14} />
-                </button>
-                <input
-                  type="number"
-                  min={field.min}
-                  max={field.max}
-                  value={remoteBackgroundConcurrency[field.key]}
-                  aria-label={field.ariaLabel}
-                  onChange={(event) => updateRemoteBackgroundConcurrencyDraft(field.key, Number(event.target.value))}
-                />
-                <button
-                  type="button"
-                  aria-label={`${field.label}并发加一`}
-                  disabled={remoteBackgroundConcurrency[field.key] >= field.max}
-                  onClick={() => stepRemoteBackgroundConcurrencyDraft(field.key, 1)}
-                >
-                  <Plus size={14} />
-                </button>
+        <div className="remote-background-panel">
+          <div className="remote-background-editor">
+            <div className="remote-background-section-head">
+              <div>
+                <strong>并发上限</strong>
+                <span>修改后会应用到当前远程来源，播放中仍按低负载策略保护。</span>
+              </div>
+              <button className="remote-background-apply" type="button" disabled={remoteBackgroundConcurrencySaving} onClick={() => void saveRemoteBackgroundConcurrency()}>
+                <Save size={15} />{remoteBackgroundConcurrencySaving ? '应用中' : '应用后台并发'}
+              </button>
+            </div>
+            <div className="remote-background-concurrency-controls" aria-label="后台任务并发设置">
+              {remoteBackgroundConcurrencyFields.map((field) => (
+                <div className="remote-background-concurrency-item" key={field.key}>
+                  <span>{field.label}</span>
+                  <strong>并发 {remoteBackgroundConcurrency[field.key]}</strong>
+                  <div className="remote-background-stepper">
+                    <button
+                      type="button"
+                      aria-label={`${field.label}并发减一`}
+                      disabled={remoteBackgroundConcurrency[field.key] <= field.min}
+                      onClick={() => stepRemoteBackgroundConcurrencyDraft(field.key, -1)}
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <input
+                      type="number"
+                      min={field.min}
+                      max={field.max}
+                      value={remoteBackgroundConcurrency[field.key]}
+                      aria-label={field.ariaLabel}
+                      onChange={(event) => updateRemoteBackgroundConcurrencyDraft(field.key, Number(event.target.value))}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${field.label}并发加一`}
+                      disabled={remoteBackgroundConcurrency[field.key] >= field.max}
+                      onClick={() => stepRemoteBackgroundConcurrencyDraft(field.key, 1)}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <aside className="remote-background-effective" aria-label="当前生效的后台任务并发">
+            <div className="remote-background-section-head">
+              <div>
+                <strong>当前生效</strong>
+                <span>{globalJobStatus.paused ? '已暂停后台队列' : playbackLoadReduced ? '播放保护已介入' : '按常规限速运行'}</span>
               </div>
             </div>
-          ))}
-          <button className="remote-background-apply" type="button" disabled={remoteBackgroundConcurrencySaving} onClick={() => void saveRemoteBackgroundConcurrency()}>
-            <Save size={15} />{remoteBackgroundConcurrencySaving ? '应用中' : '应用后台并发'}
-          </button>
-        </div>
-        <div className="remote-job-grid remote-background-effective-grid">
-          {jobKinds.map((kind) => (
-            <span key={kind}>
-              <em>{jobLabels[kind]}</em>
-              <strong>并发 {globalJobStatus.concurrency[kind]}</strong>
-            </span>
-          ))}
-        </div>
-        <div className="remote-source-actions">
-          <button type="button" data-state={globalJobStatus.paused ? 'paused' : undefined} aria-pressed={globalJobStatus.paused} onClick={() => void setGlobalBackgroundPaused()}>
-            {globalJobStatus.paused ? '恢复后台任务' : '全局暂停后台任务'}
-          </button>
+            <div className="remote-job-grid remote-background-effective-grid">
+              {jobKinds.map((kind) => (
+                <span key={kind}>
+                  <em>{jobLabels[kind]}</em>
+                  <strong>并发 {globalJobStatus.concurrency[kind]}</strong>
+                </span>
+              ))}
+            </div>
+            <button className="remote-background-pause" type="button" data-state={globalJobStatus.paused ? 'paused' : undefined} aria-pressed={globalJobStatus.paused} onClick={() => void setGlobalBackgroundPaused()}>
+              {globalJobStatus.paused ? '恢复后台任务' : '全局暂停后台任务'}
+            </button>
+          </aside>
         </div>
       </section>
 
