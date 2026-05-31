@@ -125,9 +125,60 @@
   height: 30px;
 }
 
+.window-controls .window-control--fullscreen {
+  width: 32px;
+  margin-right: 5px;
+  color: color-mix(in srgb, var(--theme-accent-text-strong) 82%, var(--theme-button-text));
+  border-color: color-mix(in srgb, var(--theme-accent-border) 42%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--theme-panel-bg-muted) 84%, transparent), color-mix(in srgb, var(--theme-accent-bg) 34%, transparent)),
+    color-mix(in srgb, var(--theme-panel-bg) 48%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-field-bg-strong) 72%, transparent),
+    0 8px 18px color-mix(in srgb, var(--theme-accent-solid-bg) 12%, transparent);
+}
+
+.app-shell--lyrics .window-control--fullscreen,
+.app-shell:has(.lyrics-page) .window-control--fullscreen {
+  color: color-mix(in srgb, var(--theme-heading-text) 90%, transparent);
+  border-color: color-mix(in srgb, var(--theme-field-bg-strong) 38%, transparent);
+  background:
+    linear-gradient(145deg, var(--theme-legacy-white-a14), var(--theme-legacy-white-a06)),
+    var(--theme-legacy-white-a10);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-field-bg-strong) 48%, transparent),
+    0 10px 24px color-mix(in srgb, var(--theme-heading-text) 8%, transparent);
+}
+
 .window-control:hover {
   color: var(--theme-heading-text);
   background: var(--theme-control-bg);
+}
+
+.window-controls .window-control--fullscreen:hover,
+.window-controls .window-control--fullscreen[data-fullscreen="true"] {
+  color: var(--theme-accent-text-strong);
+  border-color: color-mix(in srgb, var(--theme-accent-border) 66%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--theme-accent-bg) 72%, transparent), color-mix(in srgb, var(--theme-panel-bg-muted) 78%, transparent)),
+    color-mix(in srgb, var(--theme-accent-bg) 44%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-field-bg-strong) 82%, transparent),
+    0 10px 22px color-mix(in srgb, var(--theme-accent-solid-bg) 18%, transparent);
+}
+
+.app-shell--lyrics .window-control--fullscreen:hover,
+.app-shell--lyrics .window-control--fullscreen[data-fullscreen="true"],
+.app-shell:has(.lyrics-page) .window-control--fullscreen:hover,
+.app-shell:has(.lyrics-page) .window-control--fullscreen[data-fullscreen="true"] {
+  color: var(--theme-heading-text);
+  border-color: color-mix(in srgb, var(--theme-field-bg-strong) 54%, transparent);
+  background:
+    linear-gradient(145deg, var(--theme-legacy-surface-a62), var(--theme-legacy-white-a10)),
+    var(--theme-legacy-white-a14);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--theme-field-bg-strong) 58%, transparent),
+    0 12px 28px color-mix(in srgb, var(--theme-heading-text) 12%, transparent);
 }
 
 .window-control--close:hover {
@@ -11168,6 +11219,55 @@ html[data-theme="dark"] .titlebar-action:hover {
   border-color: transparent;
   background: var(--theme-glass-bg-muted);
   box-shadow: none;
+}
+
+html[data-theme="dark"] .window-control--fullscreen {
+  color: color-mix(in srgb, var(--color-accent-strong) 84%, var(--color-muted));
+  border-color: color-mix(in srgb, var(--color-accent-strong) 28%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--theme-glass-bg-muted) 80%, transparent), color-mix(in srgb, var(--color-accent-strong) 14%, transparent)),
+    var(--theme-glass-bg-subtle);
+  box-shadow:
+    inset 0 1px 0 var(--theme-glass-bg),
+    0 8px 20px color-mix(in srgb, var(--color-accent-strong) 10%, transparent);
+}
+
+html[data-theme="dark"] .window-control--fullscreen:hover,
+html[data-theme="dark"] .window-control--fullscreen[data-fullscreen="true"] {
+  color: var(--theme-heading-text);
+  border-color: color-mix(in srgb, var(--color-accent-strong) 46%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-accent-strong) 18%, transparent), var(--theme-glass-bg-muted)),
+    var(--theme-glass-bg-subtle);
+  box-shadow:
+    inset 0 1px 0 var(--theme-glass-bg-strong),
+    0 10px 24px color-mix(in srgb, var(--color-accent-strong) 18%, transparent);
+}
+
+html[data-theme="dark"] .app-shell--lyrics .window-control--fullscreen,
+html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control--fullscreen {
+  color: color-mix(in srgb, var(--theme-heading-text) 88%, transparent);
+  border-color: var(--theme-glass-bg-soft);
+  background:
+    linear-gradient(145deg, var(--theme-glass-bg-muted), var(--theme-glass-bg-subtle)),
+    var(--theme-glass-bg-subtle);
+  box-shadow:
+    inset 0 1px 0 var(--theme-glass-bg-soft),
+    0 10px 24px color-mix(in srgb, var(--theme-app-bg) 28%, transparent);
+}
+
+html[data-theme="dark"] .app-shell--lyrics .window-control--fullscreen:hover,
+html[data-theme="dark"] .app-shell--lyrics .window-control--fullscreen[data-fullscreen="true"],
+html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control--fullscreen:hover,
+html[data-theme="dark"] .app-shell:has(.lyrics-page) .window-control--fullscreen[data-fullscreen="true"] {
+  color: var(--theme-heading-text);
+  border-color: var(--theme-glass-bg-hover);
+  background:
+    linear-gradient(145deg, var(--theme-glass-bg-strong), var(--theme-glass-bg-muted)),
+    var(--theme-glass-bg-soft);
+  box-shadow:
+    inset 0 1px 0 var(--theme-glass-bg-hover),
+    0 12px 28px color-mix(in srgb, var(--theme-app-bg) 36%, transparent);
 }
 
 html[data-theme="dark"] .nav-item:not([data-active="true"]):hover .nav-icon-shell {

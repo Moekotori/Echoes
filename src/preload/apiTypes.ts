@@ -277,6 +277,9 @@ export type EchoApi = {
     toggleMaximize: () => Promise<void>;
     isMaximized: () => Promise<boolean>;
     onMaximizedChange: (handler: (isMaximized: boolean) => void) => () => void;
+    toggleFullscreen: () => Promise<void>;
+    isFullscreen: () => Promise<boolean>;
+    onFullscreenChange: (handler: (isFullscreen: boolean) => void) => () => void;
     close: () => Promise<void>;
     getSystemUserName: () => Promise<string | null>;
     getSettings: () => Promise<AppSettings>;

@@ -736,6 +736,42 @@ const originalCoverUrlFromCachedVariant = (coverUrl: string | null | undefined):
   return originalUrl?.startsWith("echo-cover://original/") ? originalUrl : null;
 };
 
+type CoverColorSampleVariant = "original" | "large" | "album" | "thumb";
+
+const coverColorSampleVariants: CoverColorSampleVariant[] = ["original", "large", "album", "thumb"];
+const emptyLyricsImageUrls: readonly string[] = [];
+
+const coverVariantUrlFromCachedVariant = (
+  coverUrl: string | null | undefined,
+  variant: CoverColorSampleVariant,
+): string | null => {
+  const variantUrl = coverUrl?.replace(
+    /^echo-cover:\/\/(?:thumb|album|large|original)\//u,
+    `echo-cover://${variant}/`,
+  ) ?? null;
+
+  return variantUrl?.startsWith(`echo-cover://${variant}/`) ? variantUrl : null;
+};
+
+const appendCoverColorSampleUrl = (
+  candidates: string[],
+  coverUrl: string | null | undefined,
+  options: { allowInlineCover?: boolean } = {},
+): void => {
+  const normalizedCoverUrl = coverUrl?.trim();
+  if (!normalizedCoverUrl) {
+    return;
+  }
+
+  if (!options.allowInlineCover && normalizedCoverUrl.startsWith("data:")) {
+    return;
+  }
+
+  if (!candidates.includes(normalizedCoverUrl)) {
+    candidates.push(normalizedCoverUrl);
+  }
+};
+
 const highResolutionRemoteArtworkUrl = (coverUrl: string | null | undefined): string | null => {
   if (!coverUrl?.trim()) {
     return null;
@@ -792,6 +828,57 @@ const isRemoteArtworkUrl = (coverUrl: string | null | undefined): coverUrl is st
 
 const isStreamBackedTrack = (track: LibraryTrack | null): boolean =>
   track?.mediaType === "streaming" || track?.mediaType === "remote";
+
+const collectCoverColorSampleUrls = (
+  track: LibraryTrack | null,
+  airPlayArtworkUrl: string | null,
+): string[] => {
+  const candidates: string[] = [];
+  const allowInlineCover = isSnapshotLyricsTrack(track, track?.id ?? null);
+  const coverLarge = (track as TrackWithLargeCover | null)?.coverLarge ?? null;
+  const coverThumb = track?.coverThumb ?? null;
+
+  if (track?.coverId) {
+    for (const variant of coverColorSampleVariants) {
+      appendCoverColorSampleUrl(
+        candidates,
+        `echo-cover://${variant}/${encodeURIComponent(track.coverId)}`,
+      );
+    }
+  }
+
+  for (const cachedCoverUrl of [coverLarge, coverThumb]) {
+    for (const variant of coverColorSampleVariants) {
+      appendCoverColorSampleUrl(
+        candidates,
+        coverVariantUrlFromCachedVariant(cachedCoverUrl, variant),
+        { allowInlineCover },
+      );
+    }
+  }
+
+  if (isStreamBackedTrack(track)) {
+    appendCoverColorSampleUrl(candidates, highResolutionRemoteArtworkUrl(coverLarge));
+    appendCoverColorSampleUrl(candidates, highResolutionRemoteArtworkUrl(coverThumb));
+  }
+
+  appendCoverColorSampleUrl(candidates, coverLarge, { allowInlineCover });
+  appendCoverColorSampleUrl(candidates, coverThumb, { allowInlineCover });
+  appendCoverColorSampleUrl(candidates, airPlayArtworkUrl, { allowInlineCover: true });
+
+  return candidates;
+};
+
+const sampleFirstImageUrl = async (urls: readonly string[]): Promise<ReadableColorSample | null> => {
+  for (const url of urls) {
+    const sample = await sampleImageUrl(url);
+    if (sample) {
+      return sample;
+    }
+  }
+
+  return null;
+};
 
 const safeOriginalCoverUrl = (track: LibraryTrack | null): string | null => {
   const allowInlineCover = isSnapshotLyricsTrack(track, track?.id ?? null);
@@ -1558,6 +1645,10 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   const coverUrl = safeCoverUrl(currentTrack) ?? airPlayArtworkUrl;
   const headerCoverUrl = safeOriginalCoverUrl(currentTrack) ?? airPlayArtworkUrl;
   const backgroundCoverUrl = safeOriginalCoverUrl(currentTrack) ?? airPlayArtworkUrl;
+  const coverColorSampleUrls = useMemo(
+    () => collectCoverColorSampleUrls(currentTrack, airPlayArtworkUrl),
+    [airPlayArtworkUrl, currentTrack],
+  );
   const trackCoverCopyTrackId = currentTrack?.id ?? null;
   const canCopyTrackOriginalCover =
     Boolean(trackCoverCopyTrackId) &&
@@ -1739,7 +1830,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
       ? "theme"
       : lyricsDisplaySettings.lyricsBackgroundMode === "cover" && !backgroundCoverUrl && !shouldRequestNetworkBackgroundCover
         ? "theme"
-        : lyricsDisplaySettings.lyricsBackgroundMode === "coverColor" && !backgroundCoverUrl
+        : lyricsDisplaySettings.lyricsBackgroundMode === "coverColor" && coverColorSampleUrls.length === 0
           ? "theme"
           : lyricsDisplaySettings.lyricsBackgroundMode;
   const effectiveLyricsBackgroundScalePercent =
@@ -1754,15 +1845,38 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   const lyricsUsesManualColor =
     lyricsDisplaySettings.lyricsColor.toUpperCase() !== fallbackLyricsDisplaySettings.lyricsColor.toUpperCase();
   const shouldEnhanceLyricsReadability = lyricsReadabilityEnhanced || lyricsSmartReadableEnabled;
-  const lyricsSmartReadableImageUrl = lyricsSmartReadableEnabled
-    ? effectiveLyricsBackgroundMode === "cover" || effectiveLyricsBackgroundMode === "coverColor"
-      ? lyricsBackgroundCoverUrl
-      : effectiveLyricsBackgroundMode === "customWallpaper"
-        ? lyricsWallpaperUrl
-        : null
-    : null;
-  const lyricsCoverColorImageUrl = effectiveLyricsBackgroundMode === "coverColor" ? lyricsBackgroundCoverUrl : null;
-  const lyricsSampleImageUrl = lyricsSmartReadableImageUrl ?? lyricsCoverColorImageUrl;
+  const lyricsSmartReadableImageUrls = useMemo<readonly string[]>(
+    () => {
+      if (!lyricsSmartReadableEnabled) {
+        return emptyLyricsImageUrls;
+      }
+
+      if (effectiveLyricsBackgroundMode === "cover") {
+        return lyricsBackgroundCoverUrl ? [lyricsBackgroundCoverUrl] : emptyLyricsImageUrls;
+      }
+
+      if (effectiveLyricsBackgroundMode === "coverColor") {
+        return coverColorSampleUrls;
+      }
+
+      if (effectiveLyricsBackgroundMode === "customWallpaper") {
+        return lyricsWallpaperUrl ? [lyricsWallpaperUrl] : emptyLyricsImageUrls;
+      }
+
+      return emptyLyricsImageUrls;
+    },
+    [
+      coverColorSampleUrls,
+      effectiveLyricsBackgroundMode,
+      lyricsBackgroundCoverUrl,
+      lyricsSmartReadableEnabled,
+      lyricsWallpaperUrl,
+    ],
+  );
+  const lyricsCoverColorImageUrls = effectiveLyricsBackgroundMode === "coverColor" ? coverColorSampleUrls : emptyLyricsImageUrls;
+  const lyricsSampleImageUrls = lyricsSmartReadableImageUrls.length > 0
+    ? lyricsSmartReadableImageUrls
+    : lyricsCoverColorImageUrls;
   const coverColorCssVars = useMemo<CoverColorCssVars | null>(
     () =>
       effectiveLyricsBackgroundMode === "coverColor"
@@ -1776,7 +1890,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
         return null;
       }
 
-      if (lyricsSmartReadableImageUrl && !mvReadableSample && !imageReadableSample) {
+      if (lyricsSmartReadableImageUrls.length > 0 && !mvReadableSample && !imageReadableSample) {
         return null;
       }
 
@@ -1791,7 +1905,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
       imageReadableSample,
       lyricsDisplaySettings.lyricsColor,
       lyricsSmartReadableEnabled,
-      lyricsSmartReadableImageUrl,
+      lyricsSmartReadableImageUrls.length,
       mvReadableSample,
     ],
   );
@@ -1923,14 +2037,14 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   ]);
 
   useEffect(() => {
-    if (!lyricsSampleImageUrl) {
+    if (lyricsSampleImageUrls.length === 0) {
       setImageReadableSample(null);
       return undefined;
     }
 
     let disposed = false;
     setImageReadableSample(null);
-    void sampleImageUrl(lyricsSampleImageUrl).then((sample) => {
+    void sampleFirstImageUrl(lyricsSampleImageUrls).then((sample) => {
       if (!disposed) {
         setImageReadableSample(sample);
       }
@@ -1939,7 +2053,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
     return () => {
       disposed = true;
     };
-  }, [lyricsSampleImageUrl]);
+  }, [lyricsSampleImageUrls]);
 
   useEffect(() => {
     setMvReadableSample(null);

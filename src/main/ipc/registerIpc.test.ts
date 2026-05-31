@@ -482,6 +482,30 @@ describe('app IPC cover cache directory', () => {
     expect(window.isMaximized).toHaveBeenCalledTimes(1);
   });
 
+  it('toggles fullscreen through the custom fullscreen control', () => {
+    const window = {
+      isFullScreen: vi.fn(() => false),
+      setFullScreen: vi.fn(),
+    };
+    fromWebContentsMock.mockReturnValue(window);
+
+    handlers[IpcChannels.AppWindowToggleFullscreen]!({ sender: {} });
+
+    expect(window.setFullScreen).toHaveBeenCalledWith(true);
+  });
+
+  it('reports the current fullscreen state for custom window controls', () => {
+    const window = {
+      isFullScreen: vi.fn(() => true),
+    };
+    fromWebContentsMock.mockReturnValue(window);
+
+    const result = handlers[IpcChannels.AppWindowIsFullscreen]!({ sender: {} });
+
+    expect(result).toBe(true);
+    expect(window.isFullScreen).toHaveBeenCalledTimes(1);
+  });
+
   it('exports app settings to a selected JSON backup', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'echo-settings-export-'));
     const exportPath = join(tempRoot, 'settings.json');

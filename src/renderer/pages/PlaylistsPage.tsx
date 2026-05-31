@@ -415,6 +415,19 @@ const favoriteProviderSelectionId = (provider: StreamingFavoriteProviderName): s
 const favoriteCollectionSelectionId = (collectionId: string): string => `collection:${collectionId}`;
 const favoriteProviderFromSelectionId = (selectionId: string): StreamingFavoriteProviderName =>
   streamingFavoriteProviders.find((item) => favoriteProviderSelectionId(item.value) === selectionId)?.value ?? 'youtube';
+const playlistTrackMenuActions: readonly TrackMenuAction[] = [
+  'add-to-playlist',
+  'play-next',
+  'add-to-queue',
+  'toggle-liked',
+  'remove-from-queue',
+  'remove-from-playlist',
+  'reload-embedded-tags',
+  'clear-lyrics-cache',
+  'show-in-folder',
+  'copy-path',
+  'open-system',
+];
 
 const emptyItemsPage = (): LibraryPage<LibraryPlaylistItem> => ({
   items: [],
@@ -2085,12 +2098,16 @@ export const PlaylistsPage = (): JSX.Element => {
     }
   }, [favoriteItems, likedTrackIds, playlistPanelView]);
 
+  const handleOpenTrackMenu = useCallback((track: LibraryTrack, position: { x: number; y: number }): void => {
+    setTrackMenu({ track, position });
+  }, []);
+
   const handleTrackMenuAction = useCallback(
     async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
-      if (track.unavailable) {
+      if (track.unavailable && action !== 'remove-from-playlist') {
         return;
       }
 
@@ -2147,6 +2164,36 @@ export const PlaylistsPage = (): JSX.Element => {
                   ? `已从播放队列移除：${track.title}`
                   : `播放队列里没有这首歌：${track.title}`,
               );
+            }
+            return;
+          case 'remove-from-playlist':
+            {
+              const playlistId = selectedPlaylist?.id;
+              const itemId = track.playlistItemId;
+              if (!library?.removePlaylistItem || !playlistId || !itemId) {
+                setError('Desktop bridge unavailable. Open ECHO Next in Electron to remove playlist songs.');
+                return;
+              }
+
+              await library.removePlaylistItem(itemId);
+              setItemsPage((current) => {
+                const removed = current.items.some((item) => item.id === itemId);
+                return {
+                  ...current,
+                  total: removed ? Math.max(0, current.total - 1) : current.total,
+                  items: current.items.filter((item) => item.id !== itemId),
+                };
+              });
+              setPlaylists((current) =>
+                current.map((playlist) =>
+                  playlist.id === playlistId ? { ...playlist, itemCount: Math.max(0, playlist.itemCount - 1) } : playlist,
+                ),
+              );
+              await loadItems(playlistId, 1, 'replace');
+              await loadPlaylists();
+              setSelectedPlaylistId(playlistId);
+              window.dispatchEvent(new Event('library:playlists-changed'));
+              setStatusMessage(`已从歌单移除：${track.title}`);
             }
             return;
           case 'reload-embedded-tags':
@@ -2215,7 +2262,7 @@ export const PlaylistsPage = (): JSX.Element => {
         setError(actionError instanceof Error ? actionError.message : String(actionError));
       }
     },
-    [appendToQueue, handleToggleLiked, playTrackNext, queueSource, removeTrackFromQueue],
+    [appendToQueue, handleToggleLiked, loadItems, loadPlaylists, playTrackNext, queueSource, removeTrackFromQueue, selectedPlaylist?.id],
   );
 
   return (
@@ -2777,6 +2824,7 @@ export const PlaylistsPage = (): JSX.Element => {
               onTrackDragOver={handlePlaylistItemDragOver}
               onTrackDrop={handlePlaylistItemDrop}
               onTrackDragEnd={handlePlaylistItemDragEnd}
+              onOpenTrackMenu={handleOpenTrackMenu}
               onPlay={handleTrackPlay}
             />
           </>
@@ -2815,11 +2863,13 @@ export const PlaylistsPage = (): JSX.Element => {
           </div>
         ) : null}
 
-        {trackMenu && playlistPanelView === 'local' && !isSelectedPlaylistRemote ? (
+        {trackMenu && playlistPanelView === 'local' ? (
           <TrackContextMenu
             track={trackMenu.track}
             position={trackMenu.position}
             liked={likedTrackIds[trackMenu.track.id] === true}
+            enabledActions={playlistTrackMenuActions}
+            showRemoveFromPlaylist={!isSelectedPlaylistProtected && Boolean(trackMenu.track.playlistItemId)}
             onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
             onClose={() => setTrackMenu(null)}
           />

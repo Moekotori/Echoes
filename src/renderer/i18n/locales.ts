@@ -328,6 +328,8 @@ export type TranslationKey =
   | 'app.window.minimize'
   | 'app.window.maximize'
   | 'app.window.restore'
+  | 'app.window.fullscreen'
+  | 'app.window.exitFullscreen'
   | 'app.window.close'
   | 'firstRun.action.finish'
   | 'firstRun.action.next'
@@ -956,6 +958,7 @@ export type TranslationKey =
   | 'trackMenu.action.like'
   | 'trackMenu.action.unlike'
   | 'trackMenu.action.removeFromQueue'
+  | 'trackMenu.action.removeFromPlaylist'
   | 'trackMenu.action.openOsuTiming'
   | 'trackMenu.action.editTags'
   | 'trackMenu.action.reloadEmbeddedTags'
@@ -2894,6 +2897,8 @@ const zhCN: TranslationMap = {
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
   'app.window.restore': '还原',
+  'app.window.fullscreen': '全屏',
+  'app.window.exitFullscreen': '退出全屏',
   'app.window.close': '关闭',
   'firstRun.action.finish': '完成设置',
   'firstRun.action.next': '下一步',
@@ -3672,6 +3677,7 @@ const zhCN: TranslationMap = {
   'trackMenu.action.like': '喜欢',
   'trackMenu.action.unlike': '取消喜欢',
   'trackMenu.action.removeFromQueue': '从播放队列移除',
+  'trackMenu.action.removeFromPlaylist': '从当前歌单移除',
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': '编辑标签',
   'trackMenu.action.reloadEmbeddedTags': '重新加载嵌入标签',
@@ -5611,6 +5617,8 @@ const zhCN: TranslationMap = {
 const zhTW: TranslationMap = {
   ...zhCN,
   'app.window.restore': '還原',
+  'app.window.fullscreen': '全螢幕',
+  'app.window.exitFullscreen': '退出全螢幕',
   'albumTagEditor.action.applyToForm': '套用到表單',
   'albumTagEditor.action.cancel': '取消',
   'albumTagEditor.action.chooseCover': '選擇封面',
@@ -6465,6 +6473,7 @@ const zhTW: TranslationMap = {
   'trackMenu.action.like': '喜歡',
   'trackMenu.action.unlike': '取消喜歡',
   'trackMenu.action.removeFromQueue': '從播放佇列移除',
+  'trackMenu.action.removeFromPlaylist': '從目前播放清單移除',
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': '編輯標籤',
   'trackMenu.action.reloadEmbeddedTags': '重新載入嵌入標籤',
@@ -8670,6 +8679,8 @@ const jaJP: TranslationMap = {
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
   'app.window.restore': '元に戻す',
+  'app.window.fullscreen': '全画面',
+  'app.window.exitFullscreen': '全画面を解除',
   'app.window.close': '閉じる',
   'albumDetail.action.addToQueue': 'キューに追加',
   'albumDetail.action.back': 'アルバム',
@@ -9719,6 +9730,7 @@ const jaJP: TranslationMap = {
   'trackMenu.action.like': 'お気に入り',
   'trackMenu.action.unlike': 'お気に入りを解除',
   'trackMenu.action.removeFromQueue': '再生キューから削除',
+  'trackMenu.action.removeFromPlaylist': 'このプレイリストから削除',
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': 'タグを編集',
   'trackMenu.action.reloadEmbeddedTags': '埋め込みタグを再読み込み',
@@ -11292,6 +11304,8 @@ const enUS: TranslationMap = {
   'app.window.minimize': 'Minimize',
   'app.window.maximize': 'Maximize',
   'app.window.restore': 'Restore',
+  'app.window.fullscreen': 'Fullscreen',
+  'app.window.exitFullscreen': 'Exit fullscreen',
   'app.window.close': 'Close',
   'albumDetail.action.addToQueue': 'Add to queue',
   'albumDetail.action.back': 'Albums',
@@ -12341,6 +12355,7 @@ const enUS: TranslationMap = {
   'trackMenu.action.like': 'Like',
   'trackMenu.action.unlike': 'Unlike',
   'trackMenu.action.removeFromQueue': 'Remove from playback queue',
+  'trackMenu.action.removeFromPlaylist': 'Remove from this playlist',
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': 'Edit tags',
   'trackMenu.action.reloadEmbeddedTags': 'Reload embedded tags',

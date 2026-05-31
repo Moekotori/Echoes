@@ -367,6 +367,18 @@ export const registerIpc = (): void => {
     ipcMain.handle(IpcChannels.AppWindowIsMaximized, (event: IpcMainInvokeEvent): boolean =>
       isWindowMaximizedForChrome(BrowserWindow.fromWebContents(event.sender)),
     );
+    ipcMain.handle(IpcChannels.AppWindowToggleFullscreen, (event: IpcMainInvokeEvent): void => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+
+      if (!window) {
+        return;
+      }
+
+      window.setFullScreen(!window.isFullScreen());
+    });
+    ipcMain.handle(IpcChannels.AppWindowIsFullscreen, (event: IpcMainInvokeEvent): boolean =>
+      Boolean(BrowserWindow.fromWebContents(event.sender)?.isFullScreen()),
+    );
     ipcMain.handle(IpcChannels.AppWindowClose, (event: IpcMainInvokeEvent): void => {
       BrowserWindow.fromWebContents(event.sender)?.close();
     });

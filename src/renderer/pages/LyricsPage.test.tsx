@@ -3720,6 +3720,64 @@ describe("LyricsPage", () => {
     expect(page.style.getPropertyValue("--lyrics-cover")).toBe("none");
   });
 
+  it("falls back to cached cover variants when cover color sampling cannot load the original artwork", async () => {
+    const requestedSources: string[] = [];
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      complete = false;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      crossOrigin: string | null = null;
+
+      set src(value: string) {
+        requestedSources.push(value);
+        if (value === "echo-cover://original/cover%201") {
+          queueMicrotask(() => this.onerror?.());
+        }
+      }
+
+      get src(): string {
+        return requestedSources[requestedSources.length - 1] ?? "";
+      }
+    }
+    const originalImage = window.Image;
+    Object.defineProperty(window, "Image", {
+      configurable: true,
+      writable: true,
+      value: FakeImage,
+    });
+    const track = makeTrack({ coverId: "cover 1" });
+    mockEcho(track, 0, {
+      lyricsBackgroundMode: "coverColor",
+    });
+
+    try {
+      const { container } = render(
+        <PlaybackQueueProvider>
+          <QueueSeed track={track}>
+            <LyricsPage initialLyrics={lyrics} />
+          </QueueSeed>
+        </PlaybackQueueProvider>,
+      );
+
+      await screen.findByRole("heading", { name: "Test Song" });
+      const page = container.querySelector(".lyrics-page") as HTMLElement;
+
+      expect(page.dataset.background).toBe("coverColor");
+      await waitFor(() => {
+        expect(requestedSources).toContain("echo-cover://original/cover%201");
+        expect(requestedSources).toContain("echo-cover://large/cover%201");
+      });
+    } finally {
+      Object.defineProperty(window, "Image", {
+        configurable: true,
+        writable: true,
+        value: originalImage,
+      });
+    }
+  });
+
   it("applies lyrics readability enhancement in pure lyrics mode", async () => {
     const track = makeTrack();
     mockEcho(track);

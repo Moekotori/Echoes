@@ -95,6 +95,7 @@ describe('AppTitleBar', () => {
   it('wires window control buttons to provided handlers', () => {
     const onMinimize = vi.fn();
     const onToggleMaximize = vi.fn();
+    const onToggleFullscreen = vi.fn();
     const onClose = vi.fn();
 
     renderTitleBar({
@@ -103,16 +104,39 @@ describe('AppTitleBar', () => {
       onOpenAudioSettings: vi.fn(),
       onMinimize,
       onToggleMaximize,
+      onToggleFullscreen,
       onClose,
     });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
     fireEvent.click(screen.getByRole('button', { name: 'Minimize' }));
     fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     expect(onMinimize).toHaveBeenCalledTimes(1);
     expect(onToggleMaximize).toHaveBeenCalledTimes(1);
+    expect(onToggleFullscreen).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an exit fullscreen control while the window is fullscreen', () => {
+    const onToggleFullscreen = vi.fn();
+
+    renderTitleBar({
+      activeRouteId: 'songs',
+      isWindowFullscreen: true,
+      onRouteChange: vi.fn(),
+      onOpenAudioSettings: vi.fn(),
+      onMinimize: vi.fn(),
+      onToggleMaximize: vi.fn(),
+      onToggleFullscreen,
+      onClose: vi.fn(),
+    });
+
+    expect(screen.queryByRole('button', { name: 'Fullscreen' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Exit fullscreen' }));
+
+    expect(onToggleFullscreen).toHaveBeenCalledTimes(1);
   });
 
   it('shows a restore control while the window is maximized', () => {

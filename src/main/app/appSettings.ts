@@ -104,6 +104,7 @@ const appThemePresets: AppThemePreset[] = [
   'caramelPudding',
   'neonCandy',
   'nyanCat',
+  'childrenDoodle',
   'wisteriaBubble',
   'strawberryCookie',
   'graphiteAurora',

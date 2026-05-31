@@ -1343,6 +1343,24 @@ describe('preload SMTC API', () => {
     expect(listeners.has(IpcChannels.AppWindowMaximizedChanged)).toBe(false);
   });
 
+  it('exposes app window fullscreen helpers through IPC', async () => {
+    const handler = vi.fn();
+
+    await exposedApi!.app.toggleFullscreen();
+    await exposedApi!.app.isFullscreen();
+    const unsubscribe = exposedApi!.app.onFullscreenChange(handler);
+    const listener = listeners.get(IpcChannels.AppWindowFullscreenChanged);
+    listener?.({}, true);
+    listener?.({}, 'yes');
+    unsubscribe();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowToggleFullscreen);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowIsFullscreen);
+    expect(handler).toHaveBeenNthCalledWith(1, true);
+    expect(handler).toHaveBeenNthCalledWith(2, false);
+    expect(listeners.has(IpcChannels.AppWindowFullscreenChanged)).toBe(false);
+  });
+
   it('exposes mini player window helpers through IPC', async () => {
     const handler = vi.fn();
     await exposedApi!.miniPlayer.show();

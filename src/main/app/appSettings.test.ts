@@ -446,6 +446,7 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ appearanceThemePreset: 'caramelPudding' }).appearanceThemePreset).toBe('caramelPudding');
     expect(normalizeSettings({ appearanceThemePreset: 'neonCandy' }).appearanceThemePreset).toBe('neonCandy');
     expect(normalizeSettings({ appearanceThemePreset: 'nyanCat' }).appearanceThemePreset).toBe('nyanCat');
+    expect(normalizeSettings({ appearanceThemePreset: 'childrenDoodle' }).appearanceThemePreset).toBe('childrenDoodle');
     expect(normalizeSettings({ appearanceThemePreset: 'wisteriaBubble' }).appearanceThemePreset).toBe('wisteriaBubble');
     expect(normalizeSettings({ appearanceThemePreset: 'strawberryCookie' }).appearanceThemePreset).toBe('strawberryCookie');
     expect(normalizeSettings({ appearanceThemePreset: 'graphiteAurora' }).appearanceThemePreset).toBe('graphiteAurora');

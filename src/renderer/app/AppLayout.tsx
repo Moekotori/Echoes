@@ -275,6 +275,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState(false);
   const [isMvDrawerOpen, setIsMvDrawerOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
   const [isLyricsQueueDrawerOpen, setIsLyricsQueueDrawerOpen] = useState(false);
   const [desktopLyricsVisible, setDesktopLyricsVisible] = useState(false);
   const [desktopLyricsLocked, setDesktopLyricsLocked] = useState(false);
@@ -475,14 +476,25 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         }
       })
       .catch(() => undefined);
+    void appApi?.isFullscreen?.()
+      .then((fullscreen) => {
+        if (!cancelled) {
+          setIsWindowFullscreen(fullscreen);
+        }
+      })
+      .catch(() => undefined);
 
     const unsubscribe = appApi?.onMaximizedChange?.((maximized) => {
       setIsWindowMaximized(maximized);
+    });
+    const unsubscribeFullscreen = appApi?.onFullscreenChange?.((fullscreen) => {
+      setIsWindowFullscreen(fullscreen);
     });
 
     return () => {
       cancelled = true;
       unsubscribe?.();
+      unsubscribeFullscreen?.();
     };
   }, []);
 
@@ -1667,7 +1679,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [navigateRoute, playbackQueue, t]);
 
   const handleWindowAction = useCallback(
-    async (action: 'minimize' | 'toggleMaximize' | 'close'): Promise<void> => {
+    async (action: 'minimize' | 'toggleMaximize' | 'toggleFullscreen' | 'close'): Promise<void> => {
       const appApi = window.echo?.app;
 
       if (!appApi) {
@@ -1676,9 +1688,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       }
 
       await appApi[action]();
-      if (action === 'toggleMaximize') {
+      if (action === 'toggleMaximize' || action === 'toggleFullscreen') {
         void appApi.isMaximized?.()
           .then(setIsWindowMaximized)
+          .catch(() => undefined);
+        void appApi.isFullscreen?.()
+          .then(setIsWindowFullscreen)
           .catch(() => undefined);
       }
     },
@@ -1834,7 +1849,9 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         onOpenMvSettings={() => setIsMvDrawerOpen(true)}
         onMinimize={() => void handleWindowAction('minimize')}
         onToggleMaximize={() => void handleWindowAction('toggleMaximize')}
+        onToggleFullscreen={() => void handleWindowAction('toggleFullscreen')}
         isWindowMaximized={isWindowMaximized}
+        isWindowFullscreen={isWindowFullscreen}
         onClose={() => void handleWindowAction('close')}
       />
 

@@ -62,7 +62,7 @@ vi.mock('../components/library/TrackContextMenu', () => ({
     onAction,
     track,
   }: {
-    onAction: (action: 'show-in-folder' | 'copy-path' | 'open-system', track: LibraryTrack) => void;
+    onAction: (action: 'show-in-folder' | 'copy-path' | 'open-system' | 'remove-from-playlist', track: LibraryTrack) => void;
     track: LibraryTrack;
   }) => (
     <div role="menu">
@@ -74,6 +74,9 @@ vi.mock('../components/library/TrackContextMenu', () => ({
       </button>
       <button type="button" onClick={() => onAction('open-system', track)}>
         Open with system
+      </button>
+      <button type="button" onClick={() => onAction('remove-from-playlist', track)}>
+        Remove from playlist
       </button>
     </div>
   ),

@@ -3,7 +3,9 @@ import {
   Copy,
   Film,
   Headphones,
+  Maximize2,
   Minus,
+  Minimize2,
   Settings,
   Square,
   X,
@@ -23,7 +25,9 @@ type AppTitleBarProps = {
   onOpenMvSettings?: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
+  onToggleFullscreen?: () => void;
   isWindowMaximized?: boolean;
+  isWindowFullscreen?: boolean;
   onClose: () => void;
 };
 
@@ -46,12 +50,16 @@ export const AppTitleBar = ({
   onOpenMvSettings = () => undefined,
   onMinimize,
   onToggleMaximize,
+  onToggleFullscreen = () => undefined,
   isWindowMaximized = false,
+  isWindowFullscreen = false,
   onClose,
 }: AppTitleBarProps): JSX.Element => {
   const { t } = useI18n();
   const maximizeLabel = t(isWindowMaximized ? 'app.window.restore' : 'app.window.maximize');
   const MaximizeIcon = isWindowMaximized ? Copy : Square;
+  const fullscreenLabel = t(isWindowFullscreen ? 'app.window.exitFullscreen' : 'app.window.fullscreen');
+  const FullscreenIcon = isWindowFullscreen ? Minimize2 : Maximize2;
   const actions: TitleBarAction[] = [
     {
       id: 'audio-settings',
@@ -119,6 +127,17 @@ export const AppTitleBar = ({
       </div>
 
       <div className="window-controls" aria-label={t('app.toolbar.windowControls')}>
+        <button
+          className="window-control window-control--fullscreen"
+          type="button"
+          aria-label={fullscreenLabel}
+          aria-pressed={isWindowFullscreen}
+          title={fullscreenLabel}
+          data-fullscreen={isWindowFullscreen ? 'true' : 'false'}
+          onClick={onToggleFullscreen}
+        >
+          <FullscreenIcon size={15} strokeWidth={2.15} />
+        </button>
         <button className="window-control" type="button" aria-label={t('app.window.minimize')} title={t('app.window.minimize')} onClick={onMinimize}>
           <Minus size={16} />
         </button>

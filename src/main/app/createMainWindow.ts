@@ -91,6 +91,11 @@ export const createMainWindow = (): BrowserWindow => {
       window.webContents.send(IpcChannels.AppWindowMaximizedChanged, window.isMaximized() || window.isFullScreen());
     }
   };
+  const publishFullscreenState = (): void => {
+    if (!window.isDestroyed()) {
+      window.webContents.send(IpcChannels.AppWindowFullscreenChanged, window.isFullScreen());
+    }
+  };
 
   window.webContents.on('console-message', (details) => {
     recordRendererConsoleMessage(details);
@@ -145,8 +150,14 @@ export const createMainWindow = (): BrowserWindow => {
   window.on('resize', scheduleRememberSize);
   window.on('maximize', publishMaximizedState);
   window.on('unmaximize', publishMaximizedState);
-  window.on('enter-full-screen', publishMaximizedState);
-  window.on('leave-full-screen', publishMaximizedState);
+  window.on('enter-full-screen', () => {
+    publishMaximizedState();
+    publishFullscreenState();
+  });
+  window.on('leave-full-screen', () => {
+    publishMaximizedState();
+    publishFullscreenState();
+  });
 
   window.on('close', (event) => {
     if (rememberSizeTimer !== null) {

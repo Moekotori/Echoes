@@ -1404,6 +1404,15 @@ const echoApi: EchoApi = {
       ipcRenderer.on(IpcChannels.AppWindowMaximizedChanged, listener);
       return () => ipcRenderer.off(IpcChannels.AppWindowMaximizedChanged, listener);
     },
+    toggleFullscreen: () => ipcRenderer.invoke(IpcChannels.AppWindowToggleFullscreen),
+    isFullscreen: () => ipcRenderer.invoke(IpcChannels.AppWindowIsFullscreen),
+    onFullscreenChange: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, isFullscreen: unknown): void => {
+        handler(isFullscreen === true);
+      };
+      ipcRenderer.on(IpcChannels.AppWindowFullscreenChanged, listener);
+      return () => ipcRenderer.off(IpcChannels.AppWindowFullscreenChanged, listener);
+    },
     close: () => ipcRenderer.invoke(IpcChannels.AppWindowClose),
     getSystemUserName: () => ipcRenderer.invoke(IpcChannels.AppGetSystemUserName),
     getSettings: () => ipcRenderer.invoke(IpcChannels.AppGetSettings),

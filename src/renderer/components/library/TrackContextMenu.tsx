@@ -31,6 +31,7 @@ export type TrackMenuAction =
   | 'add-to-queue'
   | 'toggle-liked'
   | 'remove-from-queue'
+  | 'remove-from-playlist'
   | 'edit-tags'
   | 'reload-embedded-tags'
   | 'clear-lyrics-cache'
@@ -49,6 +50,8 @@ type TrackContextMenuProps = {
   position: { x: number; y: number };
   liked?: boolean;
   selectionCount?: number;
+  enabledActions?: readonly TrackMenuAction[];
+  showRemoveFromPlaylist?: boolean;
   onAction: (action: TrackMenuAction, track: LibraryTrack, playlist?: LibraryPlaylist) => void;
   onClose: () => void;
 };
@@ -67,12 +70,22 @@ const submenuGap = 8;
 const menuWidth = 224;
 const submenuWidth = 224;
 const submenuMaxHeight = 360;
-const remoteHiddenActions = new Set<TrackMenuAction>(['edit-tags', 'reload-embedded-tags', 'open-osu-timing', 'show-in-folder', 'copy-path', 'open-system', 'delete-song']);
+const nonLocalHiddenActions = new Set<TrackMenuAction>([
+  'edit-tags',
+  'reload-embedded-tags',
+  'open-osu-timing',
+  'show-in-folder',
+  'copy-path',
+  'open-system',
+  'copy-cover',
+  'save-cover',
+  'delete-song',
+]);
 const batchActions = new Set<TrackMenuAction>(['add-to-playlist', 'play-next', 'add-to-queue', 'toggle-liked', 'remove-from-queue']);
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
-export const TrackContextMenu = ({ track, position, liked = false, selectionCount = 1, onAction, onClose }: TrackContextMenuProps): JSX.Element => {
+export const TrackContextMenu = ({ track, position, liked = false, selectionCount = 1, enabledActions, showRemoveFromPlaylist = false, onAction, onClose }: TrackContextMenuProps): JSX.Element => {
   const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const playlistLoadStartedRef = useRef(false);
@@ -150,12 +163,15 @@ export const TrackContextMenu = ({ track, position, liked = false, selectionCoun
   }, [onClose]);
 
   const isBatch = selectionCount > 1;
+  const isLocalFileTrack = !track.mediaType || track.mediaType === 'local';
+  const enabledActionSet = enabledActions ? new Set(enabledActions) : null;
   const allItems: MenuItem[] = [
     { action: 'add-to-playlist', labelKey: 'trackMenu.action.addToPlaylist', icon: Plus },
     { action: 'play-next', labelKey: 'trackMenu.action.playNext', icon: Play },
     { action: 'add-to-queue', labelKey: 'trackMenu.action.addToQueue', icon: ListEnd },
     { action: 'toggle-liked', labelKey: isBatch || !liked ? 'trackMenu.action.like' : 'trackMenu.action.unlike', icon: Heart },
     { action: 'remove-from-queue', labelKey: 'trackMenu.action.removeFromQueue', icon: Minus },
+    { action: 'remove-from-playlist', labelKey: 'trackMenu.action.removeFromPlaylist', icon: Trash2, danger: true },
     { action: 'open-osu-timing', labelKey: 'trackMenu.action.openOsuTiming', icon: Timer },
     { action: 'edit-tags', labelKey: 'trackMenu.action.editTags', icon: Tag },
     { action: 'reload-embedded-tags', labelKey: 'trackMenu.action.reloadEmbeddedTags', icon: RefreshCw },
@@ -170,11 +186,19 @@ export const TrackContextMenu = ({ track, position, liked = false, selectionCoun
     { action: 'delete-song', labelKey: 'trackMenu.action.deleteSong', icon: Trash2, danger: true },
   ];
   const items = allItems.filter((item) => {
+    if (enabledActionSet && !enabledActionSet.has(item.action)) {
+      return false;
+    }
+
+    if (item.action === 'remove-from-playlist') {
+      return !isBatch && showRemoveFromPlaylist;
+    }
+
     if (isBatch && !batchActions.has(item.action)) {
       return false;
     }
 
-    return track.mediaType !== 'remote' || !remoteHiddenActions.has(item.action);
+    return isLocalFileTrack || !nonLocalHiddenActions.has(item.action);
   });
 
   return createPortal(
