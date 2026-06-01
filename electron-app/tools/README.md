@@ -1,11 +1,13 @@
-# Bundled download tools
+# Bundled Windows tools
 
-Place the release `yt-dlp` binary for the target platform in this directory before packaging.
+This directory is copied to packaged Windows resources as `resources/tools`.
 
-For Windows builds, the expected file name is:
+Large third-party binaries stay out of git. Prepare them locally or in CI before packaging:
 
 ```text
+ffmpeg.exe
 yt-dlp.exe
+NCMConverter.exe
 ```
 
-The application resolves this binary from packaged resources at runtime and does not ask users to configure a local path.
+`ffmpeg.exe` is required by `npm run verify:ffmpeg` and Windows release builds. `yt-dlp.exe` and `NCMConverter.exe` are optional at build time; when absent, their related download/import features report the tool as unavailable.

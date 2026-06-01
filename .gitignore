@@ -8,6 +8,8 @@ dist/
 
 # Local Codex workspace state
 /.codex/
+/.codex-run/
+/.codex-temp/
 /.codex-pet-runs/
 /.codex-tmp/
 /.codex-backups/
@@ -23,6 +25,8 @@ compile_commands.json
 # Local binary tools downloaded outside source control
 electron-app/tools/ffmpeg.exe
 electron-app/tools/ffprobe.exe
+electron-app/tools/yt-dlp.exe
+electron-app/tools/NCMConverter.exe
 electron-app/tools-linux/ffmpeg
 electron-app/tools-linux/ffprobe
 electron-app/tools-linux/yt-dlp
@@ -37,3 +41,7 @@ dist-packaged*/
 
 # Local media/lyrics scratch files
 *.lrc
+
+# One-off generated review/debug artifacts
+/tmp-theme-preset-grid-fix.png
+/echo-page-astrbot-layering.patch

@@ -422,7 +422,7 @@ describe('StreamingSearchPage provider visibility', () => {
     } as unknown as Window['echo'];
 
     renderStreamingSearchPage();
-    refreshProviders?.();
+    (refreshProviders as (() => void) | null)?.();
 
     expect(await screen.findByRole('button', { name: /NetEase Cloud Music/ })).toBeTruthy();
     expect(await screen.findByRole('button', { name: /QQ Music/ })).toBeTruthy();

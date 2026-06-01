@@ -12,6 +12,7 @@
     "build:audio-host": "node scripts/build-audio-host.mjs",
     "build:smtc-host": "node scripts/build-smtc-host.mjs",
     "verify:ffmpeg": "node scripts/verify-ffmpeg-toolchain.mjs",
+    "prepare:win-ffmpeg": "node scripts/prepare-win-ffmpeg.mjs",
     "verify:airplay-package": "node scripts/verify-airplay-package.mjs",
     "test:audio-engine": "node scripts/test-audio-engine.mjs",
     "smoke:audio-host": "node scripts/smoke-audio-host.mjs",
